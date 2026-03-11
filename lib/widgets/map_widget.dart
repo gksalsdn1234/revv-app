@@ -115,8 +115,8 @@ class _MapWidgetState extends State<MapWidget> {
     final loc = context.read<LocationService>();
     return mbx.MapWidget(
       styleUri: widget.isSprintMode
-          ? MapboxService.navStyle
-          : MapboxService.darkStyle,
+          ? MapboxService.sprintStyle
+          : MapboxService.cruiseStyle,
       cameraOptions: mbx.CameraOptions(
         center: mbx.Point(coordinates: mbx.Position(loc.lng, loc.lat)),
         zoom: widget.isSprintMode ? 16.0 : 15.0,
