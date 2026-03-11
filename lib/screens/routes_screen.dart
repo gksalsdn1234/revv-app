@@ -9,6 +9,7 @@ import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/mapbox_service.dart';
 import '../models/revv_route.dart';
+import 'route_wizard_screen.dart';
 
 class RoutesScreen extends StatefulWidget {
   const RoutesScreen({super.key});
@@ -147,7 +148,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
           children: [
             // 지도 — Consumer 밖에 위치, 재생성 안 됨
             mbx.MapWidget(
-              styleUri: MapboxService.darkStyle,
+              styleUri: MapboxService.cruiseStyle,
               cameraOptions: mbx.CameraOptions(
                 center: mbx.Point(
                     coordinates: mbx.Position(loc.lng, loc.lat)),
@@ -159,6 +160,30 @@ class _RoutesScreenState extends State<RoutesScreen> {
             ),
             // HUD 상단
             const Positioned(top: 0, left: 0, right: 0, child: HudBar()),
+            // 루트 계획 버튼
+            Positioned(
+              top: 56,
+              right: 12,
+              child: GestureDetector(
+                onTap: () => RouteWizardSheet.show(context),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: AppColors.panel.withOpacity(0.92),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.red.withOpacity(0.5)),
+                  ),
+                  child: Text(
+                    '🗺 루트 계획',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ),
             // 로딩 오버레이
             Consumer<RouteService>(
               builder: (context, svc, _) {

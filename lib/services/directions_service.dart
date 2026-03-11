@@ -4,23 +4,26 @@ import '../models/revv_route.dart';
 import 'mapbox_service.dart';
 
 class DirectionsService {
-  static Future<List<LatLng>> getRoute(LatLng from, LatLng to) async {
+  static Future<List<LatLng>> getRoute(LatLng from, LatLng to) =>
+      getMultiRoute([from, to]);
+
+  /// Mapbox Directions API — 최대 25 경유지 지원
+  static Future<List<LatLng>> getMultiRoute(List<LatLng> waypoints) async {
+    if (waypoints.length < 2) return [];
+    final coords = waypoints.map((p) => '${p.lng},${p.lat}').join(';');
     final url = Uri.parse(
-      'https://api.mapbox.com/directions/v5/mapbox/driving'
-      '/${from.lng},${from.lat};${to.lng},${to.lat}'
+      'https://api.mapbox.com/directions/v5/mapbox/driving/$coords'
       '?geometries=geojson&overview=full&access_token=${MapboxService.accessToken}',
     );
-
     try {
-      final res = await http.get(url).timeout(const Duration(seconds: 10));
+      final res = await http.get(url).timeout(const Duration(seconds: 15));
       if (res.statusCode != 200) return [];
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final routes = data['routes'] as List?;
       if (routes == null || routes.isEmpty) return [];
-      final coords = (routes[0]['geometry']['coordinates'] as List)
+      return (routes[0]['geometry']['coordinates'] as List)
           .map((c) => LatLng((c[1] as num).toDouble(), (c[0] as num).toDouble()))
           .toList();
-      return coords;
     } catch (_) {
       return [];
     }
