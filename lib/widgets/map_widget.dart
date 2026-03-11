@@ -4,6 +4,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
 import 'package:provider/provider.dart';
 import '../services/location_service.dart';
 import '../services/mapbox_service.dart';
+import '../services/weather_service.dart';
 import '../theme/colors.dart';
 
 class MapWidget extends StatefulWidget {
@@ -113,9 +114,10 @@ class _MapWidgetState extends State<MapWidget> {
     }
 
     final loc = context.read<LocationService>();
+    final weatherIcon = context.read<WeatherService>().weatherIcon;
     return mbx.MapWidget(
       styleUri: widget.isSprintMode
-          ? MapboxService.sprintStyle
+          ? MapboxService.sprintStyle(weatherIcon)
           : MapboxService.cruiseStyle,
       cameraOptions: mbx.CameraOptions(
         center: mbx.Point(coordinates: mbx.Position(loc.lng, loc.lat)),
