@@ -60,10 +60,36 @@ out qt;
 
       debugPrint('[RouteService] 요청 시작 ($lat, $lng)');
 
-      final res = await http.post(
-        Uri.parse('https://overpass-api.de/api/interpreter'),
-        body: {'data': query},
-      ).timeout(const Duration(seconds: 35));
+      final endpoints = [
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+        'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+      ];
+
+      http.Response? res;
+      for (final url in endpoints) {
+        try {
+          debugPrint('[RouteService] 시도: $url');
+          final r = await http.post(
+            Uri.parse(url),
+            body: {'data': query},
+          ).timeout(const Duration(seconds: 35));
+          if (r.statusCode == 200) {
+            res = r;
+            break;
+          }
+          debugPrint('[RouteService] $url → ${r.statusCode}, 다음 서버 시도');
+        } catch (e) {
+          debugPrint('[RouteService] $url 실패: $e, 다음 서버 시도');
+        }
+      }
+
+      if (res == null) {
+        errorMessage = '모든 서버가 응답하지 않아요. 잠시 후 다시 시도해주세요.';
+        isLoading = false;
+        notifyListeners();
+        return;
+      }
 
       debugPrint('[RouteService] 응답: ${res.statusCode}, ${res.bodyBytes.length} bytes');
 
