@@ -208,14 +208,20 @@ out qt;
     }
 
     final selected = <_ScoredWay>[];
-    // 1라운드: 각 섹터 1등
+
+    bool isTooClose(_ScoredWay candidate) => selected.any(
+        (sel) => RevvRoute.haversineKm(candidate.center, sel.center) < 6);
+
+    // 1라운드: 각 섹터 1등 (이미 선택된 것과 6km 이상 떨어진 것만)
     for (final sector in sectors) {
-      if (sector.isNotEmpty) selected.add(sector.first);
+      for (final candidate in sector) {
+        if (!isTooClose(candidate)) { selected.add(candidate); break; }
+      }
     }
-    // 2라운드: 부족하면 각 섹터 2등으로 채우기
-    for (final sector in sectors) {
+    // 2라운드: 6km 간격 유지하며 나머지 채우기
+    for (final s in scored) {
       if (selected.length >= 10) break;
-      if (sector.length > 1) selected.add(sector[1]);
+      if (!selected.contains(s) && !isTooClose(s)) selected.add(s);
     }
     // 점수순 재정렬
     selected.sort((a, b) => b.score.compareTo(a.score));
