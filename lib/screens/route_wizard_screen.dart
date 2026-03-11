@@ -119,8 +119,7 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
       }
     }
 
-    routeSvc.selectedRoute = builtRoute;
-    routeSvc.notifyListeners();
+    routeSvc.selectRoute(builtRoute);
 
     if (mounted) Navigator.pop(context);
   }

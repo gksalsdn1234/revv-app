@@ -337,6 +337,9 @@ out qt;
   double _rad(double deg) => deg * math.pi / 180;
 
   void selectRoute(RevvRoute route) {
+    if (!routes.any((r) => r.id == route.id)) {
+      routes = [route, ...routes];
+    }
     selectedRoute = route;
     notifyListeners();
   }
