@@ -1,0 +1,62 @@
+import 'dart:convert';
+
+class RunSummary {
+  final String id;
+  final DateTime date;
+  final double distanceKm;
+  final int durationSeconds;
+  final String routeName;
+  final String? routeId;
+  final String weatherEmoji;
+  final String tempDisplay;
+
+  const RunSummary({
+    required this.id,
+    required this.date,
+    required this.distanceKm,
+    required this.durationSeconds,
+    required this.routeName,
+    this.routeId,
+    required this.weatherEmoji,
+    required this.tempDisplay,
+  });
+
+  String get durationDisplay {
+    final h = durationSeconds ~/ 3600;
+    final m = (durationSeconds % 3600) ~/ 60;
+    final s = durationSeconds % 60;
+    if (h > 0) return '${h}h ${m.toString().padLeft(2, '0')}m';
+    if (m > 0) return '${m}m ${s.toString().padLeft(2, '0')}s';
+    return '${s}s';
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'date': date.toIso8601String(),
+        'distanceKm': distanceKm,
+        'durationSeconds': durationSeconds,
+        'routeName': routeName,
+        'routeId': routeId,
+        'weatherEmoji': weatherEmoji,
+        'tempDisplay': tempDisplay,
+      };
+
+  factory RunSummary.fromJson(Map<String, dynamic> j) => RunSummary(
+        id: j['id'] as String,
+        date: DateTime.parse(j['date'] as String),
+        distanceKm: (j['distanceKm'] as num).toDouble(),
+        durationSeconds: j['durationSeconds'] as int,
+        routeName: j['routeName'] as String,
+        routeId: j['routeId'] as String?,
+        weatherEmoji: j['weatherEmoji'] as String,
+        tempDisplay: j['tempDisplay'] as String,
+      );
+
+  static List<RunSummary> listFromJson(String raw) {
+    final list = jsonDecode(raw) as List;
+    return list.map((e) => RunSummary.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  static String listToJson(List<RunSummary> items) =>
+      jsonEncode(items.map((e) => e.toJson()).toList());
+}

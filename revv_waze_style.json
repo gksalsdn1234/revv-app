@@ -1,0 +1,44 @@
+{
+  "version": 8,
+  "name": "REVV Waze Neon",
+  "sources": {
+    "composite": {
+      "type": "vector",
+      "url": "mapbox://mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2"
+    }
+  },
+  "sprite": "mapbox://sprites/mapbox/dark-v11",
+  "glyphs": "mapbox://fonts/mapbox/{fontstack}/{range}.pbf",
+  "layers": [
+    {"id":"background","type":"background","paint":{"background-color":"#0d0d14"}},
+    {"id":"land","type":"fill","source":"composite","source-layer":"land","paint":{"fill-color":"#111118"}},
+    {"id":"landuse-park","type":"fill","source":"composite","source-layer":"landuse","filter":["in","class","park","cemetery","grass","scrub","wood"],"paint":{"fill-color":"#0c1a10"}},
+    {"id":"landuse-commercial","type":"fill","source":"composite","source-layer":"landuse","filter":["in","class","residential","commercial","industrial"],"paint":{"fill-color":"#14141e"}},
+    {"id":"water","type":"fill","source":"composite","source-layer":"water","paint":{"fill-color":"#0a192b"}},
+    {"id":"waterway","type":"line","source":"composite","source-layer":"waterway","paint":{"line-color":"#0a192b","line-width":["interpolate",["linear"],["zoom"],8,1,14,4]}},
+    {"id":"building-fill","type":"fill","source":"composite","source-layer":"building","paint":{"fill-color":"#18181f","fill-outline-color":"#22222e"}},
+    {"id":"road-path","type":"line","source":"composite","source-layer":"road","filter":["in","class","path","pedestrian","steps"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#22222e","line-width":1,"line-dasharray":[2,3]}},
+    {"id":"road-service","type":"line","source":"composite","source-layer":"road","filter":["==","class","service"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#1e1e28","line-width":1.2}},
+    {"id":"road-street-casing","type":"line","source":"composite","source-layer":"road","filter":["in","class","street","street_limited"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#0d0d14","line-width":["interpolate",["linear"],["zoom"],12,4,16,9]}},
+    {"id":"road-street","type":"line","source":"composite","source-layer":"road","filter":["in","class","street","street_limited"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#2e2e3e","line-width":["interpolate",["linear"],["zoom"],12,2,16,5]}},
+    {"id":"road-secondary-casing","type":"line","source":"composite","source-layer":"road","filter":["in","class","secondary","tertiary"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#0d0d14","line-width":["interpolate",["linear"],["zoom"],10,5,16,13]}},
+    {"id":"road-secondary","type":"line","source":"composite","source-layer":"road","filter":["in","class","secondary","tertiary"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#4a4a60","line-width":["interpolate",["linear"],["zoom"],10,2.5,16,7]}},
+    {"id":"road-primary-casing","type":"line","source":"composite","source-layer":"road","filter":["==","class","primary"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#0d0d14","line-width":["interpolate",["linear"],["zoom"],10,7,16,15]}},
+    {"id":"road-primary","type":"line","source":"composite","source-layer":"road","filter":["==","class","primary"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#8888aa","line-width":["interpolate",["linear"],["zoom"],10,4,16,9]}},
+    {"id":"road-trunk-glow","type":"line","source":"composite","source-layer":"road","filter":["==","class","trunk"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#003366","line-width":["interpolate",["linear"],["zoom"],10,14,16,24],"line-blur":4}},
+    {"id":"road-trunk-casing","type":"line","source":"composite","source-layer":"road","filter":["==","class","trunk"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#004488","line-width":["interpolate",["linear"],["zoom"],10,8,16,17]}},
+    {"id":"road-trunk","type":"line","source":"composite","source-layer":"road","filter":["==","class","trunk"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#0099ee","line-width":["interpolate",["linear"],["zoom"],10,4.5,16,11]}},
+    {"id":"road-motorway-glow","type":"line","source":"composite","source-layer":"road","filter":["==","class","motorway"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#002266","line-width":["interpolate",["linear"],["zoom"],10,18,16,30],"line-blur":8}},
+    {"id":"road-motorway-casing","type":"line","source":"composite","source-layer":"road","filter":["==","class","motorway"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#0044aa","line-width":["interpolate",["linear"],["zoom"],10,10,16,20]}},
+    {"id":"road-motorway","type":"line","source":"composite","source-layer":"road","filter":["==","class","motorway"],"layout":{"line-join":"round","line-cap":"round"},"paint":{"line-color":"#00aaff","line-width":["interpolate",["linear"],["zoom"],10,6,16,14]}},
+    {"id":"building-3d","type":"fill-extrusion","source":"composite","source-layer":"building","filter":["==","extrude","true"],"minzoom":14,"paint":{"fill-extrusion-color":["interpolate",["linear"],["zoom"],14,"#18181f",17,"#22222e"],"fill-extrusion-height":["interpolate",["linear"],["zoom"],14,0,14.5,["get","height"]],"fill-extrusion-base":["interpolate",["linear"],["zoom"],14,0,14.5,["get","min_height"]],"fill-extrusion-opacity":0.85}},
+    {"id":"admin-country","type":"line","source":"composite","source-layer":"admin","filter":["all",["==","admin_level",2],["==","maritime",false]],"paint":{"line-color":"#444466","line-width":1.5,"line-dasharray":[4,3]}},
+    {"id":"admin-state","type":"line","source":"composite","source-layer":"admin","filter":["all",["==","admin_level",4],["==","maritime",false]],"paint":{"line-color":"#2a2a44","line-width":1,"line-dasharray":[3,2]}},
+    {"id":"road-label-street","type":"symbol","source":"composite","source-layer":"road_label","filter":["in","class","street","street_limited"],"minzoom":14,"layout":{"text-field":["get","name_en"],"text-font":["DIN Pro Regular","Arial Unicode MS Regular"],"text-size":9,"symbol-placement":"line","text-padding":15},"paint":{"text-color":"#666680","text-halo-color":"#0d0d14","text-halo-width":1}},
+    {"id":"road-label-major","type":"symbol","source":"composite","source-layer":"road_label","filter":["in","class","motorway","trunk","primary","secondary","tertiary"],"layout":{"text-field":["get","name_en"],"text-font":["DIN Pro Regular","Arial Unicode MS Regular"],"text-size":11,"symbol-placement":"line","text-padding":12},"paint":{"text-color":"#aaaacc","text-halo-color":"#0d0d14","text-halo-width":1.5}},
+    {"id":"road-shield","type":"symbol","source":"composite","source-layer":"road_label","filter":["all",["has","ref"],["in","class","motorway","trunk","primary"]],"minzoom":9,"layout":{"text-field":["get","ref"],"text-font":["DIN Pro Bold","Arial Unicode MS Bold"],"text-size":9,"symbol-placement":"line","text-rotation-alignment":"viewport","symbol-spacing":200},"paint":{"text-color":"#00ccff","text-halo-color":"#001833","text-halo-width":2}},
+    {"id":"poi-park","type":"symbol","source":"composite","source-layer":"poi_label","filter":["in","maki","park","garden"],"minzoom":14,"layout":{"text-field":["get","name_en"],"text-font":["DIN Pro Regular","Arial Unicode MS Regular"],"text-size":10},"paint":{"text-color":"#336644","text-halo-color":"#0d0d14","text-halo-width":1}},
+    {"id":"place-neighbourhood","type":"symbol","source":"composite","source-layer":"place_label","filter":["==","type","neighbourhood"],"minzoom":13,"layout":{"text-field":["get","name_en"],"text-font":["DIN Pro Regular","Arial Unicode MS Regular"],"text-size":9,"text-transform":"uppercase","text-letter-spacing":0.15},"paint":{"text-color":"#44445a","text-halo-color":"#0d0d14","text-halo-width":1}},
+    {"id":"place-city","type":"symbol","source":"composite","source-layer":"place_label","filter":["in","type","city","town","village","hamlet"],"layout":{"text-field":["get","name_en"],"text-font":["DIN Pro Medium","Arial Unicode MS Regular"],"text-size":["interpolate",["linear"],["zoom"],8,11,14,15],"text-max-width":8},"paint":{"text-color":"#ddddff","text-halo-color":"#0d0d14","text-halo-width":2}}
+  ]
+}
