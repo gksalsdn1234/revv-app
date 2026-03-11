@@ -196,19 +196,29 @@ out qt;
     scored.sort((a, b) => b.score.compareTo(a.score));
     debugPrint('[RouteService] 필터 후 후보: ${scored.length}개');
 
-    // 중심점 8km 이내 중복 제거 (클러스터 거리 축소 → 더 많은 루트)
-    final selected = <_ScoredWay>[];
+    // ── 방향 다양성 선택 (Climoto 스타일) ────────────────────────
+    // 360°를 45° 단위 8개 섹터로 나눠 각 방향의 최고 루트 우선 선택
+    // → 북/북동/동/남동/남/남서/서/북서 방향 균등 분포
+    const sectorCount = 8;
+    final sectors = List<List<_ScoredWay>>.generate(sectorCount, (_) => []);
     for (final s in scored) {
-      bool tooClose = false;
-      for (final sel in selected) {
-        if (RevvRoute.haversineKm(s.center, sel.center) < 8) {
-          tooClose = true;
-          break;
-        }
-      }
-      if (!tooClose) selected.add(s);
-      if (selected.length >= 10) break; // 최대 10개
+      final bearing = _bearingDegTo(userPos, s.center);
+      final idx = (bearing / (360 / sectorCount)).floor() % sectorCount;
+      sectors[idx].add(s);
     }
+
+    final selected = <_ScoredWay>[];
+    // 1라운드: 각 섹터 1등
+    for (final sector in sectors) {
+      if (sector.isNotEmpty) selected.add(sector.first);
+    }
+    // 2라운드: 부족하면 각 섹터 2등으로 채우기
+    for (final sector in sectors) {
+      if (selected.length >= 10) break;
+      if (sector.length > 1) selected.add(sector[1]);
+    }
+    // 점수순 재정렬
+    selected.sort((a, b) => b.score.compareTo(a.score));
 
     return selected.map((s) {
       final name = s.way.name.isNotEmpty
@@ -361,6 +371,17 @@ out qt;
   }
 
   double _rad(double deg) => deg * math.pi / 180;
+
+  /// from → to 방위각 (0~360°, 북=0)
+  double _bearingDegTo(LatLng from, LatLng to) {
+    final lat1 = _rad(from.lat);
+    final lat2 = _rad(to.lat);
+    final dLng = _rad(to.lng - from.lng);
+    final y = math.sin(dLng) * math.cos(lat2);
+    final x = math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+    return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
+  }
 
   void selectRoute(RevvRoute route) {
     if (!routes.any((r) => r.id == route.id)) {
