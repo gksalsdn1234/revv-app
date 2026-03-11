@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
 import 'package:provider/provider.dart';
+import '../models/revv_route.dart';
 import '../services/location_service.dart';
 import '../services/mapbox_service.dart';
 import '../services/weather_service.dart';
@@ -9,7 +11,17 @@ import '../theme/colors.dart';
 
 class MapWidget extends StatefulWidget {
   final bool isSprintMode;
-  const MapWidget({super.key, this.isSprintMode = false});
+  /// 현재위치 → 루트 시작점 내비 경로 (파란 선)
+  final List<LatLng>? navPolyline;
+  /// 선택한 드라이빙 루트 (빨간 선)
+  final List<LatLng>? routePolyline;
+
+  const MapWidget({
+    super.key,
+    this.isSprintMode = false,
+    this.navPolyline,
+    this.routePolyline,
+  });
 
   @override
   State<MapWidget> createState() => _MapWidgetState();
@@ -62,6 +74,61 @@ class _MapWidgetState extends State<MapWidget> {
     final loc = context.read<LocationService>();
     await _moveCamera(loc.lat, loc.lng);
     await _applyCustomStyle();
+    if (widget.navPolyline?.isNotEmpty == true) {
+      await _drawPolyline('nav', widget.navPolyline!, Colors.blue.value, 4.0);
+    }
+    if (widget.routePolyline?.isNotEmpty == true) {
+      await _drawPolyline('route', widget.routePolyline!, AppColors.red.value, 5.0);
+    }
+  }
+
+  @override
+  void didUpdateWidget(MapWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.navPolyline != widget.navPolyline) {
+      _drawPolyline('nav', widget.navPolyline ?? [], Colors.blue.value, 4.0);
+    }
+    if (oldWidget.routePolyline != widget.routePolyline) {
+      _drawPolyline('route', widget.routePolyline ?? [], AppColors.red.value, 5.0);
+    }
+  }
+
+  Future<void> _drawPolyline(
+      String id, List<LatLng> points, int colorArgb, double width) async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded) return;
+
+    final sourceId = '$id-source';
+    final layerId = '$id-layer';
+
+    try { await map.style.removeStyleLayer(layerId); } catch (_) {}
+    try { await map.style.removeStyleSource(sourceId); } catch (_) {}
+
+    if (points.isEmpty) return;
+
+    final geoJson = jsonEncode({
+      'type': 'Feature',
+      'geometry': {
+        'type': 'LineString',
+        'coordinates': points.map((p) => [p.lng, p.lat]).toList(),
+      },
+      'properties': {},
+    });
+
+    try {
+      await map.style.addSource(mbx.GeoJsonSource(id: sourceId, data: geoJson));
+      await map.style.addLayer(mbx.LineLayer(
+        id: layerId,
+        sourceId: sourceId,
+        lineColor: colorArgb,
+        lineWidth: width,
+        lineOpacity: 0.85,
+        lineCap: mbx.LineCap.ROUND,
+        lineJoin: mbx.LineJoin.ROUND,
+      ));
+    } catch (e) {
+      debugPrint('[MapWidget] polyline $id: $e');
+    }
   }
 
   Future<void> _applyCustomStyle() async {

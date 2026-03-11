@@ -88,7 +88,12 @@ class _SprintScreenState extends State<SprintScreen> {
                     ),
                   ),
                 ),
-              const Expanded(child: MapWidget(isSprintMode: true)),
+              Expanded(
+                child: MapWidget(
+                  isSprintMode: true,
+                  routePolyline: widget.selectedRoute?.nodes,
+                ),
+              ),
               _SprintBottomBar(onEnd: _endRun),
             ],
           ),
