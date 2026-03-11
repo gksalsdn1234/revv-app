@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(chmod +x \"c:/Users/gksal/REVV/.git/hooks/pre-commit\")"
+      "Bash(chmod +x \"c:/Users/gksal/REVV/.git/hooks/pre-commit\")",
+      "Read(//c//**)"
     ]
   }
 }
