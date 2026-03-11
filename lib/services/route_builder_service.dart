@@ -67,19 +67,19 @@ class RouteBuilderService {
   /// 그리디 알고리즘: 현위치에서 가까운 세그먼트부터 추가하며 목표 거리 달성
   static List<RevvRoute> _greedySelect(
       LatLng start, List<RevvRoute> candidates, int targetKm) {
+    final rand = math.Random();
     final available = List<RevvRoute>.from(candidates);
     final selected = <RevvRoute>[];
     var estimatedTotal = 0.0;
     var currentPos = start;
 
     while (available.isNotEmpty && estimatedTotal < targetKm) {
-      // 가장 가까운 + 점수 높은 세그먼트 선택
+      // 가장 가까운 + 점수 높은 세그먼트 선택 (약간의 랜덤성으로 다양한 루트 생성)
       available.sort((a, b) {
         final distA = RevvRoute.haversineKm(currentPos, a.nodes.first);
         final distB = RevvRoute.haversineKm(currentPos, b.nodes.first);
-        // 거리 패널티 + 점수 결합 (정규화)
-        final scoreA = a.windingScore / (1 + distA * 0.1);
-        final scoreB = b.windingScore / (1 + distB * 0.1);
+        final scoreA = (a.windingScore / (1 + distA * 0.1)) * (0.8 + rand.nextDouble() * 0.4);
+        final scoreB = (b.windingScore / (1 + distB * 0.1)) * (0.8 + rand.nextDouble() * 0.4);
         return scoreB.compareTo(scoreA);
       });
 

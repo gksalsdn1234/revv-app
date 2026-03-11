@@ -72,8 +72,11 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
         candidates: routeSvc.routes,
       );
     } else {
-      // 단독 파편 — 상위 루트 그대로 사용
-      builtRoute = routeSvc.routes.isNotEmpty ? routeSvc.routes.first : null;
+      // 단독 파편 — 상위 3개 중 랜덤 선택
+      if (routeSvc.routes.isNotEmpty) {
+        final pool = routeSvc.routes.take(3).toList()..shuffle();
+        builtRoute = pool.first;
+      }
     }
 
     if (builtRoute == null) {
