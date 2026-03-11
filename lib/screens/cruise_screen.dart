@@ -10,6 +10,7 @@ import '../services/location_service.dart';
 import '../services/weather_service.dart';
 import 'sprint_screen.dart';
 import 'routes_screen.dart';
+import 'trip_planner_screen.dart';
 
 class CruiseScreen extends StatefulWidget {
   const CruiseScreen({super.key});
@@ -116,7 +117,16 @@ class _CruiseBottomPanel extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
+              _IconOnlyButton(
+                icon: Icons.place_outlined,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const TripPlannerScreen()),
+                ),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 flex: 2,
                 child: _ActionButton(
@@ -227,6 +237,36 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
+
+class _IconOnlyButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _IconOnlyButton({required this.icon, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 40,
+      width: 40,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(4),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(4),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              border:
+                  Border.all(color: AppColors.red.withValues(alpha: 0.4)),
+            ),
+            child: Icon(icon, size: 18, color: AppColors.gray),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _SprintRoute extends PageRouteBuilder {
   _SprintRoute(Widget page)

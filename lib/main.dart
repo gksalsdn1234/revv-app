@@ -9,11 +9,14 @@ import 'services/jarvis_service.dart';
 import 'services/route_service.dart';
 import 'services/run_session_service.dart';
 import 'services/run_history_service.dart';
+import 'services/home_location_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final history = RunHistoryService();
   await history.load();
+  final homeLocation = HomeLocationService();
+  await homeLocation.load();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -21,12 +24,13 @@ void main() async {
       statusBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(RevvApp(history: history));
+  runApp(RevvApp(history: history, homeLocation: homeLocation));
 }
 
 class RevvApp extends StatelessWidget {
   final RunHistoryService history;
-  const RevvApp({super.key, required this.history});
+  final HomeLocationService homeLocation;
+  const RevvApp({super.key, required this.history, required this.homeLocation});
 
   @override
   Widget build(BuildContext context) {
@@ -38,6 +42,7 @@ class RevvApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => RouteService()),
         ChangeNotifierProvider(create: (_) => RunSessionService()),
         ChangeNotifierProvider<RunHistoryService>.value(value: history),
+        ChangeNotifierProvider<HomeLocationService>.value(value: homeLocation),
       ],
       child: MaterialApp(
         title: 'REVV',
