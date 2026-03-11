@@ -64,7 +64,7 @@ class _LoadingScreenState extends State<LoadingScreen>
         final weather = context.read<WeatherService>();
         final jarvis = context.read<JarvisService>();
 
-        await jarvis.speak('준비됐어요. 오늘도 안전하게 달려요.');
+        jarvis.speak('준비됐어요. 오늘도 안전하게 달려요.');
         weather.fetchWeather(loc.lat, loc.lng);
       }
 
