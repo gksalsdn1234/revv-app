@@ -31,7 +31,7 @@ class RouteWizardSheet extends StatefulWidget {
   State<RouteWizardSheet> createState() => _RouteWizardSheetState();
 }
 
-enum _WizardStep { routeType, distance, afterRoute, poi, building, done }
+enum _WizardStep { routeType, distance, afterRoute, poi, poiList, building, done }
 
 class _RouteWizardSheetState extends State<RouteWizardSheet> {
   _WizardStep _step = _WizardStep.routeType;
@@ -41,6 +41,11 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
   int _targetKm = 50;
   bool _stopAfter = false;
   PoiCategory? _poiCategory;
+
+  // POI 목록
+  List<Poi> _nearbyPois = [];
+  bool _loadingPois = false;
+  Poi? _selectedPoi;
 
   // 결과
   bool _building = false;
@@ -81,47 +86,53 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
     }
 
     // POI + 귀가 경로가 있으면 루트 끝점에서 POI → 집 경로 추가
-    if (_stopAfter && _poiCategory != null) {
-      final pois = await PoiService.search(
-        builtRoute.nodes.last.lat,
-        builtRoute.nodes.last.lng,
-        _poiCategory!,
-        radiusM: 8000,
-        maxResults: 1,
-      );
-      if (pois.isNotEmpty && homeSvc.isSet) {
-        final poi = pois.first;
-        final home = homeSvc.home!;
-        final extra = await DirectionsService.getMultiRoute([
-          builtRoute.nodes.last,
-          LatLng(poi.lat, poi.lng),
-          home,
-        ]);
-        if (extra.isNotEmpty) {
-          // 루트 끝에 귀가 경로 이어붙이기
-          final combined = [...builtRoute.nodes, ...extra];
-          builtRoute = RevvRoute(
-            id: builtRoute.id,
-            name: '${builtRoute.name} → ${poi.name}',
-            nodes: combined,
-            distanceKm: builtRoute.distanceKm,
-            windingScore: builtRoute.windingScore,
-            starRating: builtRoute.starRating,
-            sharpCurveCount: 0,
-            centerPoint: builtRoute.centerPoint,
-            distanceFromUser: 0,
-            tightCurveKm: builtRoute.tightCurveKm,
-            mediumCurveKm: builtRoute.mediumCurveKm,
-            maxContinuousKm: builtRoute.maxContinuousKm,
-            elevationDelta: 0,
-          );
-        }
+    if (_stopAfter && _selectedPoi != null && homeSvc.isSet) {
+      final poi = _selectedPoi!;
+      final home = homeSvc.home!;
+      final extra = await DirectionsService.getMultiRoute([
+        builtRoute.nodes.last,
+        LatLng(poi.lat, poi.lng),
+        home,
+      ]);
+      if (extra.isNotEmpty) {
+        final combined = [...builtRoute.nodes, ...extra];
+        builtRoute = RevvRoute(
+          id: builtRoute.id,
+          name: '${builtRoute.name} → ${poi.name}',
+          nodes: combined,
+          distanceKm: builtRoute.distanceKm,
+          windingScore: builtRoute.windingScore,
+          starRating: builtRoute.starRating,
+          sharpCurveCount: 0,
+          centerPoint: builtRoute.centerPoint,
+          distanceFromUser: 0,
+          tightCurveKm: builtRoute.tightCurveKm,
+          mediumCurveKm: builtRoute.mediumCurveKm,
+          maxContinuousKm: builtRoute.maxContinuousKm,
+          elevationDelta: 0,
+        );
       }
     }
 
     routeSvc.selectRoute(builtRoute);
 
     if (mounted) Navigator.pop(context);
+  }
+
+  Future<void> _fetchNearbyPois() async {
+    if (_poiCategory == null) return;
+    setState(() {
+      _loadingPois = true;
+      _nearbyPois = [];
+      _selectedPoi = null;
+      _step = _WizardStep.poiList;
+    });
+    final loc = context.read<LocationService>();
+    final pois = await PoiService.search(
+      loc.lat, loc.lng, _poiCategory!,
+      radiusM: 15000, maxResults: 8,
+    );
+    if (mounted) setState(() { _nearbyPois = pois; _loadingPois = false; });
   }
 
   @override
@@ -180,6 +191,7 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
       _WizardStep.distance: '목표 거리를 설정해요',
       _WizardStep.afterRoute: '루트 끝나면?',
       _WizardStep.poi: '어디 들를까요?',
+      _WizardStep.poiList: '어디 들를까요?',
       _WizardStep.done: '완료',
     };
     return Text(
@@ -265,6 +277,57 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
           }).toList(),
         );
 
+      case _WizardStep.poiList:
+        if (_loadingPois) {
+          return const Center(child: CircularProgressIndicator(color: AppColors.red));
+        }
+        if (_nearbyPois.isEmpty) {
+          return Text(
+            '근처에 ${_poiCategory?.label ?? 'POI'}을(를) 찾지 못했어요.\n루트만 만들게요.',
+            style: GoogleFonts.rajdhani(fontSize: 13, color: AppColors.gray),
+          );
+        }
+        return SizedBox(
+          height: 220,
+          child: ListView.builder(
+            itemCount: _nearbyPois.length,
+            itemBuilder: (ctx, i) {
+              final poi = _nearbyPois[i];
+              final sel = _selectedPoi == poi;
+              return GestureDetector(
+                onTap: () => setState(() => _selectedPoi = poi),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: sel ? AppColors.red.withOpacity(0.15) : AppColors.bg,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: sel ? AppColors.red : Colors.white12),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(poi.category.emoji, style: const TextStyle(fontSize: 18)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(poi.name,
+                                style: GoogleFonts.rajdhani(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white)),
+                            Text('${(poi.distanceKm * 10).round() / 10}km',
+                                style: GoogleFonts.rajdhani(fontSize: 11, color: AppColors.gray)),
+                          ],
+                        ),
+                      ),
+                      if (sel) const Icon(Icons.check_circle, color: AppColors.red, size: 18),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+
       default:
         return const SizedBox.shrink();
     }
@@ -289,8 +352,10 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
   }
 
   Widget _navigationButtons() {
-    final isLast = _step == _WizardStep.afterRoute && !_stopAfter ||
-        _step == _WizardStep.poi;
+    final isLast = (_step == _WizardStep.afterRoute && !_stopAfter) ||
+        _step == _WizardStep.poiList;
+    final canProceed = !(_step == _WizardStep.poiList && _loadingPois) &&
+        !(_step == _WizardStep.poiList && _nearbyPois.isNotEmpty && _selectedPoi == null);
 
     return Row(
       children: [
@@ -309,18 +374,20 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
         const SizedBox(width: 10),
         Expanded(
           child: GestureDetector(
-            onTap: isLast ? _build : _next,
+            onTap: canProceed ? (isLast ? _build : _next) : null,
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 14),
               decoration: BoxDecoration(
-                color: AppColors.red,
+                color: canProceed ? AppColors.red : AppColors.panel,
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Center(
-                child: Text(
-                  isLast ? '루트 만들기' : '다음',
-                  style: GoogleFonts.rajdhani(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 2),
-                ),
+                child: _loadingPois && _step == _WizardStep.poiList
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : Text(
+                        isLast ? '루트 만들기' : '다음',
+                        style: GoogleFonts.rajdhani(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 2),
+                      ),
               ),
             ),
           ),
@@ -330,21 +397,22 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
   }
 
   void _next() {
-    setState(() {
-      switch (_step) {
-        case _WizardStep.routeType:
-          _step = _isLoop ? _WizardStep.distance : _WizardStep.afterRoute;
-          break;
-        case _WizardStep.distance:
-          _step = _WizardStep.afterRoute;
-          break;
-        case _WizardStep.afterRoute:
-          _step = _stopAfter ? _WizardStep.poi : _WizardStep.afterRoute;
-          break;
-        default:
-          break;
-      }
-    });
+    switch (_step) {
+      case _WizardStep.routeType:
+        setState(() => _step = _isLoop ? _WizardStep.distance : _WizardStep.afterRoute);
+        break;
+      case _WizardStep.distance:
+        setState(() => _step = _WizardStep.afterRoute);
+        break;
+      case _WizardStep.afterRoute:
+        setState(() => _step = _WizardStep.poi);
+        break;
+      case _WizardStep.poi:
+        _fetchNearbyPois();
+        break;
+      default:
+        break;
+    }
   }
 
   void _back() {
@@ -358,6 +426,9 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
           break;
         case _WizardStep.poi:
           _step = _WizardStep.afterRoute;
+          break;
+        case _WizardStep.poiList:
+          _step = _WizardStep.poi;
           break;
         default:
           break;

@@ -8,6 +8,7 @@ import '../widgets/routes_bottom_sheet.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/mapbox_service.dart';
+import '../services/poi_service.dart';
 import '../models/revv_route.dart';
 import 'route_wizard_screen.dart';
 
@@ -21,9 +22,11 @@ class RoutesScreen extends StatefulWidget {
 class _RoutesScreenState extends State<RoutesScreen> {
   mbx.MapboxMap? _mapController;
   mbx.PolylineAnnotationManager? _polyManager;
+  mbx.PointAnnotationManager? _poiManager;
   final List<mbx.PolylineAnnotation> _polylines = [];
   bool _styleLoaded = false;
   bool _isDrawing = false;
+  String? _lastPoiRouteId;
   RouteService? _routeSvc; // dispose()에서 context 없이 접근하기 위해 저장
 
   @override
@@ -50,6 +53,34 @@ class _RoutesScreenState extends State<RoutesScreen> {
     if (!mounted || _routeSvc == null) return;
     if (_styleLoaded && !_routeSvc!.isLoading) {
       _drawRoutes(_routeSvc!.routes, _routeSvc!.selectedRoute);
+      final newId = _routeSvc!.selectedRoute?.id;
+      if (newId != null && newId != _lastPoiRouteId) {
+        _lastPoiRouteId = newId;
+        _drawPoiPins(_routeSvc!.selectedRoute!);
+      }
+    }
+  }
+
+  Future<void> _drawPoiPins(RevvRoute route) async {
+    final manager = _poiManager;
+    if (manager == null) return;
+    await manager.deleteAll();
+    final pois = await PoiService.searchNearby(
+      route.centerPoint.lat,
+      route.centerPoint.lng,
+      radiusM: 8000,
+      maxTotal: 20,
+    );
+    for (final poi in pois) {
+      try {
+        await manager.create(mbx.PointAnnotationOptions(
+          geometry: mbx.Point(
+              coordinates: mbx.Position(poi.lng, poi.lat)),
+          textField: poi.category.emoji,
+          textSize: 18.0,
+          textColor: 0xFFFFFFFF,
+        ));
+      } catch (_) {}
     }
   }
 
@@ -61,6 +92,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
     _styleLoaded = true;
     _polyManager =
         await _mapController?.annotations.createPolylineAnnotationManager();
+    _poiManager =
+        await _mapController?.annotations.createPointAnnotationManager();
 
     await _applyCustomStyle();
 
