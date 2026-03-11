@@ -114,11 +114,8 @@ class _MapWidgetState extends State<MapWidget> {
     }
 
     final loc = context.read<LocationService>();
-    final weatherIcon = context.read<WeatherService>().weatherIcon;
     return mbx.MapWidget(
-      styleUri: widget.isSprintMode
-          ? MapboxService.sprintStyle(weatherIcon)
-          : MapboxService.cruiseStyle,
+      styleUri: MapboxService.cruiseStyle,
       cameraOptions: mbx.CameraOptions(
         center: mbx.Point(coordinates: mbx.Position(loc.lng, loc.lat)),
         zoom: widget.isSprintMode ? 16.0 : 15.0,
