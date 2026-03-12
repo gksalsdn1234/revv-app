@@ -13,6 +13,7 @@ import '../services/weather_service.dart';
 import '../services/run_session_service.dart';
 import '../services/obd_service.dart';
 import 'run_card_screen.dart';
+import 'obd_screen.dart';
 
 class SprintScreen extends StatefulWidget {
   final RevvRoute? selectedRoute;
@@ -122,7 +123,7 @@ class _OBDStrip extends StatelessWidget {
         // 연결 안 됨: 작은 연결 버튼만 표시
         if (state == OBDState.disconnected || state == OBDState.error) {
           return GestureDetector(
-            onTap: () => obd.connect(),
+            onTap: () => OBDScreen.show(context),
             child: Container(
               width: double.infinity,
               padding:
@@ -178,16 +179,17 @@ class _OBDStrip extends StatelessWidget {
           );
         }
 
-        // 연결됨 — 데이터 표시
-        return Container(
-          color: AppColors.bg,
-          child: Column(
-            children: [
-              // 상단 행: RPM + 연료
-              _OBDRow(data: data),
-              // 구분선
-              Container(height: 1, color: AppColors.red.withOpacity(0.12)),
-            ],
+        // 연결됨 — 데이터 표시 (탭 → OBD 전체 화면)
+        return GestureDetector(
+          onTap: () => OBDScreen.show(context),
+          child: Container(
+            color: AppColors.bg,
+            child: Column(
+              children: [
+                _OBDRow(data: data),
+                Container(height: 1, color: AppColors.red.withOpacity(0.12)),
+              ],
+            ),
           ),
         );
       },
