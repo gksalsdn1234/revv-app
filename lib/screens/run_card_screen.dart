@@ -5,6 +5,7 @@ import '../theme/colors.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../services/run_history_service.dart';
+import '../services/saved_route_service.dart';
 import '../widgets/corner_brackets.dart';
 import '../widgets/sprint_toggle.dart';
 import 'cruise_screen.dart';
@@ -105,7 +106,40 @@ class _RunCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Center(child: RevvLogo(size: 14)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const RevvLogo(size: 14),
+                  if (session?.route != null)
+                    Consumer<SavedRouteService>(
+                      builder: (ctx, saved, _) {
+                        final route = session!.route!;
+                        final isSaved = saved.isSaved(route.id);
+                        return GestureDetector(
+                          onTap: () => saved.toggle(route),
+                          child: Row(
+                            children: [
+                              Icon(
+                                isSaved ? Icons.bookmark : Icons.bookmark_border,
+                                color: isSaved ? AppColors.red : AppColors.gray,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                isSaved ? '저장됨' : '루트 저장',
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 11,
+                                  color: isSaved ? AppColors.red : AppColors.gray,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              ),
               const SizedBox(height: 16),
               Divider(color: AppColors.red.withOpacity(0.2)),
               const SizedBox(height: 12),

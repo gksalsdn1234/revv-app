@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math' as math;
 
 class LatLng {
@@ -77,4 +78,52 @@ class RevvRoute {
   }
 
   static double _rad(double deg) => deg * math.pi / 180;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'nodes': nodes.map((n) => {'lat': n.lat, 'lng': n.lng}).toList(),
+        'distanceKm': distanceKm,
+        'windingScore': windingScore,
+        'starRating': starRating,
+        'sharpCurveCount': sharpCurveCount,
+        'elevationDelta': elevationDelta,
+        'centerPoint': {'lat': centerPoint.lat, 'lng': centerPoint.lng},
+        'distanceFromUser': distanceFromUser,
+        'tightCurveKm': tightCurveKm,
+        'mediumCurveKm': mediumCurveKm,
+        'maxContinuousKm': maxContinuousKm,
+      };
+
+  factory RevvRoute.fromJson(Map<String, dynamic> j) => RevvRoute(
+        id: j['id'] as String,
+        name: j['name'] as String,
+        nodes: (j['nodes'] as List)
+            .map((n) => LatLng(
+                  (n['lat'] as num).toDouble(),
+                  (n['lng'] as num).toDouble(),
+                ))
+            .toList(),
+        distanceKm: (j['distanceKm'] as num).toDouble(),
+        windingScore: (j['windingScore'] as num).toDouble(),
+        starRating: j['starRating'] as int,
+        sharpCurveCount: j['sharpCurveCount'] as int? ?? 0,
+        elevationDelta: (j['elevationDelta'] as num?)?.toDouble() ?? 0,
+        centerPoint: LatLng(
+          (j['centerPoint']['lat'] as num).toDouble(),
+          (j['centerPoint']['lng'] as num).toDouble(),
+        ),
+        distanceFromUser: (j['distanceFromUser'] as num).toDouble(),
+        tightCurveKm: (j['tightCurveKm'] as num?)?.toDouble() ?? 0,
+        mediumCurveKm: (j['mediumCurveKm'] as num?)?.toDouble() ?? 0,
+        maxContinuousKm: (j['maxContinuousKm'] as num?)?.toDouble() ?? 0,
+      );
+
+  static List<RevvRoute> listFromJson(String raw) {
+    final list = jsonDecode(raw) as List;
+    return list.map((e) => RevvRoute.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  static String listToJson(List<RevvRoute> routes) =>
+      jsonEncode(routes.map((r) => r.toJson()).toList());
 }

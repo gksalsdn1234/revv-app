@@ -8,6 +8,7 @@ import '../services/route_service.dart';
 import '../services/location_service.dart';
 import '../services/route_brief_service.dart';
 import '../services/weather_service.dart';
+import '../services/saved_route_service.dart';
 import '../widgets/sprint_toggle.dart';
 import '../screens/sprint_screen.dart';
 
@@ -79,7 +80,19 @@ class _RoutesBottomSheetState extends State<RoutesBottomSheet> {
               (_) => _loadBriefing(svc.selectedRoute!));
         }
 
-        return Container(
+        return Consumer<SavedRouteService>(
+          builder: (context, savedSvc, _) {
+            final savedRoutes = savedSvc.routes;
+            return _buildSheet(context, svc, savedSvc, savedRoutes);
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildSheet(BuildContext context, RouteService svc,
+      SavedRouteService savedSvc, List<RevvRoute> savedRoutes) {
+    return Container(
           decoration: const BoxDecoration(
             color: AppColors.panel,
             border: Border(top: BorderSide(color: AppColors.red, width: 2)),
@@ -87,6 +100,93 @@ class _RoutesBottomSheetState extends State<RoutesBottomSheet> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // ── 저장된 루트 섹션 ──
+              if (savedRoutes.isNotEmpty) ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.bookmark, color: AppColors.red, size: 13),
+                      const SizedBox(width: 6),
+                      Text('저장된 루트',
+                          style: GoogleFonts.rajdhani(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.red,
+                              letterSpacing: 3)),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  height: 72,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: savedRoutes.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (_, i) {
+                      final r = savedRoutes[i];
+                      final isSelected = svc.selectedRoute?.id == r.id;
+                      return GestureDetector(
+                        onTap: () => svc.selectRoute(r),
+                        child: Container(
+                          width: 180,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppColors.red.withOpacity(0.12)
+                                : AppColors.bg,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppColors.red
+                                  : Colors.white12,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.bookmark,
+                                  color: AppColors.red, size: 14),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(r.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: GoogleFonts.orbitron(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.white)),
+                                    Text(
+                                        '${r.distanceKm.toStringAsFixed(0)}km · ${r.starDisplay}',
+                                        style: GoogleFonts.rajdhani(
+                                            fontSize: 10,
+                                            color: AppColors.gray)),
+                                  ],
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () => savedSvc.toggle(r),
+                                child: const Icon(Icons.close,
+                                    color: Colors.white24, size: 14),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                Divider(
+                    height: 1,
+                    color: AppColors.red.withOpacity(0.15),
+                    indent: 16,
+                    endIndent: 16),
+              ],
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: Row(
@@ -182,8 +282,6 @@ class _RoutesBottomSheetState extends State<RoutesBottomSheet> {
             ],
           ),
         );
-      },
-    );
   }
 }
 
