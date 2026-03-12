@@ -11,6 +11,7 @@ import 'services/run_session_service.dart';
 import 'services/run_history_service.dart';
 import 'services/home_location_service.dart';
 import 'services/saved_route_service.dart';
+import 'services/obd_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -57,6 +58,7 @@ class RevvApp extends StatelessWidget {
         ChangeNotifierProvider<RunHistoryService>.value(value: history),
         ChangeNotifierProvider<HomeLocationService>.value(value: homeLocation),
         ChangeNotifierProvider<SavedRouteService>.value(value: savedRoutes),
+        ChangeNotifierProvider(create: (_) => OBDService()),
       ],
       child: MaterialApp(
         title: 'REVV',

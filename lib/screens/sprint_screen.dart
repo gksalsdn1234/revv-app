@@ -7,9 +7,11 @@ import '../widgets/map_widget.dart';
 import '../widgets/sprint_toggle.dart';
 import '../widgets/mic_button.dart';
 import '../models/revv_route.dart';
+import '../models/obd_data.dart';
 import '../services/location_service.dart';
 import '../services/weather_service.dart';
 import '../services/run_session_service.dart';
+import '../services/obd_service.dart';
 import 'run_card_screen.dart';
 
 class SprintScreen extends StatefulWidget {
@@ -88,6 +90,8 @@ class _SprintScreenState extends State<SprintScreen> {
                     ),
                   ),
                 ),
+              // OBD 데이터 스트립
+              const _OBDStrip(),
               Expanded(
                 child: MapWidget(
                   isSprintMode: true,
@@ -102,6 +106,209 @@ class _SprintScreenState extends State<SprintScreen> {
     );
   }
 }
+
+// ── OBD 스트립 ───────────────────────────────────────────────
+
+class _OBDStrip extends StatelessWidget {
+  const _OBDStrip();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<OBDService>(
+      builder: (context, obd, _) {
+        final state = obd.state;
+        final data = obd.data;
+
+        // 연결 안 됨: 작은 연결 버튼만 표시
+        if (state == OBDState.disconnected || state == OBDState.error) {
+          return GestureDetector(
+            onTap: () => obd.connect(),
+            child: Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              color: AppColors.bg,
+              child: Row(
+                children: [
+                  Icon(Icons.bluetooth_searching,
+                      size: 13,
+                      color: state == OBDState.error
+                          ? AppColors.red
+                          : Colors.white24),
+                  const SizedBox(width: 6),
+                  Text(
+                    state == OBDState.error
+                        ? (obd.errorMsg ?? 'OBD 연결 실패 — 탭해서 재시도')
+                        : 'OBD 연결하기 — 탭해서 연결',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 11,
+                      color: state == OBDState.error
+                          ? AppColors.red
+                          : Colors.white24,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        // 스캔/연결 중
+        if (state == OBDState.scanning || state == OBDState.connecting) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            color: AppColors.bg,
+            child: Row(
+              children: [
+                const SizedBox(
+                  width: 10,
+                  height: 10,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 1.5, color: AppColors.red),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  state == OBDState.scanning ? 'OBD 기기 탐색 중...' : 'OBD 연결 중...',
+                  style: GoogleFonts.rajdhani(
+                      fontSize: 11, color: AppColors.gray),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // 연결됨 — 데이터 표시
+        return Container(
+          color: AppColors.bg,
+          child: Column(
+            children: [
+              // 상단 행: RPM + 연료
+              _OBDRow(data: data),
+              // 구분선
+              Container(height: 1, color: AppColors.red.withOpacity(0.12)),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _OBDRow extends StatelessWidget {
+  final OBDData? data;
+  const _OBDRow({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          // RPM
+          _OBDCell(
+            label: 'RPM',
+            value: data?.rpmDisplay ?? '—',
+            highlight: _rpmColor(data?.rpm),
+          ),
+          _divider(),
+          // 연료
+          _OBDCell(
+            label: '연료',
+            value: data?.fuelDisplay ?? '—',
+            highlight: _fuelColor(data?.fuelLevelPct),
+          ),
+          _divider(),
+          // 스로틀
+          _OBDCell(
+            label: '스로틀',
+            value: data?.throttleDisplay ?? '—',
+          ),
+          _divider(),
+          // 냉각수
+          _OBDCell(
+            label: '냉각수',
+            value: data?.coolantDisplay ?? '—',
+            highlight: _coolantColor(data?.coolantTempC),
+          ),
+          const Spacer(),
+          // 연결 상태 점
+          Container(
+            width: 6,
+            height: 6,
+            decoration: const BoxDecoration(
+              color: Color(0xFF00FF88),
+              shape: BoxShape.circle,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _divider() => Container(
+        width: 1,
+        height: 20,
+        margin: const EdgeInsets.symmetric(horizontal: 10),
+        color: Colors.white12,
+      );
+
+  Color? _rpmColor(int? rpm) {
+    if (rpm == null) return null;
+    if (rpm > 5000) return AppColors.red;
+    if (rpm > 3500) return Colors.orange;
+    return null;
+  }
+
+  Color? _fuelColor(double? pct) {
+    if (pct == null) return null;
+    if (pct < 15) return AppColors.red;
+    if (pct < 30) return Colors.orange;
+    return null;
+  }
+
+  Color? _coolantColor(int? temp) {
+    if (temp == null) return null;
+    if (temp > 105) return AppColors.red;
+    if (temp > 95) return Colors.orange;
+    return null;
+  }
+}
+
+class _OBDCell extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color? highlight;
+  const _OBDCell({required this.label, required this.value, this.highlight});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.rajdhani(
+            fontSize: 9,
+            color: AppColors.gray,
+            letterSpacing: 1,
+          ),
+        ),
+        Text(
+          value,
+          style: GoogleFonts.orbitron(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: highlight ?? Colors.white,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── 바텀 바 ──────────────────────────────────────────────────
 
 class _SprintBottomBar extends StatelessWidget {
   final VoidCallback onEnd;
