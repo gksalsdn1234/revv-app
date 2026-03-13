@@ -277,6 +277,8 @@ class _RoutesBottomSheetState extends State<RoutesBottomSheet> {
                     ],
                   ),
                 ),
+                // ── 연결 루트 CHAIN 섹션 ──
+                _ChainSection(svc: svc),
               ],
               const SizedBox(height: 8),
             ],
@@ -414,6 +416,111 @@ class _RadiusSelector extends StatelessWidget {
           ),
         );
       }).toList(),
+    );
+  }
+}
+
+// ── 연결 루트 섹션 ────────────────────────────────────────────
+class _ChainSection extends StatelessWidget {
+  final RouteService svc;
+  const _ChainSection({required this.svc});
+
+  @override
+  Widget build(BuildContext context) {
+    if (svc.isLoadingConnecting) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 10, height: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.red),
+            ),
+            const SizedBox(width: 8),
+            Text('끝점 주변 연결 루트 탐색 중...',
+                style: GoogleFonts.rajdhani(fontSize: 11, color: AppColors.gray)),
+          ],
+        ),
+      );
+    }
+    if (svc.connectingRoutes.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Divider(height: 1, color: AppColors.red.withOpacity(0.15), indent: 16, endIndent: 16),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+          child: Row(
+            children: [
+              const Icon(Icons.link, color: AppColors.red, size: 12),
+              const SizedBox(width: 6),
+              Text('CHAIN  →  끝점 연결 루트',
+                  style: GoogleFonts.rajdhani(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.red,
+                      letterSpacing: 3)),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 100,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: svc.connectingRoutes.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (_, i) {
+              final r = svc.connectingRoutes[i];
+              return GestureDetector(
+                onTap: () => svc.selectRoute(r),
+                child: Container(
+                  width: 148,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.bg,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.red.withOpacity(0.35)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.turn_right, size: 10, color: AppColors.red),
+                          const SizedBox(width: 4),
+                          Text(r.distanceDisplay,
+                              style: GoogleFonts.rajdhani(fontSize: 9, color: AppColors.gray)),
+                          const Spacer(),
+                          Text(r.starDisplay,
+                              style: const TextStyle(fontSize: 9)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(r.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.orbitron(
+                              fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          _CurveChip(label: 'TIGHT', value: '${r.tightCurveKm.toStringAsFixed(1)}k', color: AppColors.red),
+                          const SizedBox(width: 4),
+                          _CurveChip(label: 'MED', value: '${r.mediumCurveKm.toStringAsFixed(1)}k', color: Colors.orange),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
     );
   }
 }

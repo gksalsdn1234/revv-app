@@ -53,7 +53,7 @@ class _HudBarState extends State<HudBar> {
           const RevvLogo(size: 18),
           const SizedBox(width: 6),
           Text(
-            'v1.25',
+            'v1.26',
             style: GoogleFonts.rajdhani(
               fontSize: 9,
               color: AppColors.red.withOpacity(0.5),
@@ -153,7 +153,7 @@ class _SprintHudBarState extends State<SprintHudBar> {
           ),
           const SizedBox(width: 6),
           Text(
-            'v1.25',
+            'v1.26',
             style: GoogleFonts.rajdhani(
               fontSize: 9,
               color: AppColors.red.withOpacity(0.6),

@@ -13,6 +13,10 @@ class RouteService extends ChangeNotifier {
   String? errorMessage;
   int searchRadiusKm = 50; // 기본 50km
 
+  // 연결 루트 (선택 루트 끝점 기준)
+  List<RevvRoute> connectingRoutes = [];
+  bool isLoadingConnecting = false;
+
   LatLng? _lastFetchLocation;
   int? _lastFetchRadius;
 
@@ -43,8 +47,47 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final radiusM = searchRadiusKm * 1000;
-      final query = '''
+      final result = await _fetchAndScore(lat, lng, searchRadiusKm * 1000);
+      routes = result;
+      selectedRoute = routes.isNotEmpty ? routes.first : null;
+      _lastFetchLocation = LatLng(lat, lng);
+      _lastFetchRadius = searchRadiusKm;
+      debugPrint('[RouteService] 선택된 루트: ${routes.length}개');
+    } catch (e, st) {
+      debugPrint('[RouteService] 예외: $e\n$st');
+      errorMessage = '네트워크 오류가 발생했어요. 인터넷 연결을 확인하세요.';
+    }
+
+    isLoading = false;
+    notifyListeners();
+  }
+
+  /// 선택 루트 끝점 기준 연결 루트 검색 (15km 반경)
+  Future<void> fetchConnectingRoutes(RevvRoute fromRoute) async {
+    final endpoint = fromRoute.nodes.last;
+    isLoadingConnecting = true;
+    connectingRoutes = [];
+    notifyListeners();
+
+    try {
+      final all = await _fetchAndScore(endpoint.lat, endpoint.lng, 15000);
+      // 현재 선택 루트는 제외, 상위 5개
+      connectingRoutes = all
+          .where((r) => r.id != fromRoute.id)
+          .take(5)
+          .toList();
+      debugPrint('[RouteService] 연결 루트: ${connectingRoutes.length}개');
+    } catch (e) {
+      debugPrint('[RouteService] fetchConnectingRoutes 오류: $e');
+    }
+
+    isLoadingConnecting = false;
+    notifyListeners();
+  }
+
+  /// 공통 Overpass 조회 + 커브 스코어링 → RevvRoute 리스트 반환
+  Future<List<RevvRoute>> _fetchAndScore(double lat, double lng, int radiusM) async {
+    final query = '''
 [out:json][timeout:30];
 (
   way["highway"="secondary"](around:$radiusM,$lat,$lng);
@@ -59,94 +102,59 @@ out geom qt;
 out qt;
 ''';
 
-      debugPrint('[RouteService] 요청 시작 ($lat, $lng)');
+    debugPrint('[RouteService] _fetchAndScore ($lat, $lng, r=${radiusM}m)');
 
-      final endpoints = [
-        'https://overpass-api.de/api/interpreter',
-        'https://overpass.kumi.systems/api/interpreter',
-        'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-      ];
+    final endpoints = [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    ];
 
-      http.Response? res;
-      for (final url in endpoints) {
-        try {
-          debugPrint('[RouteService] 시도: $url');
-          final r = await http.post(
-            Uri.parse(url),
-            body: {'data': query},
-          ).timeout(const Duration(seconds: 35));
-          if (r.statusCode == 200) {
-            res = r;
-            break;
-          }
-          debugPrint('[RouteService] $url → ${r.statusCode}, 다음 서버 시도');
-        } catch (e) {
-          debugPrint('[RouteService] $url 실패: $e, 다음 서버 시도');
-        }
+    http.Response? res;
+    for (final url in endpoints) {
+      try {
+        final r = await http.post(
+          Uri.parse(url),
+          body: {'data': query},
+        ).timeout(const Duration(seconds: 35));
+        if (r.statusCode == 200) { res = r; break; }
+        debugPrint('[RouteService] $url → ${r.statusCode}');
+      } catch (e) {
+        debugPrint('[RouteService] $url 실패: $e');
       }
-
-      if (res == null) {
-        errorMessage = '모든 서버가 응답하지 않아요. 잠시 후 다시 시도해주세요.';
-        isLoading = false;
-        notifyListeners();
-        return;
-      }
-
-      debugPrint('[RouteService] 응답: ${res.statusCode}, ${res.bodyBytes.length} bytes');
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(res.bodyBytes));
-        final elements = data['elements'] as List;
-
-        final userPos = LatLng(lat, lng);
-        final rawWays = <_RawWay>[];
-        final intersectionNodes = <LatLng>[];
-
-        for (final el in elements) {
-          if (el['type'] == 'node') {
-            intersectionNodes.add(LatLng(
-              (el['lat'] as num).toDouble(),
-              (el['lon'] as num).toDouble(),
-            ));
-          } else if (el['type'] == 'way') {
-            final geom = el['geometry'] as List?;
-            if (geom == null || geom.length < 10) continue;
-
-            final nodes = geom
-                .map((g) => LatLng(
-                    (g['lat'] as num).toDouble(), (g['lon'] as num).toDouble()))
-                .toList();
-
-            // 200노드로 샘플링 (기존 100 → 정밀도 향상)
-            final sampled = nodes.length > 200 ? _sampleNodes(nodes, 200) : nodes;
-            final name = el['tags']?['name'] as String? ?? '';
-            final highway = el['tags']?['highway'] as String? ?? 'secondary';
-            final id = el['id'].toString();
-
-            rawWays.add(_RawWay(
-                id: id, name: name, nodes: sampled, highwayType: highway));
-          }
-        }
-
-        debugPrint('[RouteService] ways: ${rawWays.length}개, 교차로: ${intersectionNodes.length}개');
-        routes = _selectTopRoutes(rawWays, userPos, intersectionNodes);
-        debugPrint('[RouteService] 선택된 루트: ${routes.length}개');
-        for (final r in routes) {
-          debugPrint('[RouteService]  → ${r.name} | score=${r.windingScore.toStringAsFixed(2)} | tight=${r.tightCurveKm.toStringAsFixed(1)} med=${r.mediumCurveKm.toStringAsFixed(1)} max=${r.maxContinuousKm.toStringAsFixed(1)}');
-        }
-        selectedRoute = routes.isNotEmpty ? routes.first : null;
-        _lastFetchLocation = LatLng(lat, lng);
-        _lastFetchRadius = searchRadiusKm;
-      } else {
-        errorMessage = '주변 루트를 불러오지 못했어요. (${res.statusCode})';
-      }
-    } catch (e, st) {
-      debugPrint('[RouteService] 예외: $e\n$st');
-      errorMessage = '네트워크 오류가 발생했어요. 인터넷 연결을 확인하세요.';
     }
 
-    isLoading = false;
-    notifyListeners();
+    if (res == null) return [];
+
+    final data = jsonDecode(utf8.decode(res.bodyBytes));
+    final elements = data['elements'] as List;
+    final userPos = LatLng(lat, lng);
+    final rawWays = <_RawWay>[];
+    final intersectionNodes = <LatLng>[];
+
+    for (final el in elements) {
+      if (el['type'] == 'node') {
+        intersectionNodes.add(LatLng(
+          (el['lat'] as num).toDouble(),
+          (el['lon'] as num).toDouble(),
+        ));
+      } else if (el['type'] == 'way') {
+        final geom = el['geometry'] as List?;
+        if (geom == null || geom.length < 10) continue;
+        final nodes = geom
+            .map((g) => LatLng(
+                (g['lat'] as num).toDouble(), (g['lon'] as num).toDouble()))
+            .toList();
+        final sampled = nodes.length > 200 ? _sampleNodes(nodes, 200) : nodes;
+        final name = el['tags']?['name'] as String? ?? '';
+        final highway = el['tags']?['highway'] as String? ?? 'secondary';
+        final id = el['id'].toString();
+        rawWays.add(_RawWay(id: id, name: name, nodes: sampled, highwayType: highway));
+      }
+    }
+
+    debugPrint('[RouteService] ways: ${rawWays.length}개, 교차로: ${intersectionNodes.length}개');
+    return _selectTopRoutes(rawWays, userPos, intersectionNodes);
   }
 
   List<LatLng> _sampleNodes(List<LatLng> nodes, int target) {
@@ -395,7 +403,10 @@ out qt;
       routes = [route, ...routes];
     }
     selectedRoute = route;
+    connectingRoutes = [];
     notifyListeners();
+    // 끝점 기준 연결 루트 비동기 검색
+    fetchConnectingRoutes(route);
   }
 
   // ── 경유지 최적화 ──────────────────────────────────────────────
