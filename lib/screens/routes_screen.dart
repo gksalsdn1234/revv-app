@@ -27,6 +27,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
   bool _styleLoaded = false;
   bool _isDrawing = false;
   String? _lastPoiRouteId;
+  String? _lastFlownRouteId; // 카메라 중복 이동 방지
   RouteService? _routeSvc; // dispose()에서 context 없이 접근하기 위해 저장
 
   @override
@@ -52,11 +53,26 @@ class _RoutesScreenState extends State<RoutesScreen> {
   void _onRouteServiceChanged() {
     if (!mounted || _routeSvc == null) return;
     if (_styleLoaded && !_routeSvc!.isLoading) {
-      _drawRoutes(_routeSvc!.routes, _routeSvc!.selectedRoute);
-      final newId = _routeSvc!.selectedRoute?.id;
+      final sel = _routeSvc!.selectedRoute;
+      // 선택 루트가 바뀌면 즉시 카메라 이동 (_isDrawing 여부 무관)
+      if (sel != null && sel.id != _lastFlownRouteId) {
+        _lastFlownRouteId = sel.id;
+        _mapController?.flyTo(
+          mbx.CameraOptions(
+            center: mbx.Point(
+              coordinates: mbx.Position(sel.centerPoint.lng, sel.centerPoint.lat),
+            ),
+            zoom: 11.5,
+            pitch: 0,
+          ),
+          mbx.MapAnimationOptions(duration: 700),
+        );
+      }
+      _drawRoutes(_routeSvc!.routes, sel);
+      final newId = sel?.id;
       if (newId != null && newId != _lastPoiRouteId) {
         _lastPoiRouteId = newId;
-        _drawPoiPins(_routeSvc!.selectedRoute!);
+        _drawPoiPins(sel!);
       }
     }
   }
@@ -151,20 +167,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
         _polylines.add(poly);
       }
 
-      // 선택된 루트로 카메라 이동
-      if (selected != null) {
-        await _mapController?.flyTo(
-          mbx.CameraOptions(
-            center: mbx.Point(
-              coordinates: mbx.Position(
-                  selected.centerPoint.lng, selected.centerPoint.lat),
-            ),
-            zoom: 11.0,
-            pitch: 0,
-          ),
-          mbx.MapAnimationOptions(duration: 800),
-        );
-      }
     } finally {
       _isDrawing = false;
     }
