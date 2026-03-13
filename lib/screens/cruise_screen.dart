@@ -14,6 +14,7 @@ import '../services/directions_service.dart';
 import 'sprint_screen.dart';
 import 'routes_screen.dart';
 import 'trip_planner_screen.dart';
+import 'obd_screen.dart';
 
 class CruiseScreen extends StatefulWidget {
   const CruiseScreen({super.key});
@@ -26,16 +27,18 @@ class _CruiseScreenState extends State<CruiseScreen> {
   List<LatLng>? _navPolyline;
   RevvRoute? _lastFetchedRoute;
   bool _nearRouteStart = false;
+  LocationService? _locationService;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final loc = context.read<LocationService>();
+      _locationService = loc;
       await loc.requestPermission();
       if (loc.hasPermission) {
         await loc.startTracking();
-        context.read<WeatherService>().fetchWeather(loc.lat, loc.lng);
+        if (mounted) context.read<WeatherService>().fetchWeather(loc.lat, loc.lng);
         loc.addListener(_onLocationChanged);
       } else {
         if (mounted) {
@@ -52,7 +55,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
 
   @override
   void dispose() {
-    context.read<LocationService>().removeListener(_onLocationChanged);
+    _locationService?.removeListener(_onLocationChanged);
     super.dispose();
   }
 
@@ -81,7 +84,8 @@ class _CruiseScreenState extends State<CruiseScreen> {
       LatLng(loc.lat, loc.lng),
       route.nodes.first,
     );
-    if (mounted) setState(() => _navPolyline = polyline);
+    if (!mounted) return;
+    setState(() => _navPolyline = polyline);
   }
 
   void _goSprint() async {
@@ -107,28 +111,44 @@ class _CruiseScreenState extends State<CruiseScreen> {
             children: [
               const HudBar(),
               Expanded(
-                child: Stack(
+                child: Row(
                   children: [
-                    MapWidget(
-                      isSprintMode: false,
-                      navPolyline: _navPolyline,
-                      routePolyline: selectedRoute?.nodes,
-                    ),
-                    if (_nearRouteStart && selectedRoute != null)
-                      Positioned(
-                        top: 12,
-                        left: 16,
-                        right: 16,
-                        child: _NearStartBanner(
-                          routeName: selectedRoute.name,
-                          onSprint: _goSprint,
-                        ),
+                    // ── 왼쪽 레일 ──
+                    _LeftRail(onSprint: _goSprint),
+                    // ── 지도 ──
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          MapWidget(
+                            isSprintMode: false,
+                            navPolyline: _navPolyline,
+                            routePolyline: selectedRoute?.nodes,
+                          ),
+                          if (_nearRouteStart && selectedRoute != null)
+                            Positioned(
+                              top: 12,
+                              left: 8,
+                              right: 8,
+                              child: _NearStartBanner(
+                                routeName: selectedRoute.name,
+                                onSprint: _goSprint,
+                              ),
+                            ),
+                          // 선택된 루트명
+                          if (selectedRoute != null)
+                            Positioned(
+                              bottom: 12,
+                              left: 8,
+                              right: 8,
+                              child: _RouteChip(route: selectedRoute),
+                            ),
+                        ],
                       ),
+                    ),
                   ],
                 ),
               ),
               const JarvisPanel(),
-              _CruiseBottomPanel(onSprint: _goSprint),
             ],
           ),
         ),
@@ -147,9 +167,9 @@ class _NearStartBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: AppColors.panel.withOpacity(0.95),
+        color: AppColors.panel.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: AppColors.red.withOpacity(0.6)),
+        border: Border.all(color: AppColors.red.withValues(alpha: 0.6)),
       ),
       child: Row(
         children: [
@@ -181,69 +201,100 @@ class _NearStartBanner extends StatelessWidget {
   }
 }
 
-class _CruiseBottomPanel extends StatelessWidget {
+// ── 왼쪽 세로 레일 ──────────────────────────────────────────
+class _LeftRail extends StatelessWidget {
   final VoidCallback onSprint;
-  const _CruiseBottomPanel({required this.onSprint});
+  const _LeftRail({required this.onSprint});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+      width: 56,
       decoration: BoxDecoration(
         color: AppColors.panel,
-        border: Border(top: BorderSide(color: AppColors.red.withValues(alpha: 0.15))),
+        border: Border(right: BorderSide(color: AppColors.red.withValues(alpha: 0.12))),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              Consumer<LocationService>(
-                builder: (_, loc, __) => _StatChip(
-                  icon: Icons.speed,
-                  value: loc.hasPermission ? loc.speedKmh.toStringAsFixed(0) : '—',
-                  unit: 'km/h',
-                ),
-              ),
-              const SizedBox(width: 8),
-              Consumer<WeatherService>(
-                builder: (_, w, __) => _StatChip(
-                  emoji: w.weatherEmoji,
-                  value: w.tempDisplay,
-                  unit: w.weatherDesc,
-                ),
-              ),
-              const Spacer(),
-              const MicButton(),
-            ],
+          const SizedBox(height: 8),
+          // 속도
+          Consumer<LocationService>(
+            builder: (_, loc, __) => _SpeedTile(
+              value: loc.hasPermission ? loc.speedKmh.toStringAsFixed(0) : '—',
+            ),
           ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _ActionButton(
-                  icon: Icons.route,
-                  label: 'ROUTES',
-                  filled: false,
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RoutesScreen())),
-                ),
+          const SizedBox(height: 4),
+          // 날씨
+          Consumer<WeatherService>(
+            builder: (_, w, __) => _WeatherTile(emoji: w.weatherEmoji, temp: w.tempDisplay),
+          ),
+          Container(height: 1, color: AppColors.red.withValues(alpha: 0.1), margin: const EdgeInsets.symmetric(vertical: 8)),
+          // 메뉴 아이템
+          _RailItem(
+            icon: Icons.route_outlined,
+            label: '루트',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RoutesScreen())),
+          ),
+          _RailItem(
+            icon: Icons.map_outlined,
+            label: '여정',
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TripPlannerScreen())),
+          ),
+          _RailItem(
+            icon: Icons.speed_outlined,
+            label: 'OBD',
+            onTap: () => OBDScreen.show(context),
+          ),
+          _RailItem(
+            icon: Icons.history,
+            label: '기록',
+            onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('런 기록 기능 준비중'), duration: Duration(seconds: 1)),
+            ),
+          ),
+          _RailItem(
+            icon: Icons.chat_bubble_outline,
+            label: 'AI',
+            onTap: () => showModalBottomSheet(
+              context: context,
+              backgroundColor: AppColors.panel,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
               ),
-              const SizedBox(width: 8),
-              _IconOnlyButton(
-                icon: Icons.place_outlined,
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TripPlannerScreen())),
+              builder: (_) => const JarvisPanel(),
+            ),
+          ),
+          const Spacer(),
+          // SPRINT 버튼
+          GestureDetector(
+            onTap: onSprint,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              color: AppColors.red,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.flag, size: 18, color: Colors.white),
+                  const SizedBox(height: 4),
+                  Text(
+                    'GO',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                      letterSpacing: 3,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 2,
-                child: _ActionButton(
-                  icon: Icons.flag,
-                  label: 'SPRINT',
-                  filled: true,
-                  onTap: onSprint,
-                ),
-              ),
-            ],
+            ),
+          ),
+          // 마이크
+          Container(
+            color: AppColors.panel,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: const Center(child: MicButton()),
           ),
         ],
       ),
@@ -251,61 +302,70 @@ class _CruiseBottomPanel extends StatelessWidget {
   }
 }
 
-class _StatChip extends StatelessWidget {
-  final IconData? icon;
-  final String? emoji;
+class _SpeedTile extends StatelessWidget {
   final String value;
-  final String unit;
-  const _StatChip({this.icon, this.emoji, required this.value, required this.unit});
+  const _SpeedTile({required this.value});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Column(
       children: [
-        if (icon != null) Icon(icon, size: 13, color: AppColors.gray),
-        if (emoji != null) Text(emoji!, style: const TextStyle(fontSize: 12)),
-        const SizedBox(width: 4),
-        Text(value, style: GoogleFonts.orbitron(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white)),
-        const SizedBox(width: 3),
-        Text(unit, style: GoogleFonts.rajdhani(fontSize: 10, color: AppColors.gray, letterSpacing: 1)),
+        Text(
+          value,
+          style: GoogleFonts.orbitron(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+        ),
+        Text('km/h', style: GoogleFonts.rajdhani(fontSize: 8, color: AppColors.gray, letterSpacing: 1)),
       ],
     );
   }
 }
 
-class _ActionButton extends StatelessWidget {
+class _WeatherTile extends StatelessWidget {
+  final String emoji;
+  final String temp;
+  const _WeatherTile({required this.emoji, required this.temp});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(emoji, style: const TextStyle(fontSize: 16)),
+        Text(temp, style: GoogleFonts.rajdhani(fontSize: 10, color: AppColors.gray)),
+      ],
+    );
+  }
+}
+
+class _RailItem extends StatelessWidget {
   final IconData icon;
   final String label;
-  final bool filled;
-  final VoidCallback? onTap;
-  const _ActionButton({required this.icon, required this.label, required this.filled, this.onTap});
+  final VoidCallback onTap;
+  const _RailItem({required this.icon, required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      child: Material(
-        color: filled ? AppColors.red : Colors.transparent,
-        borderRadius: BorderRadius.circular(4),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(4),
-          child: Container(
-            decoration: filled
-                ? null
-                : BoxDecoration(
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: AppColors.red.withValues(alpha: 0.6)),
-                  ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 14, color: Colors.white),
-                const SizedBox(width: 6),
-                Text(label, style: GoogleFonts.rajdhani(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 3)),
-              ],
-            ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: SizedBox(
+          width: double.infinity,
+          height: 52,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 18, color: AppColors.gray),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: GoogleFonts.rajdhani(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.gray,
+                  letterSpacing: 1,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -313,34 +373,35 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
-class _IconOnlyButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback? onTap;
-  const _IconOnlyButton({required this.icon, this.onTap});
+// ── 선택 루트 칩 ─────────────────────────────────────────────
+class _RouteChip extends StatelessWidget {
+  final RevvRoute route;
+  const _RouteChip({required this.route});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 40,
-      width: 40,
-      child: Material(
-        color: Colors.transparent,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(4),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(4),
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: AppColors.red.withValues(alpha: 0.4)),
-            ),
-            child: Icon(icon, size: 18, color: AppColors.gray),
+        border: Border.all(color: AppColors.red.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(width: 5, height: 5, decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle)),
+          const SizedBox(width: 7),
+          Text(
+            '${route.name}  ·  ${route.distanceDisplay}',
+            style: GoogleFonts.rajdhani(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
           ),
-        ),
+        ],
       ),
     );
   }
 }
+
 
 class _SprintRoute extends PageRouteBuilder {
   _SprintRoute(Widget page)

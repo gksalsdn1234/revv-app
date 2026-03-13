@@ -38,6 +38,14 @@ class OBDService extends ChangeNotifier {
   String? get errorMsg => _errorMsg;
   bool get isConnected => _state == OBDState.ready;
 
+  /// 순간 연비 (L/100km) — 속도 5km/h 이상일 때만 유효
+  double? get instantFuelEconomyL100 {
+    final spd = _data?.speedKmh;
+    final rate = _data?.fuelRateLph;
+    if (spd == null || rate == null || spd < 5 || rate <= 0) return null;
+    return (rate / spd * 100).clamp(0.0, 99.9);
+  }
+
   // 라이브 탭에 표시할 4개 채널 (PID)
   List<String> _liveChannels = ['010C', '012F', '0111', '0105'];
   List<String> get liveChannels => List.unmodifiable(_liveChannels);

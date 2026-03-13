@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../services/obd_service.dart';
+import '../services/imu_service.dart';
 
 class OBDScreen extends StatefulWidget {
   const OBDScreen({super.key});
@@ -84,7 +85,7 @@ class _AppBar extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.panel,
           border: Border(
-            bottom: BorderSide(color: AppColors.red.withOpacity(0.3)),
+            bottom: BorderSide(color: AppColors.red.withValues(alpha: 0.3)),
           ),
         ),
         child: Row(
@@ -513,6 +514,7 @@ class _TelemTab extends StatelessWidget {
             _telemSection('⚙️  ENGINE', ['010C', '0104', '0111', '0145', '0105', '015C'], obd),
             _telemSection('💨  AIR / INTAKE', ['010F', '010B', '0110'], obd),
             _telemSection('⛽  FUEL', ['012F', '015E'], obd),
+            _FuelEcoRow(obd: obd),
             _telemSection('🚗  VEHICLE', ['010D', '0149', '0142'], obd),
             _ExtendedSection(),
           ],
@@ -627,98 +629,463 @@ class _TelemRow extends StatelessWidget {
   }
 }
 
-// 차량 의존 확장 채널
+// 차량 의존 확장 채널 + 폰 IMU 실시간 데이터
 class _ExtendedSection extends StatelessWidget {
   const _ExtendedSection();
 
   @override
   Widget build(BuildContext context) {
-    const extChannels = [
-      ('조향각', 'Steering Angle', '°'),
-      ('ABS 압력', 'ABS Brake Pressure', 'bar'),
-      ('요레이트', 'Yaw Rate', '°/s'),
-      ('횡가속도', 'Lateral G', 'g'),
-      ('종가속도', 'Longitudinal G', 'g'),
-      ('트랙션 컨트롤', 'TCS Status', '—'),
-    ];
+    return Consumer<ImuService>(
+      builder: (_, imu, __) {
+        final latG = imu.lateralG;
+        final lonG = imu.longitudinalG;
+        final yaw = imu.yawRateDps;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-          child: Row(
-            children: [
-              Text(
-                '🏎  EXTENDED',
-                style: GoogleFonts.rajdhani(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.gray,
-                    letterSpacing: 2),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.white12,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-                child: Text(
-                  '차량 의존',
-                  style: GoogleFonts.rajdhani(
-                      fontSize: 9, color: AppColors.gray),
-                ),
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-          child: Text(
-            'Mode 22 확장 PID — 차량 제조사별 지원 여부가 다릅니다.',
-            style: GoogleFonts.rajdhani(fontSize: 10, color: Colors.white24),
-          ),
-        ),
-        ...extChannels.map((c) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 90,
-                  child: Text(c.$1,
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── 폰 IMU 섹션 ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+              child: Row(
+                children: [
+                  Text(
+                    '📱  IMU (폰 센서)',
+                    style: GoogleFonts.rajdhani(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.red,
+                        letterSpacing: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: imu.calibrated
+                          ? const Color(0xFF00FF88).withValues(alpha: 0.15)
+                          : Colors.white12,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: Text(
+                      imu.calibrated ? '캘리브레이션 완료' : '미캘리브레이션',
                       style: GoogleFonts.rajdhani(
-                          fontSize: 12, color: Colors.white38)),
-                ),
-                Expanded(
-                  child: Container(
-                    height: 4,
+                          fontSize: 9,
+                          color: imu.calibrated
+                              ? const Color(0xFF00FF88)
+                              : Colors.orange),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: _CarGforceMeter(
+                lateralG: latG,
+                longitudinalG: lonG,
+                yawDps: yaw,
+                maxLatG: imu.maxLateralG,
+                maxLonG: imu.maxLonG,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Divider(height: 1, color: Colors.white12, indent: 16, endIndent: 16),
+
+            // ── 차량 의존 Mode 22 섹션 ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+              child: Row(
+                children: [
+                  Text(
+                    '🏎  EXTENDED (Mode 22)',
+                    style: GoogleFonts.rajdhani(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.gray,
+                        letterSpacing: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.white12,
                       borderRadius: BorderRadius.circular(2),
                     ),
+                    child: Text(
+                      '차량 의존',
+                      style: GoogleFonts.rajdhani(fontSize: 9, color: AppColors.gray),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 52,
-                  child: Text(
-                    '— ${c.$3}',
-                    textAlign: TextAlign.right,
-                    style: GoogleFonts.orbitron(
-                        fontSize: 10, color: Colors.white24),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
-          );
-        }),
-        const SizedBox(height: 20),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              child: Text(
+                'Mode 22 확장 PID — 차량 제조사별 지원 여부가 다릅니다.',
+                style: GoogleFonts.rajdhani(fontSize: 10, color: Colors.white24),
+              ),
+            ),
+            ...const [
+              ('조향각', '°'),
+              ('ABS 압력', 'bar'),
+              ('트랙션 컨트롤', '—'),
+            ].map((c) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 90,
+                    child: Text(c.$1,
+                        style: GoogleFonts.rajdhani(fontSize: 12, color: Colors.white38)),
+                  ),
+                  Expanded(
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white12,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 52,
+                    child: Text('— ${c.$2}',
+                        textAlign: TextAlign.right,
+                        style: GoogleFonts.orbitron(fontSize: 10, color: Colors.white24)),
+                  ),
+                ],
+              ),
+            )),
+            const SizedBox(height: 20),
+          ],
+        );
+      },
+    );
+  }
+}
+
+
+// ── 순간 연비 행 ───────────────────────────────────────────────
+
+class _FuelEcoRow extends StatelessWidget {
+  final OBDService obd;
+  const _FuelEcoRow({required this.obd});
+
+  @override
+  Widget build(BuildContext context) {
+    final eco = obd.instantFuelEconomyL100;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 90,
+            child: Text('순간연비',
+                style: GoogleFonts.rajdhani(fontSize: 12, color: Colors.white70)),
+          ),
+          Expanded(
+            child: Stack(children: [
+              Container(height: 4,
+                  decoration: BoxDecoration(color: Colors.white12,
+                      borderRadius: BorderRadius.circular(2))),
+              if (eco != null)
+                FractionallySizedBox(
+                  widthFactor: (1 - (eco / 30).clamp(0.0, 1.0)),
+                  child: Container(height: 4,
+                      decoration: BoxDecoration(
+                          color: eco < 8
+                              ? const Color(0xFF00CC66)
+                              : eco < 15
+                              ? Colors.orange
+                              : AppColors.red,
+                          borderRadius: BorderRadius.circular(2))),
+                ),
+            ]),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 72,
+            child: Text(
+              eco != null ? '${eco.toStringAsFixed(1)} L/100' : '— L/100',
+              textAlign: TextAlign.right,
+              style: GoogleFonts.orbitron(
+                  fontSize: 10, fontWeight: FontWeight.w700,
+                  color: eco != null
+                      ? (eco < 8 ? const Color(0xFF00CC66) : eco < 15 ? Colors.orange : AppColors.red)
+                      : Colors.white24),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 자동차 G포스 미터 ───────────────────────────────────────────
+
+class _CarGforceMeter extends StatefulWidget {
+  final double lateralG;
+  final double longitudinalG;
+  final double yawDps;
+  final double maxLatG;
+  final double maxLonG;
+
+  const _CarGforceMeter({
+    required this.lateralG,
+    required this.longitudinalG,
+    required this.yawDps,
+    required this.maxLatG,
+    required this.maxLonG,
+  });
+
+  @override
+  State<_CarGforceMeter> createState() => _CarGforceMeterState();
+}
+
+class _CarGforceMeterState extends State<_CarGforceMeter>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulse = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  static Color _gColor(double mag) {
+    final t = (mag / 1.2).clamp(0.0, 1.0);
+    if (t < 0.42) {
+      return Color.lerp(const Color(0xFF1565C0), const Color(0xFFFDD835), t / 0.42)!;
+    }
+    return Color.lerp(
+      const Color(0xFFFDD835),
+      const Color(0xFFE53935),
+      ((t - 0.42) / 0.58).clamp(0.0, 1.0),
+    )!;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mag = math.sqrt(
+        widget.lateralG * widget.lateralG + widget.longitudinalG * widget.longitudinalG);
+    final maxMag = math.sqrt(widget.maxLatG * widget.maxLatG + widget.maxLonG * widget.maxLonG);
+    final color = _gColor(mag);
+
+    return Column(
+      children: [
+        AnimatedBuilder(
+          animation: _pulse,
+          builder: (_, __) => CustomPaint(
+            size: const Size(110, 185),
+            painter: _CarGforcePainter(
+              lateralG: widget.lateralG,
+              longitudinalG: widget.longitudinalG,
+              gColor: color,
+              pulseValue: _pulse.value,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        // 수치 행
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              _GNum(label: '횡G', value: widget.lateralG, unit: 'g', color: color),
+              Container(width: 1, height: 36, color: Colors.white10),
+              _GNum(label: '종G', value: widget.longitudinalG, unit: 'g', color: color),
+              Container(width: 1, height: 36, color: Colors.white10),
+              _GNum(label: '요레이트', value: widget.yawDps, unit: '°/s',
+                  color: AppColors.red),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        // 최대G 배지
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text('MAX', style: GoogleFonts.rajdhani(
+                  fontSize: 9, fontWeight: FontWeight.w700,
+                  color: Colors.white38, letterSpacing: 2)),
+              const SizedBox(width: 10),
+              Text('횡 ${widget.maxLatG.toStringAsFixed(2)}g',
+                  style: GoogleFonts.rajdhani(fontSize: 12,
+                      color: Colors.orange, fontWeight: FontWeight.w600)),
+              const SizedBox(width: 12),
+              Text('종 ${widget.maxLonG.toStringAsFixed(2)}g',
+                  style: GoogleFonts.rajdhani(fontSize: 12,
+                      color: Colors.orange, fontWeight: FontWeight.w600)),
+              const SizedBox(width: 12),
+              Text('합 ${maxMag.toStringAsFixed(2)}g',
+                  style: GoogleFonts.rajdhani(fontSize: 12,
+                      color: _gColor(maxMag), fontWeight: FontWeight.w700)),
+            ],
+          ),
+        ),
       ],
     );
   }
+}
+
+class _GNum extends StatelessWidget {
+  final String label;
+  final double value;
+  final String unit;
+  final Color color;
+
+  const _GNum({required this.label, required this.value,
+    required this.unit, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Text(label, style: GoogleFonts.rajdhani(
+            fontSize: 9, color: Colors.white38, letterSpacing: 1.5)),
+        Text(
+          value >= 0 ? '+${value.toStringAsFixed(2)}' : value.toStringAsFixed(2),
+          style: GoogleFonts.rajdhani(
+              fontSize: 19, fontWeight: FontWeight.w700, color: color),
+        ),
+        Text(unit, style: GoogleFonts.rajdhani(fontSize: 9, color: Colors.white38)),
+      ],
+    );
+  }
+}
+
+class _CarGforcePainter extends CustomPainter {
+  final double lateralG;
+  final double longitudinalG;
+  final Color gColor;
+  final double pulseValue;
+
+  const _CarGforcePainter({
+    required this.lateralG,
+    required this.longitudinalG,
+    required this.gColor,
+    required this.pulseValue,
+  });
+
+  double get _magnitude =>
+      math.sqrt(lateralG * lateralG + longitudinalG * longitudinalG);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width;
+    final h = size.height;
+    final mag = _magnitude;
+    final glowRadius = (3.0 + mag * 9.0) * (0.65 + 0.35 * pulseValue);
+
+    // ── 차체 실루엣 ──────────────────────────────────────────────
+    final bodyRRect = RRect.fromRectAndCorners(
+      Rect.fromLTWH(w * 0.18, h * 0.04, w * 0.64, h * 0.92),
+      topLeft: Radius.circular(w * 0.23),
+      topRight: Radius.circular(w * 0.23),
+      bottomLeft: Radius.circular(w * 0.14),
+      bottomRight: Radius.circular(w * 0.14),
+    );
+
+    // 글로우
+    canvas.drawRRect(bodyRRect, Paint()
+      ..color = gColor.withValues(alpha: 0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..maskFilter = MaskFilter.blur(BlurStyle.outer, glowRadius));
+
+    // 실선
+    canvas.drawRRect(bodyRRect, Paint()
+      ..color = gColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8);
+
+    // ── 바퀴 4개 ──────────────────────────────────────────────
+    final wheelGlow = Paint()
+      ..color = gColor.withValues(alpha: 0.3)
+      ..style = PaintingStyle.fill
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, glowRadius * 0.5);
+    final wheelFill = Paint()
+      ..color = gColor.withValues(alpha: 0.5)
+      ..style = PaintingStyle.fill;
+
+    for (final r in [
+      Rect.fromLTWH(w * 0.01, h * 0.10, w * 0.16, h * 0.15),
+      Rect.fromLTWH(w * 0.83, h * 0.10, w * 0.16, h * 0.15),
+      Rect.fromLTWH(w * 0.01, h * 0.75, w * 0.16, h * 0.15),
+      Rect.fromLTWH(w * 0.83, h * 0.75, w * 0.16, h * 0.15),
+    ]) {
+      final rr = RRect.fromRectAndRadius(r, const Radius.circular(3));
+      canvas.drawRRect(rr, wheelGlow);
+      canvas.drawRRect(rr, wheelFill);
+    }
+
+    // ── 앞유리 / 뒷유리 ──────────────────────────────────────
+    final glassPaint = Paint()
+      ..color = gColor.withValues(alpha: 0.22)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(Offset(w * 0.27, h * 0.23), Offset(w * 0.73, h * 0.23), glassPaint);
+    canvas.drawLine(Offset(w * 0.27, h * 0.77), Offset(w * 0.73, h * 0.77), glassPaint);
+
+    // ── G포스 도트 ─────────────────────────────────────────────
+    final cx = w / 2;
+    final cy = h / 2;
+    final maxOff = w * 0.21;
+
+    double dx = lateralG * maxOff;
+    double dy = -longitudinalG * maxOff; // 가속 = 위(음수 y)
+    final dist = math.sqrt(dx * dx + dy * dy);
+    if (dist > maxOff) {
+      dx = dx / dist * maxOff;
+      dy = dy / dist * maxOff;
+    }
+
+    // 크로스헤어
+    final crossP = Paint()..color = Colors.white.withValues(alpha: 0.07)..strokeWidth = 0.5;
+    canvas.drawLine(Offset(cx - maxOff, cy), Offset(cx + maxOff, cy), crossP);
+    canvas.drawLine(Offset(cx, cy - maxOff), Offset(cx, cy + maxOff), crossP);
+    canvas.drawCircle(Offset(cx, cy), maxOff, Paint()
+      ..color = Colors.white.withValues(alpha: 0.05)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.5);
+
+    // 도트 글로우
+    canvas.drawCircle(Offset(cx + dx, cy + dy), 9, Paint()
+      ..color = gColor.withValues(alpha: 0.35)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7));
+    // 도트 본체
+    canvas.drawCircle(Offset(cx + dx, cy + dy), 5, Paint()..color = gColor);
+    // 도트 하이라이트
+    canvas.drawCircle(Offset(cx + dx, cy + dy), 2,
+        Paint()..color = Colors.white.withValues(alpha: 0.9));
+  }
+
+  @override
+  bool shouldRepaint(_CarGforcePainter old) =>
+      old.lateralG != lateralG ||
+      old.longitudinalG != longitudinalG ||
+      old.gColor != gColor ||
+      old.pulseValue != pulseValue;
 }
 
 // ── TAB 3: SETUP ─────────────────────────────────────────────
@@ -728,11 +1095,11 @@ class _SetupTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<OBDService>(
-      builder: (_, obd, __) => ListView(
+    return Consumer2<OBDService, ImuService>(
+      builder: (_, obd, imu, __) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // 연결 카드
+          // OBD 연결 카드
           _ConnectionCard(obd: obd),
           const SizedBox(height: 20),
           // 라이브 채널 설정
@@ -748,9 +1115,197 @@ class _SetupTab extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             ...List.generate(4, (i) => _ChannelSelector(index: i, obd: obd)),
+            const SizedBox(height: 20),
           ],
+          // IMU 캘리브레이션 카드
+          _ImuCalibrationCard(imu: imu),
         ],
       ),
+    );
+  }
+}
+
+// ── IMU 캘리브레이션 카드 ─────────────────────────────────────
+
+class _ImuCalibrationCard extends StatelessWidget {
+  final ImuService imu;
+  const _ImuCalibrationCard({required this.imu});
+
+  static const _mountLabels = ['대시보드 수평', '에어컨 세로', '에어컨 가로', '앞유리 세로'];
+  static const _mountIcons = ['⬛', '📱', '📲', '🔲'];
+  static const _mountDescs = [
+    '화면 위, 대시보드에 수평\n(가장 정확)',
+    '화면 앞, 에어컨 마운트\n세로 방향',
+    '화면 앞, 에어컨 마운트\n가로 방향',
+    '화면 앞, 앞유리 흡착\n세로 방향',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'IMU 센서 (폰 G-FORCE)',
+          style: GoogleFonts.rajdhani(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: AppColors.red,
+            letterSpacing: 2,
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // 마운트 타입 선택 그리드
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+          childAspectRatio: 2.2,
+          children: List.generate(MountType.values.length, (i) {
+            final selected = imu.mountType == MountType.values[i];
+            return GestureDetector(
+              onTap: () => imu.setMountType(MountType.values[i]),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: selected ? AppColors.red.withValues(alpha: 0.15) : AppColors.bg,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(
+                    color: selected ? AppColors.red : Colors.white12,
+                    width: selected ? 1.5 : 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Text(_mountIcons[i], style: const TextStyle(fontSize: 18)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            _mountLabels[i],
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: selected ? AppColors.red : Colors.white70,
+                            ),
+                          ),
+                          Text(
+                            _mountDescs[i],
+                            style: GoogleFonts.rajdhani(fontSize: 9, color: Colors.white38),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ),
+
+        const SizedBox(height: 16),
+
+        // 현재 실시간 값 미리보기
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.bg,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '현재 센서 값 (정지 상태에서 0에 가까워야 함)',
+                style: GoogleFonts.rajdhani(fontSize: 10, color: Colors.white38),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _LiveVal(label: '횡G', value: imu.lateralG, unit: 'g'),
+                  const SizedBox(width: 20),
+                  _LiveVal(label: '종G', value: imu.longitudinalG, unit: 'g'),
+                  const SizedBox(width: 20),
+                  _LiveVal(label: '요레이트', value: imu.yawRateDps, unit: '°/s'),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        // 캘리브레이션 버튼
+        GestureDetector(
+          onTap: imu.calibrate,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            decoration: BoxDecoration(
+              color: AppColors.red,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  imu.calibrated ? '재캘리브레이션' : '캘리브레이션 시작',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 2,
+                  ),
+                ),
+                Text(
+                  '차량 정지 + 수평 상태에서 탭',
+                  style: GoogleFonts.rajdhani(fontSize: 10, color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        if (imu.calibrated) ...[
+          const SizedBox(height: 8),
+          Center(
+            child: Text(
+              '✓ 캘리브레이션 완료 — 저장됨',
+              style: GoogleFonts.rajdhani(fontSize: 11, color: const Color(0xFF00FF88)),
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+      ],
+    );
+  }
+}
+
+class _LiveVal extends StatelessWidget {
+  final String label;
+  final double value;
+  final String unit;
+  const _LiveVal({required this.label, required this.value, required this.unit});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label,
+            style: GoogleFonts.rajdhani(fontSize: 9, color: AppColors.gray, letterSpacing: 1)),
+        Text(
+          '${value >= 0 ? '+' : ''}${value.toStringAsFixed(2)}',
+          style: GoogleFonts.orbitron(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+        ),
+        Text(unit, style: GoogleFonts.rajdhani(fontSize: 9, color: AppColors.gray)),
+      ],
     );
   }
 }
@@ -772,7 +1327,7 @@ class _ConnectionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: isConnected
-              ? const Color(0xFF00FF88).withOpacity(0.3)
+              ? const Color(0xFF00FF88).withValues(alpha: 0.3)
               : Colors.white12,
         ),
       ),
@@ -879,7 +1434,7 @@ class _ChannelSelector extends StatelessWidget {
               width: 24,
               height: 24,
               decoration: BoxDecoration(
-                color: AppColors.red.withOpacity(0.15),
+                color: AppColors.red.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Center(

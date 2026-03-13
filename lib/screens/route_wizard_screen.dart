@@ -10,6 +10,7 @@ import '../services/route_builder_service.dart';
 import '../services/poi_service.dart';
 import '../services/home_location_service.dart';
 import '../services/directions_service.dart';
+import '../services/waypoint_optimizer.dart';
 
 /// 루트 계획 마법사 — Tesla-style 트립 플래너
 class RouteWizardSheet extends StatefulWidget {
@@ -31,14 +32,18 @@ class RouteWizardSheet extends StatefulWidget {
   State<RouteWizardSheet> createState() => _RouteWizardSheetState();
 }
 
-enum _Step { routeType, distance, planning, tripPlan, building }
+enum _Step { routeType, distance, multiSelect, planning, tripPlan, building }
 
 class _RouteWizardSheetState extends State<RouteWizardSheet> {
   _Step _step = _Step.routeType;
 
   // 설정
   bool _isLoop = false;
+  bool _isMulti = false;
   int _targetKm = 50;
+
+  // 다중 선택 모드
+  final Set<String> _selectedIds = {};
 
   // 플랜 데이터
   RevvRoute? _selectedRoute;
@@ -182,10 +187,17 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
   void _next() {
     switch (_step) {
       case _Step.routeType:
-        setState(() => _step = _Step.distance);
+        if (_isMulti) {
+          setState(() { _selectedIds.clear(); _step = _Step.multiSelect; });
+        } else {
+          setState(() => _step = _Step.distance);
+        }
         break;
       case _Step.distance:
         _generatePlan();
+        break;
+      case _Step.multiSelect:
+        _optimizeSelected();
         break;
       default:
         break;
@@ -197,12 +209,90 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
       case _Step.distance:
         setState(() => _step = _Step.routeType);
         break;
+      case _Step.multiSelect:
+        setState(() => _step = _Step.routeType);
+        break;
       case _Step.tripPlan:
         setState(() => _step = _Step.distance);
         break;
       default:
         break;
     }
+  }
+
+  // ── 다중 구간 최적화 + 출발 ───────────────────────────────
+
+  Future<void> _optimizeSelected() async {
+    final routeSvc = context.read<RouteService>();
+    final loc = context.read<LocationService>();
+
+    final selected = routeSvc.routes
+        .where((r) => _selectedIds.contains(r.id))
+        .toList();
+
+    if (selected.isEmpty) {
+      setState(() => _error = '구간을 1개 이상 선택해주세요.');
+      return;
+    }
+
+    setState(() { _step = _Step.building; _error = null; });
+
+    final result = await routeSvc.optimizeWaypoints(
+      userPos: LatLng(loc.lat, loc.lng),
+      segments: selected,
+      returnHome: false,
+    );
+
+    if (!mounted) return;
+
+    if (result == null) {
+      setState(() { _error = '최적화에 실패했어요. 다시 시도해주세요.'; _step = _Step.multiSelect; });
+      return;
+    }
+
+    _launchOptimized(result, routeSvc);
+  }
+
+  void _launchOptimized(OptimizedRoute result, RouteService routeSvc) {
+    if (!mounted) return;
+
+    // 최적화된 구간들의 노드를 순서대로 이어붙여 하나의 RevvRoute로 만들기
+    final allNodes = <LatLng>[];
+    double totalScore = 0;
+    double totalKm = 0;
+    final names = <String>[];
+
+    for (int i = 0; i < result.orderedSegments.length; i++) {
+      final seg = result.orderedSegments[i];
+      final rev = result.reversed[i];
+      final nodes = rev ? seg.nodes.reversed.toList() : seg.nodes;
+      allNodes.addAll(nodes);
+      totalScore += seg.windingScore;
+      totalKm += seg.distanceKm;
+      names.add(seg.name);
+    }
+
+    // Mapbox로 받은 실제 경로가 있으면 사용
+    final finalNodes = result.polyline.isNotEmpty ? result.polyline : allNodes;
+
+    final merged = RevvRoute(
+      id: 'multi_${DateTime.now().millisecondsSinceEpoch}',
+      name: names.take(2).join(' → ') + (names.length > 2 ? ' +${names.length - 2}' : ''),
+      nodes: finalNodes,
+      distanceKm: totalKm,
+      windingScore: totalScore / result.orderedSegments.length,
+      starRating: RevvRoute.toStarRating(totalScore / result.orderedSegments.length),
+      sharpCurveCount: 0,
+      centerPoint: finalNodes[finalNodes.length ~/ 2],
+      distanceFromUser: 0,
+      tightCurveKm: result.orderedSegments.fold(0.0, (s, r) => s + r.tightCurveKm),
+      mediumCurveKm: result.orderedSegments.fold(0.0, (s, r) => s + r.mediumCurveKm),
+      maxContinuousKm: result.orderedSegments.map((r) => r.maxContinuousKm).reduce((a, b) => a > b ? a : b),
+      elevationDelta: 0,
+    );
+
+    routeSvc.selectRoute(merged);
+    if (mounted) Navigator.pop(context);
   }
 
   void _cyclePreStop() {
@@ -310,6 +400,7 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
     final titles = {
       _Step.routeType: '어떻게 달릴까요?',
       _Step.distance: '목표 거리를 설정해요',
+      _Step.multiSelect: '통과할 구간을 선택해요',
     };
     return Text(
       titles[_step] ?? '',
@@ -321,15 +412,10 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
   Widget _buildContent() {
     switch (_step) {
       case _Step.routeType:
-        return _twoChoice(
-          leftIcon: '🛣',
-          leftLabel: '단독 파편\n재밌는 도로 하나',
-          rightIcon: '🔄',
-          rightLabel: '루프 만들기\n여러 구간 이어달리기',
-          leftSelected: !_isLoop,
-          onLeft: () => setState(() => _isLoop = false),
-          onRight: () => setState(() => _isLoop = true),
-        );
+        return _threeChoice();
+
+      case _Step.multiSelect:
+        return _buildMultiSelect();
 
       case _Step.distance:
         return Row(
@@ -655,7 +741,7 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
 
   Widget _buildNavButtons() {
     final isFirst = _step == _Step.routeType;
-    final isLast = _step == _Step.tripPlan;
+    final isLast = _step == _Step.tripPlan || _step == _Step.multiSelect;
 
     return Row(
       children: [
@@ -686,7 +772,11 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
               ),
               child: Center(
                 child: Text(
-                  isLast ? '출발하기  🚗' : '다음',
+                  _step == _Step.multiSelect
+                      ? '최적 경로 생성  ✨'
+                      : isLast
+                          ? '출발하기  🚗'
+                          : '다음',
                   style: GoogleFonts.rajdhani(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
@@ -701,74 +791,163 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
     );
   }
 
-  Widget _twoChoice({
-    required String leftIcon,
-    required String leftLabel,
-    required String rightIcon,
-    required String rightLabel,
-    required bool leftSelected,
-    required VoidCallback onLeft,
-    required VoidCallback onRight,
-  }) {
+  // ── 3선택 UI ─────────────────────────────────────────────
+
+  Widget _threeChoice() {
+    final modes = [
+      (icon: '🛣', label: '단독 파편\n재밌는 도로 하나', isLoop: false, isMulti: false),
+      (icon: '🔄', label: '루프 만들기\n여러 구간 이어달리기', isLoop: true, isMulti: false),
+      (icon: '🗺', label: '구간 이어달리기\n최적 경로 자동 계획', isLoop: false, isMulti: true),
+    ];
     return Row(
+      children: modes.map((m) {
+        final sel = _isMulti ? m.isMulti : (_isLoop == m.isLoop && !m.isMulti);
+        return Expanded(
+          child: GestureDetector(
+            onTap: () => setState(() {
+              _isLoop = m.isLoop;
+              _isMulti = m.isMulti;
+            }),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+              decoration: BoxDecoration(
+                color: sel ? AppColors.red.withOpacity(0.15) : AppColors.bg,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: sel ? AppColors.red : Colors.white12,
+                  width: sel ? 1.5 : 1,
+                ),
+              ),
+              child: Column(
+                children: [
+                  Text(m.icon, style: const TextStyle(fontSize: 24)),
+                  const SizedBox(height: 6),
+                  Text(
+                    m.label,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: sel ? Colors.white : AppColors.gray,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // ── 다중 구간 선택 ─────────────────────────────────────────
+
+  Widget _buildMultiSelect() {
+    final routes = context.read<RouteService>().routes;
+
+    if (routes.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 20),
+        child: Text(
+          '주변 루트가 없어요. ROUTES 탭에서 먼저 탐색해주세요.',
+          style: GoogleFonts.rajdhani(fontSize: 13, color: AppColors.gray),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-            child: _ChoiceCard(
-                icon: leftIcon,
-                label: leftLabel,
-                selected: leftSelected,
-                onTap: onLeft)),
-        const SizedBox(width: 10),
-        Expanded(
-            child: _ChoiceCard(
-                icon: rightIcon,
-                label: rightLabel,
-                selected: !leftSelected,
-                onTap: onRight)),
+        Text(
+          '${_selectedIds.length}개 선택됨  ·  최적 순서는 자동으로 계산돼요',
+          style: GoogleFonts.rajdhani(fontSize: 11, color: AppColors.gray),
+        ),
+        const SizedBox(height: 10),
+        ...routes.map((r) {
+          final selected = _selectedIds.contains(r.id);
+          return GestureDetector(
+            onTap: () => setState(() {
+              if (selected) {
+                _selectedIds.remove(r.id);
+              } else {
+                _selectedIds.add(r.id);
+              }
+            }),
+            child: Container(
+              margin: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: selected ? AppColors.red.withOpacity(0.1) : AppColors.bg,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: selected ? AppColors.red.withOpacity(0.6) : Colors.white12,
+                  width: selected ? 1.2 : 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected ? AppColors.red : Colors.transparent,
+                      border: Border.all(
+                        color: selected ? AppColors.red : Colors.white24,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: selected
+                        ? const Icon(Icons.check, size: 11, color: Colors.white)
+                        : null,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          r.name,
+                          style: GoogleFonts.rajdhani(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          '${r.distanceKm.toStringAsFixed(1)}km  ·  ★${r.windingScore.toStringAsFixed(1)}',
+                          style: GoogleFonts.rajdhani(
+                              fontSize: 10, color: AppColors.gray),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  // 거리 배지
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: AppColors.panel,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                    child: Text(
+                      '${r.distanceFromUser.toStringAsFixed(0)}km',
+                      style: GoogleFonts.rajdhani(
+                          fontSize: 9, color: AppColors.gray),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
       ],
     );
   }
-}
 
-class _ChoiceCard extends StatelessWidget {
-  final String icon;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-  const _ChoiceCard(
-      {required this.icon,
-      required this.label,
-      required this.selected,
-      required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.red.withOpacity(0.15) : AppColors.bg,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-              color: selected ? AppColors.red : Colors.white12,
-              width: selected ? 1.5 : 1),
-        ),
-        child: Column(
-          children: [
-            Text(icon, style: const TextStyle(fontSize: 28)),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.rajdhani(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: selected ? Colors.white : AppColors.gray),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

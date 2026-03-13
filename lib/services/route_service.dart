@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../models/revv_route.dart';
+import 'waypoint_optimizer.dart';
 
 class RouteService extends ChangeNotifier {
   List<RevvRoute> routes = [];
@@ -395,6 +396,44 @@ out qt;
     }
     selectedRoute = route;
     notifyListeners();
+  }
+
+  // ── 경유지 최적화 ──────────────────────────────────────────────
+
+  bool isOptimizing = false;
+  OptimizedRoute? lastOptimized;
+
+  /// 선택된 여러 와인딩 구간을 최적 순서로 연결하는 경로를 계산한다.
+  ///
+  /// [userPos]   : 현재 위치 (출발지)
+  /// [segments]  : 반드시 통과할 RevvRoute 목록
+  /// [returnHome]: 마지막 구간 후 출발지 복귀 여부
+  Future<OptimizedRoute?> optimizeWaypoints({
+    required LatLng userPos,
+    required List<RevvRoute> segments,
+    bool returnHome = false,
+  }) async {
+    if (segments.isEmpty) return null;
+
+    isOptimizing = true;
+    lastOptimized = null;
+    notifyListeners();
+
+    try {
+      final result = await WaypointOptimizer.optimize(
+        userPos: userPos,
+        segments: segments,
+        returnHome: returnHome,
+      );
+      lastOptimized = result;
+      return result;
+    } catch (e) {
+      debugPrint('[RouteService] optimizeWaypoints 오류: $e');
+      return null;
+    } finally {
+      isOptimizing = false;
+      notifyListeners();
+    }
   }
 }
 

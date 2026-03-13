@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -12,6 +13,8 @@ import '../services/location_service.dart';
 import '../services/weather_service.dart';
 import '../services/run_session_service.dart';
 import '../services/obd_service.dart';
+import '../services/driving_context_service.dart';
+import '../services/directions_service.dart';
 import 'run_card_screen.dart';
 import 'obd_screen.dart';
 
@@ -27,6 +30,10 @@ class _SprintScreenState extends State<SprintScreen> {
   LocationService? _locationService;
   RunSessionService? _runSessionService;
 
+  List<LatLng>? _navPolyline;        // 현재위치 → 루트시작점 경로
+  bool _onRoute = false;             // 루트 시작점 진입 여부
+  String? _routeStatusMsg;           // "루트 진입!" 표시용
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -34,20 +41,62 @@ class _SprintScreenState extends State<SprintScreen> {
       _locationService = context.read<LocationService>();
       _runSessionService = context.read<RunSessionService>();
       final weather = context.read<WeatherService>();
-      _runSessionService!.startSession(
-        widget.selectedRoute,
-        weatherEmoji: weather.weatherEmoji,
-        tempDisplay: weather.tempDisplay,
-        weatherDesc: weather.weatherDesc,
-      );
+      final weatherEmoji = weather.weatherEmoji;
+      final tempDisplay = weather.tempDisplay;
+      final weatherDesc = weather.weatherDesc;
+      final selectedRoute = widget.selectedRoute;
+
+      // 빌드 완료 후 startSession 호출 (notifyListeners 충돌 방지)
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _runSessionService!.startSession(
+          selectedRoute,
+          weatherEmoji: weatherEmoji,
+          tempDisplay: tempDisplay,
+          weatherDesc: weatherDesc,
+        );
+      });
+
       _locationService!.addListener(_onLocation);
+
+      // 루트가 있으면 진입 경로 즉시 fetch
+      if (selectedRoute != null) {
+        _fetchNavRoute();
+      }
     }
+  }
+
+  Future<void> _fetchNavRoute() async {
+    final loc = _locationService!;
+    final start = widget.selectedRoute!.nodes.first;
+    final poly = await DirectionsService.getRoute(
+      LatLng(loc.lat, loc.lng),
+      start,
+    );
+    if (mounted) setState(() => _navPolyline = poly);
   }
 
   void _onLocation() {
     final loc = _locationService;
     if (loc == null) return;
     _runSessionService?.recordPosition(loc.lat, loc.lng, loc.speedKmh);
+
+    // 루트 시작점 200m 이내 진입 시 nav 경로 숨기기
+    if (!_onRoute && widget.selectedRoute != null && _navPolyline != null) {
+      final start = widget.selectedRoute!.nodes.first;
+      final dist = RevvRoute.haversineKm(LatLng(loc.lat, loc.lng), start);
+      if (dist < 0.2) {
+        setState(() {
+          _onRoute = true;
+          _navPolyline = null;
+          _routeStatusMsg = '루트 진입!';
+        });
+        // 3초 후 메시지 제거
+        Future.delayed(const Duration(seconds: 3), () {
+          if (mounted) setState(() => _routeStatusMsg = null);
+        });
+      }
+    }
   }
 
   void _endRun() {
@@ -94,16 +143,209 @@ class _SprintScreenState extends State<SprintScreen> {
               // OBD 데이터 스트립
               const _OBDStrip(),
               Expanded(
-                child: MapWidget(
-                  isSprintMode: true,
-                  routePolyline: widget.selectedRoute?.nodes,
+                child: Consumer<DrivingContextService>(
+                  builder: (_, ctx, __) => Stack(
+                    children: [
+                      // 지도 + 모드 테두리
+                      Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: ctx.mode != DriveMode.cruise
+                                ? ctx.mode.color.withValues(alpha: 0.55)
+                                : Colors.transparent,
+                            width: 2.5,
+                          ),
+                        ),
+                        child: MapWidget(
+                          isSprintMode: true,
+                          navPolyline: _navPolyline,
+                          routePolyline: widget.selectedRoute?.nodes,
+                        ),
+                      ),
+                      const Positioned(
+                        top: 10,
+                        left: 12,
+                        child: _LiveStatHUD(),
+                      ),
+                      // 모드 뱃지 (cruise 아닐 때만)
+                      if (ctx.mode != DriveMode.cruise)
+                        Positioned(
+                          top: 10,
+                          right: 12,
+                          child: _ModeBadge(mode: ctx.mode),
+                        ),
+                      // 루트 진입 메시지
+                      if (_routeStatusMsg != null)
+                        Positioned(
+                          bottom: 20,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: AppColors.panel.withValues(alpha: 0.92),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: AppColors.red.withValues(alpha: 0.7)),
+                              ),
+                              child: Text(
+                                '🏁  $_routeStatusMsg',
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.red,
+                                  letterSpacing: 2,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      // nav 중일 때 안내 메시지 (루트 아직 미진입)
+                      if (!_onRoute && _navPolyline != null && widget.selectedRoute != null)
+                        Positioned(
+                          bottom: 20,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: AppColors.panel.withValues(alpha: 0.88),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.blue.withValues(alpha: 0.5)),
+                              ),
+                              child: Text(
+                                '🔵  ${widget.selectedRoute!.name} 으로 이동 중',
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.lightBlue,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-              _SprintBottomBar(onEnd: _endRun),
+              Consumer<DrivingContextService>(
+                builder: (_, ctx, __) => _SprintBottomBar(
+                  onEnd: _endRun,
+                  modeColor: ctx.mode.color,
+                ),
+              ),
             ],
           ),
         ),
       ),
+    );
+  }
+}
+
+// ── 라이브 스탯 HUD ──────────────────────────────────────────
+
+class _LiveStatHUD extends StatefulWidget {
+  const _LiveStatHUD();
+
+  @override
+  State<_LiveStatHUD> createState() => _LiveStatHUDState();
+}
+
+class _LiveStatHUDState extends State<_LiveStatHUD> {
+  late Timer _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  String _formatDuration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return h > 0 ? '$h:$m:$s' : '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = context.read<RunSessionService>();
+    final duration = session.currentDuration;
+    final distKm = session.currentDistance;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: AppColors.red.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _HudStat(
+            label: '경과',
+            value: _formatDuration(duration),
+            icon: Icons.timer_outlined,
+          ),
+          Container(
+            width: 1,
+            height: 28,
+            margin: const EdgeInsets.symmetric(horizontal: 10),
+            color: Colors.white12,
+          ),
+          _HudStat(
+            label: '거리',
+            value: distKm >= 1.0
+                ? '${distKm.toStringAsFixed(2)} km'
+                : '${(distKm * 1000).toStringAsFixed(0)} m',
+            icon: Icons.straighten,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HudStat extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  const _HudStat({required this.label, required this.value, required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 9, color: AppColors.gray),
+            const SizedBox(width: 3),
+            Text(
+              label,
+              style: GoogleFonts.rajdhani(fontSize: 9, color: AppColors.gray, letterSpacing: 1),
+            ),
+          ],
+        ),
+        const SizedBox(height: 1),
+        Text(
+          value,
+          style: GoogleFonts.orbitron(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
+        ),
+      ],
     );
   }
 }
@@ -187,7 +429,7 @@ class _OBDStrip extends StatelessWidget {
             child: Column(
               children: [
                 _OBDRow(data: data),
-                Container(height: 1, color: AppColors.red.withOpacity(0.12)),
+                Container(height: 1, color: AppColors.red.withValues(alpha: 0.12)),
               ],
             ),
           ),
@@ -314,7 +556,8 @@ class _OBDCell extends StatelessWidget {
 
 class _SprintBottomBar extends StatelessWidget {
   final VoidCallback onEnd;
-  const _SprintBottomBar({required this.onEnd});
+  final Color modeColor;
+  const _SprintBottomBar({required this.onEnd, required this.modeColor});
 
   @override
   Widget build(BuildContext context) {
@@ -324,7 +567,7 @@ class _SprintBottomBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.panel,
         border: Border(
-          top: BorderSide(color: AppColors.red.withOpacity(0.4), width: 1.5),
+          top: BorderSide(color: modeColor.withValues(alpha: 0.55), width: 1.5),
         ),
       ),
       child: Row(
@@ -337,6 +580,42 @@ class _SprintBottomBar extends StatelessWidget {
               filled: true,
               height: 48,
               onTap: onEnd,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 드라이빙 모드 뱃지 ───────────────────────────────────────
+
+class _ModeBadge extends StatelessWidget {
+  final DriveMode mode;
+  const _ModeBadge({required this.mode});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 400),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: mode.color.withValues(alpha: 0.7), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(mode.emoji, style: const TextStyle(fontSize: 11)),
+          const SizedBox(width: 5),
+          Text(
+            mode.label,
+            style: GoogleFonts.rajdhani(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: mode.color,
+              letterSpacing: 2,
             ),
           ),
         ],
