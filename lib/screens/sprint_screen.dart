@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -15,6 +16,7 @@ import '../services/run_session_service.dart';
 import '../services/obd_service.dart';
 import '../services/driving_context_service.dart';
 import '../services/directions_service.dart';
+import '../services/imu_service.dart';
 import 'run_card_screen.dart';
 import 'obd_screen.dart';
 
@@ -166,6 +168,12 @@ class _SprintScreenState extends State<SprintScreen> {
                         top: 10,
                         left: 12,
                         child: _LiveStatHUD(),
+                      ),
+                      // G포스 미니 위젯
+                      const Positioned(
+                        bottom: 12,
+                        right: 12,
+                        child: _MiniGForce(),
                       ),
                       // 모드 뱃지 (cruise 아닐 때만)
                       if (ctx.mode != DriveMode.cruise)
@@ -622,6 +630,89 @@ class _ModeBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── 미니 G포스 원형 위젯 ─────────────────────────────────────
+class _MiniGForce extends StatelessWidget {
+  const _MiniGForce();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ImuService>(
+      builder: (_, imu, __) {
+        final lG = imu.lateralG.clamp(-1.5, 1.5);
+        final nG = imu.longitudinalG.clamp(-1.5, 1.5);
+        final total = math.sqrt(lG * lG + nG * nG);
+        final color = total > 0.8
+            ? AppColors.red
+            : total > 0.4
+                ? Colors.orange
+                : Colors.white70;
+        return Container(
+          width: 76,
+          height: 76,
+          decoration: BoxDecoration(
+            color: AppColors.panel.withValues(alpha: 0.9),
+            shape: BoxShape.circle,
+            border: Border.all(color: AppColors.red.withValues(alpha: 0.3), width: 1),
+          ),
+          child: CustomPaint(
+            painter: _MiniGForcePainter(lateralG: lG, longitudinalG: nG),
+            child: Center(
+              child: Text(
+                total.toStringAsFixed(2),
+                style: GoogleFonts.orbitron(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MiniGForcePainter extends CustomPainter {
+  final double lateralG;
+  final double longitudinalG;
+  const _MiniGForcePainter({required this.lateralG, required this.longitudinalG});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final r = cx - 6;
+
+    // 외곽 원
+    canvas.drawCircle(Offset(cx, cy), r, Paint()
+      ..color = Colors.white12
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1);
+
+    // 십자선
+    final cross = Paint()..color = Colors.white10..strokeWidth = 0.8;
+    canvas.drawLine(Offset(cx - r, cy), Offset(cx + r, cy), cross);
+    canvas.drawLine(Offset(cx, cy - r), Offset(cx, cy + r), cross);
+
+    // G 볼
+    const maxG = 1.5;
+    final dx = lateralG / maxG * r;
+    final dy = -longitudinalG / maxG * r; // 가속 = 위
+    final total = math.sqrt(lateralG * lateralG + longitudinalG * longitudinalG);
+    final dotColor = total > 0.8
+        ? AppColors.red
+        : total > 0.4
+            ? Colors.orange
+            : Colors.white70;
+    canvas.drawCircle(Offset(cx + dx, cy + dy), 5, Paint()..color = dotColor);
+  }
+
+  @override
+  bool shouldRepaint(_MiniGForcePainter old) =>
+      old.lateralG != lateralG || old.longitudinalG != longitudinalG;
 }
 
 class _RunCardRoute extends PageRouteBuilder {
