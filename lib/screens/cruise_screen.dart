@@ -15,6 +15,7 @@ import 'sprint_screen.dart';
 import 'routes_screen.dart';
 import 'trip_planner_screen.dart';
 import 'obd_screen.dart';
+import 'history_screen.dart';
 
 class CruiseScreen extends StatefulWidget {
   const CruiseScreen({super.key});
@@ -248,9 +249,7 @@ class _LeftRail extends StatelessWidget {
           _RailItem(
             icon: Icons.history,
             label: '기록',
-            onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('런 기록 기능 준비중'), duration: Duration(seconds: 1)),
-            ),
+            onTap: () => HistoryScreen.show(context),
           ),
           _RailItem(
             icon: Icons.chat_bubble_outline,

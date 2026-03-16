@@ -1,6 +1,12 @@
+import 'dart:io';
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../theme/colors.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
@@ -20,6 +26,8 @@ class RunCardScreen extends StatefulWidget {
 
 class _RunCardScreenState extends State<RunCardScreen> {
   RunSummary? _saved;
+  final _cardKey = GlobalKey();
+  bool _sharing = false;
 
   @override
   void initState() {
@@ -33,6 +41,44 @@ class _RunCardScreenState extends State<RunCardScreen> {
     final summary =
         await context.read<RunHistoryService>().save(s);
     if (mounted) setState(() => _saved = summary);
+  }
+
+  Future<void> _shareCard() async {
+    if (_sharing) return;
+    setState(() => _sharing = true);
+    try {
+      final boundary = _cardKey.currentContext?.findRenderObject()
+          as RenderRepaintBoundary?;
+      if (boundary == null) return;
+
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final byteData =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return;
+
+      final Uint8List pngBytes = byteData.buffer.asUint8List();
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/revv_run_card.png');
+      await file.writeAsBytes(pngBytes);
+
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'image/png')],
+          text: 'REVV — ${widget.session?.routeName ?? "드라이브"} 완주 🚗',
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('공유 실패: $e'),
+            backgroundColor: AppColors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sharing = false);
+    }
   }
 
   @override
@@ -51,9 +97,15 @@ class _RunCardScreenState extends State<RunCardScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Expanded(child: SizedBox()),
-              _RunCard(session: widget.session, visitCount: visitCount),
+              RepaintBoundary(
+                key: _cardKey,
+                child: _RunCard(
+                  session: widget.session,
+                  visitCount: visitCount,
+                ),
+              ),
               const Expanded(child: SizedBox()),
-              _BottomButtons(),
+              _BottomButtons(onShare: _shareCard, sharing: _sharing),
               const SizedBox(height: 24),
             ],
           ),
@@ -299,6 +351,10 @@ class _ChipDivider extends StatelessWidget {
 }
 
 class _BottomButtons extends StatelessWidget {
+  final VoidCallback onShare;
+  final bool sharing;
+  const _BottomButtons({required this.onShare, required this.sharing});
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -306,8 +362,9 @@ class _BottomButtons extends StatelessWidget {
       child: Column(
         children: [
           RedGlowButton(
-            label: '📤 공유하기',
+            label: sharing ? '공유 중...' : '📤 공유하기',
             filled: true,
+            onTap: sharing ? null : onShare,
           ),
           const SizedBox(height: 12),
           RedGlowButton(
