@@ -18,6 +18,11 @@ class RunSessionService extends ChangeNotifier {
   String _tempDisplay = '—';
   String _weatherDesc = '';
 
+  // ── DriveMode 시간 추적 ────────────────────────────────────
+  String _currentMode = 'cruise';
+  DateTime? _currentModeStart;
+  final Map<String, int> _driveModeSeconds = {};
+
   double get currentMaxSpeed => _maxSpeedKmh;
   double get currentDistance => _distanceKm;
   Duration get currentDuration =>
@@ -41,6 +46,9 @@ class RunSessionService extends ChangeNotifier {
     _weatherEmoji = weatherEmoji;
     _tempDisplay = tempDisplay;
     _weatherDesc = weatherDesc;
+    _currentMode = 'cruise';
+    _currentModeStart = DateTime.now();
+    _driveModeSeconds.clear();
     notifyListeners();
   }
 
@@ -58,9 +66,29 @@ class RunSessionService extends ChangeNotifier {
     notifyListeners();
   }
 
-  RunSession? stopSession() {
+  /// DriveMode 변경 시 호출 (mode.name 전달 → 'cruise' / 'winding' / 'sport')
+  void recordDriveMode(String modeName) {
+    if (!isRecording || modeName == _currentMode) return;
+    _finalizeCurrentMode();
+    _currentMode = modeName;
+    _currentModeStart = DateTime.now();
+  }
+
+  void _finalizeCurrentMode() {
+    final start = _currentModeStart;
+    if (start == null) return;
+    final secs = DateTime.now().difference(start).inSeconds;
+    _driveModeSeconds[_currentMode] = (_driveModeSeconds[_currentMode] ?? 0) + secs;
+  }
+
+  /// maxLateralG, maxLonG는 ImuService에서 읽어 전달
+  RunSession? stopSession({
+    double maxLateralG = 0.0,
+    double maxLonG = 0.0,
+  }) {
     if (!isRecording || _startTime == null) return null;
     isRecording = false;
+    _finalizeCurrentMode();
     final session = RunSession(
       startTime: _startTime!,
       endTime: DateTime.now(),
@@ -72,6 +100,9 @@ class RunSessionService extends ChangeNotifier {
       weatherEmoji: _weatherEmoji,
       tempDisplay: _tempDisplay,
       weatherDesc: _weatherDesc,
+      maxLateralG: maxLateralG,
+      maxLonG: maxLonG,
+      driveModeSeconds: Map.unmodifiable(Map.of(_driveModeSeconds)),
     );
     notifyListeners();
     return session;

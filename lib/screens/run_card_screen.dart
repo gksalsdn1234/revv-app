@@ -12,6 +12,7 @@ import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../services/run_history_service.dart';
 import '../services/saved_route_service.dart';
+import '../services/revv_ai_service.dart';
 import '../widgets/corner_brackets.dart';
 import '../widgets/sprint_toggle.dart';
 import 'cruise_screen.dart';
@@ -28,11 +29,16 @@ class _RunCardScreenState extends State<RunCardScreen> {
   RunSummary? _saved;
   final _cardKey = GlobalKey();
   bool _sharing = false;
+  String? _jarvisAnalysis;
+  bool _jarvisLoading = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _saveSession());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _saveSession();
+      await _runJarvisAnalysis();
+    });
   }
 
   Future<void> _saveSession() async {
@@ -41,6 +47,17 @@ class _RunCardScreenState extends State<RunCardScreen> {
     final summary =
         await context.read<RunHistoryService>().save(s);
     if (mounted) setState(() => _saved = summary);
+  }
+
+  Future<void> _runJarvisAnalysis() async {
+    final s = widget.session;
+    if (s == null) return;
+    if (mounted) setState(() => _jarvisLoading = true);
+    final result = await RevvAiService().analyzeRun(s);
+    if (mounted) setState(() {
+      _jarvisAnalysis = result;
+      _jarvisLoading = false;
+    });
   }
 
   Future<void> _shareCard() async {
@@ -102,6 +119,8 @@ class _RunCardScreenState extends State<RunCardScreen> {
                 child: _RunCard(
                   session: widget.session,
                   visitCount: visitCount,
+                  jarvisAnalysis: _jarvisAnalysis,
+                  jarvisLoading: _jarvisLoading,
                 ),
               ),
               const Expanded(child: SizedBox()),
@@ -118,7 +137,14 @@ class _RunCardScreenState extends State<RunCardScreen> {
 class _RunCard extends StatelessWidget {
   final RunSession? session;
   final int? visitCount;
-  const _RunCard({required this.session, this.visitCount});
+  final String? jarvisAnalysis;
+  final bool jarvisLoading;
+  const _RunCard({
+    required this.session,
+    this.visitCount,
+    this.jarvisAnalysis,
+    this.jarvisLoading = false,
+  });
 
   String _jarvisComment() {
     final s = session;
@@ -283,14 +309,29 @@ class _RunCard extends StatelessWidget {
               const SizedBox(height: 14),
               Divider(color: AppColors.red.withOpacity(0.2)),
               const SizedBox(height: 12),
-              Text(
-                'JARVIS',
-                style: GoogleFonts.rajdhani(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.red,
-                  letterSpacing: 4,
-                ),
+              Row(
+                children: [
+                  Text(
+                    'JARVIS',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.red,
+                      letterSpacing: 4,
+                    ),
+                  ),
+                  if (jarvisLoading) ...[
+                    const SizedBox(width: 8),
+                    const SizedBox(
+                      width: 8,
+                      height: 8,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        color: AppColors.red,
+                      ),
+                    ),
+                  ],
+                ],
               ),
               const SizedBox(height: 8),
               Container(
@@ -301,12 +342,16 @@ class _RunCard extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  _jarvisComment(),
+                  jarvisLoading
+                      ? '분석 중...'
+                      : (jarvisAnalysis ?? _jarvisComment()),
                   style: GoogleFonts.rajdhani(
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
                     fontStyle: FontStyle.italic,
-                    color: Colors.white.withOpacity(0.65),
+                    color: Colors.white.withOpacity(
+                      jarvisLoading ? 0.3 : 0.65,
+                    ),
                   ),
                 ),
               ),

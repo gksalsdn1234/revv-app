@@ -12,6 +12,13 @@ class RunSession {
   final String tempDisplay;
   final String weatherDesc;
 
+  /// IMU 최대 횡G (에뮬레이터에서는 0.0)
+  final double maxLateralG;
+  /// IMU 최대 종G (에뮬레이터에서는 0.0)
+  final double maxLonG;
+  /// DriveMode별 누적 초 {'cruise': 120, 'winding': 45, 'sport': 30}
+  final Map<String, int> driveModeSeconds;
+
   const RunSession({
     required this.startTime,
     required this.endTime,
@@ -23,6 +30,9 @@ class RunSession {
     required this.weatherEmoji,
     required this.tempDisplay,
     required this.weatherDesc,
+    this.maxLateralG = 0.0,
+    this.maxLonG = 0.0,
+    this.driveModeSeconds = const {},
   });
 
   Duration get duration => endTime.difference(startTime);

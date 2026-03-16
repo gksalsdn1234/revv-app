@@ -95,6 +95,10 @@ class _SprintScreenState extends State<SprintScreen> {
     if (loc == null) return;
     _runSessionService?.recordPosition(loc.lat, loc.lng, loc.speedKmh);
 
+    // DriveMode 기록 (mode 변경 시에만 내부에서 처리)
+    final drivingCtx = context.read<DrivingContextService>();
+    _runSessionService?.recordDriveMode(drivingCtx.mode.name);
+
     // 루트 시작점 200m 이내 진입 시 nav 경로 숨기기
     if (!_onRoute && widget.selectedRoute != null && _navPolyline != null) {
       final start = widget.selectedRoute!.nodes.first;
@@ -127,7 +131,12 @@ class _SprintScreenState extends State<SprintScreen> {
   void _endRun() {
     _locationService?.removeListener(_onLocation);
     _tbtService?.stop();
-    final session = _runSessionService?.stopSession();
+    final imu = context.read<ImuService>();
+    final session = _runSessionService?.stopSession(
+      maxLateralG: imu.maxLateralG,
+      maxLonG: imu.maxLonG,
+    );
+    imu.resetMaxG(); // 다음 세션을 위해 초기화
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
