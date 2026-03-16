@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../models/run_summary.dart';
 import '../services/run_history_service.dart';
+import '../services/cloud_sync_service.dart';
 import '../widgets/corner_brackets.dart';
 import '../widgets/hud_bar.dart';
 
@@ -44,6 +45,11 @@ class HistoryScreen extends StatelessWidget {
                       color: Colors.white,
                       letterSpacing: 4,
                     ),
+                  ),
+                  const Spacer(),
+                  // 클라우드 동기화 상태 표시
+                  Consumer<CloudSyncService>(
+                    builder: (_, sync, __) => _SyncBadge(sync: sync),
                   ),
                 ],
               ),
@@ -429,5 +435,59 @@ class _EmptyState extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// ── 클라우드 동기화 상태 배지 ────────────────────────────────────
+class _SyncBadge extends StatelessWidget {
+  final CloudSyncService sync;
+  const _SyncBadge({required this.sync});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!sync.isReady) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.cloud_off, size: 12, color: AppColors.gray),
+          const SizedBox(width: 4),
+          Text(
+            '오프라인',
+            style: GoogleFonts.rajdhani(
+              fontSize: 10,
+              color: AppColors.gray,
+            ),
+          ),
+        ],
+      );
+    }
+    switch (sync.status) {
+      case SyncStatus.syncing:
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.5,
+                color: AppColors.cyan,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              '동기화 중',
+              style: GoogleFonts.rajdhani(
+                fontSize: 10,
+                color: AppColors.cyan,
+              ),
+            ),
+          ],
+        );
+      case SyncStatus.error:
+        return Icon(Icons.cloud_off, size: 12, color: AppColors.red);
+      default:
+        return Icon(Icons.cloud_done_outlined, size: 12, color: AppColors.cyan);
+    }
   }
 }
