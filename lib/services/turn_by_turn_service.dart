@@ -13,8 +13,10 @@ class TurnByTurnService {
   bool _announced100 = false;
   final FlutterTts _tts = FlutterTts();
   bool _stopped = false;
+  bool _muted = false;
 
   int get currentIdx => _idx;
+  bool get muted => _muted;
 
   /// 현재 보여줄 다음 스텝 (upcoming turn)
   NavStep? get upcomingStep =>
@@ -69,8 +71,14 @@ class TurnByTurnService {
     return _haversineM(LatLng(lat, lng), steps[targetIdx].location);
   }
 
+  void toggleMute() {
+    _muted = !_muted;
+    if (_muted) _tts.stop();
+    onUpdate();
+  }
+
   void _speak(String text) {
-    if (!_stopped) _tts.speak(text);
+    if (!_stopped && !_muted) _tts.speak(text);
   }
 
   void stop() {

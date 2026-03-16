@@ -198,6 +198,8 @@ class _SprintScreenState extends State<SprintScreen> {
                           child: _NavBanner(
                             step: _tbtService!.upcomingStep!,
                             distanceM: _tbtDistM,
+                            muted: _tbtService!.muted,
+                            onToggleMute: _tbtService!.toggleMute,
                           ),
                         ),
                       const Positioned(
@@ -755,7 +757,14 @@ class _MiniGForcePainter extends CustomPainter {
 class _NavBanner extends StatelessWidget {
   final NavStep step;
   final double distanceM;
-  const _NavBanner({required this.step, required this.distanceM});
+  final bool muted;
+  final VoidCallback onToggleMute;
+  const _NavBanner({
+    required this.step,
+    required this.distanceM,
+    required this.muted,
+    required this.onToggleMute,
+  });
 
   String get _distText {
     if (distanceM >= 1000) return '${(distanceM / 1000).toStringAsFixed(1)} km';
@@ -804,6 +813,15 @@ class _NavBanner extends StatelessWidget {
               fontSize: 14,
               fontWeight: FontWeight.w700,
               color: Colors.lightBlueAccent,
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: onToggleMute,
+            child: Icon(
+              muted ? Icons.volume_off : Icons.volume_up,
+              color: muted ? AppColors.gray : Colors.lightBlueAccent,
+              size: 22,
             ),
           ),
         ],
