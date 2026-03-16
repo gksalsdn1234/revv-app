@@ -17,6 +17,8 @@ import '../services/obd_service.dart';
 import '../services/driving_context_service.dart';
 import '../services/directions_service.dart';
 import '../services/imu_service.dart';
+import '../services/turn_by_turn_service.dart';
+import '../models/nav_step.dart';
 import 'run_card_screen.dart';
 import 'obd_screen.dart';
 
@@ -35,6 +37,8 @@ class _SprintScreenState extends State<SprintScreen> {
   List<LatLng>? _navPolyline;        // 현재위치 → 루트시작점 경로
   bool _onRoute = false;             // 루트 시작점 진입 여부
   String? _routeStatusMsg;           // "루트 진입!" 표시용
+  TurnByTurnService? _tbtService;    // 턴바이턴
+  double _tbtDistM = 0;             // 다음 maneuver까지 거리
 
   @override
   void didChangeDependencies() {
@@ -71,11 +75,19 @@ class _SprintScreenState extends State<SprintScreen> {
   Future<void> _fetchNavRoute() async {
     final loc = _locationService!;
     final start = widget.selectedRoute!.nodes.first;
-    final poly = await DirectionsService.getRoute(
+    final result = await DirectionsService.getRouteWithSteps(
       LatLng(loc.lat, loc.lng),
       start,
     );
-    if (mounted) setState(() => _navPolyline = poly);
+    if (!mounted) return;
+    setState(() => _navPolyline = result.polyline);
+    if (result.steps.isNotEmpty) {
+      _tbtService?.stop();
+      _tbtService = TurnByTurnService(
+        steps: result.steps,
+        onUpdate: () { if (mounted) setState(() {}); },
+      );
+    }
   }
 
   void _onLocation() {
@@ -88,21 +100,33 @@ class _SprintScreenState extends State<SprintScreen> {
       final start = widget.selectedRoute!.nodes.first;
       final dist = RevvRoute.haversineKm(LatLng(loc.lat, loc.lng), start);
       if (dist < 0.2) {
+        _tbtService?.stop();
+        _tbtService = null;
         setState(() {
           _onRoute = true;
           _navPolyline = null;
           _routeStatusMsg = '루트 진입!';
         });
-        // 3초 후 메시지 제거
         Future.delayed(const Duration(seconds: 3), () {
           if (mounted) setState(() => _routeStatusMsg = null);
         });
+        return;
+      }
+    }
+
+    // 턴바이턴 위치 업데이트
+    if (_tbtService != null) {
+      _tbtService!.updateLocation(loc.lat, loc.lng);
+      final d = _tbtService!.distanceToNextM(loc.lat, loc.lng);
+      if ((d - _tbtDistM).abs() > 5) {
+        setState(() => _tbtDistM = d);
       }
     }
   }
 
   void _endRun() {
     _locationService?.removeListener(_onLocation);
+    _tbtService?.stop();
     final session = _runSessionService?.stopSession();
     if (!mounted) return;
     Navigator.pushReplacement(
@@ -114,6 +138,7 @@ class _SprintScreenState extends State<SprintScreen> {
   @override
   void dispose() {
     _locationService?.removeListener(_onLocation);
+    _tbtService?.stop();
     super.dispose();
   }
 
@@ -164,6 +189,17 @@ class _SprintScreenState extends State<SprintScreen> {
                           routePolyline: widget.selectedRoute?.nodes,
                         ),
                       ),
+                      // 턴바이턴 안내 배너
+                      if (_tbtService != null && _tbtService!.upcomingStep != null)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: _NavBanner(
+                            step: _tbtService!.upcomingStep!,
+                            distanceM: _tbtDistM,
+                          ),
+                        ),
                       const Positioned(
                         top: 10,
                         left: 12,
@@ -713,6 +749,67 @@ class _MiniGForcePainter extends CustomPainter {
   @override
   bool shouldRepaint(_MiniGForcePainter old) =>
       old.lateralG != lateralG || old.longitudinalG != longitudinalG;
+}
+
+// ── 턴바이턴 안내 배너 ────────────────────────────────────────
+class _NavBanner extends StatelessWidget {
+  final NavStep step;
+  final double distanceM;
+  const _NavBanner({required this.step, required this.distanceM});
+
+  String get _distText {
+    if (distanceM >= 1000) return '${(distanceM / 1000).toStringAsFixed(1)} km';
+    return '${distanceM.toInt()} m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.95),
+        border: Border(bottom: BorderSide(color: Colors.blue.withValues(alpha: 0.4))),
+      ),
+      child: Row(
+        children: [
+          Icon(step.icon, color: Colors.lightBlueAccent, size: 32),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  step.koreanInstruction,
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (step.streetName.isNotEmpty)
+                  Text(
+                    step.streetName,
+                    style: GoogleFonts.rajdhani(fontSize: 11, color: AppColors.gray),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            _distText,
+            style: GoogleFonts.orbitron(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Colors.lightBlueAccent,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _RunCardRoute extends PageRouteBuilder {
