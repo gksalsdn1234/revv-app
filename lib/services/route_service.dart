@@ -116,7 +116,8 @@ class RouteService extends ChangeNotifier {
     }
   }
 
-  /// 선택 루트 끝점 기준 연결 루트 검색 (15km 반경)
+  /// 선택 루트 끝점 기준 연결 루트 검색 (10km 반경, 상위 3개)
+  /// 속도 최적화: 반경 축소(15→10km) + 결과 수 축소(5→3개) + 타임아웃 12초
   Future<void> fetchConnectingRoutes(RevvRoute fromRoute) async {
     final endpoint = fromRoute.nodes.last;
     isLoadingConnecting = true;
@@ -124,15 +125,17 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final all = await _fetchAndScore(endpoint.lat, endpoint.lng, 15000);
-      // 현재 선택 루트는 제외, 상위 5개
+      final all = await _fetchAndScore(endpoint.lat, endpoint.lng, 10000)
+          .timeout(const Duration(seconds: 12));
+      // 현재 선택 루트는 제외, 상위 3개 (빠른 표시)
       connectingRoutes = all
           .where((r) => r.id != fromRoute.id)
-          .take(5)
+          .take(3)
           .toList();
       debugPrint('[RouteService] 연결 루트: ${connectingRoutes.length}개');
     } catch (e) {
-      debugPrint('[RouteService] fetchConnectingRoutes 오류: $e');
+      debugPrint('[RouteService] fetchConnectingRoutes 오류(타임아웃 포함): $e');
+      connectingRoutes = []; // 타임아웃 시 빈 결과
     }
 
     isLoadingConnecting = false;

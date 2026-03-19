@@ -278,14 +278,21 @@ class _SprintScreenState extends State<SprintScreen> {
                             onToggleMute: _tbtService!.toggleMute,
                           ),
                         ),
+                      // 경과/거리 HUD (좌상단)
                       const Positioned(
                         top: 10,
                         left: 12,
                         child: _LiveStatHUD(),
                       ),
-                      // G포스 미니 위젯
+                      // 속도 크게 표시 (왼쪽 하단)
                       const Positioned(
-                        bottom: 12,
+                        bottom: 14,
+                        left: 12,
+                        child: _SpeedDisplay(),
+                      ),
+                      // G포스 미니 위젯 (우하단)
+                      const Positioned(
+                        bottom: 14,
                         right: 12,
                         child: _MiniGForce(),
                       ),
@@ -529,6 +536,64 @@ class _HudStat extends StatelessWidget {
   }
 }
 
+// ── 속도 표시 (대형, 지도 위 오버레이) ──────────────────────
+class _SpeedDisplay extends StatelessWidget {
+  const _SpeedDisplay();
+
+  @override
+  Widget build(BuildContext context) {
+    final speed = context.select<LocationService, double>((l) => l.speedKmh);
+    final speedInt = speed.round();
+    // 속도 색상: 느림=흰색, 보통=초록, 빠름=주황/빨강
+    final Color speedColor = speedInt > 100
+        ? AppColors.red
+        : speedInt > 60
+            ? Colors.orange
+            : Colors.white;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.bg.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: speedColor.withValues(alpha: 0.35),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 10,
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '$speedInt',
+            style: GoogleFonts.orbitron(
+              fontSize: 46,
+              fontWeight: FontWeight.w900,
+              color: speedColor,
+              height: 1.0,
+            ),
+          ),
+          Text(
+            'km/h',
+            style: GoogleFonts.rajdhani(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppColors.gray,
+              letterSpacing: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ── OBD 스트립 ───────────────────────────────────────────────
 
 class _OBDStrip extends StatelessWidget {
@@ -748,10 +813,10 @@ class _SprintBottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 72,
+      height: 64,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: AppColors.panel,
+        color: AppColors.panel.withValues(alpha: 0.96),
         border: Border(
           top: BorderSide(color: modeColor.withValues(alpha: 0.55), width: 1.5),
         ),

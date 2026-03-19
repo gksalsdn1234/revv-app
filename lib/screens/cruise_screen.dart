@@ -179,7 +179,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
               // ── 선택된 루트 칩 (Sprint 중에는 숨김) ──
               if (!_isSprinting && selectedRoute != null)
                 Positioned(
-                  bottom: 80,
+                  bottom: 68,
                   left: 60,
                   right: 12,
                   child: _RouteChip(route: selectedRoute),
@@ -255,53 +255,15 @@ class _CruiseScreenState extends State<CruiseScreen> {
                   ),
                 ),
 
-              // ── GO + MIC 버튼 (메뉴 닫혔을 때만, Sprint 중에는 숨김) ──
-              if (!_menuOpen && !_isSprinting)
+              // ── 하단 퀵액세스 바 (Sprint 중에는 숨김) ──
+              if (!_isSprinting)
                 Positioned(
-                  bottom: 12,
-                  left: 12,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // GO 버튼
-                      GestureDetector(
-                        onTap: _goSprint,
-                        child: Container(
-                          width: 52,
-                          height: 52,
-                          decoration: BoxDecoration(
-                            color: AppColors.red,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.redGlow,
-                                blurRadius: 16,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.flag_rounded, size: 16, color: Colors.white),
-                              const SizedBox(height: 2),
-                              Text(
-                                'GO',
-                                style: GoogleFonts.rajdhani(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                  letterSpacing: 2,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      // MIC 버튼
-                      const MicButton(),
-                    ],
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _BottomQuickBar(
+                    onSprint: _goSprint,
+                    onOpenMenu: () => setState(() => _menuOpen = !_menuOpen),
                   ),
                 ),
             ],
@@ -599,6 +561,137 @@ class _RouteChip extends StatelessWidget {
   }
 }
 
+
+// ── 하단 퀵액세스 바 ─────────────────────────────────────────
+// 항상 보이는 5개 버튼: 루트 / 여정 / GO / 기록 / 더보기
+class _BottomQuickBar extends StatelessWidget {
+  final VoidCallback onSprint;
+  final VoidCallback onOpenMenu;
+  const _BottomQuickBar({required this.onSprint, required this.onOpenMenu});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.97),
+        border: Border(top: BorderSide(color: AppColors.divider, width: 1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 16,
+            offset: const Offset(0, -3),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 58,
+          child: Row(
+            children: [
+              // 루트 탐색
+              _QuickBtn(
+                icon: Icons.route_outlined,
+                label: '루트',
+                onTap: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const RoutesScreen())),
+              ),
+              // 여정 (TRIP)
+              _QuickBtn(
+                icon: Icons.explore_outlined,
+                label: '여정',
+                onTap: () => Navigator.push(context,
+                    MaterialPageRoute(
+                        builder: (_) => const RoutesScreen(initialTab: 1))),
+              ),
+              // GO — 가운데, 강조
+              Expanded(
+                child: GestureDetector(
+                  onTap: onSprint,
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.red,
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.redGlow,
+                          blurRadius: 12,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.flag_rounded, size: 16, color: Colors.white),
+                        const SizedBox(height: 1),
+                        Text(
+                          'GO',
+                          style: GoogleFonts.rajdhani(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              // 기록
+              _QuickBtn(
+                icon: Icons.history,
+                label: '기록',
+                onTap: () => HistoryScreen.show(context),
+              ),
+              // 더보기 (레일)
+              _QuickBtn(
+                icon: Icons.more_horiz,
+                label: '더보기',
+                onTap: onOpenMenu,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _QuickBtn extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _QuickBtn({required this.icon, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 22, color: AppColors.textSecondary),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: GoogleFonts.rajdhani(
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _SprintRoute extends PageRouteBuilder {
   _SprintRoute(Widget page)

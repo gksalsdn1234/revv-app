@@ -9,6 +9,7 @@ class LocationService extends ChangeNotifier {
 
   Position? currentPosition;
   double speedKmh = 0;
+  double heading = 0; // 이동 방향 (0=북, 90=동, 단위: degrees)
   bool hasPermission = false;
   bool isTracking = false;
 
@@ -33,6 +34,7 @@ class LocationService extends ChangeNotifier {
         .listen((position) {
       currentPosition = position;
       speedKmh = (position.speed * 3.6).clamp(0, 300);
+      if (position.heading >= 0) heading = position.heading;
       notifyListeners();
     }, onError: (_) {
       // GPS 신호 없을 때 마지막 위치 유지, 속도 0

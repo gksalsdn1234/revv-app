@@ -31,6 +31,7 @@ class _MapWidgetState extends State<MapWidget> {
   mbx.MapboxMap? _mapController;
   mbx.PointAnnotationManager? _annotationManager;
   bool _styleLoaded = false;
+  bool _locationPuckEnabled = false;
   LocationService? _locationService;
 
   @override
@@ -51,6 +52,27 @@ class _MapWidgetState extends State<MapWidget> {
   }
 
   @override
+  void didUpdateWidget(MapWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Sprint 모드 전환 시 스타일 URI가 바뀌어 Mapbox가 스타일을 재로드함
+    // → _styleLoaded를 false로 초기화해야 _onStyleLoaded 재호출 대기
+    if (oldWidget.isSprintMode != widget.isSprintMode) {
+      _styleLoaded = false;
+      _locationPuckEnabled = false;
+    }
+
+    if (_styleLoaded) {
+      if (oldWidget.navPolyline != widget.navPolyline) {
+        _drawPolyline('nav', widget.navPolyline ?? [], Colors.blue.value, 4.0);
+      }
+      if (oldWidget.routePolyline != widget.routePolyline) {
+        _drawPolyline('route', widget.routePolyline ?? [], AppColors.red.value, 5.5);
+      }
+    }
+  }
+
+  @override
   void dispose() {
     _locationService?.removeListener(_onLocationChanged);
     super.dispose();
@@ -59,7 +81,7 @@ class _MapWidgetState extends State<MapWidget> {
   void _onLocationChanged() {
     final loc = _locationService;
     if (loc != null && _styleLoaded) {
-      _moveCamera(loc.lat, loc.lng);
+      _moveCamera(loc.lat, loc.lng, heading: loc.heading);
     }
   }
 
@@ -69,27 +91,18 @@ class _MapWidgetState extends State<MapWidget> {
 
   Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
     _styleLoaded = true;
+    _locationPuckEnabled = false;
     _annotationManager =
         await _mapController?.annotations.createPointAnnotationManager();
     final loc = context.read<LocationService>();
-    await _moveCamera(loc.lat, loc.lng);
     await _applyCustomStyle();
+    await _moveCamera(loc.lat, loc.lng, heading: loc.heading, immediate: true);
+    // 폴리라인 재그리기 (스타일 재로드 시)
     if (widget.navPolyline?.isNotEmpty == true) {
       await _drawPolyline('nav', widget.navPolyline!, Colors.blue.value, 4.0);
     }
     if (widget.routePolyline?.isNotEmpty == true) {
-      await _drawPolyline('route', widget.routePolyline!, AppColors.red.value, 5.0);
-    }
-  }
-
-  @override
-  void didUpdateWidget(MapWidget oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.navPolyline != widget.navPolyline) {
-      _drawPolyline('nav', widget.navPolyline ?? [], Colors.blue.value, 4.0);
-    }
-    if (oldWidget.routePolyline != widget.routePolyline) {
-      _drawPolyline('route', widget.routePolyline ?? [], AppColors.red.value, 5.0);
+      await _drawPolyline('route', widget.routePolyline!, AppColors.red.value, 5.5);
     }
   }
 
@@ -122,7 +135,7 @@ class _MapWidgetState extends State<MapWidget> {
         sourceId: sourceId,
         lineColor: colorArgb,
         lineWidth: width,
-        lineOpacity: 0.85,
+        lineOpacity: 0.9,
         lineCap: mbx.LineCap.ROUND,
         lineJoin: mbx.LineJoin.ROUND,
       ));
@@ -135,7 +148,7 @@ class _MapWidgetState extends State<MapWidget> {
     final map = _mapController;
     if (map == null) return;
 
-    // ── 나침반 활성화 ─────────────────────────────────────────────────
+    // ── 나침반 ──────────────────────────────────────────────────────
     try {
       await map.compass.updateSettings(mbx.CompassSettings(
         enabled: true,
@@ -145,30 +158,87 @@ class _MapWidgetState extends State<MapWidget> {
       debugPrint('[MapWidget] compass: $e');
     }
 
-    // ── 위치 표시: Waze 스타일 방향 화살표 ────────────────────────────
+    // ── 위치 표시: 방향 화살표 + pulsing ───────────────────────────
     try {
       await map.location.updateSettings(mbx.LocationComponentSettings(
         enabled: true,
-        pulsingEnabled: false,
+        pulsingEnabled: widget.isSprintMode,
+        pulsingColor: widget.isSprintMode
+            ? AppColors.red.withOpacity(0.35).value
+            : 0xFF1E90FF,
         locationPuck: mbx.LocationPuck(
           locationPuck2D: mbx.LocationPuck2D(),
         ),
       ));
+      _locationPuckEnabled = true;
     } catch (e) {
       debugPrint('[MapWidget] location layer: $e');
     }
+
+    // ── 스타일 설정 (라이트/라벨 등) ──────────────────────────────
+    if (!widget.isSprintMode) {
+      for (final entry in {
+        'showPointOfInterestLabels': false,
+        'showTransitLabels': false,
+        'showRoadLabels': true,
+        'showPlaceLabels': false,
+        'lightPreset': 'night',
+      }.entries) {
+        try {
+          await map.style.setStyleImportConfigProperty(
+              'basemap', entry.key, entry.value);
+        } catch (_) {}
+      }
+    }
   }
 
-  Future<void> _moveCamera(double lat, double lng) async {
+  Future<void> _moveCamera(double lat, double lng,
+      {double? heading, bool immediate = false}) async {
     if (!_styleLoaded || _mapController == null) return;
-    await _mapController!.flyTo(
-      mbx.CameraOptions(
-        center: mbx.Point(coordinates: mbx.Position(lng, lat)),
-        zoom: widget.isSprintMode ? 16.0 : 15.0,
-        pitch: widget.isSprintMode ? 60.0 : 30.0,
-      ),
-      mbx.MapAnimationOptions(duration: 800),
+
+    final cameraOpts = mbx.CameraOptions(
+      center: mbx.Point(coordinates: mbx.Position(lng, lat)),
+      zoom: widget.isSprintMode ? 16.5 : 15.0,
+      pitch: widget.isSprintMode ? 50.0 : 20.0,
+      bearing: (widget.isSprintMode && heading != null) ? heading : null,
     );
+
+    if (immediate) {
+      // 즉각 이동 (스타일 로드 시 초기 위치)
+      try { await _mapController!.setCamera(cameraOpts); } catch (_) {}
+    } else if (widget.isSprintMode) {
+      // Sprint 모드: 부드럽고 빠른 카메라 추적 (easeTo)
+      try {
+        await _mapController!.easeTo(
+          cameraOpts,
+          mbx.MapAnimationOptions(duration: 300),
+        );
+      } catch (_) {}
+    } else {
+      // Cruise 모드: flyTo (느린 이동 OK)
+      try {
+        await _mapController!.flyTo(
+          cameraOpts,
+          mbx.MapAnimationOptions(duration: 700),
+        );
+      } catch (_) {}
+    }
+
+    // LocationPuck이 비활성화됐으면 재활성화
+    if (!_locationPuckEnabled && _styleLoaded) {
+      try {
+        await _mapController!.location.updateSettings(
+          mbx.LocationComponentSettings(
+            enabled: true,
+            pulsingEnabled: widget.isSprintMode,
+            locationPuck: mbx.LocationPuck(
+              locationPuck2D: mbx.LocationPuck2D(),
+            ),
+          ),
+        );
+        _locationPuckEnabled = true;
+      } catch (_) {}
+    }
   }
 
   @override
@@ -182,14 +252,15 @@ class _MapWidgetState extends State<MapWidget> {
 
     final loc = context.read<LocationService>();
     final weatherIcon = context.read<WeatherService>().weatherIcon;
+
     return mbx.MapWidget(
       styleUri: widget.isSprintMode
           ? MapboxService.sprintStyle(weatherIcon)
           : MapboxService.cruiseStyle,
       cameraOptions: mbx.CameraOptions(
         center: mbx.Point(coordinates: mbx.Position(loc.lng, loc.lat)),
-        zoom: widget.isSprintMode ? 16.0 : 15.0,
-        pitch: widget.isSprintMode ? 60.0 : 30.0,
+        zoom: widget.isSprintMode ? 16.5 : 15.0,
+        pitch: widget.isSprintMode ? 50.0 : 20.0,
       ),
       onMapCreated: _onMapCreated,
       onStyleLoadedListener: _onStyleLoaded,
