@@ -11,7 +11,7 @@
 - **에뮬레이터**: Mapbox + Android Emulator GFXSTREAM 충돌 → 실기기 필요
 - **커뮤니케이션**: 한국어
 
-## 현재 버전: v1.34 (2026-03-19)
+## 현재 버전: v1.35 (2026-03-19)
 
 ## 스택
 - Flutter 3.x + Dart
@@ -110,6 +110,11 @@ lib/
 - **설정 화면**: 레일 → 설정 탭 → 전체 옵션 UI (토글/라디오 선택), 앱 정보 표시
 - **GO/MIC 겹침 수정**: cruise_screen — Column으로 묶어 버튼 간격 보장
 - **스프린트 음소거 상시 버튼**: sprint_screen 하단 바 — 항상 표시, SettingsService 연동, TBT 초기값 동기화
+- **루트 카드 UI 리디자인**: routes_bottom_sheet — 난이도 컬러 밴드(SCENIC~EXTREME), 와인딩 밀도 스코어바, TIGHT/MED 커브 칩, LOOP 배지, 북마크 내장
+- **루트 헤더 개선**: ROUTES 수 표시 + 점수순/거리순 정렬 토글 + 반경 선택 한 줄
+- **선택 패널 _StatPill**: 거리/소요시간/집거리 칩 + 난이도 배지 + AI 타이핑 브리핑 + 저장 버튼
+- **CHAIN 누적 거리**: 선택 루트 + 연결 루트 합산 총 NNkm 배지 표시
+- **RevvRoute 헬퍼 getter**: difficultyLabel, difficultyLevel, windingDensityPct, distanceFromUserDisplay 추가
 
 ## 미구현 (다음 작업 우선순위)
 1. **실기기 테스트** — G포스/TBT/DrivingContext/NavPolyline/CloudSync/GForceTab/루트이탈 에뮬레이터 미검증

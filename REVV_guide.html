@@ -465,7 +465,7 @@ ${ideaTexts || '(없음)'}
                 <div class="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-500"><i class="fas fa-clipboard-list text-lg"></i></div>
                 <div style="flex:1">
                     <h2 class="title-font text-2xl font-bold text-white tracking-tight">REVV 개발 현황</h2>
-                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.34 · Flutter + Mapbox + Claude API + Firebase</p>
+                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.35 · Flutter + Mapbox + Claude API + Firebase</p>
                 </div>
                 <button id="briefing-btn" class="briefing-btn" onclick="window.copyBriefing()">🌳 세션 브리핑 복사</button>
             </div>
@@ -627,7 +627,7 @@ ${ideaTexts || '(없음)'}
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">센서</div><div class="text-slate-500">sensors_plus 50Hz IMU<br>flutter_blue_plus OBD2 BLE</div></div>
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">저장</div><div class="text-slate-500">shared_preferences (런 기록/집 위치)<br>Firebase Firestore (클라우드 런 동기화) ✅</div></div>
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">루트 탐색</div><div class="text-slate-500">Overpass API (커브 분석)<br>Google Maps (내비 연결)</div></div>
-                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (12개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.34 · GitHub Private</div></div>
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (12개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.35 · GitHub Private</div></div>
                 </div>
             </div>
 
@@ -1063,10 +1063,32 @@ ${ideaTexts || '(없음)'}
                     <div class="patch-line block-note">💬 음소거 옵션이 TBT 배너 안에만 숨어 있었는데 이제 하단 바에 항상 보임. 설정 화면에서도 영구 설정 가능.</div>
                 </div>
 
+                <!-- v1.35 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.35</span>
+                        <span class="patch-date">2026-03-19 · 루트 카드 UI 리디자인</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">_RouteCard 완전 리디자인</strong></div>
+                    <div class="patch-line">난이도 컬러 밴드 (SCENIC 회/EASY 초록/MEDIUM 황/HARD 주황/EXTREME 빨강) — Komoot 스타일</div>
+                    <div class="patch-line">와인딩 밀도 스코어바: TIGHT+MED 커브 km ÷ 총 거리 (windingDensityPct) LinearProgressIndicator</div>
+                    <div class="patch-line">TIGHT · MED 커브 칩 + MAX 연속 와인딩 표시, LOOP 🔄 배지, 북마크 버튼 내장</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">헤더 개선</strong></div>
+                    <div class="patch-line">N ROUTES 실시간 표시 + 점수순/거리순 정렬 토글 버튼 + 반경 선택(30/50/100km) 한 줄</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">선택 패널 _StatPill</strong></div>
+                    <div class="patch-line">거리/소요시간/집거리 칩 + 난이도 배지 + LOOP 배지 + AI 타이핑 브리핑 + 저장 북마크 버튼</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">CHAIN 섹션 개선</strong></div>
+                    <div class="patch-line">누적 거리 "총 NNkm" 배지, 체인 카드에 난이도 배지 + windingDensityPct 스코어바</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">RevvRoute 모델 헬퍼 getter 추가</strong></div>
+                    <div class="patch-line">difficultyLabel / difficultyLevel / windingDensityPct / distanceFromUserDisplay 순수 Dart getter</div>
+                    <div class="patch-line block-note">💬 레퍼런스 10개(Scenic, Komoot, ROADS by Porsche 등) 분석 후 Komoot 스타일 난이도 밴드 시스템 채택</div>
+                </div>
+
                 <!-- 다음 할 일 -->
                 <div class="patch-entry">
                     <div class="patch-header">
-                        <span class="patch-version">v1.35+ 예정</span>
+                        <span class="patch-version">v1.36+ 예정</span>
                         <span class="patch-date">다음 세션</span>
                         <span class="patch-tag feat">NEXT</span>
                     </div>
