@@ -13,7 +13,6 @@ import '../services/route_service.dart';
 import '../services/directions_service.dart';
 import 'sprint_screen.dart';
 import 'routes_screen.dart';
-import 'trip_planner_screen.dart';
 import 'obd_screen.dart';
 import 'history_screen.dart';
 
@@ -28,6 +27,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
   List<LatLng>? _navPolyline;
   RevvRoute? _lastFetchedRoute;
   bool _nearRouteStart = false;
+  bool _menuOpen = false;
   LocationService? _locationService;
 
   @override
@@ -108,48 +108,147 @@ class _CruiseScreenState extends State<CruiseScreen> {
       child: Scaffold(
         backgroundColor: AppColors.bg,
         body: SafeArea(
-          child: Column(
+          child: Stack(
             children: [
-              const HudBar(),
-              Expanded(
-                child: Row(
-                  children: [
-                    // ── 왼쪽 레일 ──
-                    _LeftRail(onSprint: _goSprint),
-                    // ── 지도 ──
-                    Expanded(
-                      child: Stack(
-                        children: [
-                          MapWidget(
-                            isSprintMode: false,
-                            navPolyline: _navPolyline,
-                            routePolyline: selectedRoute?.nodes,
+              // ── 풀스크린 레이아웃 ──
+              Column(
+                children: [
+                  const HudBar(),
+                  Expanded(
+                    child: MapWidget(
+                      isSprintMode: false,
+                      navPolyline: _navPolyline,
+                      routePolyline: selectedRoute?.nodes,
+                    ),
+                  ),
+                ],
+              ),
+
+              // ── 루트 시작점 배너 ──
+              if (_nearRouteStart && selectedRoute != null)
+                Positioned(
+                  top: 56 + 8,
+                  left: 60,
+                  right: 12,
+                  child: _NearStartBanner(
+                    routeName: selectedRoute.name,
+                    onSprint: _goSprint,
+                  ),
+                ),
+
+              // ── 선택된 루트 칩 ──
+              if (selectedRoute != null)
+                Positioned(
+                  bottom: 80,
+                  left: 60,
+                  right: 12,
+                  child: _RouteChip(route: selectedRoute),
+                ),
+
+              // ── 메뉴 오픈 시 딤 ──
+              if (_menuOpen)
+                Positioned.fill(
+                  child: GestureDetector(
+                    onTap: () => setState(() => _menuOpen = false),
+                    child: Container(color: Colors.black.withValues(alpha: 0.45)),
+                  ),
+                ),
+
+              // ── 슬라이드 레일 오버레이 ──
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeInOut,
+                left: _menuOpen ? 0 : -64,
+                top: 0,
+                bottom: 0,
+                width: 64,
+                child: _LeftRail(
+                  onSprint: () {
+                    setState(() => _menuOpen = false);
+                    _goSprint();
+                  },
+                  onClose: () => setState(() => _menuOpen = false),
+                ),
+              ),
+
+              // ── 햄버거 메뉴 버튼 ──
+              Positioned(
+                top: 52 + 12,
+                left: 12,
+                child: GestureDetector(
+                  onTap: () => setState(() => _menuOpen = !_menuOpen),
+                  child: Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: AppColors.panel,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.divider),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.4),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      _menuOpen ? Icons.close : Icons.menu,
+                      size: 18,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+              ),
+
+              // ── GO 버튼 (메뉴 닫혔을 때만 — 열리면 레일 내부 GO로 대체) ──
+              if (!_menuOpen)
+                Positioned(
+                  bottom: 64,
+                  left: 12,
+                  child: GestureDetector(
+                    onTap: _goSprint,
+                    child: Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        color: AppColors.red,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.redGlow,
+                            blurRadius: 16,
+                            offset: const Offset(0, 4),
                           ),
-                          if (_nearRouteStart && selectedRoute != null)
-                            Positioned(
-                              top: 12,
-                              left: 8,
-                              right: 8,
-                              child: _NearStartBanner(
-                                routeName: selectedRoute.name,
-                                onSprint: _goSprint,
-                              ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.flag_rounded, size: 16, color: Colors.white),
+                          const SizedBox(height: 2),
+                          Text(
+                            'GO',
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                              letterSpacing: 2,
                             ),
-                          // 선택된 루트명
-                          if (selectedRoute != null)
-                            Positioned(
-                              bottom: 12,
-                              left: 8,
-                              right: 8,
-                              child: _RouteChip(route: selectedRoute),
-                            ),
+                          ),
                         ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
-              const JarvisPanel(),
+
+              // ── 마이크 버튼 (메뉴 닫혔을 때만) ──
+              if (!_menuOpen)
+                const Positioned(
+                  bottom: 12,
+                  left: 12,
+                  child: MicButton(),
+                ),
             ],
           ),
         ),
@@ -202,22 +301,30 @@ class _NearStartBanner extends StatelessWidget {
   }
 }
 
-// ── 왼쪽 세로 레일 ──────────────────────────────────────────
+// ── 왼쪽 세로 레일 (슬라이드 오버레이) ──────────────────────
 class _LeftRail extends StatelessWidget {
   final VoidCallback onSprint;
-  const _LeftRail({required this.onSprint});
+  final VoidCallback onClose;
+  const _LeftRail({required this.onSprint, required this.onClose});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 56,
+      width: 64,
       decoration: BoxDecoration(
         color: AppColors.panel,
-        border: Border(right: BorderSide(color: AppColors.red.withValues(alpha: 0.12))),
+        border: Border(right: BorderSide(color: AppColors.divider)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.5),
+            blurRadius: 20,
+            offset: const Offset(6, 0),
+          ),
+        ],
       ),
       child: Column(
         children: [
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           // 속도
           Consumer<LocationService>(
             builder: (_, loc, __) => _SpeedTile(
@@ -229,47 +336,67 @@ class _LeftRail extends StatelessWidget {
           Consumer<WeatherService>(
             builder: (_, w, __) => _WeatherTile(emoji: w.weatherEmoji, temp: w.tempDisplay),
           ),
-          Container(height: 1, color: AppColors.red.withValues(alpha: 0.1), margin: const EdgeInsets.symmetric(vertical: 8)),
+          Container(
+            height: 1,
+            color: AppColors.red.withValues(alpha: 0.1),
+            margin: const EdgeInsets.symmetric(vertical: 8),
+          ),
           // 메뉴 아이템
           _RailItem(
             icon: Icons.route_outlined,
             label: '루트',
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RoutesScreen())),
+            onTap: () {
+              onClose();
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const RoutesScreen()));
+            },
           ),
           _RailItem(
             icon: Icons.map_outlined,
             label: '여정',
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const TripPlannerScreen())),
+            onTap: () {
+              onClose();
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const RoutesScreen(initialTab: 1)));
+            },
           ),
           _RailItem(
             icon: Icons.speed_outlined,
             label: 'OBD',
-            onTap: () => OBDScreen.show(context),
+            onTap: () {
+              onClose();
+              OBDScreen.show(context);
+            },
           ),
           _RailItem(
             icon: Icons.history,
             label: '기록',
-            onTap: () => HistoryScreen.show(context),
+            onTap: () {
+              onClose();
+              HistoryScreen.show(context);
+            },
           ),
           _RailItem(
             icon: Icons.chat_bubble_outline,
             label: 'AI',
-            onTap: () => showModalBottomSheet(
-              context: context,
-              backgroundColor: AppColors.panel,
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-              ),
-              builder: (_) => const JarvisPanel(),
-            ),
+            onTap: () {
+              onClose();
+              showModalBottomSheet(
+                context: context,
+                backgroundColor: AppColors.panel,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+                ),
+                builder: (_) => const JarvisPanel(),
+              );
+            },
           ),
           const Spacer(),
-          // SPRINT 버튼
+          // GO 버튼 (레일 내 하단)
           GestureDetector(
             onTap: onSprint,
             child: Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 16),
+              padding: const EdgeInsets.symmetric(vertical: 14),
               color: AppColors.red,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -289,12 +416,6 @@ class _LeftRail extends StatelessWidget {
               ),
             ),
           ),
-          // 마이크
-          Container(
-            color: AppColors.panel,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: const Center(child: MicButton()),
-          ),
         ],
       ),
     );
@@ -311,9 +432,9 @@ class _SpeedTile extends StatelessWidget {
       children: [
         Text(
           value,
-          style: GoogleFonts.orbitron(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+          style: GoogleFonts.orbitron(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
         ),
-        Text('km/h', style: GoogleFonts.rajdhani(fontSize: 8, color: AppColors.gray, letterSpacing: 1)),
+        Text('km/h', style: GoogleFonts.rajdhani(fontSize: 8, color: AppColors.textSecondary, letterSpacing: 1)),
       ],
     );
   }
@@ -329,7 +450,7 @@ class _WeatherTile extends StatelessWidget {
     return Column(
       children: [
         Text(emoji, style: const TextStyle(fontSize: 16)),
-        Text(temp, style: GoogleFonts.rajdhani(fontSize: 10, color: AppColors.gray)),
+        Text(temp, style: GoogleFonts.rajdhani(fontSize: 10, color: AppColors.textSecondary)),
       ],
     );
   }
@@ -353,15 +474,15 @@ class _RailItem extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 18, color: AppColors.gray),
+              Icon(icon, size: 20, color: AppColors.textSecondary),
               const SizedBox(height: 3),
               Text(
                 label,
                 style: GoogleFonts.rajdhani(
                   fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.gray,
-                  letterSpacing: 1,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                  letterSpacing: 0.5,
                 ),
               ),
             ],
@@ -380,20 +501,34 @@ class _RouteChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: AppColors.red.withValues(alpha: 0.4)),
+        color: AppColors.panel,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.divider),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(width: 5, height: 5, decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle)),
-          const SizedBox(width: 7),
+          Container(
+            width: 6, height: 6,
+            decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 8),
           Text(
             '${route.name}  ·  ${route.distanceDisplay}',
-            style: GoogleFonts.rajdhani(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
+            style: GoogleFonts.rajdhani(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
           ),
         ],
       ),
