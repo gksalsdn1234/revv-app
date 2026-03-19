@@ -100,7 +100,9 @@ class _CruiseScreenState extends State<CruiseScreen> {
   // Sprint 시작 — Navigator push 없이 오버레이로 전환 (ANR 방지)
   void _goSprint() {
     if (_isSprinting) return;
-    final route = context.read<RouteService>().selectedRoute;
+    final routeSvc = context.read<RouteService>();
+    // sprintRoute가 있으면 (CHAIN 전체 코스 등) 우선 사용, 없으면 selectedRoute
+    final route = routeSvc.sprintRoute ?? routeSvc.selectedRoute;
     setState(() {
       _isSprinting = true;
       _sprintRoute = route;

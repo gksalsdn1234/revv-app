@@ -506,33 +506,42 @@ class _RoutesScreenState extends State<RoutesScreen> {
                 ),
               ),
             // 하단 패널 (ROUTES / TRIP 탭) — 핀 모드에선 숨김
+            // 최대 높이 52% 제한 → 지도가 항상 위쪽에 보이도록
             if (!_settingHome)
             Positioned(
               bottom: 0,
               left: 0,
               right: 0,
-              child: _BottomPanel(
-                tab: _tab,
-                onTabChange: _switchTab,
-                routesChild: Consumer<RouteService>(
-                  builder: (context, svc, _) {
-                    if (_styleLoaded && svc.routes.isNotEmpty) {
-                      WidgetsBinding.instance.addPostFrameCallback(
-                          (_) => _drawRoutes(svc.routes, svc.selectedRoute));
-                    }
-                    return const RoutesBottomSheet();
-                  },
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.52,
                 ),
-                tripChild: _TripPanel(
-                  selectedCategory: _selectedCategory,
-                  pois: _pois,
-                  loading: _tripLoading,
-                  onCategoryChange: (cat) {
-                    setState(() => _selectedCategory = cat);
-                    _searchPois();
-                  },
-                  onNavigate: _navigateToPoi,
-                  onSetHome: _enterSetHomeMode,
+                child: SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: _BottomPanel(
+                    tab: _tab,
+                    onTabChange: _switchTab,
+                    routesChild: Consumer<RouteService>(
+                      builder: (context, svc, _) {
+                        if (_styleLoaded && svc.routes.isNotEmpty) {
+                          WidgetsBinding.instance.addPostFrameCallback(
+                              (_) => _drawRoutes(svc.routes, svc.selectedRoute));
+                        }
+                        return const RoutesBottomSheet();
+                      },
+                    ),
+                    tripChild: _TripPanel(
+                      selectedCategory: _selectedCategory,
+                      pois: _pois,
+                      loading: _tripLoading,
+                      onCategoryChange: (cat) {
+                        setState(() => _selectedCategory = cat);
+                        _searchPois();
+                      },
+                      onNavigate: _navigateToPoi,
+                      onSetHome: _enterSetHomeMode,
+                    ),
+                  ),
                 ),
               ),
             ),

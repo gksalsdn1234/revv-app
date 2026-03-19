@@ -23,12 +23,17 @@ class RouteService extends ChangeNotifier {
 
   // ── Sprint 요청 ────────────────────────────────────────────
   bool sprintRequested = false;
-  void requestSprint() {
+  RevvRoute? sprintRoute; // null이면 selectedRoute 사용
+
+  void requestSprint({RevvRoute? route}) {
     sprintRequested = true;
+    sprintRoute = route;
     notifyListeners();
   }
+
   void clearSprintRequest() {
     sprintRequested = false;
+    sprintRoute = null;
     // notifyListeners 생략 — 이미 처리됨
   }
 

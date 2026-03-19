@@ -113,6 +113,40 @@ class RevvRoute {
 
   static double _rad(double deg) => deg * math.pi / 180;
 
+  RevvRoute copyWith({
+    String? id,
+    String? name,
+    List<LatLng>? nodes,
+    double? distanceKm,
+    double? windingScore,
+    int? starRating,
+    int? sharpCurveCount,
+    double? elevationDelta,
+    LatLng? centerPoint,
+    double? distanceFromUser,
+    double? tightCurveKm,
+    double? mediumCurveKm,
+    double? maxContinuousKm,
+    bool? isLoop,
+  }) {
+    return RevvRoute(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      nodes: nodes ?? this.nodes,
+      distanceKm: distanceKm ?? this.distanceKm,
+      windingScore: windingScore ?? this.windingScore,
+      starRating: starRating ?? this.starRating,
+      sharpCurveCount: sharpCurveCount ?? this.sharpCurveCount,
+      elevationDelta: elevationDelta ?? this.elevationDelta,
+      centerPoint: centerPoint ?? this.centerPoint,
+      distanceFromUser: distanceFromUser ?? this.distanceFromUser,
+      tightCurveKm: tightCurveKm ?? this.tightCurveKm,
+      mediumCurveKm: mediumCurveKm ?? this.mediumCurveKm,
+      maxContinuousKm: maxContinuousKm ?? this.maxContinuousKm,
+      isLoop: isLoop ?? this.isLoop,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'name': name,
