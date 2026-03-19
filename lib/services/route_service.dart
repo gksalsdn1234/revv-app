@@ -118,25 +118,42 @@ class RouteService extends ChangeNotifier {
 
   /// 선택 루트 끝점 기준 연결 루트 검색 (10km 반경, 상위 3개)
   /// 속도 최적화: 반경 축소(15→10km) + 결과 수 축소(5→3개) + 타임아웃 12초
+  /// CHAIN: 이미 로드된 routes 캐시에서 끝점 근처 루트 즉시 탐색 (Overpass 재호출 없음)
   Future<void> fetchConnectingRoutes(RevvRoute fromRoute) async {
-    final endpoint = fromRoute.nodes.last;
     isLoadingConnecting = true;
     connectingRoutes = [];
     notifyListeners();
 
-    try {
-      final all = await _fetchAndScore(endpoint.lat, endpoint.lng, 10000)
-          .timeout(const Duration(seconds: 12));
-      // 현재 선택 루트는 제외, 상위 3개 (빠른 표시)
-      connectingRoutes = all
-          .where((r) => r.id != fromRoute.id)
-          .take(3)
-          .toList();
-      debugPrint('[RouteService] 연결 루트: ${connectingRoutes.length}개');
-    } catch (e) {
-      debugPrint('[RouteService] fetchConnectingRoutes 오류(타임아웃 포함): $e');
-      connectingRoutes = []; // 타임아웃 시 빈 결과
-    }
+    final endpoint = fromRoute.nodes.last;
+    const maxDistKm = 15.0;
+
+    // 캐시에서 끝점 근처 루트 필터 (시작/끝 노드 중 하나라도 maxDistKm 이내)
+    final candidates = routes
+        .where((r) => r.id != fromRoute.id)
+        .where((r) {
+          final dStart =
+              RevvRoute.haversineKm(endpoint, r.nodes.first);
+          final dEnd =
+              RevvRoute.haversineKm(endpoint, r.nodes.last);
+          return dStart < maxDistKm || dEnd < maxDistKm;
+        })
+        .toList();
+
+    // 끝점까지 최소 거리 기준 정렬 → 상위 3개
+    candidates.sort((a, b) {
+      final da = math.min(
+        RevvRoute.haversineKm(endpoint, a.nodes.first),
+        RevvRoute.haversineKm(endpoint, a.nodes.last),
+      );
+      final db = math.min(
+        RevvRoute.haversineKm(endpoint, b.nodes.first),
+        RevvRoute.haversineKm(endpoint, b.nodes.last),
+      );
+      return da.compareTo(db);
+    });
+
+    connectingRoutes = candidates.take(3).toList();
+    debugPrint('[RouteService] CHAIN (캐시): ${connectingRoutes.length}개');
 
     isLoadingConnecting = false;
     notifyListeners();

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -6,10 +5,6 @@ import '../theme/colors.dart';
 import '../models/revv_route.dart';
 import '../services/route_service.dart';
 import '../services/location_service.dart';
-import '../services/saved_route_service.dart';
-import '../services/route_brief_service.dart';
-import '../services/weather_service.dart';
-import '../widgets/sprint_toggle.dart';
 
 // ── 난이도 색상 헬퍼 (외부 공개) ─────────────────────────────────
 Color routeDiffColor(int level) {
@@ -176,71 +171,21 @@ class _RadiusSelector extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 2. RouteInfoOverlay — 지도 위 루트 정보 오버레이 카드
+// 2. RouteInfoOverlay — 지도 위 루트 정보 오버레이 카드 (미니멀)
 // ══════════════════════════════════════════════════════════════════
 
-class RouteInfoOverlay extends StatefulWidget {
+class RouteInfoOverlay extends StatelessWidget {
   const RouteInfoOverlay({super.key});
 
   @override
-  State<RouteInfoOverlay> createState() => _RouteInfoOverlayState();
-}
-
-class _RouteInfoOverlayState extends State<RouteInfoOverlay> {
-  final _briefSvc = RouteBriefService();
-  String _displayText = '';
-  bool _briefLoading = false;
-  String? _lastBriefId;
-  int _charIndex = 0;
-  Timer? _typeTimer;
-
-  @override
-  void dispose() {
-    _typeTimer?.cancel();
-    super.dispose();
-  }
-
-  Future<void> _loadBriefing(RevvRoute route) async {
-    if (_lastBriefId == route.id) return;
-    _lastBriefId = route.id;
-    setState(() {
-      _briefLoading = true;
-      _displayText = '';
-    });
-    final weather = context.read<WeatherService>();
-    final text = await _briefSvc.getBriefing(route: route, weather: weather);
-    if (!mounted) return;
-    setState(() => _briefLoading = false);
-    _startTyping(text);
-  }
-
-  void _startTyping(String text) {
-    _typeTimer?.cancel();
-    _charIndex = 0;
-    _displayText = '';
-    _typeTimer = Timer.periodic(const Duration(milliseconds: 25), (_) {
-      if (_charIndex < text.length) {
-        if (mounted) setState(() => _displayText += text[_charIndex++]);
-      } else {
-        _typeTimer?.cancel();
-      }
-    });
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return Consumer2<RouteService, SavedRouteService>(
-      builder: (ctx, svc, savedSvc, _) {
+    return Consumer<RouteService>(
+      builder: (ctx, svc, _) {
         final route = svc.selectedRoute;
         if (route == null) return const SizedBox.shrink();
 
-        // 선택 루트 변경 시 브리핑 자동 로드
-        if (route.id != _lastBriefId && !_briefLoading) {
-          WidgetsBinding.instance.addPostFrameCallback(
-              (_) { if (mounted) _loadBriefing(route); });
-        }
-
         final diffColor = routeDiffColor(route.difficultyLevel);
+        final hasChain = svc.connectingRoutes.isNotEmpty;
         final totalChainKm = route.distanceKm +
             svc.connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm);
 
@@ -248,408 +193,194 @@ class _RouteInfoOverlayState extends State<RouteInfoOverlay> {
           margin: const EdgeInsets.fromLTRB(10, 0, 10, 8),
           decoration: BoxDecoration(
             color: AppColors.panel.withOpacity(0.97),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: diffColor.withOpacity(0.35)),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: diffColor.withOpacity(0.4)),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withOpacity(0.45),
-                  blurRadius: 24,
-                  offset: const Offset(0, 6)),
+                  color: Colors.black.withOpacity(0.5),
+                  blurRadius: 20,
+                  offset: const Offset(0, 4)),
             ],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // ── 헤더: 컬러 스트립 + 루트명 + 북마크 + 닫기 ───────
-              ClipRRect(
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(13)),
-                child: Container(
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 왼쪽 컬러 스트립
+                Container(
+                  width: 4,
                   decoration: BoxDecoration(
-                    color: diffColor.withOpacity(0.1),
-                    border: Border(
-                        bottom: BorderSide(color: diffColor.withOpacity(0.2))),
+                    color: diffColor,
+                    borderRadius: const BorderRadius.horizontal(
+                        left: Radius.circular(12)),
                   ),
-                  child: IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                ),
+                // 본문
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 왼쪽 컬러 스트립
-                        Container(width: 5, color: diffColor),
-                        const SizedBox(width: 10),
-                        // 난이도 배지
-                        Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: diffColor.withOpacity(0.2),
-                              borderRadius: BorderRadius.circular(4),
+                        // 난이도 배지 + 루트명 한 줄
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: diffColor.withOpacity(0.18),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: Text(
+                                route.difficultyLabel,
+                                style: GoogleFonts.rajdhani(
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w800,
+                                    color: diffColor,
+                                    letterSpacing: 1),
+                              ),
                             ),
-                            child: Text(
-                              route.difficultyLabel,
-                              style: GoogleFonts.rajdhani(
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w800,
-                                  color: diffColor,
-                                  letterSpacing: 1),
+                            const SizedBox(width: 7),
+                            Expanded(
+                              child: Text(
+                                route.name,
+                                style: GoogleFonts.orbitron(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                          ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        // 루트명
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Text(
-                              route.name,
-                              style: GoogleFonts.orbitron(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                        if (route.isLoop)
-                          const Center(
-                            child: Padding(
-                              padding: EdgeInsets.only(right: 4),
-                              child: Text('🔄',
-                                  style: TextStyle(fontSize: 11)),
-                            ),
-                          ),
-                        // 북마크
-                        GestureDetector(
-                          onTap: () => savedSvc.toggle(route),
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Icon(
-                              savedSvc.isSaved(route.id)
-                                  ? Icons.bookmark
-                                  : Icons.bookmark_border,
-                              size: 16,
-                              color: savedSvc.isSaved(route.id)
-                                  ? AppColors.red
-                                  : AppColors.gray,
-                            ),
-                          ),
-                        ),
-                        // 닫기
-                        GestureDetector(
-                          onTap: () => svc.deselectRoute(),
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Icon(Icons.close,
-                                size: 16, color: AppColors.gray),
-                          ),
+                        const SizedBox(height: 5),
+                        // 거리 + 시간
+                        Row(
+                          children: [
+                            Icon(Icons.straighten,
+                                size: 10, color: AppColors.gray),
+                            const SizedBox(width: 3),
+                            Text(route.distanceDisplay,
+                                style: GoogleFonts.rajdhani(
+                                    fontSize: 12, color: AppColors.gray)),
+                            const SizedBox(width: 12),
+                            Icon(Icons.schedule,
+                                size: 10, color: AppColors.gray),
+                            const SizedBox(width: 3),
+                            Text(route.durationDisplay,
+                                style: GoogleFonts.rajdhani(
+                                    fontSize: 12, color: AppColors.gray)),
+                          ],
                         ),
                       ],
                     ),
                   ),
                 ),
-              ),
-
-              // ── 스탯 바: 거리 · 시간 · 와인딩 ─────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 9, 14, 4),
-                child: Row(
-                  children: [
-                    Icon(Icons.straighten, size: 10, color: AppColors.gray),
-                    const SizedBox(width: 3),
-                    Text(route.distanceDisplay,
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 12, color: AppColors.gray)),
-                    const SizedBox(width: 10),
-                    Icon(Icons.schedule, size: 10, color: AppColors.gray),
-                    const SizedBox(width: 3),
-                    Text(route.durationDisplay,
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 12, color: AppColors.gray)),
-                    const Spacer(),
-                    Text('WINDING',
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 8,
-                            color: AppColors.gray,
-                            letterSpacing: 1)),
-                    const SizedBox(width: 7),
-                    SizedBox(
-                      width: 56,
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(
-                          value: route.windingDensityPct,
-                          minHeight: 4,
-                          backgroundColor: AppColors.surface,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                              diffColor.withOpacity(0.85)),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '${(route.windingDensityPct * 100).round()}%',
-                      style: GoogleFonts.rajdhani(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: diffColor),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ── AI 브리핑 ──────────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 2, 14, 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 5, vertical: 2),
-                      margin: const EdgeInsets.only(right: 7, top: 1),
-                      decoration: BoxDecoration(
-                        color: AppColors.red.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                      child: Text('AI',
-                          style: GoogleFonts.orbitron(
-                              fontSize: 8,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.red,
-                              letterSpacing: 1)),
-                    ),
-                    Expanded(
-                      child: _briefLoading
-                          ? Row(children: [
-                              SizedBox(
-                                width: 10,
-                                height: 10,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 1.5, color: AppColors.red),
-                              ),
-                              const SizedBox(width: 8),
-                              Text('분석 중...',
-                                  style: GoogleFonts.rajdhani(
-                                      fontSize: 11, color: AppColors.gray)),
-                            ])
-                          : Text(
-                              _displayText,
-                              style: GoogleFonts.rajdhani(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white70,
-                                  height: 1.45),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ── 버튼 영역 ──────────────────────────────────────────
-              Divider(
-                  height: 1,
-                  color: AppColors.divider,
-                  indent: 14,
-                  endIndent: 14),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: RedGlowButton(
-                        label: '달리기',
-                        filled: true,
-                        height: 42,
+                // 버튼 영역
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 8, 10, 8),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // 달리기 버튼
+                      GestureDetector(
                         onTap: () {
                           svc.requestSprint();
                           Navigator.of(context).pop();
                         },
+                        child: Container(
+                          width: 80,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: AppColors.red,
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [
+                              BoxShadow(
+                                  color: AppColors.red.withOpacity(0.4),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2)),
+                            ],
+                          ),
+                          child: Center(
+                            child: Text(
+                              'GO',
+                              style: GoogleFonts.orbitron(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  letterSpacing: 2),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                    if (svc.connectingRoutes.isNotEmpty) ...[
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: GestureDetector(
+                      // CHAIN 버튼 (있을 때만)
+                      if (hasChain) ...[
+                        const SizedBox(height: 5),
+                        GestureDetector(
                           onTap: () {
                             final allNodes = [
                               ...route.nodes,
                               ...svc.connectingRoutes
                                   .expand((r) => r.nodes),
                             ];
-                            final chainRoute = route.copyWith(
-                              id: '${route.id}_chain',
-                              name:
-                                  '${route.name} +${svc.connectingRoutes.length}',
-                              nodes: allNodes,
-                              distanceKm: totalChainKm,
+                            svc.requestSprint(
+                              route: route.copyWith(
+                                id: '${route.id}_chain',
+                                name:
+                                    '${route.name} +${svc.connectingRoutes.length}',
+                                nodes: allNodes,
+                                distanceKm: totalChainKm,
+                              ),
                             );
-                            svc.requestSprint(route: chainRoute);
                             Navigator.of(context).pop();
                           },
                           child: Container(
-                            height: 42,
+                            width: 80,
+                            height: 28,
                             decoration: BoxDecoration(
                               color: AppColors.surface,
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(6),
                               border: Border.all(
-                                  color: AppColors.red.withOpacity(0.5)),
+                                  color: AppColors.red.withOpacity(0.4)),
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 const Icon(Icons.link,
-                                    size: 13, color: AppColors.red),
-                                const SizedBox(width: 5),
-                                Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '전체 코스',
-                                      style: GoogleFonts.rajdhani(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w800,
-                                          color: Colors.white,
-                                          letterSpacing: 0.5),
-                                    ),
-                                    Text(
-                                      '${totalChainKm.toStringAsFixed(0)}km',
-                                      style: GoogleFonts.rajdhani(
-                                          fontSize: 9, color: AppColors.red),
-                                    ),
-                                  ],
+                                    size: 10, color: AppColors.red),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${totalChainKm.toStringAsFixed(0)}km',
+                                  style: GoogleFonts.rajdhani(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white),
                                 ),
                               ],
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-
-              // ── CHAIN 로딩 ─────────────────────────────────────────
-              if (svc.isLoadingConnecting)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-                  child: Row(children: [
-                    SizedBox(
-                      width: 10,
-                      height: 10,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 1.5, color: AppColors.red),
+                // 닫기 버튼
+                GestureDetector(
+                  onTap: () => svc.deselectRoute(),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 8, 10, 8),
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: Icon(Icons.close,
+                          size: 15, color: AppColors.gray.withOpacity(0.6)),
                     ),
-                    const SizedBox(width: 8),
-                    Text('끝점 연결 탐색 중...',
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 11, color: AppColors.gray)),
-                  ]),
-                ),
-
-              // ── CHAIN 루트 카드 ─────────────────────────────────────
-              if (!svc.isLoadingConnecting &&
-                  svc.connectingRoutes.isNotEmpty) ...[
-                Divider(
-                    height: 1,
-                    color: AppColors.divider,
-                    indent: 14,
-                    endIndent: 14),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 8, 0, 6),
-                  child: Row(children: [
-                    const Icon(Icons.link, color: AppColors.red, size: 11),
-                    const SizedBox(width: 4),
-                    Text('CHAIN',
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.red,
-                            letterSpacing: 3)),
-                    const SizedBox(width: 6),
-                    Text('이어지는 루트',
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 10, color: AppColors.textSecondary)),
-                  ]),
-                ),
-                SizedBox(
-                  height: 82,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
-                    itemCount: svc.connectingRoutes.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (_, i) {
-                      final r = svc.connectingRoutes[i];
-                      final dc = routeDiffColor(r.difficultyLevel);
-                      return GestureDetector(
-                        onTap: () => svc.selectRoute(r),
-                        child: Container(
-                          width: 140,
-                          padding: const EdgeInsets.all(9),
-                          decoration: BoxDecoration(
-                            color: AppColors.bg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                                color: AppColors.red.withOpacity(0.3)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 4, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: dc.withOpacity(0.15),
-                                    borderRadius: BorderRadius.circular(3),
-                                  ),
-                                  child: Text(r.difficultyLabel,
-                                      style: GoogleFonts.rajdhani(
-                                          fontSize: 7,
-                                          fontWeight: FontWeight.w800,
-                                          color: dc,
-                                          letterSpacing: 0.5)),
-                                ),
-                                const Spacer(),
-                                Text(r.distanceDisplay,
-                                    style: GoogleFonts.rajdhani(
-                                        fontSize: 8, color: AppColors.gray)),
-                              ]),
-                              const SizedBox(height: 4),
-                              Expanded(
-                                child: Text(r.name,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.orbitron(
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.white,
-                                        height: 1.3)),
-                              ),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(2),
-                                child: LinearProgressIndicator(
-                                  value: r.windingDensityPct,
-                                  minHeight: 2,
-                                  backgroundColor: AppColors.surface,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                      dc.withOpacity(0.7)),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
                   ),
                 ),
               ],
-            ],
+            ),
           ),
         );
       },
