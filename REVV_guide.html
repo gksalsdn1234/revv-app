@@ -465,7 +465,7 @@ ${ideaTexts || '(없음)'}
                 <div class="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-500"><i class="fas fa-clipboard-list text-lg"></i></div>
                 <div style="flex:1">
                     <h2 class="title-font text-2xl font-bold text-white tracking-tight">REVV 개발 현황</h2>
-                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.31 · Flutter + Mapbox + Claude API + Firebase</p>
+                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.34 · Flutter + Mapbox + Claude API + Firebase</p>
                 </div>
                 <button id="briefing-btn" class="briefing-btn" onclick="window.copyBriefing()">🌳 세션 브리핑 복사</button>
             </div>
@@ -554,6 +554,16 @@ ${ideaTexts || '(없음)'}
                 </div>
                 <div class="memo-item done">
                     <div class="memo-dot done"></div>
+                    <div><div class="memo-title">설정 화면 (SettingsService)</div><div class="memo-desc">TTS 음소거·탐색 반경·거리 단위·루트 이탈 경고를 SharedPreferences에 저장. 레일 → 설정 탭으로 진입. 토글/라디오 선택 UI.</div></div>
+                    <span class="memo-tag ml-auto">settings_screen / settings_service</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">스프린트 음소거 상시 버튼</div><div class="memo-desc">_SprintBottomBar에 음소거 아이콘 항상 표시. TBT 배너 없어도 언제든 음성 토글 가능. SettingsService와 연동해 앱 재시작 후에도 설정 유지.</div></div>
+                    <span class="memo-tag ml-auto">sprint_screen.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
                     <div><div class="memo-title">UI 대개편 — 지도 풀스크린 + 슬라이드 메뉴</div><div class="memo-desc">JARVIS 하단 상시 패널 제거. 왼쪽 레일 → 슬라이드 오버레이로 변경 (AnimatedPositioned 220ms). 햄버거 버튼/GO 버튼/MIC 버튼 플로팅. 딤 배경 탭 시 닫힘.</div></div>
                     <span class="memo-tag ml-auto">cruise_screen.dart</span>
                 </div>
@@ -617,7 +627,7 @@ ${ideaTexts || '(없음)'}
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">센서</div><div class="text-slate-500">sensors_plus 50Hz IMU<br>flutter_blue_plus OBD2 BLE</div></div>
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">저장</div><div class="text-slate-500">shared_preferences (런 기록/집 위치)<br>Firebase Firestore (클라우드 런 동기화) ✅</div></div>
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">루트 탐색</div><div class="text-slate-500">Overpass API (커브 분석)<br>Google Maps (내비 연결)</div></div>
-                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (11개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.31 · GitHub Private</div></div>
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (12개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.34 · GitHub Private</div></div>
                 </div>
             </div>
 
@@ -1031,10 +1041,32 @@ ${ideaTexts || '(없음)'}
                     <div class="patch-line block-note">💬 이제 설치하면 바로 권한 요청 → 캐시 덕분에 오프라인에서도 마지막 루트 보여줌 → 루트 이탈하면 경고까지</div>
                 </div>
 
+                <!-- v1.34 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.34</span>
+                        <span class="patch-date">2026-03-19 · 설정 화면 + UI 수정</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">SettingsService 신규 생성</strong></div>
+                    <div class="patch-line">SharedPreferences 기반 영구 설정 저장: TTS 음소거 / 탐색 반경(30·50·100km) / 거리 단위(km·mi) / 속도HUD / 루트 이탈 경고</div>
+                    <div class="patch-line">Provider 등록 — 앱 시작 시 load() 후 전달 (12번째 서비스)</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">settings_screen.dart 신규 생성</strong></div>
+                    <div class="patch-line">레일 → 설정 탭 탭 시 풀스크린 설정 화면 push. 섹션별 정리: 음성 / 루트 탐색 / 주행 / 앱 정보</div>
+                    <div class="patch-line">_ToggleTile (switch), _RadioTile (버튼 그룹), _InfoTile 3가지 컴포넌트</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">스프린트 음소거 버튼 상시 표시</strong></div>
+                    <div class="patch-line">_SprintBottomBar에 volume 아이콘 버튼 추가 — TBT 배너 없어도 항상 보임</div>
+                    <div class="patch-line">_toggleMute() → TBT 음소거 + SettingsService.setTtsMuted() 동기화</div>
+                    <div class="patch-line">TurnByTurnService initialMuted 파라미터 추가 — 앱 재시작 후에도 마지막 음소거 상태 유지</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">GO/MIC 버튼 겹침 수정</strong></div>
+                    <div class="patch-line">두 Positioned 버튼을 단일 Positioned(Column) 으로 합침 — 8px 간격 보장, 물리적 겹침 완전 해소</div>
+                    <div class="patch-line block-note">💬 음소거 옵션이 TBT 배너 안에만 숨어 있었는데 이제 하단 바에 항상 보임. 설정 화면에서도 영구 설정 가능.</div>
+                </div>
+
                 <!-- 다음 할 일 -->
                 <div class="patch-entry">
                     <div class="patch-header">
-                        <span class="patch-version">v1.34+ 예정</span>
+                        <span class="patch-version">v1.35+ 예정</span>
                         <span class="patch-date">다음 세션</span>
                         <span class="patch-tag feat">NEXT</span>
                     </div>

@@ -22,6 +22,8 @@ class RevvRoute {
   final double tightCurveKm;
   final double mediumCurveKm;
   final double maxContinuousKm;
+  // 루프 루트 여부 (시작점~끝점 3km 이내)
+  final bool isLoop;
 
   const RevvRoute({
     required this.id,
@@ -37,6 +39,7 @@ class RevvRoute {
     this.tightCurveKm = 0,
     this.mediumCurveKm = 0,
     this.maxContinuousKm = 0,
+    this.isLoop = false,
   });
 
   String get starDisplay => '★' * starRating + '☆' * (5 - starRating);
@@ -49,6 +52,37 @@ class RevvRoute {
     final m = totalMin % 60;
     if (h == 0) return '${m}m';
     return '${h}h ${m.toString().padLeft(2, '0')}m';
+  }
+
+  /// 집에서 거리 표시
+  String get distanceFromUserDisplay {
+    if (distanceFromUser < 1.0) return '${(distanceFromUser * 1000).round()}m';
+    return '${distanceFromUser.toStringAsFixed(0)}km 거리';
+  }
+
+  /// 난이도 레이블 (windingScore 기반)
+  String get difficultyLabel {
+    if (windingScore >= 8.0) return 'EXTREME';
+    if (windingScore >= 5.5) return 'HARD';
+    if (windingScore >= 3.5) return 'MEDIUM';
+    if (windingScore >= 2.0) return 'EASY';
+    return 'SCENIC';
+  }
+
+  /// 난이도 단계 0-4 (색상 매핑용)
+  int get difficultyLevel {
+    if (windingScore >= 8.0) return 4;
+    if (windingScore >= 5.5) return 3;
+    if (windingScore >= 3.5) return 2;
+    if (windingScore >= 2.0) return 1;
+    return 0;
+  }
+
+  /// 와인딩 밀도 0.0~1.0 (스코어바용)
+  double get windingDensityPct {
+    if (distanceKm <= 0) return 0;
+    final density = (tightCurveKm + mediumCurveKm) / distanceKm;
+    return density.clamp(0.0, 1.0);
   }
 
   static String autoName(double windingScore) {
@@ -93,6 +127,7 @@ class RevvRoute {
         'tightCurveKm': tightCurveKm,
         'mediumCurveKm': mediumCurveKm,
         'maxContinuousKm': maxContinuousKm,
+        'isLoop': isLoop,
       };
 
   factory RevvRoute.fromJson(Map<String, dynamic> j) => RevvRoute(
@@ -117,6 +152,7 @@ class RevvRoute {
         tightCurveKm: (j['tightCurveKm'] as num?)?.toDouble() ?? 0,
         mediumCurveKm: (j['mediumCurveKm'] as num?)?.toDouble() ?? 0,
         maxContinuousKm: (j['maxContinuousKm'] as num?)?.toDouble() ?? 0,
+        isLoop: j['isLoop'] as bool? ?? false,
       );
 
   static List<RevvRoute> listFromJson(String raw) {
