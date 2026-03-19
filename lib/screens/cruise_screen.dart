@@ -11,7 +11,9 @@ import '../services/location_service.dart';
 import '../services/weather_service.dart';
 import '../services/route_service.dart';
 import '../services/directions_service.dart';
+import '../models/run_session.dart';
 import 'sprint_screen.dart';
+import 'run_card_screen.dart';
 import 'routes_screen.dart';
 import 'obd_screen.dart';
 import 'history_screen.dart';
@@ -30,6 +32,11 @@ class _CruiseScreenState extends State<CruiseScreen> {
   bool _nearRouteStart = false;
   bool _menuOpen = false;
   LocationService? _locationService;
+
+  // ── Sprint 오버레이 상태 (ANR 방지: MapWidget 하나만 유지) ──
+  bool _isSprinting = false;
+  RevvRoute? _sprintRoute;
+  List<LatLng>? _sprintNavPolyline; // SprintScreen에서 받아온 nav 경로
 
   @override
   void initState() {
@@ -90,19 +97,47 @@ class _CruiseScreenState extends State<CruiseScreen> {
     setState(() => _navPolyline = polyline);
   }
 
-  void _goSprint() async {
+  // Sprint 시작 — Navigator push 없이 오버레이로 전환 (ANR 방지)
+  void _goSprint() {
+    if (_isSprinting) return;
     final route = context.read<RouteService>().selectedRoute;
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      _SprintRoute(SprintScreen(selectedRoute: route)),
-    );
+    setState(() {
+      _isSprinting = true;
+      _sprintRoute = route;
+      _sprintNavPolyline = null;
+      _menuOpen = false;
+    });
+  }
+
+  // Sprint 종료 콜백 — SprintScreen이 호출
+  void _onSprintEnd(RunSession? session) {
+    setState(() {
+      _isSprinting = false;
+      _sprintRoute = null;
+      _sprintNavPolyline = null;
+    });
+    if (session != null && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => RunCardScreen(session: session),
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final selectedRoute = context.watch<RouteService>().selectedRoute;
+    final routeSvc = context.watch<RouteService>();
+    final selectedRoute = routeSvc.selectedRoute;
+
+    // routes_bottom_sheet에서 requestSprint() 호출 감지
+    if (routeSvc.sprintRequested && !_isSprinting) {
+      routeSvc.clearSprintRequest();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _goSprint();
+      });
+    }
 
     return PopScope(
       canPop: false,
@@ -111,22 +146,24 @@ class _CruiseScreenState extends State<CruiseScreen> {
         body: SafeArea(
           child: Stack(
             children: [
-              // ── 풀스크린 레이아웃 ──
+              // ── 풀스크린 레이아웃 (MapWidget 항상 하나만 유지) ──
               Column(
                 children: [
                   const HudBar(),
                   Expanded(
                     child: MapWidget(
-                      isSprintMode: false,
-                      navPolyline: _navPolyline,
-                      routePolyline: selectedRoute?.nodes,
+                      isSprintMode: _isSprinting,
+                      navPolyline: _isSprinting ? _sprintNavPolyline : _navPolyline,
+                      routePolyline: _isSprinting
+                          ? _sprintRoute?.nodes
+                          : selectedRoute?.nodes,
                     ),
                   ),
                 ],
               ),
 
-              // ── 루트 시작점 배너 ──
-              if (_nearRouteStart && selectedRoute != null)
+              // ── 루트 시작점 배너 (Sprint 중에는 숨김) ──
+              if (!_isSprinting && _nearRouteStart && selectedRoute != null)
                 Positioned(
                   top: 56 + 8,
                   left: 60,
@@ -137,8 +174,8 @@ class _CruiseScreenState extends State<CruiseScreen> {
                   ),
                 ),
 
-              // ── 선택된 루트 칩 ──
-              if (selectedRoute != null)
+              // ── 선택된 루트 칩 (Sprint 중에는 숨김) ──
+              if (!_isSprinting && selectedRoute != null)
                 Positioned(
                   bottom: 80,
                   left: 60,
@@ -146,8 +183,8 @@ class _CruiseScreenState extends State<CruiseScreen> {
                   child: _RouteChip(route: selectedRoute),
                 ),
 
-              // ── 메뉴 오픈 시 딤 ──
-              if (_menuOpen)
+              // ── 메뉴 오픈 시 딤 (Sprint 중에는 숨김) ──
+              if (!_isSprinting && _menuOpen)
                 Positioned.fill(
                   child: GestureDetector(
                     onTap: () => setState(() => _menuOpen = false),
@@ -155,8 +192,8 @@ class _CruiseScreenState extends State<CruiseScreen> {
                   ),
                 ),
 
-              // ── 슬라이드 레일 오버레이 ──
-              AnimatedPositioned(
+              // ── 슬라이드 레일 오버레이 (Sprint 중에는 숨김) ──
+              if (!_isSprinting) AnimatedPositioned(
                 duration: const Duration(milliseconds: 220),
                 curve: Curves.easeInOut,
                 left: _menuOpen ? 0 : -64,
@@ -172,8 +209,8 @@ class _CruiseScreenState extends State<CruiseScreen> {
                 ),
               ),
 
-              // ── 햄버거 메뉴 버튼 ──
-              Positioned(
+              // ── 햄버거 메뉴 버튼 (Sprint 중에는 숨김) ──
+              if (!_isSprinting) Positioned(
                 top: 52 + 12,
                 left: 12,
                 child: GestureDetector(
@@ -202,8 +239,20 @@ class _CruiseScreenState extends State<CruiseScreen> {
                 ),
               ),
 
-              // ── GO + MIC 버튼 (메뉴 닫혔을 때만 — Column으로 겹침 방지) ──
-              if (!_menuOpen)
+              // ── SprintScreen 오버레이 (ANR 방지: MapWidget 하나만 유지) ──
+              if (_isSprinting)
+                Positioned.fill(
+                  child: SprintScreen(
+                    selectedRoute: _sprintRoute,
+                    onEnd: _onSprintEnd,
+                    onNavPolylineChanged: (poly) {
+                      if (mounted) setState(() => _sprintNavPolyline = poly);
+                    },
+                  ),
+                ),
+
+              // ── GO + MIC 버튼 (메뉴 닫혔을 때만, Sprint 중에는 숨김) ──
+              if (!_menuOpen && !_isSprinting)
                 Positioned(
                   bottom: 12,
                   left: 12,

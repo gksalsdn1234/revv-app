@@ -21,6 +21,17 @@ class RouteService extends ChangeNotifier {
   LatLng? _lastFetchLocation;
   int? _lastFetchRadius;
 
+  // ── Sprint 요청 ────────────────────────────────────────────
+  bool sprintRequested = false;
+  void requestSprint() {
+    sprintRequested = true;
+    notifyListeners();
+  }
+  void clearSprintRequest() {
+    sprintRequested = false;
+    // notifyListeners 생략 — 이미 처리됨
+  }
+
   void resetCache() {
     _lastFetchLocation = null;
     _lastFetchRadius = null;

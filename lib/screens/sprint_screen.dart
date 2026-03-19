@@ -25,7 +25,16 @@ import 'obd_screen.dart';
 
 class SprintScreen extends StatefulWidget {
   final RevvRoute? selectedRoute;
-  const SprintScreen({super.key, this.selectedRoute});
+  /// CruiseScreen이 오버레이 방식으로 호출할 때 사용 (ANR 방지)
+  final void Function(RunSession? session)? onEnd;
+  final void Function(List<LatLng>? poly)? onNavPolylineChanged;
+
+  const SprintScreen({
+    super.key,
+    this.selectedRoute,
+    this.onEnd,
+    this.onNavPolylineChanged,
+  });
 
   @override
   State<SprintScreen> createState() => _SprintScreenState();
@@ -87,6 +96,7 @@ class _SprintScreenState extends State<SprintScreen> {
     );
     if (!mounted) return;
     setState(() => _navPolyline = result.polyline);
+    widget.onNavPolylineChanged?.call(result.polyline); // CruiseScreen에 통보
     if (result.steps.isNotEmpty) {
       _tbtService?.stop();
       final muteInit = context.read<SettingsService>().ttsMuted;
@@ -177,6 +187,12 @@ class _SprintScreenState extends State<SprintScreen> {
     );
     imu.resetMaxG(); // 다음 세션을 위해 초기화
     if (!mounted) return;
+    // 오버레이 모드 (CruiseScreen이 부모)
+    if (widget.onEnd != null) {
+      widget.onEnd!(session);
+      return;
+    }
+    // 독립 화면 모드 (기존 호환)
     Navigator.pushReplacement(
       context,
       _RunCardRoute(RunCardScreen(session: session)),
@@ -190,53 +206,64 @@ class _SprintScreenState extends State<SprintScreen> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      child: Scaffold(
-        backgroundColor: AppColors.bg,
-        body: SafeArea(
-          child: Column(
-            children: [
-              const SprintHudBar(),
-              if (widget.selectedRoute != null)
-                Container(
-                  width: double.infinity,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  color: AppColors.panel,
-                  child: Text(
-                    '${widget.selectedRoute!.name}  ·  ${widget.selectedRoute!.distanceDisplay}',
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.red,
+  Widget _buildSprintBody(BuildContext context) {
+    return Column(
+      children: [
+        const SprintHudBar(),
+        if (widget.selectedRoute != null)
+          Container(
+            width: double.infinity,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            color: AppColors.panel,
+            child: Text(
+              '${widget.selectedRoute!.name}  ·  ${widget.selectedRoute!.distanceDisplay}',
+              style: GoogleFonts.rajdhani(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.red,
+              ),
+            ),
+          ),
+        // OBD 데이터 스트립
+        const _OBDStrip(),
+        Expanded(
+          child: Consumer<DrivingContextService>(
+            builder: (_, ctx, __) => Stack(
+              children: [
+                // ── 오버레이 모드: 지도는 CruiseScreen에서 제공 ──────────────
+                // 독립 모드: 자체 MapWidget 사용
+                if (widget.onEnd == null) ...[
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: ctx.mode != DriveMode.cruise
+                            ? ctx.mode.color.withValues(alpha: 0.55)
+                            : Colors.transparent,
+                        width: 2.5,
+                      ),
+                    ),
+                    child: MapWidget(
+                      isSprintMode: true,
+                      navPolyline: _navPolyline,
+                      routePolyline: widget.selectedRoute?.nodes,
                     ),
                   ),
-                ),
-              // OBD 데이터 스트립
-              const _OBDStrip(),
-              Expanded(
-                child: Consumer<DrivingContextService>(
-                  builder: (_, ctx, __) => Stack(
-                    children: [
-                      // 지도 + 모드 테두리
-                      Container(
+                ],
+                // 오버레이 모드 드라이빙 테두리 (지도 없이 테두리만)
+                if (widget.onEnd != null && ctx.mode != DriveMode.cruise)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Container(
                         decoration: BoxDecoration(
                           border: Border.all(
-                            color: ctx.mode != DriveMode.cruise
-                                ? ctx.mode.color.withValues(alpha: 0.55)
-                                : Colors.transparent,
+                            color: ctx.mode.color.withValues(alpha: 0.55),
                             width: 2.5,
                           ),
                         ),
-                        child: MapWidget(
-                          isSprintMode: true,
-                          navPolyline: _navPolyline,
-                          routePolyline: widget.selectedRoute?.nodes,
-                        ),
                       ),
+                    ),
+                  ),
                       // 턴바이턴 안내 배너
                       if (_tbtService != null && _tbtService!.upcomingStep != null)
                         Positioned(
@@ -369,8 +396,27 @@ class _SprintScreenState extends State<SprintScreen> {
                 ),
               ),
             ],
-          ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // ── 오버레이 모드: CruiseScreen이 부모, Scaffold 없이 투명하게 ──
+    if (widget.onEnd != null) {
+      return PopScope(
+        canPop: false,
+        child: Material(
+          color: Colors.transparent,
+          child: SafeArea(child: _buildSprintBody(context)),
         ),
+      );
+    }
+    // ── 독립 화면 모드: 기존 방식 (Scaffold + 자체 MapWidget) ──
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        backgroundColor: AppColors.bg,
+        body: SafeArea(child: _buildSprintBody(context)),
       ),
     );
   }
