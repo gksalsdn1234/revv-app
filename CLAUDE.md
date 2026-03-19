@@ -132,9 +132,9 @@ ChangeNotifier를 extend하지 않는 서비스 — Provider 등록 없이 직�
 
 ## Firebase
 - 세계수(로드맵) 호스팅: https://revv-eb7c9.web.app
-- 세계수 로컬: `C:\Users\gksal\Desktop\REVV_guide.html`
-- 배포: `cp REVV_guide.html ~/revv-guide-host/index.html && cd ~/revv-guide-host && firebase deploy --only hosting`
-- 세계수 수정 시 항상 위 배포 명령 실행할 것
+- 세계수 로컬: `C:\Users\gksal\REVV\REVV_guide.html`
+- GitHub Actions 자동 배포: REVV_guide.html push → 자동으로 revv-eb7c9.web.app 배포
+- 수동 배포 필요 시: `cd C:\Users\gksal\REVV\.guide-hosting && firebase deploy --only hosting --project revv-eb7c9`
 
 ## GitHub
 - Repo: https://github.com/gksalsdn1234/revv-app (Private)
