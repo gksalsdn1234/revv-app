@@ -22,7 +22,12 @@ class TurnByTurnService {
   NavStep? get upcomingStep =>
       _idx + 1 < steps.length ? steps[_idx + 1] : (_idx < steps.length ? steps[_idx] : null);
 
-  TurnByTurnService({required this.steps, required this.onUpdate}) {
+  TurnByTurnService({
+    required this.steps,
+    required this.onUpdate,
+    bool initialMuted = false,
+  }) {
+    _muted = initialMuted;
     _initTts();
   }
 

@@ -18,6 +18,7 @@ import '../services/driving_context_service.dart';
 import '../services/directions_service.dart';
 import '../services/imu_service.dart';
 import '../services/turn_by_turn_service.dart';
+import '../services/settings_service.dart';
 import '../models/nav_step.dart';
 import 'run_card_screen.dart';
 import 'obd_screen.dart';
@@ -40,6 +41,7 @@ class _SprintScreenState extends State<SprintScreen> {
   String? _routeStatusMsg;           // "루트 진입!" 표시용
   TurnByTurnService? _tbtService;    // 턴바이턴
   double _tbtDistM = 0;             // 다음 maneuver까지 거리
+  bool _isMuted = false;             // TTS 음소거 (항상 표시)
 
   @override
   void didChangeDependencies() {
@@ -66,6 +68,9 @@ class _SprintScreenState extends State<SprintScreen> {
 
       _locationService!.addListener(_onLocation);
 
+      // SettingsService에서 초기 음소거 값 읽기
+      _isMuted = context.read<SettingsService>().ttsMuted;
+
       // 루트가 있으면 진입 경로 즉시 fetch
       if (selectedRoute != null) {
         _fetchNavRoute();
@@ -84,9 +89,11 @@ class _SprintScreenState extends State<SprintScreen> {
     setState(() => _navPolyline = result.polyline);
     if (result.steps.isNotEmpty) {
       _tbtService?.stop();
+      final muteInit = context.read<SettingsService>().ttsMuted;
       _tbtService = TurnByTurnService(
         steps: result.steps,
         onUpdate: () { if (mounted) setState(() {}); },
+        initialMuted: muteInit,
       );
     }
   }
@@ -152,6 +159,12 @@ class _SprintScreenState extends State<SprintScreen> {
         setState(() => _tbtDistM = d);
       }
     }
+  }
+
+  void _toggleMute() {
+    setState(() => _isMuted = !_isMuted);
+    _tbtService?.toggleMute();
+    context.read<SettingsService>().setTtsMuted(_isMuted);
   }
 
   void _endRun() {
@@ -351,6 +364,8 @@ class _SprintScreenState extends State<SprintScreen> {
                 builder: (_, ctx, __) => _SprintBottomBar(
                   onEnd: _endRun,
                   modeColor: ctx.mode.color,
+                  muted: _isMuted,
+                  onToggleMute: _toggleMute,
                 ),
               ),
             ],
@@ -674,7 +689,14 @@ class _OBDCell extends StatelessWidget {
 class _SprintBottomBar extends StatelessWidget {
   final VoidCallback onEnd;
   final Color modeColor;
-  const _SprintBottomBar({required this.onEnd, required this.modeColor});
+  final bool muted;
+  final VoidCallback onToggleMute;
+  const _SprintBottomBar({
+    required this.onEnd,
+    required this.modeColor,
+    required this.muted,
+    required this.onToggleMute,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -689,6 +711,31 @@ class _SprintBottomBar extends StatelessWidget {
       ),
       child: Row(
         children: [
+          // 음소거 토글 버튼
+          GestureDetector(
+            onTap: onToggleMute,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: muted
+                    ? AppColors.surface
+                    : Colors.lightBlueAccent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: muted
+                      ? AppColors.divider
+                      : Colors.lightBlueAccent.withValues(alpha: 0.5),
+                ),
+              ),
+              child: Icon(
+                muted ? Icons.volume_off : Icons.volume_up,
+                size: 20,
+                color: muted ? AppColors.gray : Colors.lightBlueAccent,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
           const MicButton(),
           const SizedBox(width: 12),
           Expanded(

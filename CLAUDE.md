@@ -11,14 +11,14 @@
 - **에뮬레이터**: Mapbox + Android Emulator GFXSTREAM 충돌 → 실기기 필요
 - **커뮤니케이션**: 한국어
 
-## 현재 버전: v1.33 (2026-03-19)
+## 현재 버전: v1.34 (2026-03-19)
 
 ## 스택
 - Flutter 3.x + Dart
 - Mapbox (`mapbox_maps_flutter ^2.3.0`) — 커스텀 스타일 `mapbox://styles/mingwoo/cmmk93np3003301rzajll6msm`
 - Overpass API — 루트 탐색 (커브 분석)
 - Claude API — Jarvis 브리핑
-- Provider — 상태관리 (11개 서비스 등록)
+- Provider — 상태관리 (12개 서비스 등록)
 - shared_preferences — 런 기록 + 집 위치 저장
 - flutter_tts — 턴바이턴 음성 안내
 - sensors_plus — IMU G포스 (ImuService, 50Hz)
@@ -26,7 +26,7 @@
 ## 핵심 파일 구조
 ```
 lib/
-├── main.dart                         # Provider 등록 (11개 서비스)
+├── main.dart                         # Provider 등록 (12개 서비스)
 ├── models/
 │   ├── revv_route.dart               # RevvRoute, LatLng, haversineKm
 │   ├── run_session.dart              # 주행 세션 (GPS 경로, 거리, 시간)
@@ -80,7 +80,7 @@ lib/
     └── colors.dart                   # AppColors
 ```
 
-## 구현된 주요 기능 (v1.33 기준)
+## 구현된 주요 기능 (v1.34 기준)
 - **루트 탐색**: bearing rate 기반 커브 분석, curveRatio×√dist 밀도 점수, 반경 30/50/100km
 - **체인 연결**: 선택 루트 끝점 15km 반경 연결 루트 자동 탐색, 가로 스크롤 카드
 - **루트 카드 탭 → 지도 flyTo**: _lastFlownRouteId로 중복 이동 방지
@@ -106,6 +106,10 @@ lib/
 - **집 위치 지도 핀 설정**: routes_screen TRIP탭 "집 설정" → 지도 중앙 핀 모드, getCameraState()로 좌표 읽어 setHome() 저장
 - **루트 이탈 감지**: sprint_screen — 루트 진입 후 노드들과 최소 거리 계산, 300m 초과 시 주황 이탈 경고 배너, 200m 복귀 시 해제
 - **첫 실행 권한 플로우**: loading_screen — permission_handler로 위치+마이크 권한 애니메이션 중 자동 요청
+- **SettingsService**: SharedPreferences 기반 설정 서비스 (TTS 음소거, 탐색 반경, 거리 단위, HUD, 이탈 경고)
+- **설정 화면**: 레일 → 설정 탭 → 전체 옵션 UI (토글/라디오 선택), 앱 정보 표시
+- **GO/MIC 겹침 수정**: cruise_screen — Column으로 묶어 버튼 간격 보장
+- **스프린트 음소거 상시 버튼**: sprint_screen 하단 바 — 항상 표시, SettingsService 연동, TBT 초기값 동기화
 
 ## 미구현 (다음 작업 우선순위)
 1. **실기기 테스트** — G포스/TBT/DrivingContext/NavPolyline/CloudSync/GForceTab/루트이탈 에뮬레이터 미검증

@@ -15,6 +15,7 @@ import 'sprint_screen.dart';
 import 'routes_screen.dart';
 import 'obd_screen.dart';
 import 'history_screen.dart';
+import 'settings_screen.dart';
 
 class CruiseScreen extends StatefulWidget {
   const CruiseScreen({super.key});
@@ -201,53 +202,54 @@ class _CruiseScreenState extends State<CruiseScreen> {
                 ),
               ),
 
-              // ── GO 버튼 (메뉴 닫혔을 때만 — 열리면 레일 내부 GO로 대체) ──
+              // ── GO + MIC 버튼 (메뉴 닫혔을 때만 — Column으로 겹침 방지) ──
               if (!_menuOpen)
                 Positioned(
-                  bottom: 64,
-                  left: 12,
-                  child: GestureDetector(
-                    onTap: _goSprint,
-                    child: Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: AppColors.red,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.redGlow,
-                            blurRadius: 16,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.flag_rounded, size: 16, color: Colors.white),
-                          const SizedBox(height: 2),
-                          Text(
-                            'GO',
-                            style: GoogleFonts.rajdhani(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                              letterSpacing: 2,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-
-              // ── 마이크 버튼 (메뉴 닫혔을 때만) ──
-              if (!_menuOpen)
-                const Positioned(
                   bottom: 12,
                   left: 12,
-                  child: MicButton(),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // GO 버튼
+                      GestureDetector(
+                        onTap: _goSprint,
+                        child: Container(
+                          width: 52,
+                          height: 52,
+                          decoration: BoxDecoration(
+                            color: AppColors.red,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.redGlow,
+                                blurRadius: 16,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.flag_rounded, size: 16, color: Colors.white),
+                              const SizedBox(height: 2),
+                              Text(
+                                'GO',
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                  letterSpacing: 2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // MIC 버튼
+                      const MicButton(),
+                    ],
+                  ),
                 ),
             ],
           ),
@@ -388,6 +390,14 @@ class _LeftRail extends StatelessWidget {
                 ),
                 builder: (_) => const JarvisPanel(),
               );
+            },
+          ),
+          _RailItem(
+            icon: Icons.settings_outlined,
+            label: '설정',
+            onTap: () {
+              onClose();
+              SettingsScreen.show(context);
             },
           ),
           const Spacer(),
