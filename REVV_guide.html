@@ -465,7 +465,7 @@ ${ideaTexts || '(없음)'}
                 <div class="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-500"><i class="fas fa-clipboard-list text-lg"></i></div>
                 <div style="flex:1">
                     <h2 class="title-font text-2xl font-bold text-white tracking-tight">REVV 개발 현황</h2>
-                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.35 · Flutter + Mapbox + Claude API + Firebase</p>
+                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.36 · Flutter + Mapbox + Claude API + Firebase</p>
                 </div>
                 <button id="briefing-btn" class="briefing-btn" onclick="window.copyBriefing()">🌳 세션 브리핑 복사</button>
             </div>
@@ -627,7 +627,7 @@ ${ideaTexts || '(없음)'}
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">센서</div><div class="text-slate-500">sensors_plus 50Hz IMU<br>flutter_blue_plus OBD2 BLE</div></div>
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">저장</div><div class="text-slate-500">shared_preferences (런 기록/집 위치)<br>Firebase Firestore (클라우드 런 동기화) ✅</div></div>
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">루트 탐색</div><div class="text-slate-500">Overpass API (커브 분석)<br>Google Maps (내비 연결)</div></div>
-                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (12개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.35 · GitHub Private</div></div>
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (12개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.36 · GitHub Private</div></div>
                 </div>
             </div>
 
@@ -1085,17 +1085,43 @@ ${ideaTexts || '(없음)'}
                     <div class="patch-line block-note">💬 레퍼런스 10개(Scenic, Komoot, ROADS by Porsche 등) 분석 후 Komoot 스타일 난이도 밴드 시스템 채택</div>
                 </div>
 
+                <!-- v1.36 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.36</span>
+                        <span class="patch-date">2026-03-19 · 지도 직접 탭 선택 + 맵 추적 수정 + UI 개편</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">지도에서 루트 직접 탭 선택</strong></div>
+                    <div class="patch-line">PolylineAnnotation 클릭 리스너 (_PolylineClickHandler) — annotation.id → RevvRoute 매핑으로 탭한 라인 즉시 선택</div>
+                    <div class="patch-line">미선택 루트 lineWidth 2.0 → 4.0 (터치 영역 확보, opacity는 0.28 유지)</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">캐시 유지 — 매번 재탐색 방지</strong></div>
+                    <div class="patch-line">initState에서 resetCache() 제거 → 10km 이내·같은 반경이면 fetchRoutes() 자동 스킵</div>
+                    <div class="patch-line">RoutesScreen 열고 닫아도 이전 루트 즉시 표시 (반경 변경 시에만 재탐색)</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">내비 맵 추적 + 위치 아이콘 수정</strong></div>
+                    <div class="patch-line">Sprint 전환 시 _styleLoaded = false + _locationPuckEnabled = false → 재로드 후 LocationPuck 자동 복원</div>
+                    <div class="patch-line">GPS heading → easeTo(300ms) bearing 연동, 카메라가 진행 방향으로 회전 추적</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">UI 전면 개편</strong></div>
+                    <div class="patch-line">CruiseScreen: _BottomQuickBar — 루트/여정/GO(중앙 강조)/기록/더보기 5버튼 하단 고정바</div>
+                    <div class="patch-line">SprintScreen: _SpeedDisplay — 46px Orbitron 속도 (60km+ 주황 / 100km+ 빨강)</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">RoutesBottomSheet 리디자인</strong></div>
+                    <div class="patch-line">패널 높이 52% ConstrainedBox + AnimatedCrossFade 접기/펼치기 → 지도 항상 보임</div>
+                    <div class="patch-line">CHAIN "전체 코스 달리기" 버튼 — 노드 합산 RevvRoute.copyWith() → 스프린트 직접 시작</div>
+                    <div class="patch-line">끝점 탐색 반경 15km → 10km, 결과 5 → 3, 타임아웃 12초 (속도 개선)</div>
+                    <div class="patch-line block-note">💬 "루트창이 지도를 가려서 루트가 어디 있는지 모르겠다" → 해결. 지도 위 라인 탭으로 루트 선택 가능</div>
+                </div>
+
                 <!-- 다음 할 일 -->
                 <div class="patch-entry">
                     <div class="patch-header">
-                        <span class="patch-version">v1.36+ 예정</span>
+                        <span class="patch-version">v1.37+ 예정</span>
                         <span class="patch-date">다음 세션</span>
                         <span class="patch-tag feat">NEXT</span>
                     </div>
-                    <div class="patch-line">① 실기기 테스트 — G포스/TBT/DrivingContext/NavPolyline/CloudSync/GForceTab/루트이탈 에뮬레이터 미검증</div>
-                    <div class="patch-line">② Firebase 보안 규칙 — users/{uid}/runs 오너 전용 read/write 설정 (Firebase Console)</div>
-                    <div class="patch-line">③ 런카드 공유 실기기 테스트 — share_plus v10 ShareParams 실기기에서 검증</div>
-                    <div class="patch-line block-note">💬 실기기 연결해서 한 번 end-to-end 주행 테스트 하는 게 지금 가장 중요한 스텝</div>
+                    <div class="patch-line">① 실기기 테스트 — G포스/TBT/BottomQuickBar/탭 선택/NavPolyline/CloudSync/GForceTab/루트이탈</div>
+                    <div class="patch-line">② Firebase 보안 규칙 — users/{uid}/runs 오너 전용 read/write (Firebase Console)</div>
+                    <div class="patch-line">③ 런카드 공유 실기기 테스트 — share_plus v10 ShareParams 검증</div>
+                    <div class="patch-line block-note">💬 실기기 end-to-end 주행 테스트가 최우선</div>
                 </div>
 
             </div><!-- end tab-1 -->
