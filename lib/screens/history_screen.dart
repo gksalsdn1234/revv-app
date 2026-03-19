@@ -143,6 +143,19 @@ class _StatsBar extends StatelessWidget {
                     : '—',
                 unit: svc.totalRuns > 0 ? 'km' : '',
               ),
+              if (svc.bestMaxG != null) ...[
+                Container(
+                  width: 1,
+                  height: 32,
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  color: AppColors.red.withValues(alpha: 0.2),
+                ),
+                _StatItem(
+                  label: 'BEST G',
+                  value: svc.bestMaxG!.toStringAsFixed(2),
+                  unit: 'G',
+                ),
+              ],
             ],
           ),
           const Positioned.fill(child: CornerBrackets(padding: 0)),

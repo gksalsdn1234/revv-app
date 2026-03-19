@@ -40,38 +40,29 @@ class _HudBarState extends State<HudBar> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 56,
+      height: 52,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: AppColors.bg,
         border: Border(
-          bottom: BorderSide(color: AppColors.red.withOpacity(0.3)),
+          bottom: BorderSide(color: AppColors.divider),
         ),
       ),
       child: Row(
         children: [
-          const RevvLogo(size: 18),
-          const SizedBox(width: 6),
-          Text(
-            'v1.29',
-            style: GoogleFonts.rajdhani(
-              fontSize: 9,
-              color: AppColors.red.withOpacity(0.5),
-              letterSpacing: 1,
-            ),
-          ),
+          const RevvLogo(size: 20),
           const Spacer(),
           Row(
             children: [
               Icon(Icons.wb_sunny_outlined,
-                  size: 14, color: AppColors.white.withOpacity(0.5)),
+                  size: 13, color: AppColors.textSecondary),
               const SizedBox(width: 4),
               Text(
                 '-2°C',
                 style: GoogleFonts.rajdhani(
                   fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.white.withOpacity(0.5),
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
                 ),
               ),
               const SizedBox(width: 16),
@@ -80,7 +71,7 @@ class _HudBarState extends State<HudBar> {
                 style: GoogleFonts.orbitron(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.white.withOpacity(0.5),
+                  color: AppColors.textPrimary,
                 ),
               ),
             ],
@@ -133,31 +124,23 @@ class _SprintHudBarState extends State<SprintHudBar> {
       ),
       child: Row(
         children: [
-          const RevvLogo(size: 16),
+          const RevvLogo(size: 18),
           const SizedBox(width: 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: AppColors.red,
-              borderRadius: BorderRadius.circular(2),
+              color: AppColors.redDim,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: AppColors.red, width: 1),
             ),
             child: Text(
               'SPRINT',
               style: GoogleFonts.rajdhani(
                 fontSize: 9,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
+                fontWeight: FontWeight.w800,
+                color: AppColors.red,
                 letterSpacing: 2,
               ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            'v1.29',
-            style: GoogleFonts.rajdhani(
-              fontSize: 9,
-              color: AppColors.red.withOpacity(0.6),
-              letterSpacing: 1,
             ),
           ),
           const Spacer(),

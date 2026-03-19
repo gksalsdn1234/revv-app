@@ -61,6 +61,7 @@ class RunHistoryService extends ChangeNotifier {
       routeId: session.route?.id,
       weatherEmoji: session.weatherEmoji,
       tempDisplay: session.tempDisplay,
+      maxLateralG: session.maxLateralG > 0 ? session.maxLateralG : null,
     );
 
     // 로컬 즉시 저장
@@ -93,4 +94,14 @@ class RunHistoryService extends ChangeNotifier {
 
   /// 전체 드라이브 횟수
   int get totalRuns => _history.length;
+
+  /// 모든 런 중 최대 횡G (실기기 기록이 있는 경우만)
+  double? get bestMaxG {
+    final gs = _history
+        .where((s) => s.maxLateralG != null && s.maxLateralG! > 0)
+        .map((s) => s.maxLateralG!)
+        .toList();
+    if (gs.isEmpty) return null;
+    return gs.reduce((a, b) => a > b ? a : b);
+  }
 }

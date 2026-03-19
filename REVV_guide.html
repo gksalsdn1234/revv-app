@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>REVV Project Cloud Roadmap</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyC1DU3VEY5TtE_EZz7ZHN6NyoFfxycTOHA",
+            authDomain: "revv-eb7c9.firebaseapp.com",
+            projectId: "revv-eb7c9",
+            storageBucket: "revv-eb7c9.firebasestorage.app",
+            messagingSenderId: "728164013745",
+            appId: "1:728164013745:web:fbfcddcb53abfbe1663490",
+            measurementId: "G-HH0FSPHF0G"
+        };
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'revv-master-roadmap';
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // Initialize Firebase
+        let app, auth, db;
+        if (firebaseConfig) {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        }
+
+        // State Management
+        let user = null;
+        let completedItems = [];
+        let comments = {};   // { itemId: "text" }
+        let ideas = [];      // [{ id, text, ts }]
+
+        // UI Update Functions
+        window.updateProgress = () => {
+            const total = roadmapData.reduce((acc, b) => acc + b.items.length, 0);
+            const done = completedItems.length;
+            const percent = Math.round((done / total) * 100);
+            const fill = document.getElementById('overall-progress-fill');
+            const text = document.getElementById('overall-progress-text');
+            if (fill) fill.style.width = percent + '%';
+            if (text) text.innerText = percent + '%';
+        };
+
+        window.renderRoadmap = () => {
+            const grid = document.getElementById('branches-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            roadmapData.forEach(branch => {
+                const card = document.createElement('div');
+                card.className = 'branch-card';
+                let itemsHtml = '';
+                branch.items.forEach(item => {
+                    const isDone = completedItems.includes(item.id);
+                    const devClass = item.status === 'done' ? 'dev-done' : item.status === 'wip' ? 'dev-wip' : '';
+                    const badgeHtml = item.status === 'done'
+                        ? '<span class="dev-badge done"><i class="fas fa-check" style="font-size:8px"></i> 완료</span>'
+                        : item.status === 'wip'
+                        ? '<span class="dev-badge wip"><i class="fas fa-code" style="font-size:8px"></i> 개발중</span>'
+                        : '';
+                    const hasComment = comments[item.id] && comments[item.id].trim();
+                    const commentDot = hasComment ? '<span style="width:6px;height:6px;border-radius:50%;background:#6366f1;flex-shrink:0;margin-top:6px" title="메모 있음"></span>' : '';
+                    itemsHtml += `<div class="leaf-item ${isDone ? 'completed' : ''} ${devClass}" onclick="window.openDetail('${branch.id}', '${item.id}', event)">
+                        <div class="checkbox" onclick="window.toggleTask('${item.id}', event)">${isDone ? '<i class="fas fa-check text-[10px] text-white"></i>' : ''}</div>
+                        <span class="text-sm font-medium" style="flex:1">${item.title}</span>
+                        ${commentDot}${badgeHtml}
+                    </div>`;
+                });
+                card.innerHTML = `<div class="flex items-center gap-3 mb-5 text-rose-500 border-b border-slate-700 pb-3">
+                    <div class="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center"><i class="fas ${branch.icon} text-lg"></i></div>
+                    <h2 class="font-bold text-lg title-font tracking-tight uppercase">${branch.title}</h2>
+                </div><div class="space-y-1">${itemsHtml}</div>`;
+                grid.appendChild(card);
+            });
+            window.updateProgress();
+        };
+
+        window.toggleTask = async (id, event) => {
+            if(event) event.stopPropagation();
+            
+            const newCompleted = completedItems.includes(id) 
+                ? completedItems.filter(item => item !== id)
+                : [...completedItems, id];
+            
+            completedItems = newCompleted;
+            window.renderRoadmap();
+
+            if (!user || !db) return;
+            try {
+                const userDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'roadmap', 'progress');
+                await setDoc(userDoc, { completedItems: newCompleted });
+            } catch (error) {
+                console.error("Sync Error:", error);
+            }
+        };
+
+        window.openDetail = (branchId, itemId, event) => {
+            const branch = roadmapData.find(b => b.id === branchId);
+            const item = branch.items.find(i => i.id === itemId);
+            const isDone = completedItems.includes(itemId);
+            const modal = document.getElementById('detail-modal');
+            const body = document.getElementById('modal-body');
+
+            const savedComment = comments[itemId] || '';
+            body.innerHTML = `<div class="flex items-center gap-2 mb-4"><span class="px-3 py-1 bg-rose-500 text-white text-[10px] font-bold rounded-full uppercase">${branch.title}</span></div>
+                <h2 class="text-3xl font-bold mb-6 text-white leading-tight">${item.title}</h2>
+                <div class="space-y-8">
+                    <section><h3 class="text-rose-500 font-bold text-sm mb-2 uppercase"><i class="fas fa-bullseye mr-2"></i>기획 의도</h3><p class="text-slate-300">${item.intent}</p></section>
+                    <section><h3 class="text-rose-500 font-bold text-sm mb-2 uppercase"><i class="fas fa-terminal mr-2"></i>Claude 프롬프트</h3>
+                        <div class="prompt-box group"><button onclick="window.copyText(this)" class="copy-btn opacity-0 group-hover:opacity-100 transition">Copy</button><code>${item.prompt}</code></div>
+                    </section>
+                    <section><h3 class="text-rose-500 font-bold text-sm mb-2 uppercase"><i class="fas fa-magic mr-2"></i>UX 디테일</h3><div class="bg-slate-900/50 p-4 rounded-xl border border-slate-700"><p class="text-slate-200">🚀 ${item.feature}</p></div></section>
+                    <section>
+                        <h3 class="font-bold text-sm mb-2 uppercase" style="color:#6366f1"><i class="fas fa-comment-dots mr-2"></i>내 메모 <span style="font-size:9px;font-weight:400;color:#475569;text-transform:none">(Claude가 참고함)</span></h3>
+                        <textarea id="item-comment-ta" placeholder="아이디어, 구현 메모, 참고 링크, 막혔던 것 등..." style="width:100%;background:#0f172a;border:1px solid #334155;border-radius:10px;padding:12px;color:#e2e8f0;font-size:0.85rem;resize:vertical;min-height:90px;font-family:inherit;line-height:1.6">${savedComment}</textarea>
+                        <button onclick="window.saveComment('${item.id}', document.getElementById('item-comment-ta').value)" style="margin-top:8px;padding:8px 18px;background:#6366f1;border:none;border-radius:8px;color:white;font-size:0.78rem;font-weight:700;cursor:pointer">💾 메모 저장</button>
+                        ${savedComment ? '<span id="comment-saved-msg" style="font-size:0.75rem;color:#6366f1;margin-left:10px;display:none">저장됨 ✓</span>' : ''}
+                    </section>
+                </div>
+                <div class="flex gap-4 mt-10"><button onclick="window.toggleTask('${item.id}', null); window.closeModal();" class="flex-1 py-4 rounded-xl font-bold transition ${isDone ? 'bg-slate-700 text-slate-400' : 'bg-rose-600 text-white hover:bg-rose-700'}">
+                ${isDone ? '작업 취소' : '작업 완료'}</button></div>`;
+            modal.style.display = 'flex';
+        };
+
+        window.closeModal = () => document.getElementById('detail-modal').style.display = 'none';
+        window.openMemo  = () => { document.getElementById('memo-panel').style.display = 'flex'; };
+        window.closeMemo = () => { document.getElementById('memo-panel').style.display = 'none'; };
+
+        window.saveComment = async (itemId, text) => {
+            comments[itemId] = text;
+            window.renderRoadmap();
+            const btn = document.querySelector('[onclick*="saveComment"]');
+            if (btn) { btn.innerText = '✓ 저장됨'; setTimeout(() => { if(btn) btn.innerText = '💾 메모 저장'; }, 1500); }
+            if (!user || !db) return;
+            try {
+                const cDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'roadmap', 'comments');
+                await setDoc(cDoc, { items: comments });
+            } catch(e) { console.error(e); }
+        };
+
+        window.addIdea = async () => {
+            const ta = document.getElementById('idea-input');
+            const text = ta ? ta.value.trim() : '';
+            if (!text) return;
+            const newIdea = { id: Date.now().toString(), text, ts: new Date().toISOString() };
+            ideas = [newIdea, ...ideas];
+            ta.value = '';
+            window.renderIdeas();
+            if (!user || !db) return;
+            try {
+                const iDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'ideas', 'list');
+                await setDoc(iDoc, { items: ideas });
+            } catch(e) { console.error(e); }
+        };
+
+        window.deleteIdea = async (id) => {
+            ideas = ideas.filter(i => i.id !== id);
+            window.renderIdeas();
+            if (!user || !db) return;
+            try {
+                const iDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'ideas', 'list');
+                await setDoc(iDoc, { items: ideas });
+            } catch(e) { console.error(e); }
+        };
+
+        window.renderIdeas = () => {
+            const container = document.getElementById('ideas-list');
+            if (!container) return;
+
+            // CLAUDE_TODO 섹션
+            const todoItems = typeof CLAUDE_TODO !== 'undefined' ? CLAUDE_TODO : [];
+            const todoHtml = todoItems.length ? `
+                <div style="margin-bottom:1.2rem">
+                    <div style="font-size:0.72rem;font-weight:700;color:#f97316;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                        <i class="fas fa-hammer"></i> Claude 구현 목록 (CLAUDE_TODO)
+                    </div>
+                    ${todoItems.map(t => {
+                        const statusColor = t.status === 'done' ? '#22c55e' : t.status === 'coding' ? '#f59e0b' : '#f97316';
+                        const statusLabel = t.status === 'done' ? '✅ 완료' : t.status === 'coding' ? '🔨 코딩중' : '⏳ 대기중';
+                        const opacity = t.status === 'done' ? '0.45' : '1';
+                        return `<div style="background:rgba(249,115,22,0.07);border:1px solid rgba(249,115,22,0.2);border-radius:9px;padding:10px 14px;margin-bottom:6px;display:flex;align-items:flex-start;gap:10px;opacity:${opacity}">
+                            <span style="flex:1;color:#e2e8f0;font-size:0.83rem;line-height:1.5">${t.text}</span>
+                            <span style="font-size:0.7rem;font-weight:700;color:${statusColor};white-space:nowrap;margin-top:2px">${statusLabel}</span>
+                        </div>`;
+                    }).join('')}
+                </div>
+                <div style="height:1px;background:rgba(99,102,241,0.15);margin-bottom:1.2rem"></div>` : '';
+
+            // Firebase 아이디어
+            const ideasHtml = ideas.length
+                ? ideas.map(idea => {
+                    const isTodo = idea.text.startsWith('[구현]');
+                    const displayText = isTodo ? idea.text.replace('[구현]', '').trim() : idea.text;
+                    return `<div class="idea-item" style="${isTodo ? 'border-color:rgba(249,115,22,0.4);background:rgba(249,115,22,0.05)' : ''}">
+                        <div style="flex:1">
+                            ${isTodo ? '<span style="font-size:0.68rem;font-weight:700;color:#f97316;background:rgba(249,115,22,0.15);padding:1px 7px;border-radius:4px;margin-bottom:5px;display:inline-block">🔨 구현 요청</span><br>' : ''}
+                            <span class="idea-text">${displayText.replace(/\n/g,'<br>')}</span>
+                        </div>
+                        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0">
+                            <span class="idea-ts">${new Date(idea.ts).toLocaleDateString('ko-KR',{month:'short',day:'numeric'})}</span>
+                            <div style="display:flex;gap:5px">
+                                ${isTodo ? `<button onclick="window.requestCoding('${idea.id}', \`${displayText.replace(/`/g,'\\`')}\`)" style="padding:3px 9px;background:#f97316;border:none;border-radius:5px;color:white;font-size:0.68rem;font-weight:700;cursor:pointer">→ 전달</button>` : ''}
+                                <button onclick="window.deleteIdea('${idea.id}')" class="idea-del">삭제</button>
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('')
+                : '<p style="color:#475569;font-size:0.82rem;text-align:center;padding:1.5rem 0">아직 아이디어가 없어요.<br><span style="font-size:0.75rem;color:#374151">[구현] 태그를 붙이면 Claude 구현 요청으로 표시됩니다</span></p>';
+
+            container.innerHTML = todoHtml + ideasHtml;
+        };
+
+        window.requestCoding = (ideaId, text) => {
+            const msg = `REVV_guide.html의 CLAUDE_TODO 배열에 다음 항목을 추가하고 바로 구현해줘:\n\n"${text}"\n\n(추가 후 status: "coding"으로 설정)`;
+            navigator.clipboard.writeText(msg);
+            const btn = event.target;
+            btn.innerText = '✓ 복사됨'; setTimeout(() => btn.innerText = '→ 전달', 2000);
+        };
+
+        window.copyBriefing = () => {
+            const wipItems = [];
+            const ideaTexts = ideas.map(i => '• ' + i.text).join('\n');
+            const commentedItems = [];
+            roadmapData.forEach(branch => {
+                branch.items.forEach(item => {
+                    if (item.status === 'wip') wipItems.push(`[${branch.title}] ${item.title}`);
+                    if (comments[item.id]) commentedItems.push(`[${item.title}] → ${comments[item.id]}`);
+                });
+            });
+            const todoItems = typeof CLAUDE_TODO !== 'undefined' ? CLAUDE_TODO : [];
+            const pendingTodos = todoItems.filter(t => t.status !== 'done');
+            const hotTasks = ['① 런 히스토리 화면','② 런카드 공유 이미지 (screenshot+share_plus)','③ 턴바이턴 ✅ 완료','④ JARVIS 주행 후 자동 분석 리포트','⑤ 실기기 테스트 — G포스/DrivingContext/NavPolyline'];
+            const text = `🌳 REVV 세션 브리핑 (자동 생성)
+현재 버전: v1.31 | Flutter + Mapbox + Claude API + Firebase
+
+📌 CLAUDE.md 위치: C:/Users/gksal/REVV/CLAUDE.md
+
+🔨 CLAUDE_TODO (구현 요청):
+${pendingTodos.length ? pendingTodos.map(t => `• [${t.status}] ${t.text}`).join('\n') : '(없음)'}
+
+🟡 개발 중인 것:
+${wipItems.map(i => '• '+i).join('\n')}
+
+🔥 다음 우선순위:
+${hotTasks.map(t => '• '+t).join('\n')}
+
+💬 항목별 메모:
+${commentedItems.length ? commentedItems.join('\n') : '(없음)'}
+
+💡 아이디어 노트:
+${ideaTexts || '(없음)'}
+
+→ REVV 프로젝트를 이어서 개발하려고 합니다. 위 현황을 참고해서 오늘 뭘 하면 좋을지 제안해주세요.`;
+            navigator.clipboard.writeText(text);
+            const btn = document.getElementById('briefing-btn');
+            if (btn) { btn.innerText = '✓ 복사됨!'; setTimeout(() => btn.innerText = '🌳 세션 브리핑 복사', 2000); }
+        };
+        window.switchMemoTab = (idx) => {
+            document.querySelectorAll('.memo-tab').forEach((t,i) => t.classList.toggle('active', i===idx));
+            document.querySelectorAll('.memo-tab-content').forEach((c,i) => c.classList.toggle('active', i===idx));
+        };
+        window.copyText = (btn) => {
+            const text = btn.nextElementSibling.innerText;
+            navigator.clipboard.writeText(text);
+            btn.innerText = 'Copied!';
+            setTimeout(() => btn.innerText = 'Copy', 2000);
+        };
+
+        // Firebase Auth Init
+        const initAuth = async () => {
+            if (!auth) return;
+            const statusIndicator = document.getElementById('sync-status');
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth error:", error);
+                if (statusIndicator) statusIndicator.innerHTML = '<span class="text-red-500">연결 오류</span>';
+            }
+        };
+
+        if (auth) {
+            onAuthStateChanged(auth, (u) => {
+                user = u;
+                const statusIndicator = document.getElementById('sync-status');
+                const userIdDisplay = document.getElementById('user-id-display');
+
+                if (user) {
+                    if (statusIndicator) statusIndicator.innerHTML = '<i class="fas fa-cloud text-green-500 mr-2"></i>기기 간 동기화 활성화';
+                    if (userIdDisplay) userIdDisplay.innerText = `Device ID: ${user.uid.substring(0, 8)}...`;
+                    
+                    const userDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'roadmap', 'progress');
+                    onSnapshot(userDoc, (docSnap) => {
+                        completedItems = docSnap.exists() ? (docSnap.data().completedItems || []) : [];
+                        window.renderRoadmap();
+                    }, (e) => console.error(e));
+
+                    const commentsDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'roadmap', 'comments');
+                    onSnapshot(commentsDoc, (docSnap) => {
+                        comments = docSnap.exists() ? (docSnap.data().items || {}) : {};
+                        window.renderRoadmap();
+                    }, (e) => console.error(e));
+
+                    const ideasDoc = doc(db, 'artifacts', appId, 'users', user.uid, 'ideas', 'list');
+                    onSnapshot(ideasDoc, (docSnap) => {
+                        ideas = docSnap.exists() ? (docSnap.data().items || []) : [];
+                        window.renderIdeas();
+                    }, (e) => console.error(e));
+                } else {
+                    if (statusIndicator) statusIndicator.innerHTML = '<i class="fas fa-cloud-slash text-slate-500 mr-2"></i>오프라인 모드';
+                    window.renderRoadmap();
+                }
+            });
+        }
+
+        window.onload = () => {
+            initAuth();
+            window.renderRoadmap();
+            window.renderIdeas();
+        };
+
+        window.onclick = function(e) { if(e.target == document.getElementById('detail-modal')) window.closeModal(); }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+KR:wght@300;500;700&display=swap');
+        :root { --racing-red: #E11D48; --dark-bg: #0F172A; --card-bg: #1E293B; --branch-color: #334155; }
+        body { background-color: var(--dark-bg); color: white; font-family: 'Noto Sans KR', sans-serif; overflow-x: hidden; }
+        .title-font { font-family: 'Orbitron', sans-serif; }
+        .mindmap-container { position: relative; width: 100%; min-height: 100vh; padding: 50px 20px; display: flex; flex-direction: column; align-items: center; }
+        .node-root { background: linear-gradient(135deg, var(--racing-red), #9F1239); border: 2px solid #FB7185; border-radius: 16px; padding: 1.5rem 3rem; font-size: 1.75rem; font-weight: 700; margin-bottom: 60px; box-shadow: 0 0 40px rgba(225, 29, 72, 0.4); z-index: 20; }
+        .branches-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; width: 100%; max-width: 1400px; z-index: 10; }
+        .branch-card { background: var(--card-bg); border: 1px solid var(--branch-color); border-radius: 15px; padding: 1.25rem; transition: all 0.3s ease; }
+        .branch-card:hover { border-color: var(--racing-red); transform: translateY(-5px); }
+        .leaf-item { display: flex; align-items: flex-start; gap: 10px; padding: 12px; margin: 8px 0; background: rgba(15, 23, 42, 0.4); border-radius: 8px; cursor: pointer; transition: 0.2s; border-left: 3px solid transparent; }
+        .leaf-item:hover { background: rgba(225, 29, 72, 0.1); border-left-color: var(--racing-red); }
+        .leaf-item.completed { border-left-color: #10B981; background: rgba(16, 185, 129, 0.05); }
+        .leaf-item.completed span { text-decoration: line-through; color: #94A3B8; }
+        .checkbox { min-width: 20px; height: 20px; border: 2px solid var(--branch-color); border-radius: 4px; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+        .leaf-item.completed .checkbox { background: #10B981; border-color: #10B981; }
+        #detail-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(10px); z-index: 100; align-items: center; justify-content: center; padding: 20px; }
+        .modal-content { background: #1e293b; width: 100%; max-width: 750px; max-height: 90vh; overflow-y: auto; border-radius: 24px; border: 1px solid rgba(225, 29, 72, 0.5); padding: 2.5rem; position: relative; }
+        .prompt-box { background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 1rem; margin: 1rem 0; font-family: 'Courier New', Courier, monospace; font-size: 0.9rem; color: #e2e8f0; position: relative; }
+        .copy-btn { position: absolute; top: 8px; right: 8px; background: #334155; padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; color: #94a3b8; }
+        .progress-bar { height: 8px; background: #334155; border-radius: 4px; margin-top: 10px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--racing-red), #fb7185); width: 0%; transition: width 0.8s ease; }
+        .status-footer { position: fixed; bottom: 0; left: 0; right: 0; background: rgba(15, 23, 42, 0.9); padding: 10px 20px; border-top: 1px solid var(--branch-color); display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #94A3B8; z-index: 50; }
+        /* 개발 상태 뱃지 */
+        .dev-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: 99px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; margin-left: auto; flex-shrink: 0; }
+        .dev-badge.done { background: rgba(16,185,129,0.15); color: #10B981; border: 1px solid rgba(16,185,129,0.3); }
+        .dev-badge.wip  { background: rgba(251,191,36,0.15); color: #FBBF24; border: 1px solid rgba(251,191,36,0.3); }
+        .leaf-item.dev-done { border-left-color: #10B981 !important; }
+        .leaf-item.dev-wip  { border-left-color: #FBBF24 !important; }
+        /* 메모 패널 */
+        .memo-fab { position: fixed; bottom: 60px; right: 24px; background: linear-gradient(135deg,#E11D48,#9F1239); color: white; border: none; border-radius: 50px; padding: 12px 20px; font-size: 0.8rem; font-weight: 700; cursor: pointer; z-index: 60; box-shadow: 0 4px 20px rgba(225,29,72,0.4); display: flex; align-items: center; letter-spacing: 0.05em; gap: 8px; }
+        .memo-fab:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(225,29,72,0.5); }
+        #memo-panel { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(12px); z-index: 110; align-items: flex-start; justify-content: center; padding: 20px; overflow-y: auto; }
+        .memo-content { background: #0f172a; width: 100%; max-width: 820px; border-radius: 24px; border: 1px solid rgba(225,29,72,0.4); padding: 2.5rem; position: relative; margin: auto; }
+        .memo-section { margin-bottom: 2rem; }
+        .memo-section h3 { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid #1e293b; }
+        .memo-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; background: #1e293b; border-radius: 10px; margin-bottom: 8px; border-left: 3px solid transparent; }
+        .memo-item.done { border-left-color: #10B981; }
+        .memo-item.wip  { border-left-color: #FBBF24; }
+        .memo-item.todo { border-left-color: #334155; }
+        .memo-item.hot  { border-left-color: #E11D48; }
+        .memo-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+        .memo-dot.done { background: #10B981; }
+        .memo-dot.wip  { background: #FBBF24; }
+        .memo-dot.todo { background: #475569; }
+        .memo-dot.hot  { background: #E11D48; box-shadow: 0 0 6px #E11D48; }
+        .memo-title { font-weight: 600; font-size: 0.9rem; color: #e2e8f0; }
+        .memo-desc  { font-size: 0.78rem; color: #64748b; margin-top: 3px; line-height: 1.5; }
+        .memo-tag   { font-size: 0.65rem; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+        /* 탭 */
+        .memo-tabs { display: flex; gap: 4px; background: #0a0f1c; border-radius: 12px; padding: 4px; margin-bottom: 2rem; }
+        .memo-tab  { flex: 1; padding: 10px; border: none; border-radius: 9px; font-size: 0.78rem; font-weight: 700; cursor: pointer; transition: all 0.2s; background: transparent; color: #475569; letter-spacing: 0.03em; }
+        .memo-tab.active { background: #1e293b; color: #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+        .memo-tab-content { display: none; }
+        .memo-tab-content.active { display: block; }
+        /* 패치노트 */
+        .patch-entry { margin-bottom: 2rem; }
+        .patch-header { display: flex; align-items: center; gap: 10px; margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px solid #1e293b; }
+        .patch-version { font-family: 'Orbitron', sans-serif; font-size: 0.85rem; font-weight: 700; color: #E11D48; }
+        .patch-date { font-size: 0.7rem; color: #475569; font-family: monospace; }
+        .patch-tag { font-size: 0.6rem; font-weight: 700; padding: 2px 7px; border-radius: 99px; }
+        .patch-tag.feat { background: rgba(99,102,241,0.15); color: #818CF8; border: 1px solid rgba(99,102,241,0.3); }
+        .patch-tag.fix  { background: rgba(245,158,11,0.15); color: #FCD34D; border: 1px solid rgba(245,158,11,0.3); }
+        .patch-tag.block{ background: rgba(239,68,68,0.15); color: #FCA5A5; border: 1px solid rgba(239,68,68,0.3); }
+        .patch-line { font-size: 0.8rem; color: #94a3b8; padding: 5px 0 5px 14px; border-left: 2px solid #1e293b; margin: 4px 0; line-height: 1.5; }
+        .patch-line.hard { border-left-color: #E11D48; color: #fca5a5; }
+        .patch-line.block-note { border-left-color: #FBBF24; color: #fcd34d; font-style: italic; }
+        /* 아이디어 노트 */
+        .idea-input-wrap { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1.5rem; }
+        .idea-input-wrap textarea { background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 12px 14px; color: #e2e8f0; font-size: 0.85rem; resize: vertical; min-height: 80px; font-family: inherit; line-height: 1.6; transition: border-color 0.2s; }
+        .idea-input-wrap textarea:focus { outline: none; border-color: #6366f1; }
+        .idea-add-btn { align-self: flex-end; background: #6366f1; border: none; border-radius: 9px; color: white; padding: 10px 20px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+        .idea-add-btn:hover { background: #4f46e5; }
+        .idea-item { background: #1e293b; border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; border-left: 3px solid #6366f1; display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .idea-text { font-size: 0.85rem; color: #e2e8f0; line-height: 1.6; flex: 1; }
+        .idea-ts { font-size: 0.68rem; color: #475569; white-space: nowrap; }
+        .idea-del { background: transparent; border: 1px solid #334155; border-radius: 6px; color: #475569; padding: 2px 8px; font-size: 0.7rem; cursor: pointer; white-space: nowrap; }
+        .idea-del:hover { border-color: #E11D48; color: #E11D48; }
+        /* 세션 브리핑 버튼 */
+        .briefing-btn { background: transparent; border: 1px solid rgba(225,29,72,0.4); border-radius: 8px; color: #E11D48; padding: 8px 14px; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
+        .briefing-btn:hover { background: rgba(225,29,72,0.1); }
+        @media (max-width: 1024px) { .branches-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 640px) { .branches-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="mindmap-container">
+        <!-- Header -->
+        <div class="text-center mb-12">
+            <h1 class="title-font text-6xl font-bold text-rose-600 mb-2 tracking-tighter">REVV</h1>
+            <p class="text-slate-400 font-light text-lg italic">The Flutter Powered Winding Masterpiece (Cloud Sync)</p>
+            <div class="max-w-md mx-auto mt-6">
+                <div class="flex justify-between text-sm text-slate-400 mb-2">
+                    <span class="font-bold uppercase tracking-widest text-xs">Roadmap Completion</span>
+                    <span id="overall-progress-text" class="text-rose-500 font-bold">0%</span>
+                </div>
+                <div class="progress-bar">
+                    <div id="overall-progress-fill" class="progress-fill"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Root Node -->
+        <div class="node-root title-font">
+            <i class="fas fa-flag-checkered mr-3"></i> REVV FLUTTER
+        </div>
+
+        <!-- Branches -->
+        <div class="branches-grid" id="branches-grid"></div>
+        <div class="h-16"></div>
+    </div>
+
+    <!-- Status Footer -->
+    <div class="status-footer">
+        <div id="sync-status"><i class="fas fa-spinner fa-spin mr-2"></i>클라우드 연결 중...</div>
+        <div id="user-id-display" class="font-mono opacity-50"></div>
+    </div>
+
+    <!-- 개발 메모 FAB -->
+    <button class="memo-fab" onclick="window.openMemo()">
+        <i class="fas fa-clipboard-list"></i> 개발 현황 메모
+    </button>
+
+    <!-- 개발 메모 패널 -->
+    <div id="memo-panel" onclick="if(event.target===this)window.closeMemo()">
+        <div class="memo-content">
+            <button onclick="window.closeMemo()" class="absolute top-6 right-6 text-slate-400 hover:text-white transition">
+                <i class="fas fa-times text-2xl"></i>
+            </button>
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-500"><i class="fas fa-clipboard-list text-lg"></i></div>
+                <div style="flex:1">
+                    <h2 class="title-font text-2xl font-bold text-white tracking-tight">REVV 개발 현황</h2>
+                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.31 · Flutter + Mapbox + Claude API + Firebase</p>
+                </div>
+                <button id="briefing-btn" class="briefing-btn" onclick="window.copyBriefing()">🌳 세션 브리핑 복사</button>
+            </div>
+            <!-- 탭 -->
+            <div class="memo-tabs">
+                <button class="memo-tab active" onclick="window.switchMemoTab(0)">📊 현재 현황</button>
+                <button class="memo-tab" onclick="window.switchMemoTab(1)">📜 패치노트</button>
+                <button class="memo-tab" onclick="window.switchMemoTab(2)">💡 아이디어</button>
+            </div>
+
+            <!-- 탭 0: 현재 현황 -->
+            <div class="memo-tab-content active">
+
+            <!-- 완료된 것 -->
+            <div class="memo-section">
+                <h3 class="text-emerald-500"><i class="fas fa-check-circle mr-2"></i>완료된 기능</h3>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">와인딩 곡률 분석 엔진</div><div class="memo-desc">bearing rate 기반 커브 분석 + curveRatio×√dist 밀도 점수 산출. 반경 30/50/100km 선택 가능.</div></div>
+                    <span class="memo-tag ml-auto">route_service.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">OBD2 BLE 완전 연동</div><div class="memo-desc">ELM327 자동 감지, RPM/냉각수/스로틀/연료 등 14개 PID 200ms 폴링. 채널 커스터마이징까지 완성.</div></div>
+                    <span class="memo-tag ml-auto">obd_service.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">Mapbox 커스텀 다크 스타일</div><div class="memo-desc">"REVV Waze Neon v3" 스타일 적용 완료. 스프린트 모드 시 navigation-night-v1으로 자동 전환.</div></div>
+                    <span class="memo-tag ml-auto">mapbox_service.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">스프린트 모드 + 런카드</div><div class="memo-desc">주행 시작 → GPS 실시간 수집 → 종료 → 런카드 자동 저장. 날씨/거리/시간/최고속도 기록. 같은 루트 N회차 표시.</div></div>
+                    <span class="memo-tag ml-auto">sprint_screen / run_card_screen</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">IMU G포스 측정 서비스</div><div class="memo-desc">50Hz 가속도+자이로, 4가지 마운트 타입 캘리브레이션, lateralG/longitudinalG/yawRate 계산 완성.</div></div>
+                    <span class="memo-tag ml-auto">imu_service.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">여정 플래너 (POI → 귀가)</div><div class="memo-desc">카테고리 선택 → Overpass POI 검색 → Google Maps 경유지+귀가 연결.</div></div>
+                    <span class="memo-tag ml-auto">trip_planner_screen</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">DrivingContextService — WINDING / SPORT 감지</div><div class="memo-desc">GPS bearing rate 기반 windingIntensity + OBD RPM/속도 비율 → DriveMode(cruise/winding/sport) 자동 추론. 스프린트 화면 테두리·뱃지 반응.</div></div>
+                    <span class="memo-tag ml-auto">driving_context_service.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">경유지 TSP 최적화 (WaypointOptimizer)</div><div class="memo-desc">특정 와인딩 코스를 반드시 통과하는 Nearest-Neighbor + 2-opt 알고리즘. 정/역방향 자동 선택, Mapbox 25점 제한 균등 샘플링.</div></div>
+                    <span class="memo-tag ml-auto">waypoint_optimizer.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">앱 내 통합 내비게이션 (nav polyline)</div><div class="memo-desc">외부 앱 없이 REVV 안에서 현재위치→루트시작점 Mapbox 경로 자동 fetch. 200m 이내 루트 진입 자동 감지 → navPolyline 해제 + 배너 표시.</div></div>
+                    <span class="memo-tag ml-auto">sprint_screen / directions_service</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">런 히스토리 화면 (history_screen.dart)</div><div class="memo-desc">RunHistoryService.runs 리스트 기반 과거 런 목록 UI. 통계 바(총 거리/횟수/시간), 런 타일, 코너 브라켓 디자인, 빈 상태 화면 완성. 클라우드 싱크 배지 포함.</div></div>
+                    <span class="memo-tag ml-auto">history_screen.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">런카드 공유 이미지 (screenshot + share_plus)</div><div class="memo-desc">RepaintBoundary + RenderRepaintBoundary.toImage(pixelRatio:3) → PNG → SharePlus.instance.share(ShareParams). 공유 중 버튼 상태 처리.</div></div>
+                    <span class="memo-tag ml-auto">run_card_screen.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">JARVIS 주행 후 자동 분석 리포트</div><div class="memo-desc">런 종료 시 RevvAiService.analyzeRun(session) 자동 호출. Claude Haiku API, 루트명/거리/G포스/DriveMode 비율 전달. 3문장 한국어 분석. 폴백 로컬 로직 포함.</div></div>
+                    <span class="memo-tag ml-auto">revv_ai_service.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">RunSession G포스 + DriveMode 기록</div><div class="memo-desc">maxLateralG / maxLonG (ImuService 50Hz 세션 최댓값), driveModeSeconds (cruise/winding/sport 체류 시간) RunSession 모델에 추가. SprintScreen에서 수집 후 stopSession()에 전달.</div></div>
+                    <span class="memo-tag ml-auto">run_session.dart / sprint_screen.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">Firebase Firestore 클라우드 런 동기화</div><div class="memo-desc">CloudSyncService (익명 인증, Firestore users/{uid}/runs). 런 저장 시 자동 업로드, 앱 시작 시 클라우드 누락 런 풀다운. HistoryScreen에 싱크 상태 배지(cloud_done/syncing/error) 표시.</div></div>
+                    <span class="memo-tag ml-auto">cloud_sync_service.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">UI 대개편 — 지도 풀스크린 + 슬라이드 메뉴</div><div class="memo-desc">JARVIS 하단 상시 패널 제거. 왼쪽 레일 → 슬라이드 오버레이로 변경 (AnimatedPositioned 220ms). 햄버거 버튼/GO 버튼/MIC 버튼 플로팅. 딤 배경 탭 시 닫힘.</div></div>
+                    <span class="memo-tag ml-auto">cruise_screen.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">디자인 시스템 개편 — AppColors v2</div><div class="memo-desc">순흑(#08…) → #0F0F10 따뜻한 다크. panel #1A1A1C, surface #2A2A2E 계층 추가. 레드 #FF1744(선명), 텍스트 #F2F2F2/#8A8A8E. GO버튼 레드 글로우. HudBar 버전 텍스트 제거.</div></div>
+                    <span class="memo-tag ml-auto">colors.dart / hud_bar.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">OBD G-FORCE 전용 탭 (4번째 탭)</div><div class="memo-desc">obd_screen.dart 3탭→4탭. _GForceTab 신규 생성: LayoutBuilder로 풀사이즈 _CarGforceMeter (차체 비율 유지). 합성G 대형 수치, 횡G/종G/요레이트 3열, SESSION MAX 배지, MAX 리셋 버튼.</div></div>
+                    <span class="memo-tag ml-auto">obd_screen.dart</span>
+                </div>
+            </div>
+
+            <!-- 개발 중인 것 -->
+            <div class="memo-section">
+                <h3 class="text-yellow-400"><i class="fas fa-code mr-2"></i>개발 중 (반쯤 됨)</h3>
+                <div class="memo-item wip">
+                    <div class="memo-dot wip"></div>
+                    <div><div class="memo-title">실기기 테스트 미완료</div><div class="memo-desc">G포스/TBT/DrivingContext/NavPolyline/CloudSync/G-FORCE 탭 — 에뮬레이터에서 미검증. Mapbox + GFXSTREAM 충돌로 실기기 필요.</div></div>
+                    <span class="memo-tag ml-auto">실기기 필요</span>
+                </div>
+            </div>
+
+            <!-- 🔥 다음 할 일 (우선순위) -->
+            <div class="memo-section">
+                <h3 class="text-rose-500"><i class="fas fa-fire mr-2"></i>다음 할 일 (우선순위 순)</h3>
+                <div class="memo-item hot">
+                    <div class="memo-dot hot"></div>
+                    <div>
+                        <div class="memo-title">① 실기기 테스트 (필수)</div>
+                        <div class="memo-desc">G포스(ImuService 50Hz) / TBT 음성 안내 / DrivingContext / NavPolyline 파란 선 / G-FORCE 탭 — 에뮬레이터 미검증. Mapbox+GFXSTREAM 충돌로 에뮬레이터 불가. 실기기 연결 필요.</div>
+                        <div class="text-xs text-rose-400 mt-1 font-medium">→ flutter run으로 실기기에 빌드 후 직접 주행 테스트</div>
+                    </div>
+                </div>
+                <div class="memo-item hot">
+                    <div class="memo-dot hot"></div>
+                    <div>
+                        <div class="memo-title">② Firebase 보안 규칙 설정</div>
+                        <div class="memo-desc">현재 Firestore 규칙이 기본값(오픈). users/{uid}/runs 는 해당 uid 사용자만 읽기/쓰기 가능하도록 Firebase 콘솔에서 규칙 수정 필요.</div>
+                        <div class="text-xs text-rose-400 mt-1 font-medium">→ Firebase Console → Firestore → Rules 탭에서 직접 수정</div>
+                    </div>
+                </div>
+                <div class="memo-item hot">
+                    <div class="memo-dot hot"></div>
+                    <div>
+                        <div class="memo-title">③ 런카드 공유 — 실기기 테스트</div>
+                        <div class="memo-desc">share_plus v10 + SharePlus.instance.share(ShareParams) 구현 완료. 안드로이드 에뮬레이터에서 정상 확인. 실기기에서 실제 공유 시트 동작 검증 필요.</div>
+                        <div class="text-xs text-rose-400 mt-1 font-medium">→ 실기기에서 런 종료 후 공유 버튼 탭하여 시스템 공유 시트 확인</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 기술 스택 현황 -->
+            <div class="memo-section">
+                <h3 class="text-slate-400"><i class="fas fa-layer-group mr-2"></i>현재 기술 스택</h3>
+                <div class="grid grid-cols-2 gap-3" style="font-size:0.8rem">
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">지도</div><div class="text-slate-500">Mapbox mapbox_maps_flutter ^2.3.0<br>커스텀 스타일: REVV Waze Neon v3</div></div>
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">AI</div><div class="text-slate-500">Claude API (jarvis_service)<br>다음 단계: Gemini 주행 분석 추가</div></div>
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">센서</div><div class="text-slate-500">sensors_plus 50Hz IMU<br>flutter_blue_plus OBD2 BLE</div></div>
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">저장</div><div class="text-slate-500">shared_preferences (런 기록/집 위치)<br>Firebase Firestore (클라우드 런 동기화) ✅</div></div>
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">루트 탐색</div><div class="text-slate-500">Overpass API (커브 분석)<br>Google Maps (내비 연결)</div></div>
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (11개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.31 · GitHub Private</div></div>
+                </div>
+            </div>
+
+            </div><!-- end tab-0 -->
+
+            <!-- 탭 1: 패치노트 & 개발일지 -->
+            <div class="memo-tab-content">
+
+                <div style="background:rgba(225,29,72,0.05);border:1px solid rgba(225,29,72,0.2);border-radius:10px;padding:12px 16px;margin-bottom:1.5rem;font-size:0.78rem;color:#94a3b8;line-height:1.6;">
+                    <span class="text-rose-400 font-bold">⚠️ 대화 데이터 소실 안내</span><br>
+                    v1.11 이전 개발 과정의 대화 기록은 소실되었습니다. v1.11 initial commit 이후부터 git 히스토리 기반으로 복원했습니다.
+                </div>
+
+                <!-- v1.10 이전 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.0 — v1.10</span>
+                        <span class="patch-date">2026-03 이전 · 대화 소실</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">Flutter 프로젝트 초기 세팅 및 Mapbox 연동</div>
+                    <div class="patch-line">GPS 위치 추적 (geolocator) 기본 구현</div>
+                    <div class="patch-line">Overpass API로 와인딩 루트 탐색 기초</div>
+                    <div class="patch-line">스프린트 모드 기본 구조, 런카드 저장</div>
+                    <div class="patch-line">IMU 서비스: sensors_plus 50Hz 가속도/자이로</div>
+                    <div class="patch-line">날씨 서비스, 홈 위치 저장</div>
+                    <div class="patch-line block-note">💬 이 시기 어떤 문제를 겪었는지 기억나는 것 있으면 직접 추가해주세요</div>
+                </div>
+
+                <!-- v1.11 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.11</span>
+                        <span class="patch-date">2026-03-10 · Initial Commit</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">GitHub 첫 커밋 — 앱 기본 구조 완성</div>
+                    <div class="patch-line">Provider 6개 서비스 등록 (Location, Weather, Jarvis, Route, RunSession, RunHistory)</div>
+                    <div class="patch-line">RunHistoryService: shared_preferences에 런 기록 저장/로드</div>
+                    <div class="patch-line">CLAUDE.md 작성 — Claude가 다른 기기에서도 프로젝트 맥락 파악하도록</div>
+                </div>
+
+                <!-- v1.12 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.12</span>
+                        <span class="patch-date">2026-03-11 오전</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">TripPlannerScreen 연결 + HomeLocationService 등록</div>
+                    <div class="patch-line hard">🔴 막혔던 것: cruise_screen에 여정 플래너 진입 버튼이 없었음 → 직접 추가</div>
+                </div>
+
+                <!-- v1.13 ~ v1.16 맵 스타일 전쟁 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.13 → v1.16</span>
+                        <span class="patch-date">2026-03-11 오전 · 맵 스타일 전쟁 4라운드</span>
+                        <span class="patch-tag fix">FIX</span>
+                    </div>
+                    <div class="patch-line hard">🔴 가장 오래 막혔던 구간 — Mapbox 스타일이 실기기에서 흰 화면 뜨는 문제 반복</div>
+                    <div class="patch-line">v1.13: cruise→outdoors, sprint→navigation auto 첫 시도</div>
+                    <div class="patch-line">v1.14: 날씨 아이콘(☀/🌧) 기반으로 낮/밤 스타일 전환 시도</div>
+                    <div class="patch-line">v1.15: outdoors-v12로 모든 모드 통일 시도 (단순화 전략)</div>
+                    <div class="patch-line">v1.16: 최종 확정 — cruise=outdoors, sprint=navigation-night-v1</div>
+                    <div class="patch-line block-note">💬 Mapbox style URI는 실제 기기 테스트 없이는 확인이 안 됨. 에뮬레이터와 실기기 결과가 달라서 고생함</div>
+                </div>
+
+                <!-- iOS fix + TTS hang -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">iOS Fix</span>
+                        <span class="patch-date">2026-03-11 오전</span>
+                        <span class="patch-tag fix">FIX</span>
+                    </div>
+                    <div class="patch-line hard">🔴 iOS 빌드 실패 → .vscode/settings.json + SETUP_GUIDE.sh 수정으로 해결</div>
+                    <div class="patch-line hard">🔴 로딩 화면 TTS가 완료 신호 없이 무한 hang → async/await 구조 수정</div>
+                    <div class="patch-line block-note">💬 Flutter TTS는 iOS에서 완료 콜백이 안 오는 케이스가 있음. timeout 추가가 해결책</div>
+                </div>
+
+                <!-- v1.17 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.17</span>
+                        <span class="patch-date">2026-03-11 오후</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">내비게이션 플로우 구축: Directions API + 폴리라인 지도 표시</div>
+                    <div class="patch-line">근접 스프린트 트리거: 루트 시작점 500m 이내 도달 시 스프린트 모드 자동 준비</div>
+                    <div class="patch-line">directions_service.dart 신규 생성</div>
+                </div>
+
+                <!-- v1.18 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.18</span>
+                        <span class="patch-date">2026-03-11 오후</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">루트 위저드 대형 업그레이드: 단계별 UI (Step-by-Step)</div>
+                    <div class="patch-line">루프 빌더: 출발지로 돌아오는 순환 루트 생성</div>
+                    <div class="patch-line">POI 정류장: 경유지로 카페/뷰포인트 등 추가 가능</div>
+                    <div class="patch-line">route_builder_service.dart 신규 생성</div>
+                    <div class="patch-line hard">🔴 selectRoute 에서 notifyListeners 중복 호출 버그 → 빌드 루트가 목록에 안 추가되는 문제 → 구조 수정으로 해결</div>
+                </div>
+
+                <!-- Route diversity -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">Route Diversity</span>
+                        <span class="patch-date">2026-03-11 오후</span>
+                        <span class="patch-tag fix">FIX</span>
+                    </div>
+                    <div class="patch-line hard">🔴 가장 오래 걸린 버그: 탐색할 때마다 같은 루트만 나오는 문제</div>
+                    <div class="patch-line">1차 시도: random top-3 pick → 여전히 비슷한 루트</div>
+                    <div class="patch-line">2차 시도: jitter (좌표 무작위 이동) → 약간 개선</div>
+                    <div class="patch-line">3차 시도: 섹터 기반 8방향 존 — 동서남북+대각선으로 구역 분리 → 확연히 다양해짐</div>
+                    <div class="patch-line">4차 시도: 루트 센터 간 최소 6km 거리 강제 → 겹치는 루트 완전 제거</div>
+                    <div class="patch-line block-note">💬 Overpass는 요청 범위를 조금만 바꿔도 전혀 다른 도로가 나옴. 섹터 분리가 핵심이었음</div>
+                </div>
+
+                <!-- Overpass 429 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">Overpass Mirror</span>
+                        <span class="patch-date">2026-03-11 오후</span>
+                        <span class="patch-tag fix">FIX</span>
+                    </div>
+                    <div class="patch-line hard">🔴 Overpass 공개 서버 429(Too Many Requests) / 504(Timeout) 에러 빈발</div>
+                    <div class="patch-line">해결: overpass-api.de / kumi.systems / openstreetmap.ru 미러 서버 리스트 자동 순환</div>
+                    <div class="patch-line block-note">💬 개발 중 루트 탐색을 많이 돌리다 보면 금방 rate limit에 걸림. 미러 없으면 앱이 그냥 멈춤</div>
+                </div>
+
+                <!-- Tesla trip planner + 루트 저장 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">Trip Planner 2.0 + 루트 저장</span>
+                        <span class="patch-date">2026-03-11 저녁</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">Tesla 스타일 트립 플래너: 루트 출발 전/후 POI 슬롯, 루트 주변 추천</div>
+                    <div class="patch-line">루트 저장 기능: 북마크 버튼 + 저장된 루트 목록 화면</div>
+                    <div class="patch-line">saved_route_service.dart 신규 생성</div>
+                    <div class="patch-line">런카드에서 해당 루트 바로 저장 가능</div>
+                </div>
+
+                <!-- OBD2 BLE -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">OBD2 BLE</span>
+                        <span class="patch-date">2026-03-11 저녁</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">VEEPEAK OBD2 BLE+ 동글 자동 감지 및 연결</div>
+                    <div class="patch-line">14개 PID 파싱 (RPM, 냉각수, 스로틀, 연료, MAF, 배터리 등) 200ms 폴링</div>
+                    <div class="patch-line hard">🔴 Android BLE 권한 누락 → AndroidManifest.xml에 BLUETOOTH_SCAN/CONNECT 권한 추가 후 해결</div>
+                    <div class="patch-line hard">🔴 iOS NSBluetooth 권한 Info.plist 누락 → 앱 크래시 → 추가 후 해결</div>
+                    <div class="patch-line block-note">💬 BLE 권한은 Android 12+부터 SCAN과 CONNECT가 분리됨. 구형 코드 그대로 쓰면 안 됨</div>
+                </div>
+
+                <!-- v1.19 OBD 화면 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.19</span>
+                        <span class="patch-date">2026-03-11 밤 · 현재 버전</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">OBD 텔레메트리 전용 화면: F1 스타일 3-탭 좌측 레일</div>
+                    <div class="patch-line">obd_screen.dart 신규 생성 — LIVE / GRAPH / CHANNEL 3탭</div>
+                    <div class="patch-line">스프린트 화면에서 OBD 화면 진입 가능</div>
+                </div>
+
+                <!-- v1.20 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.20</span>
+                        <span class="patch-date">2026-03-12</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">cruise_screen 하단 UI 완전 재구성 — 4개 소형 버튼 (ROUTES / 여정 / OBD / 기록) + 전체 너비 SPRINT 대형 버튼</div>
+                    <div class="patch-line">OBD 버튼 → OBDScreen.show(context) 직접 연결</div>
+                    <div class="patch-line">기록 버튼 → "준비중" 스낵바 (history_screen 추후 연결)</div>
+                    <div class="patch-line">_ActionButton, _IconOnlyButton 클래스 삭제 (미사용 제거)</div>
+                </div>
+
+                <!-- v1.21 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.21</span>
+                        <span class="patch-date">2026-03-12</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">sprint_screen에 _LiveStatHUD 위젯 추가 — Timer 1초 갱신, 경과시간(mm:ss / h:mm:ss) + 누적거리(m/km)</div>
+                    <div class="patch-line">DrivingContextService 신규 생성 — GPS bearing delta rolling average로 windingIntensity 계산</div>
+                    <div class="patch-line">DriveMode enum (cruise / winding / sport) + extension (label, emoji, color)</div>
+                    <div class="patch-line">OBD RPM≥3200 + 속도≥30 + ratio>90 → SPORT 모드 자동 감지</div>
+                    <div class="patch-line">main.dart ChangeNotifierProxyProvider2 등록 (LocationService + OBDService → DrivingContextService)</div>
+                    <div class="patch-line">sprint_screen 지도 테두리 + _SprintBottomBar 상단 선 + _ModeBadge가 DriveMode 색상으로 반응</div>
+                </div>
+
+                <!-- v1.22 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.22</span>
+                        <span class="patch-date">2026-03-12</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">WaypointOptimizer 신규 생성 — TSP Nearest-Neighbor + 2-opt 최적화</div>
+                    <div class="patch-line">RevvRoute 정/역방향 진입 자동 선택 (_entry/_exit 헬퍼), Mapbox 25점 제한 균등 샘플링</div>
+                    <div class="patch-line">RouteService.optimizeWaypoints() 메서드 추가 (isOptimizing 상태 관리)</div>
+                    <div class="patch-line">RouteWizardScreen multiSelect 스텝 추가 — 구간이어달리기 모드</div>
+                    <div class="patch-line">_optimizeSelected(): 구간 선택 → TSP 최적화 → merged RevvRoute 생성 → selectRoute()</div>
+                </div>
+
+                <!-- v1.23 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.23</span>
+                        <span class="patch-date">2026-03-12</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">SprintScreen 앱 내 통합 내비게이션 — 외부 앱 전환 없이 REVV 안에서 완결</div>
+                    <div class="patch-line">didChangeDependencies에서 DirectionsService.getRoute() 자동 호출 → navPolyline 파란 선 지도에 표시</div>
+                    <div class="patch-line">haversine 200m 이내 루트 진입 자동 감지 → navPolyline 해제 + "루트 진입!" 빨간 배너 3초 표시</div>
+                    <div class="patch-line">MapWidget에 navPolyline / routePolyline 파라미터 추가, didUpdateWidget에서 폴리라인 갱신</div>
+                    <div class="patch-line block-note">💬 턴바이턴 좌회전 안내는 미구현 — 다음 단계로 Mapbox Navigation SDK 또는 자체 steps 파싱 선택 필요</div>
+                </div>
+
+                <!-- v1.24 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.24</span>
+                        <span class="patch-date">2026-03-13</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">CruiseScreen 하단 패널 완전 제거 → 왼쪽 56px 세로 레일로 교체 (NavigationRail 패턴)</div>
+                    <div class="patch-line">_LeftRail: 속도/날씨 → 루트/여정/OBD/기록/AI 아이콘 → GO 버튼 → MicButton</div>
+                    <div class="patch-line">AI 탭: showModalBottomSheet로 JarvisPanel 팝업</div>
+                    <div class="patch-line">_RouteChip: 선택된 루트명 지도 하단에 오버레이</div>
+                    <div class="patch-line">dispose() 버그 수정: _locationService 필드 미리 저장, context.read() 금지</div>
+                    <div class="patch-line">pubspec 버전 관리 체계 정립 — pre-commit 훅이 hud_bar.dart 버전 자동 동기화</div>
+                </div>
+
+                <!-- v1.25 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.25</span>
+                        <span class="patch-date">2026-03-13</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">SprintScreen 지도 우하단에 G포스 미니 원형 위젯 추가 (76px)</div>
+                    <div class="patch-line">_MiniGForce: Consumer&lt;ImuService&gt; → 횡G/종G로 볼 위치 실시간 이동</div>
+                    <div class="patch-line">_MiniGForcePainter: CustomPainter — 외곽 원, 십자선, 컬러 G볼 (흰→주황→빨강)</div>
+                    <div class="patch-line">ImuService 50Hz 가속도계 기반, 에뮬레이터는 값=0, 실기기 테스트 필요</div>
+                    <div class="patch-line block-note">💬 미테스트 기능 목록 확인: AudioService/RevvAiService/RouteBriefService/SttService 미등록 상태</div>
+                </div>
+
+                <!-- v1.26 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.26</span>
+                        <span class="patch-date">2026-03-13</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">와인딩 루트 체인 연결 기능 — 선택 루트 끝점 기준 15km 반경 연결 루트 자동 탐색</div>
+                    <div class="patch-line">RouteService에 fetchConnectingRoutes() 추가, _fetchAndScore() 공통 로직 추출</div>
+                    <div class="patch-line">selectRoute() 호출 시 즉시 connectingRoutes 비동기 검색 시작</div>
+                    <div class="patch-line">RoutesBottomSheet 하단 "CHAIN → 끝점 연결 루트" 섹션: 가로 스크롤 카드 최대 5개</div>
+                    <div class="patch-line">체인 카드 탭 → 해당 루트 선택 → 다시 그 끝점에서 연결 루트 탐색 (무한 체인)</div>
+                </div>
+
+                <!-- v1.28 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.28</span>
+                        <span class="patch-date">2026-03-13</span>
+                        <span class="patch-tag fix">FIX</span>
+                    </div>
+                    <div class="patch-line">체인/일반 루트 카드 탭 시 지도 즉시 flyTo 보장 — _isDrawing 뮤텍스 우회</div>
+                    <div class="patch-line">_lastFlownRouteId로 중복 카메라 이동 방지</div>
+                    <div class="patch-line">_drawRoutes 내부 중복 flyTo 제거, _onRouteServiceChanged에서 카메라 이동 단일화</div>
+                    <div class="patch-line">Firebase Hosting 배포 확립: revv-eb7c9.web.app (세계수 공유 URL)</div>
+                </div>
+
+                <!-- v1.28 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.28</span>
+                        <span class="patch-date">2026-03-15</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">턴바이턴 음성 안내 — Mapbox Directions API steps + flutter_tts</div>
+                    <div class="patch-line">NavStep 모델: maneuver type/modifier → 한국어 안내문 자동 생성 (좌회전/우회전/로터리/U턴 등)</div>
+                    <div class="patch-line">TurnByTurnService: 300m 예고 + 80m 재안내 + 25m 스텝 전진</div>
+                    <div class="patch-line">DirectionsService.getRouteWithSteps(): polyline + steps 동시 반환</div>
+                    <div class="patch-line">SprintScreen 상단 배너: 화살표 아이콘 + 한국어 안내 + 거리 표시</div>
+                    <div class="patch-line">루트 진입(200m) 시 TBT 자동 중지 — 와인딩 구간은 자유 주행</div>
+                    <div class="patch-line block-note">💬 추가 비용 0 — 이미 사용 중인 Mapbox Directions API에 steps=true만 추가</div>
+                </div>
+
+                <!-- 다음 목표 -->
+                <!-- v1.29 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.29</span>
+                        <span class="patch-date">2026-03-18 · 대대적 UI 개편 + Firebase</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line">FlutterFire CLI 설치 + firebase_options.dart 자동 생성 — Firebase.initializeApp() 연동 완료</div>
+                    <div class="patch-line">Firebase Firestore 클라우드 런 동기화 — CloudSyncService 신규 생성, 익명 인증, users/{uid}/runs/{runId} 구조</div>
+                    <div class="patch-line">share_plus v10 API 적용 — SharePlus.instance.share(ShareParams) 런카드 이미지 공유 (Android/iOS)</div>
+                    <div class="patch-line">RunSession에 G포스 + DriveMode 기록 추가 — maxLateralG, maxLongG, peakDriveMode 필드</div>
+                    <div class="patch-line">RevvAiService.analyzeRun() — 런 종료 시 Claude API 호출로 주행 분석 리포트 자동 생성</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">UI 대개편 — 지도 풀스크린 + 슬라이드 메뉴</strong></div>
+                    <div class="patch-line">CruiseScreen: Row(LeftRail + Map) → Stack(풀스크린Map + 플로팅 오버레이) 구조 전환</div>
+                    <div class="patch-line">왼쪽 레일 기본 숨김 → 햄버거 버튼 탭 시 AnimatedPositioned 220ms 슬라이드인</div>
+                    <div class="patch-line">레일 외부 탭 시 dim 오버레이 + 자동 닫힘, 메뉴 항목 탭 시 onClose() 콜백 자동 닫힘</div>
+                    <div class="patch-line">JarvisPanel always-visible 제거 → AI 버튼 탭 시 modalBottomSheet로만 표시</div>
+                    <div class="patch-line">GO 버튼 + MicButton 레일에서 분리 → 지도 위 플로팅 버튼 (redGlow boxShadow)</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">디자인 시스템 개편 — AppColors v2</strong></div>
+                    <div class="patch-line">colors.dart 전면 재작성 — 순흑 제거, 레이어 기반 bg/panel/panel2/surface 체계</div>
+                    <div class="patch-line">텍스트 계층 분리: textPrimary(#F2F2F2) / textSecondary(#8A8A8E) / textHint(#48484A)</div>
+                    <div class="patch-line">red 브라이트닝 (#E3000F → #FF1744) + redGlow/redDim/redLine 파생 토큰 추가</div>
+                    <div class="patch-line">HudBar: 하단 보더 red → divider, 높이 56→52, SPRINT 배지 아웃라인 스타일로 변경</div>
+                    <div class="patch-line">RoutesBottomSheet: 상단 보더 red→divider + 위방향 boxShadow, 카드 borderRadius 4→10</div>
+                    <div class="patch-line hard">🔴 막혔던 것: flutterfire PATH 인식 안 됨 (Windows PowerShell) → dart pub global run flutterfire_cli:flutterfire 로 우회</div>
+                    <div class="patch-line hard">🔴 막혔던 것: share_plus v9↔firebase_core web 패키지 버전 충돌 → v10 유지 + 에뮬레이터 테스트로 해결</div>
+                    <div class="patch-line block-note">💬 AudioService/RevvAiService/SttService/RouteBriefService 아직 Provider 미등록 — 다음 세션에서 정리 필요</div>
+                </div>
+
+                <!-- v1.30 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.30</span>
+                        <span class="patch-date">2026-03-18 · G-FORCE 탭 + 서비스 정리</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">OBD 화면 G-FORCE 전용 탭 추가 (3번째 탭)</strong></div>
+                    <div class="patch-line">obd_screen.dart 탭 구조 3탭→4탭: LIVE / DATA / G-FORCE / SETUP</div>
+                    <div class="patch-line">_GForceTab: Consumer&lt;ImuService&gt; → LayoutBuilder로 차체 비율(110:185) 유지하며 풀사이즈 _CarGforceMeter</div>
+                    <div class="patch-line">_CarGforceMeter에 meterSize 파라미터 추가 — 기본값 Size(110,185), G-FORCE 탭에서 화면 크기 비례 확대</div>
+                    <div class="patch-line">합성 G 수치(TOTAL x.xxxg) 대형 표시, 횡G/종G/요레이트 3열 스탯, SESSION MAX 배지, MAX 리셋 버튼</div>
+                    <div class="patch-line">레일 아이콘: track_changes(G), idx 2→G-Force / 3→Setup 로 재배치</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">미등록 서비스 현황 파악 및 정리</strong></div>
+                    <div class="patch-line">AudioService/SttService/RevvAiService/RouteBriefService — ChangeNotifier 아님, 싱글턴 패턴, Provider 등록 불필요</div>
+                    <div class="patch-line">모두 실제 사용 중: mic_button.dart(Audio/Stt/RevvAi), run_card_screen(RevvAi), routes_bottom_sheet(RouteBrief)</div>
+                    <div class="patch-line block-note">💬 "미등록 서비스" 이슈 해소 — Provider에 안 들어가는 게 정상. 코드 변경 없이 문서 정정으로 완료.</div>
+                </div>
+
+                <!-- v1.31 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.31</span>
+                        <span class="patch-date">2026-03-18 · 루트+여정 통합</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">RoutesScreen — ROUTES / TRIP 2탭 통합 화면</strong></div>
+                    <div class="patch-line">routes_screen.dart + trip_planner_screen.dart → RoutesScreen 하나로 통합</div>
+                    <div class="patch-line">하단 패널에 🗺 ROUTES / 📍 TRIP 탭 헤더 추가 — 동일 Mapbox 지도 공유</div>
+                    <div class="patch-line">ROUTES 탭: 기존 루트 탐색·체인연결·REVV 브리핑·달리기 버튼</div>
+                    <div class="patch-line">TRIP 탭: POI 카테고리 칩(cafe/gas/view/rest) → 현재 위치 주변 검색 → Google Maps 내비 연결</div>
+                    <div class="patch-line">탭 전환 시 지도 POI 핀 자동 전환 (루트 주변 ↔ 현재 위치 주변)</div>
+                    <div class="patch-line">cruise_screen 여정 버튼 → RoutesScreen(initialTab: 1)로 변경 (TRIP 탭 직접 진입)</div>
+                    <div class="patch-line">trip_planner_screen.dart deprecated (routes_screen TRIP탭으로 통합)</div>
+                    <div class="patch-line block-note">💬 지도를 공유하므로 루트 보면서 주변 POI 확인하고 바로 여정 계획까지 한 화면에서 가능</div>
+                </div>
+
+                <!-- v1.32 (이번 세션 후반부) -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.32</span>
+                        <span class="patch-date">2026-03-18 · 루트 탐색 엔진 강화</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">Way Stitching — 인접 도로 조각 자동 연결</strong></div>
+                    <div class="patch-line">_stitchWays(): 끝점 150m 이내 way들을 체인으로 이어붙여 하나의 연속 루트 구성</div>
+                    <div class="patch-line">앞/뒤 양방향 탐색, 역방향 이어붙이기 지원 — 실제 드라이빙 루트처럼 긴 연속 구간 제공</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">루프 루트 감지 + 점수 보너스</strong></div>
+                    <div class="patch-line">시작점~끝점 3km 이내 루트를 LOOP로 분류, ×1.25 점수 보너스</div>
+                    <div class="patch-line">루트 카드에 🔄 LOOP 청록색 배지 표시</div>
+                    <div class="patch-line">RevvRoute.isLoop bool 필드 추가 (toJson/fromJson 포함)</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">거리 패널티 — 가까운 루트 우대</strong></div>
+                    <div class="patch-line">15km 이내: 패널티 없음 / 15~60km: 선형 감소 / 60km 초과: 0.55배 — 현실적인 접근성 반영</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">Overpass 쿼리 확장</strong></div>
+                    <div class="patch-line">primary 도로 추가 — 캐나다 일부 1차선 primary가 와인딩 명소임을 반영</div>
+                    <div class="patch-line block-note">💬 Way Stitching이 핵심 — 기존에 5km짜리 조각이 3개였다면 이제 하나의 15km 연속 루트로 표시됨</div>
+                </div>
+
+                <!-- v1.33 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.33</span>
+                        <span class="patch-date">2026-03-19 · 완성도 강화 패키지</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">오프라인 루트 캐시</strong></div>
+                    <div class="patch-line">route_service.dart — 마지막 검색 결과를 shared_preferences에 저장</div>
+                    <div class="patch-line">인터넷 끊기면 캐시에서 복원 + "오프라인 모드 — 마지막 검색 결과" 에러 메시지 표시</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">RunSummary maxLateralG + BEST G 스탯</strong></div>
+                    <div class="patch-line">run_summary.dart에 maxLateralG 필드 추가 — 런 저장 시 세션의 최대 횡G 함께 저장</div>
+                    <div class="patch-line">history_screen 상단 통계 바에 BEST G 항목 추가 (실기기 기록 있는 경우만 표시)</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">집 위치 지도 핀 설정</strong></div>
+                    <div class="patch-line">TRIP탭 "집 설정" 탭 시 지도 중앙 핀 모드 진입 — 지도 드래그로 원하는 위치 선택</div>
+                    <div class="patch-line">getCameraState()로 지도 중심 좌표 읽어 HomeLocationService.setHome() 저장</div>
+                    <div class="patch-line">핀 모드 중 하단 패널 숨김, 취소/확인 버튼만 표시</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">루트 이탈 감지</strong></div>
+                    <div class="patch-line">sprint_screen — 루트 진입 후 매 GPS 업데이트마다 선택 루트 노드들과 최소 거리 계산</div>
+                    <div class="patch-line">300m 초과 시 주황색 이탈 경고 배너 표시, 200m 이내 복귀 시 "루트로 복귀했어요!" 후 해제</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">첫 실행 권한 플로우</strong></div>
+                    <div class="patch-line">loading_screen 애니메이션 중 permission_handler로 위치+마이크 권한 자동 요청</div>
+                    <div class="patch-line block-note">💬 이제 설치하면 바로 권한 요청 → 캐시 덕분에 오프라인에서도 마지막 루트 보여줌 → 루트 이탈하면 경고까지</div>
+                </div>
+
+                <!-- 다음 할 일 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.34+ 예정</span>
+                        <span class="patch-date">다음 세션</span>
+                        <span class="patch-tag feat">NEXT</span>
+                    </div>
+                    <div class="patch-line">① 실기기 테스트 — G포스/TBT/DrivingContext/NavPolyline/CloudSync/GForceTab/루트이탈 에뮬레이터 미검증</div>
+                    <div class="patch-line">② Firebase 보안 규칙 — users/{uid}/runs 오너 전용 read/write 설정 (Firebase Console)</div>
+                    <div class="patch-line">③ 런카드 공유 실기기 테스트 — share_plus v10 ShareParams 실기기에서 검증</div>
+                    <div class="patch-line block-note">💬 실기기 연결해서 한 번 end-to-end 주행 테스트 하는 게 지금 가장 중요한 스텝</div>
+                </div>
+
+            </div><!-- end tab-1 -->
+
+            <!-- 탭 2: 아이디어 노트 -->
+            <div class="memo-tab-content">
+                <div style="background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:12px 16px;margin-bottom:1.5rem;font-size:0.78rem;color:#94a3b8;line-height:1.6;">
+                    <span style="color:#818CF8;font-weight:700">💡 아이디어 노트패드</span><br>
+                    순간적인 아이디어, 떠오른 기능, 참고할 링크 등을 빠르게 적어두세요. 세션 브리핑에 자동으로 포함되어 Claude가 참고합니다.
+                </div>
+                <div class="idea-input-wrap">
+                    <textarea id="idea-input" placeholder="💡 아이디어: SNS 공유 버튼 추가하면 어떨까?&#10;🔨 구현 요청: [구현] G포스 화면 오른쪽 위에 미니 게이지 추가&#10;→ [구현] 태그 붙이면 Claude 구현 요청으로 표시됨"></textarea>
+                    <button class="idea-add-btn" onclick="window.addIdea()">+ 아이디어 추가</button>
+                </div>
+                <div id="ideas-list">
+                    <p style="color:#475569;font-size:0.82rem;text-align:center;padding:2rem 0">아직 아이디어가 없어요.<br>위에 입력하고 추가 버튼을 눌러주세요.</p>
+                </div>
+            </div><!-- end tab-2 -->
+
+        </div>
+    </div>
+
+    <!-- Detail Modal -->
+    <div id="detail-modal">
+        <div class="modal-content">
+            <button onclick="window.closeModal()" class="absolute top-6 right-6 text-slate-400 hover:text-white transition">
+                <i class="fas fa-times text-2xl"></i>
+            </button>
+            <div id="modal-body"></div>
+        </div>
+    </div>
+
+    <script>
+        const roadmapData = [
+            {
+                id: 'engine',
+                title: 'Driving Engine',
+                icon: 'fa-gears',
+                items: [
+                    { id: 'e1', status: 'done', title: '와인딩 곡률 분석 로직', intent: '도로의 굴곡을 분석하여 드라이빙의 재미를 수치화합니다.', prompt: 'Flutter에서 LatLng 배열을 받아 곡률(Curvature)을 분석하고 Winding Score를 산출하는 클래스를 짜줘.', feature: '고도 변화를 반영한 점수 산출.' },
+                    { id: 'e2', status: 'wip', title: '스마트 경유지 앵커링', intent: '일상지 사이에 와인딩 코스를 강제로 삽입합니다.', prompt: 'Google Maps Flutter에서 특정 좌표(와인딩 코스)를 반드시 통과하는 경로 최적화 로직을 짜줘.', feature: '와인딩 경유 모드 토글 기능.' },
+                    { id: 'e3', title: 'Snap-to-Road 보정', intent: 'GPS 오차를 잡아 도로 위에 궤적을 안착시킵니다.', prompt: 'Flutter Geolocator 원시 데이터를 Mapbox Map Matching API를 이용해 도로에 스냅하는 서비스 만들어줘.', feature: '음영 지역 위치 추측(DR) 알고리즘.' },
+                    { id: 'e4', title: '드래그 0-100 타이머', intent: '직선 구간에서 정밀한 가속 성능을 측정합니다.', prompt: 'GPS 속도 데이터로 0→100km/h 구간을 감지하고 정밀 타이머를 기록하는 Flutter 서비스를 만들어줘.', feature: '개인 기록 갱신 시 진동+사운드 축하 이펙트.' },
+                    { id: 'e5', status: 'done', title: 'OBD2 딥 인테그레이션', intent: '차량 내부 데이터를 실시간으로 끌어와 분석합니다.', prompt: 'flutter_blue_plus로 ELM327 OBD2 동글과 연결해 RPM, 냉각수 온도, 스로틀 개도를 파싱하는 서비스를 만들어줘.', feature: '엔진 과열 감지 시 JARVIS 자동 경고 음성.' }
+                ]
+            },
+            {
+                id: 'visual',
+                title: 'Map & Visuals',
+                icon: 'fa-map-location-dot',
+                items: [
+                    { id: 'v1', status: 'done', title: '다크 레이싱 맵 스타일', intent: '밤 주행 시인성을 극대화한 강렬한 디자인입니다.', prompt: 'Flutter Google Maps용 다크/네온 레드 커스텀 스타일 JSON 파일을 생성해줘.', feature: '속도 반응형 자동 줌인/줌아웃.' },
+                    { id: 'v2', status: 'wip', title: 'G-Force 커스텀 페인터', intent: '횡압력을 시각적으로 표현하여 한계를 느끼게 합니다.', prompt: 'Flutter CustomPainter로 움직이는 실시간 G-Force 미터 위젯을 만들어줘.', feature: '한계 G 도달 시 화면 레드 플래시 효과.' },
+                    { id: 'v3', status: 'wip', title: '주행 히스토리 타임라인', intent: '주행 여정을 일기처럼 아름답게 기록합니다.', prompt: '와인딩 구간과 경유지가 섞인 수직 타임라인 UI를 Flutter로 구현해줘.', feature: '주행 당시 날씨/노면 정보 자동 기록.' },
+                    { id: 'v4', title: 'AR 헤드업 디스플레이', intent: '카메라 화면 위에 속도/G포스를 오버레이하여 레이싱 감성을 극대화합니다.', prompt: 'Flutter camera 패키지로 카메라 피드 위에 속도계, G포스, 코너 각도를 AR로 오버레이하는 위젯을 만들어줘.', feature: '영상 녹화 + HUD 합성 저장 기능.' },
+                    { id: 'v5', title: '3D 지형 고도 시각화', intent: '산길 코스의 오르막/내리막을 3D로 미리 볼 수 있습니다.', prompt: 'Mapbox Flutter에서 경로 고도 데이터를 받아 3D Terrain 뷰와 고도 프로파일 차트를 함께 표시하는 UI를 만들어줘.', feature: '최대 경사도 구간 자동 하이라이트.' }
+                ]
+            },
+            {
+                id: 'data',
+                title: 'Data & AI Coach',
+                icon: 'fa-robot',
+                items: [
+                    { id: 'd1', status: 'wip', title: '실시간 센서 로깅', intent: '0.1초 단위의 고정밀 데이터를 수집합니다.', prompt: 'sensors_plus를 활용해 백그라운드에서 가속도/자이로 데이터를 SQLite에 저장하는 로직 짜줘.', feature: '급조작 지점 자동 마킹 기능.' },
+                    { id: 'd2', status: 'wip', title: 'Gemini 드라이빙 분석', intent: 'AI가 주행을 분석하여 코칭 리포트를 생성합니다.', prompt: '주행 로그를 Gemini API에 보내 전문 드라이빙 피드백을 생성하는 Dart 코드를 작성해줘.', feature: '오늘의 베스트 코너링 선정 기능.' },
+                    { id: 'd3', title: '드라이빙 DNA 프로파일', intent: '주행 스타일을 분석해 나만의 드라이버 유형을 찾아냅니다.', prompt: '누적 주행 데이터(G포스, 브레이킹 패턴, 평균 코너링 속도)를 분석해 드라이버 스타일을 5가지 유형으로 분류하는 알고리즘을 짜줘.', feature: '"레이서형 / 크루저형 / 탐험가형" 등 개성 있는 배지 시스템.' },
+                    { id: 'd4', title: '날씨 기반 노면 예측 AI', intent: '현재 날씨와 기온으로 노면 상태를 예측해 드라이빙 전략을 제안합니다.', prompt: 'OpenWeather API 데이터(기온, 강수량, 습도)를 분석해 노면이 "건조/젖음/결빙 위험" 중 어느 상태인지 예측하고 JARVIS가 조언하는 로직을 만들어줘.', feature: '비 예보 시 "오늘은 와인딩 자제" 자동 알림.' }
+                ]
+            },
+            {
+                id: 'safety',
+                title: 'Safety & Assist',
+                icon: 'fa-shield-halved',
+                items: [
+                    { id: 's1', title: '와인딩 가드 알림', intent: '전방의 위험 구간을 미리 경고합니다.', prompt: '경로상 500m 이내 급커브나 사고 다발 지점이 있을 때 음성 안내를 하는 로직을 짜줘.', feature: '노면 결빙 가능성 실시간 알림.' },
+                    { id: 's2', title: '사고 감지 및 긴급 호출', intent: '사고 시 자동으로 구조를 요청합니다.', prompt: '충격 감지 시 일정 시간 반응이 없으면 연락처로 위치를 전송하는 긴급 시스템을 구현해줘.', feature: '사고 직전 30초 데이터 별도 백업.' },
+                    { id: 's3', title: '과속 단속 카메라 DB', intent: '전국 단속 카메라 위치를 사전 경고하여 과태료를 방지합니다.', prompt: '공공 API 또는 크라우드소싱으로 과속 단속 카메라 좌표를 받아 경로상 300m 이내 접근 시 음성 경고하는 서비스를 만들어줘.', feature: '유저 신고 기반 실시간 이동 단속 업데이트.' },
+                    { id: 's4', title: '피로 감지 알림', intent: '장거리 주행 중 운전자의 집중력 저하를 감지합니다.', prompt: '핸들 조작 패턴(방향 변화 빈도, IMU 데이터)을 분석해 피로 징후 감지 시 JARVIS가 휴식을 권유하는 로직을 짜줘.', feature: '근처 드라이브 스루/휴게소 자동 추천.' }
+                ]
+            },
+            {
+                id: 'social',
+                title: 'Social & Loop',
+                icon: 'fa-users',
+                items: [
+                    { id: 'so1', title: '와인딩 성지 커뮤니티', intent: '나만의 코스를 공유하고 랭킹을 겨룹니다.', prompt: 'Firestore를 활용해 유저들이 코스를 업로드하고 평점을 남기는 데이터 구조를 설계해줘.', feature: '코너별 타임 리더보드 운영.' },
+                    { id: 'so2', title: '실시간 그룹 드라이빙', intent: '지도에서 동료들의 위치를 보며 함께 달립니다.', prompt: 'Firebase Realtime DB로 그룹 참여자들의 위치를 실시간 마킹하는 로직을 구현해줘.', feature: '거리 기반 Push-to-Talk 무전 기능.' },
+                    { id: 'so3', title: '월간 와인딩 챌린지', intent: '시즌마다 새로운 미션으로 유저들을 다시 달리게 만듭니다.', prompt: 'Firestore로 월간 챌린지(특정 코스 완주, 총 200km 달성 등) 시스템을 설계하고 달성 시 배지를 지급하는 로직을 짜줘.', feature: '전국 Top 10 드라이버 명예의 전당 페이지.' },
+                    { id: 'so4', title: '드라이빙 클럽 시스템', intent: '같은 차종/지역 드라이버들이 모여 클럽을 만들고 함께 달립니다.', prompt: 'Firestore로 클럽 생성, 멤버 초대, 클럽 누적 주행거리 집계, 클럽 내 랭킹을 관리하는 데이터 구조를 설계해줘.', feature: '클럽 전용 비공개 코스 공유 기능.' }
+                ]
+            },
+            {
+                id: 'infra',
+                title: 'Dev & Launch',
+                icon: 'fa-rocket',
+                items: [
+                    { id: 'i1', status: 'wip', title: 'Firebase 통합 관리', intent: '사용자 데이터의 안전한 클라우드 저장소입니다.', prompt: 'Flutter 앱에 Firebase 소셜 로그인 및 데이터 동기화 구조를 구축해줘.', feature: '오프라인 주행 데이터 선저장 후동기화.' },
+                    { id: 'i2', title: '앱스토어 심사 가이드', intent: '성공적인 배포를 위한 최종 관문입니다.', prompt: '드라이빙 앱용 안전 면책 조항 및 스토어 등록용 마케팅 문구를 작성해줘.', feature: '출시 기념 한정판 엠블럼 부여.' },
+                    { id: 'i3', title: 'CarPlay / Android Auto', intent: '차량 디스플레이에서 REVV를 네이티브로 조작합니다.', prompt: 'Flutter 앱을 Apple CarPlay 및 Android Auto와 연동하는 구조를 설계하고 지도/속도 표시 기능을 구현해줘.', feature: '핸들 버튼으로 JARVIS 호출 기능.' },
+                    { id: 'i4', title: 'REVV Pro 구독 모델', intent: '지속 가능한 수익 구조로 앱을 오래 운영합니다.', prompt: 'Flutter에서 RevenueCat을 사용해 월/연간 구독 및 일회성 인앱 구매를 구현하는 코드를 짜줘.', feature: 'Pro 전용: AI 코칭 무제한, 고화질 영상 저장, 클럽 리더 권한.' }
+                ]
+            },
+            {
+                id: 'hardware',
+                title: 'Hardware Pro',
+                icon: 'fa-microchip',
+                items: [
+                    { id: 'h1', title: '블랙박스 영상 연동', intent: '주행 영상과 센서 데이터를 하나의 타임라인으로 합칩니다.', prompt: 'Flutter에서 블랙박스 SD카드 영상 파일을 불러와 IMU/GPS 데이터와 타임스탬프 기준으로 동기화 재생하는 플레이어를 만들어줘.', feature: '베스트 코너링 구간 자동 클립 생성 및 SNS 공유.' },
+                    { id: 'h2', title: '스마트워치 심박 연동', intent: '드라이버의 흥분도를 심박수로 측정해 주행 데이터에 레이어합니다.', prompt: 'WearOS/Apple Watch에서 심박수 데이터를 Bluetooth로 Flutter 앱에 수신하고 G포스 그래프와 오버레이하는 코드를 짜줘.', feature: '"이 코너에서 심박 최고치" 기록 기능.' },
+                    { id: 'h3', title: '대시보드 위젯 (홈화면)', intent: '앱을 열지 않아도 핵심 데이터를 확인합니다.', prompt: 'Flutter home_widget 패키지로 오늘의 총 주행거리, 최고 속도, 날씨를 표시하는 iOS/Android 홈화면 위젯을 만들어줘.', feature: '다음 추천 드라이빙 코스 위젯 표시.' }
+                ]
+            },
+            {
+                id: 'global',
+                title: 'Global & Scale',
+                icon: 'fa-earth-asia',
+                items: [
+                    { id: 'g1', title: '다국어 지원 (i18n)', intent: '일본, 독일, 미국 드라이버도 REVV를 사용할 수 있게 합니다.', prompt: 'Flutter intl 패키지로 한국어/영어/일본어/독일어 다국어 지원 구조를 만들고 JARVIS 음성도 해당 언어로 전환하는 로직을 짜줘.', feature: '지역별 단위 자동 전환 (mph ↔ km/h).' },
+                    { id: 'g2', title: '글로벌 와인딩 명소 DB', intent: '뉘르부르크링, 하코네, 로키산맥 등 전 세계 성지를 앱에 담습니다.', prompt: '전 세계 유명 드라이빙 명소 좌표와 정보를 Firestore에 저장하고 지도에서 탐색 가능한 "버킷리스트 코스" 피처를 만들어줘.', feature: '방문 인증 시 한정판 국가별 뱃지 지급.' },
+                    { id: 'g3', title: '브랜드 파트너십 플랫폼', intent: '타이어/오일 브랜드와 연계해 수익과 신뢰를 동시에 잡습니다.', prompt: 'REVV 앱 내 파트너 브랜드 스폰서 배너와 드라이빙 챌린지를 연동하는 데이터 구조와 어드민 관리 페이지를 설계해줘.', feature: '미슐랭, 피렐리 등과의 공식 챌린지 이벤트.' }
+                ]
+            },
+            {
+                id: 'ux',
+                title: 'UX & Onboarding',
+                icon: 'fa-wand-magic-sparkles',
+                items: [
+                    { id: 'u1', title: '첫 실행 온보딩 투어', intent: '처음 쓰는 유저가 5분 안에 REVV의 모든 기능을 파악합니다.', prompt: 'Flutter로 앱 첫 실행 시 나타나는 인터랙티브 온보딩 화면(슬라이드 + 실제 UI 하이라이트)을 구현해줘.', feature: 'JARVIS가 직접 각 기능을 음성으로 소개하는 투어.' },
+                    { id: 'u2', title: '드라이빙 준비 체크리스트', intent: '출발 전 타이어 압력, 오일, 날씨를 한 화면에서 점검합니다.', prompt: '주행 전 체크리스트 화면을 만들어줘. 날씨 API, OBD 경고등, 목적지 노면 정보를 한 눈에 보여주는 Flutter 위젯으로 구현해줘.', feature: 'JARVIS가 "오늘 노면 젖음, 타이어 점검 권장" 자동 브리핑.' },
+                    { id: 'u3', title: 'HUD 레이아웃 커스터마이징', intent: '드라이버마다 다른 주행 화면을 직접 디자인합니다.', prompt: 'Flutter Drag & Drop으로 주행 중 HUD(속도계, G포스, RPM, 지도)의 위치와 크기를 사용자가 자유롭게 배치하는 레이아웃 에디터를 만들어줘.', feature: '프리셋 저장 및 클라우드 백업 기능.' }
+                ]
+            }
+        ];
+    </script>
+
+    <!-- ════════════════════════════════════════════════════════════
+         CLAUDE_TODO — Claude가 세션 시작 시 이 배열을 읽고 구현함
+         status: "pending" | "coding" | "done"
+         ★ 새 항목 추가: { id: 'N', text: "...", status: "pending" }
+         ════════════════════════════════════════════════════════════ -->
+    <script>
+        const CLAUDE_TODO = [
+            { id: '1', text: '런 히스토리 화면 (history_screen.dart) — RunHistoryService.runs 리스트로 날짜/거리/루트명 목록 UI', status: 'done' },
+            { id: '2', text: '스프린트 라이브 스탯 오버레이 — sprint_screen에 경과시간 + 누적거리 HUD 추가', status: 'done' },
+            { id: '3', text: 'cruise_screen UI 재구성 — Stack 풀스크린 지도 + AnimatedPositioned 슬라이드 레일 + 플로팅 GO/MIC', status: 'done' },
+            { id: '4', text: 'G포스 전용 탭 — obd_screen 3번째 탭 _GForceTab, LayoutBuilder 풀사이즈 _CarGforceMeter', status: 'done' },
+            { id: '5', text: '런카드 공유 이미지 저장 — SharePlus.instance.share(ShareParams) v10', status: 'done' },
+            { id: '6', text: 'DrivingContextService — GPS bearing rate 기반 WINDING + OBD 기반 SPORT 모드 감지 + 스프린트 화면 반응', status: 'done' },
+            { id: '7', text: 'WaypointOptimizer TSP+2-opt — 와인딩 구간 반드시 통과하는 경유지 순서 최적화', status: 'done' },
+            { id: '8', text: '앱 내 통합 내비게이션 — DirectionsService로 nav polyline 자동 fetch + 200m 루트 진입 자동 감지', status: 'done' },
+            { id: '9', text: '실기기 테스트 — G포스/TBT/DrivingContext/NavPolyline/CloudSync/G-FORCE탭', status: 'pending' },
+            { id: '10', text: 'Firebase 보안 규칙 — Firestore rules users/{uid}/runs 오너 전용', status: 'pending' },
+            { id: '11', text: '루트+여정 통합 — RoutesScreen ROUTES/TRIP 2탭, trip_planner_screen deprecated', status: 'done' },
+        ];
+    </script>
+</body>
+</html>

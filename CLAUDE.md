@@ -11,7 +11,7 @@
 - **에뮬레이터**: Mapbox + Android Emulator GFXSTREAM 충돌 → 실기기 필요
 - **커뮤니케이션**: 한국어
 
-## 현재 버전: v1.29
+## 현재 버전: v1.33 (2026-03-19)
 
 ## 스택
 - Flutter 3.x + Dart
@@ -53,19 +53,22 @@ lib/
 │   ├── obd_service.dart              # BLE OBD2 (VEEPEAK) — RPM/연료/스로틀/냉각수
 │   ├── waypoint_optimizer.dart       # 루트 경유지 최적화
 │   ├── route_builder_service.dart    # 루트 생성 도우미
-│   ├── audio_service.dart            # 오디오 (미등록)
-│   ├── revv_ai_service.dart          # AI 서비스 (미등록)
-│   ├── stt_service.dart              # 음성인식 (미등록)
-│   └── route_brief_service.dart      # 루트 브리핑 (미등록)
+│   ├── audio_service.dart            # 오디오 — 싱글턴, mic_button에서 직접 사용
+│   ├── revv_ai_service.dart          # AI 분석 — 싱글턴, run_card/mic_button에서 직접 사용
+│   ├── stt_service.dart              # 음성인식 — 싱글턴, mic_button에서 직접 사용
+│   └── route_brief_service.dart      # 루트 브리핑 — routes_bottom_sheet에서 직접 사용
 ├── screens/
 │   ├── cruise_screen.dart            # 메인 화면 — 왼쪽 56px 세로 레일
 │   │                                 # _LeftRail: 속도/날씨/루트/여정/OBD/기록/AI/GO/MIC
 │   ├── sprint_screen.dart            # 스프린트 모드 — TBT 배너 + G포스 미니 원형
-│   ├── routes_screen.dart            # 루트 탐색 — 체인 연결 루트, flyTo
-│   ├── obd_screen.dart               # OBD 전용 3탭 화면
+│   ├── routes_screen.dart            # 루트+여정 통합 화면 — ROUTES/TRIP 2탭
+│   │                                 # ROUTES탭: 루트 탐색·체인연결·flyTo
+│   │                                 # TRIP탭: POI 카테고리 검색 → Google Maps 내비
+│   │                                 # initialTab: 0=ROUTES(기본), 1=TRIP
+│   ├── obd_screen.dart               # OBD 전용 4탭 화면 (LIVE/DATA/G-FORCE/SETUP)
 │   ├── run_card_screen.dart          # 런 종료 결과 카드 (자동 저장)
 │   ├── route_wizard_screen.dart      # 루트 wizard
-│   └── trip_planner_screen.dart      # 여정 플래너 (POI → 귀가)
+│   └── trip_planner_screen.dart      # (deprecated — routes_screen TRIP탭으로 통합)
 ├── widgets/
 │   ├── hud_bar.dart                  # 상단 HUD (버전 표시)
 │   ├── map_widget.dart               # Mapbox 지도 (navPolyline/routePolyline)
@@ -77,27 +80,49 @@ lib/
     └── colors.dart                   # AppColors
 ```
 
-## 구현된 주요 기능 (v1.29 기준)
+## 구현된 주요 기능 (v1.33 기준)
 - **루트 탐색**: bearing rate 기반 커브 분석, curveRatio×√dist 밀도 점수, 반경 30/50/100km
 - **체인 연결**: 선택 루트 끝점 15km 반경 연결 루트 자동 탐색, 가로 스크롤 카드
 - **루트 카드 탭 → 지도 flyTo**: _lastFlownRouteId로 중복 이동 방지
 - **스프린트 모드**: 주행 시작 → GPS 실시간 수집 → 종료 → 런카드
 - **턴바이턴 음성 안내**: Mapbox steps + flutter_tts, 300m/80m 예고, 음소거 토글
 - **G포스 미니 원형**: SprintScreen 우하단, CustomPainter, ImuService 50Hz
+- **G포스 전용 탭**: OBD 화면 3번째 탭(_GForceTab) — LayoutBuilder 풀사이즈 _CarGforceMeter, 합성G 수치, MAX 배지, 리셋 버튼
+- **루트+여정 통합**: RoutesScreen ROUTES/TRIP 2탭 — 지도 공유, 탭 전환 시 POI 핀 전환
+- **Way Stitching**: 끝점 150m 이내 way 자동 체인 연결 → 연속 와인딩 루트
+- **루프 감지**: 시작~끝 3km 이내 = isLoop, ×1.25 보너스, 🔄 LOOP 배지
+- **거리 패널티**: 15km 이내 패널티 없음, 60km 초과 0.55배 하향
 - **DrivingContextService**: 속도/G포스 → cruise/sport/attack 모드 자동 전환
 - **OBD 연동**: VEEPEAK BLE OBD2, RPM/연료/스로틀/냉각수
 - **nav polyline**: 현재 위치 → 루트 시작점 파란 선
 - **런카드**: 거리/시간/날씨, 자동 저장, N회차 표시
-- **왼쪽 레일 UI**: 56px 세로 탭 (NavigationRail 패턴)
+- **풀스크린 지도 + 슬라이드 메뉴**: Stack 레이아웃, AnimatedPositioned 왼쪽 레일 (기본 숨김, 햄버거 탭 시 슬라이드인)
+- **AppColors v2**: bg/panel/panel2/surface 레이어 체계 + textPrimary/Secondary/Hint 계층
+- **Firebase Firestore**: CloudSyncService — 익명 인증, users/{uid}/runs/{runId} 런 동기화
+- **share_plus v10**: SharePlus.instance.share(ShareParams) 런카드 공유
+- **RunSession 확장**: maxLateralG, maxLongG, peakDriveMode 필드 추가
+- **오프라인 루트 캐시**: route_service.dart — 마지막 검색 결과 shared_preferences 저장, 인터넷 끊기면 캐시 복원 + "오프라인 모드" 메시지
+- **RunSummary maxLateralG**: 런 요약에 최대 횡G 저장 → history_screen BEST G 스탯 표시
+- **집 위치 지도 핀 설정**: routes_screen TRIP탭 "집 설정" → 지도 중앙 핀 모드, getCameraState()로 좌표 읽어 setHome() 저장
+- **루트 이탈 감지**: sprint_screen — 루트 진입 후 노드들과 최소 거리 계산, 300m 초과 시 주황 이탈 경고 배너, 200m 복귀 시 해제
+- **첫 실행 권한 플로우**: loading_screen — permission_handler로 위치+마이크 권한 애니메이션 중 자동 요청
 
 ## 미구현 (다음 작업 우선순위)
-1. **런 히스토리 화면** — `run_history_service.dart`에 데이터 쌓이는데 볼 화면 없음 (`history_screen.dart` 신규)
-2. **런카드 공유** — screenshot 패키지 + share_plus로 이미지 저장/공유
-3. **JARVIS 주행 후 자동 분석 리포트** — 런 종료 시 Claude API 호출
-4. **실기기 테스트** — G포스/TBT/DrivingContext/NavPolyline 에뮬레이터에서 미검증
+1. **실기기 테스트** — G포스/TBT/DrivingContext/NavPolyline/CloudSync/GForceTab/루트이탈 에뮬레이터 미검증
+2. **Firebase 보안 규칙** — users/{uid}/runs 오너 전용 read/write 설정 (Firebase Console)
+3. **런카드 공유 실기기 테스트** — share_plus v10 ShareParams 실기기에서 검증
 
-## 미등록 서비스 (main.dart에 없음)
-AudioService, RevvAiService, SttService, RouteBriefService — 연결 또는 삭제 정리 필요
+## 싱글턴 서비스 (Provider 불필요, 정상 동작 중)
+ChangeNotifier를 extend하지 않는 서비스 — Provider 등록 없이 직접 호출 방식으로 사용 중
+- **AudioService** → mic_button.dart에서 `AudioService().playBeep()` 직접 사용
+- **SttService** → mic_button.dart에서 `SttService().startListening/stopListening()` 직접 사용
+- **RevvAiService** → run_card_screen.dart, mic_button.dart에서 직접 사용
+- **RouteBriefService** → routes_bottom_sheet.dart에서 직접 사용
+
+## Firebase 서비스 구조
+- **CloudSyncService**: `services/cloud_sync_service.dart` — firebase_auth 익명 로그인 + Firestore 런 동기화
+- **컬렉션 경로**: `users/{uid}/runs/{runId}`
+- **주의**: Firestore 보안 규칙 아직 기본값 — 배포 전 오너 전용으로 설정 필요
 
 ## Mapbox 설정
 - Public Token: `lib/services/mapbox_service.dart`에 있음

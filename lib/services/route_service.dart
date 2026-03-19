@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/revv_route.dart';
 import 'waypoint_optimizer.dart';
 
@@ -53,13 +54,50 @@ class RouteService extends ChangeNotifier {
       _lastFetchLocation = LatLng(lat, lng);
       _lastFetchRadius = searchRadiusKm;
       debugPrint('[RouteService] 선택된 루트: ${routes.length}개');
+      // 오프라인 캐시 저장
+      _saveToCache(result, lat, lng);
     } catch (e, st) {
       debugPrint('[RouteService] 예외: $e\n$st');
-      errorMessage = '네트워크 오류가 발생했어요. 인터넷 연결을 확인하세요.';
+      // 오프라인 캐시에서 복원 시도
+      final cached = await _loadFromCache();
+      if (cached != null && cached.isNotEmpty) {
+        routes = cached;
+        selectedRoute = routes.first;
+        errorMessage = '오프라인 모드 — 마지막 검색 결과를 표시합니다';
+        debugPrint('[RouteService] 오프라인 캐시 복원: ${routes.length}개');
+      } else {
+        errorMessage = '네트워크 오류가 발생했어요. 인터넷 연결을 확인하세요.';
+      }
     }
 
     isLoading = false;
     notifyListeners();
+  }
+
+  // ─── 오프라인 캐시 ───────────────────────────────────────────────
+  static const _cacheKey = 'revv_route_cache';
+  static const _cachePosKey = 'revv_route_cache_pos';
+
+  Future<void> _saveToCache(List<RevvRoute> rs, double lat, double lng) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_cacheKey, RevvRoute.listToJson(rs));
+      await prefs.setString(_cachePosKey, '$lat,$lng');
+    } catch (e) {
+      debugPrint('[RouteService] 캐시 저장 실패: $e');
+    }
+  }
+
+  Future<List<RevvRoute>?> _loadFromCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cacheKey);
+      if (raw == null) return null;
+      return RevvRoute.listFromJson(raw);
+    } catch (e) {
+      debugPrint('[RouteService] 캐시 로드 실패: $e');
+      return null;
+    }
   }
 
   /// 선택 루트 끝점 기준 연결 루트 검색 (15km 반경)
@@ -87,9 +125,11 @@ class RouteService extends ChangeNotifier {
 
   /// 공통 Overpass 조회 + 커브 스코어링 → RevvRoute 리스트 반환
   Future<List<RevvRoute>> _fetchAndScore(double lat, double lng, int radiusM) async {
+    // primary도 추가 — 캐나다 일부 구간은 1차선 primary가 와인딩 명소
     final query = '''
-[out:json][timeout:30];
+[out:json][timeout:35];
 (
+  way["highway"="primary"](around:$radiusM,$lat,$lng);
   way["highway"="secondary"](around:$radiusM,$lat,$lng);
   way["highway"="tertiary"](around:$radiusM,$lat,$lng);
   way["highway"="unclassified"](around:$radiusM,$lat,$lng);
@@ -154,7 +194,98 @@ out qt;
     }
 
     debugPrint('[RouteService] ways: ${rawWays.length}개, 교차로: ${intersectionNodes.length}개');
-    return _selectTopRoutes(rawWays, userPos, intersectionNodes);
+    // Way Stitching — 인접 도로 조각을 하나의 연속 루트로 이어붙임
+    final stitched = _stitchWays(rawWays);
+    debugPrint('[RouteService] 스티칭 후: ${stitched.length}개');
+    return _selectTopRoutes(stitched, userPos, intersectionNodes);
+  }
+
+  // ─── Way Stitching ──────────────────────────────────────────────
+  // 인접한 way들의 끝점이 150m 이내면 하나의 연속 루트로 이어붙임
+  // → 실제 드라이빙 루트는 여러 way 조각으로 구성되므로 이어붙이면 훨씬 자연스러움
+  static const _stitchThresholdKm = 0.15; // 150m
+
+  List<_RawWay> _stitchWays(List<_RawWay> ways) {
+    final used = <String>{};
+    final result = <_RawWay>[];
+
+    for (final seed in ways) {
+      if (used.contains(seed.id)) continue;
+      used.add(seed.id);
+
+      var chain = seed.nodes.toList();
+      final chainId = seed.id;
+      var chainName = seed.name;
+      var chainHighway = seed.highwayType;
+
+      // 앞뒤로 연결 가능한 way를 반복 탐색
+      bool extended = true;
+      while (extended) {
+        extended = false;
+        for (final other in ways) {
+          if (used.contains(other.id)) continue;
+
+          final chainEnd = chain.last;
+          final chainStart = chain.first;
+
+          if (RevvRoute.haversineKm(chainEnd, other.nodes.first) < _stitchThresholdKm) {
+            // 체인 끝 → other 시작
+            chain.addAll(other.nodes.skip(1));
+            used.add(other.id);
+            if (chainName.isEmpty) chainName = other.name;
+            extended = true;
+            break;
+          } else if (RevvRoute.haversineKm(chainEnd, other.nodes.last) < _stitchThresholdKm) {
+            // 체인 끝 → other 끝 (other 뒤집기)
+            chain.addAll(other.nodes.reversed.skip(1));
+            used.add(other.id);
+            if (chainName.isEmpty) chainName = other.name;
+            extended = true;
+            break;
+          } else if (RevvRoute.haversineKm(chainStart, other.nodes.last) < _stitchThresholdKm) {
+            // other 끝 → 체인 앞
+            chain = [...other.nodes, ...chain.skip(1)];
+            used.add(other.id);
+            if (chainName.isEmpty) chainName = other.name;
+            extended = true;
+            break;
+          } else if (RevvRoute.haversineKm(chainStart, other.nodes.first) < _stitchThresholdKm) {
+            // other 시작 → 체인 앞 (other 뒤집기)
+            chain = [...other.nodes.reversed.toList(), ...chain.skip(1)];
+            used.add(other.id);
+            if (chainName.isEmpty) chainName = other.name;
+            extended = true;
+            break;
+          }
+        }
+      }
+
+      final sampled = chain.length > 300 ? _sampleNodes(chain, 300) : chain;
+      result.add(_RawWay(
+        id: chainId,
+        name: chainName,
+        nodes: sampled,
+        highwayType: chainHighway,
+      ));
+    }
+
+    return result;
+  }
+
+  // ─── 루프 감지 ───────────────────────────────────────────────────
+  // 시작점과 끝점이 3km 이내면 루프 루트 — 돌아올 걱정 없어서 편안함
+  bool _isLoop(List<LatLng> nodes) {
+    if (nodes.length < 10) return false;
+    return RevvRoute.haversineKm(nodes.first, nodes.last) < 3.0;
+  }
+
+  // ─── 거리 패널티 ─────────────────────────────────────────────────
+  // 가까운 루트를 약간 우대. 너무 먼 루트는 현실적으로 부담스러움.
+  // 15km 이내: 패널티 없음 / 15~60km: 선형 감소 / 60km 초과: 0.55배
+  double _distancePenalty(double distFromUserKm) {
+    if (distFromUserKm <= 15) return 1.0;
+    if (distFromUserKm >= 60) return 0.55;
+    return 1.0 - (distFromUserKm - 15) / 45 * 0.45;
   }
 
   List<LatLng> _sampleNodes(List<LatLng> nodes, int target) {
@@ -188,9 +319,15 @@ out qt;
       final intersectCount = _countNearbyIntersections(way.nodes, intersections);
       final intersectPenalty = _intersectionPenalty(intersectCount, dist);
       final roadMultiplier = _roadMultiplier(way.highwayType);
+      // 루프 루트 보너스: 출발점으로 돌아오는 루트 → 더 편안함
+      final loopBonus = _isLoop(way.nodes) ? 1.25 : 1.0;
+      // 거리 패널티: 너무 먼 루트는 살짝 하향
+      final distPenalty = _distancePenalty(
+          RevvRoute.haversineKm(userPos, way.nodes.first));
 
       final score = curveRatio * math.sqrt(dist) *
-          continuityBonus * intersectPenalty * roadMultiplier;
+          continuityBonus * intersectPenalty * roadMultiplier *
+          loopBonus * distPenalty;
 
       scored.add(_ScoredWay(
         way: way,
@@ -199,6 +336,7 @@ out qt;
         center: _centerPoint(way.nodes),
         distFromUser: RevvRoute.haversineKm(userPos, way.nodes.first),
         curves: curves,
+        isLoop: _isLoop(way.nodes),
       ));
     }
 
@@ -252,6 +390,7 @@ out qt;
         tightCurveKm: s.curves.tightKm,
         mediumCurveKm: s.curves.mediumKm,
         maxContinuousKm: s.curves.maxContinuousKm,
+        isLoop: s.isLoop,
       );
     }).toList();
   }
@@ -476,6 +615,7 @@ class _ScoredWay {
   final LatLng center;
   final double distFromUser;
   final _CurveResult curves;
+  final bool isLoop;
   _ScoredWay({
     required this.way,
     required this.score,
@@ -483,5 +623,6 @@ class _ScoredWay {
     required this.center,
     required this.distFromUser,
     required this.curves,
+    this.isLoop = false,
   });
 }

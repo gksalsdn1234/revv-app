@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../widgets/corner_brackets.dart';
@@ -58,6 +59,9 @@ class _LoadingScreenState extends State<LoadingScreen>
       _sub.forward();
       _brackets.forward();
 
+      // 권한 요청 (첫 실행 또는 미허용 시)
+      await _requestPermissions();
+
       // Jarvis 첫 인사 + 날씨 로드
       if (mounted) {
         final loc = context.read<LocationService>();
@@ -68,7 +72,7 @@ class _LoadingScreenState extends State<LoadingScreen>
         weather.fetchWeather(loc.lat, loc.lng);
       }
 
-      await Future.delayed(const Duration(milliseconds: 1500));
+      await Future.delayed(const Duration(milliseconds: 1200));
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -76,6 +80,17 @@ class _LoadingScreenState extends State<LoadingScreen>
         );
       }
     });
+  }
+
+  /// 위치 + 마이크 권한 요청 — 이미 허용됐으면 즉시 반환
+  Future<void> _requestPermissions() async {
+    final statuses = await [
+      Permission.locationWhenInUse,
+      Permission.microphone,
+    ].request();
+    for (final entry in statuses.entries) {
+      debugPrint('[LoadingScreen] ${entry.key} → ${entry.value}');
+    }
   }
 
   @override

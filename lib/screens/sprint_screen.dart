@@ -36,6 +36,7 @@ class _SprintScreenState extends State<SprintScreen> {
 
   List<LatLng>? _navPolyline;        // 현재위치 → 루트시작점 경로
   bool _onRoute = false;             // 루트 시작점 진입 여부
+  bool _isOffRoute = false;          // 루트 이탈 여부
   String? _routeStatusMsg;           // "루트 진입!" 표시용
   TurnByTurnService? _tbtService;    // 턴바이턴
   double _tbtDistM = 0;             // 다음 maneuver까지 거리
@@ -115,6 +116,31 @@ class _SprintScreenState extends State<SprintScreen> {
           if (mounted) setState(() => _routeStatusMsg = null);
         });
         return;
+      }
+    }
+
+    // 루트 이탈 감지 (루트 진입 후에만)
+    if (_onRoute && widget.selectedRoute != null) {
+      final pos = LatLng(loc.lat, loc.lng);
+      final nodes = widget.selectedRoute!.nodes;
+      double minDist = double.infinity;
+      for (final node in nodes) {
+        final d = RevvRoute.haversineKm(pos, node);
+        if (d < minDist) minDist = d;
+        if (minDist < 0.2) break; // 200m 이내면 즉시 종료
+      }
+      final wasOff = _isOffRoute;
+      final nowOff = minDist > 0.3; // 300m 초과 = 이탈
+      if (wasOff != nowOff) {
+        setState(() {
+          _isOffRoute = nowOff;
+          if (!nowOff) {
+            _routeStatusMsg = '루트로 복귀했어요!';
+            Future.delayed(const Duration(seconds: 2), () {
+              if (mounted) setState(() => _routeStatusMsg = null);
+            });
+          }
+        });
       }
     }
 
@@ -252,6 +278,42 @@ class _SprintScreenState extends State<SprintScreen> {
                                   letterSpacing: 2,
                                 ),
                               ),
+                            ),
+                          ),
+                        ),
+                      // 루트 이탈 경고
+                      if (_isOffRoute)
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.withValues(alpha: 0.95),
+                              border: Border(
+                                  bottom: BorderSide(
+                                      color: Colors.orange.shade700,
+                                      width: 1.5)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.warning_amber_rounded,
+                                    color: Colors.white, size: 18),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '⚠️  루트를 벗어났어요 — 루트로 돌아가세요',
+                                    style: GoogleFonts.rajdhani(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ),

@@ -9,6 +9,8 @@ class RunSummary {
   final String? routeId;
   final String weatherEmoji;
   final String tempDisplay;
+  /// IMU 최대 횡G — 실기기에서만 유효, 에뮬레이터는 0.0
+  final double? maxLateralG;
 
   const RunSummary({
     required this.id,
@@ -19,6 +21,7 @@ class RunSummary {
     this.routeId,
     required this.weatherEmoji,
     required this.tempDisplay,
+    this.maxLateralG,
   });
 
   String get durationDisplay {
@@ -39,6 +42,7 @@ class RunSummary {
         'routeId': routeId,
         'weatherEmoji': weatherEmoji,
         'tempDisplay': tempDisplay,
+        if (maxLateralG != null) 'maxLateralG': maxLateralG,
       };
 
   factory RunSummary.fromJson(Map<String, dynamic> j) => RunSummary(
@@ -50,6 +54,7 @@ class RunSummary {
         routeId: j['routeId'] as String?,
         weatherEmoji: j['weatherEmoji'] as String,
         tempDisplay: j['tempDisplay'] as String,
+        maxLateralG: (j['maxLateralG'] as num?)?.toDouble(),
       );
 
   static List<RunSummary> listFromJson(String raw) {
