@@ -209,10 +209,12 @@ class _CruiseScreenState extends State<CruiseScreen> {
                 ),
               ),
 
-              // ── 햄버거 메뉴 버튼 (Sprint 중에는 숨김) ──
-              if (!_isSprinting) Positioned(
+              // ── 햄버거 메뉴 버튼 (Sprint 중에는 숨김, 메뉴 열리면 레일 밖으로) ──
+              if (!_isSprinting) AnimatedPositioned(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeInOut,
                 top: 52 + 12,
-                left: 12,
+                left: _menuOpen ? 68 : 12,
                 child: GestureDetector(
                   onTap: () => setState(() => _menuOpen = !_menuOpen),
                   child: Container(
