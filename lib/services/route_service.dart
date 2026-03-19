@@ -567,6 +567,12 @@ out qt;
     fetchConnectingRoutes(route);
   }
 
+  void deselectRoute() {
+    selectedRoute = null;
+    connectingRoutes = [];
+    notifyListeners();
+  }
+
   // ── 경유지 최적화 ──────────────────────────────────────────────
 
   bool isOptimizing = false;

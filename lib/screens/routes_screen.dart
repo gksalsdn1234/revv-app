@@ -518,46 +518,78 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   ],
                 ),
               ),
-            // 하단 패널 (ROUTES / TRIP 탭) — 핀 모드에선 숨김
-            // 최대 높이 52% 제한 → 지도가 항상 위쪽에 보이도록
-            if (!_settingHome)
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.sizeOf(context).height * 0.52,
-                ),
-                child: SingleChildScrollView(
-                  physics: const ClampingScrollPhysics(),
-                  child: _BottomPanel(
-                    tab: _tab,
-                    onTabChange: _switchTab,
-                    routesChild: Consumer<RouteService>(
-                      builder: (context, svc, _) {
-                        if (_styleLoaded && svc.routes.isNotEmpty) {
-                          WidgetsBinding.instance.addPostFrameCallback(
-                              (_) => _drawRoutes(svc.routes, svc.selectedRoute));
-                        }
-                        return const RoutesBottomSheet();
-                      },
-                    ),
-                    tripChild: _TripPanel(
-                      selectedCategory: _selectedCategory,
-                      pois: _pois,
-                      loading: _tripLoading,
-                      onCategoryChange: (cat) {
-                        setState(() => _selectedCategory = cat);
-                        _searchPois();
-                      },
-                      onNavigate: _navigateToPoi,
-                      onSetHome: _enterSetHomeMode,
-                    ),
-                  ),
+            // 루트 정보 오버레이 카드 (ROUTES 탭 + 루트 선택 시 지도 위에 표시)
+            if (_tab == 0 && !_settingHome)
+              Positioned(
+                bottom: 82, // 탭바(~36) + 컨트롤바(44) + 여유 2px
+                left: 0,
+                right: 0,
+                child: Consumer<RouteService>(
+                  builder: (_, svc, __) {
+                    final selected = svc.selectedRoute;
+                    return AnimatedSlide(
+                      offset: selected != null
+                          ? Offset.zero
+                          : const Offset(0, 0.15),
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOut,
+                      child: AnimatedOpacity(
+                        opacity: selected != null ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 180),
+                        child: IgnorePointer(
+                          ignoring: selected == null,
+                          child: selected != null
+                              ? RouteInfoOverlay(
+                                  key: ValueKey(selected.id))
+                              : const SizedBox.shrink(),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
-            ),
+
+            // 하단 패널 (ROUTES / TRIP 탭) — 핀 모드에선 숨김
+            if (!_settingHome)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: _tab == 1
+                    // TRIP 탭: 높이 제한 있는 스크롤 패널
+                    ? ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight:
+                              MediaQuery.sizeOf(context).height * 0.52,
+                        ),
+                        child: SingleChildScrollView(
+                          physics: const ClampingScrollPhysics(),
+                          child: _BottomPanel(
+                            tab: _tab,
+                            onTabChange: _switchTab,
+                            routesChild: const RoutesBottomSheet(),
+                            tripChild: _TripPanel(
+                              selectedCategory: _selectedCategory,
+                              pois: _pois,
+                              loading: _tripLoading,
+                              onCategoryChange: (cat) {
+                                setState(() => _selectedCategory = cat);
+                                _searchPois();
+                              },
+                              onNavigate: _navigateToPoi,
+                              onSetHome: _enterSetHomeMode,
+                            ),
+                          ),
+                        ),
+                      )
+                    // ROUTES 탭: 얇은 바만 (오버레이가 지도 위에 표시됨)
+                    : _BottomPanel(
+                        tab: _tab,
+                        onTabChange: _switchTab,
+                        routesChild: const RoutesBottomSheet(),
+                        tripChild: const SizedBox.shrink(),
+                      ),
+              ),
           ],
         ),
       ),
