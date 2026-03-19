@@ -171,11 +171,22 @@ class _RadiusSelector extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 2. RouteInfoOverlay — 지도 위 루트 정보 오버레이 카드 (미니멀)
+// 2. RouteInfoOverlay — 지도 위 루트 정보 오버레이 카드
+//    (routes_screen.dart에서 사용 — Calimoto/Rever 스타일)
 // ══════════════════════════════════════════════════════════════════
 
 class RouteInfoOverlay extends StatelessWidget {
   const RouteInfoOverlay({super.key});
+
+  Color _diffColor(int level) {
+    switch (level) {
+      case 4: return const Color(0xFFEF4444);
+      case 3: return const Color(0xFFF97316);
+      case 2: return const Color(0xFFF59E0B);
+      case 1: return const Color(0xFF22C55E);
+      default: return const Color(0xFF6B7280);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -184,199 +195,188 @@ class RouteInfoOverlay extends StatelessWidget {
         final route = svc.selectedRoute;
         if (route == null) return const SizedBox.shrink();
 
-        final diffColor = routeDiffColor(route.difficultyLevel);
+        final diffColor = _diffColor(route.difficultyLevel);
         final hasChain = svc.connectingRoutes.isNotEmpty;
         final totalChainKm = route.distanceKm +
             svc.connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm);
 
         return Container(
-          margin: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+          margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
           decoration: BoxDecoration(
-            color: AppColors.panel.withOpacity(0.97),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: diffColor.withOpacity(0.4)),
+            color: const Color(0xFF141416),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: diffColor.withValues(alpha: 0.45), width: 1.5),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withOpacity(0.5),
-                  blurRadius: 20,
-                  offset: const Offset(0, 4)),
+                  color: Colors.black.withValues(alpha: 0.7),
+                  blurRadius: 28,
+                  offset: const Offset(0, 8)),
+              BoxShadow(
+                  color: diffColor.withValues(alpha: 0.1),
+                  blurRadius: 24,
+                  spreadRadius: 2),
             ],
           ),
-          child: IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // 왼쪽 컬러 스트립
-                Container(
-                  width: 4,
-                  decoration: BoxDecoration(
-                    color: diffColor,
-                    borderRadius: const BorderRadius.horizontal(
-                        left: Radius.circular(12)),
-                  ),
-                ),
-                // 본문
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 난이도 배지 + 루트명 한 줄
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 5, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: diffColor.withOpacity(0.18),
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                              child: Text(
-                                route.difficultyLabel,
-                                style: GoogleFonts.rajdhani(
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.w800,
-                                    color: diffColor,
-                                    letterSpacing: 1),
-                              ),
-                            ),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                route.name,
-                                style: GoogleFonts.orbitron(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 5),
-                        // 거리 + 시간
-                        Row(
-                          children: [
-                            Icon(Icons.straighten,
-                                size: 10, color: AppColors.gray),
-                            const SizedBox(width: 3),
-                            Text(route.distanceDisplay,
-                                style: GoogleFonts.rajdhani(
-                                    fontSize: 12, color: AppColors.gray)),
-                            const SizedBox(width: 12),
-                            Icon(Icons.schedule,
-                                size: 10, color: AppColors.gray),
-                            const SizedBox(width: 3),
-                            Text(route.durationDisplay,
-                                style: GoogleFonts.rajdhani(
-                                    fontSize: 12, color: AppColors.gray)),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                // 버튼 영역
+                // 상단 난이도 컬러 스트립
+                Container(height: 3, color: diffColor),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(0, 8, 10, 8),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  padding: const EdgeInsets.fromLTRB(14, 11, 10, 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // 달리기 버튼
-                      GestureDetector(
-                        onTap: () {
-                          svc.requestSprint();
-                          Navigator.of(context).pop();
-                        },
-                        child: Container(
-                          width: 80,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            color: AppColors.red,
-                            borderRadius: BorderRadius.circular(8),
-                            boxShadow: [
-                              BoxShadow(
-                                  color: AppColors.red.withOpacity(0.4),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2)),
-                            ],
-                          ),
-                          child: Center(
-                            child: Text(
-                              'GO',
-                              style: GoogleFonts.orbitron(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w900,
-                                  color: Colors.white,
-                                  letterSpacing: 2),
-                            ),
-                          ),
-                        ),
-                      ),
-                      // CHAIN 버튼 (있을 때만)
-                      if (hasChain) ...[
-                        const SizedBox(height: 5),
-                        GestureDetector(
-                          onTap: () {
-                            final allNodes = [
-                              ...route.nodes,
-                              ...svc.connectingRoutes
-                                  .expand((r) => r.nodes),
-                            ];
-                            svc.requestSprint(
-                              route: route.copyWith(
-                                id: '${route.id}_chain',
-                                name:
-                                    '${route.name} +${svc.connectingRoutes.length}',
-                                nodes: allNodes,
-                                distanceKm: totalChainKm,
-                              ),
-                            );
-                            Navigator.of(context).pop();
-                          },
-                          child: Container(
-                            width: 80,
-                            height: 28,
-                            decoration: BoxDecoration(
-                              color: AppColors.surface,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                  color: AppColors.red.withOpacity(0.4)),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                      // ── 루트 정보 ──
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
                               children: [
-                                const Icon(Icons.link,
-                                    size: 10, color: AppColors.red),
-                                const SizedBox(width: 3),
-                                Text(
-                                  '${totalChainKm.toStringAsFixed(0)}km',
-                                  style: GoogleFonts.rajdhani(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.white),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: diffColor.withValues(alpha: 0.18),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    route.difficultyLabel,
+                                    style: GoogleFonts.rajdhani(
+                                      fontSize: 9, fontWeight: FontWeight.w800,
+                                      color: diffColor, letterSpacing: 1,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    route.name,
+                                    style: GoogleFonts.orbitron(
+                                      fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                               ],
                             ),
-                          ),
+                            const SizedBox(height: 7),
+                            Row(
+                              children: [
+                                _OvStatChip(icon: Icons.straighten, value: route.distanceDisplay),
+                                const SizedBox(width: 12),
+                                _OvStatChip(icon: Icons.schedule, value: route.durationDisplay),
+                                if (route.windingDensityPct > 0) ...[
+                                  const SizedBox(width: 12),
+                                  _OvStatChip(
+                                    icon: Icons.turn_right,
+                                    value: '${route.windingDensityPct.toStringAsFixed(0)}%',
+                                    color: diffColor,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
+                      const SizedBox(width: 12),
+                      // ── 버튼 ──
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // GO 버튼
+                          GestureDetector(
+                            onTap: () {
+                              svc.requestSprint();
+                              Navigator.of(ctx).pop();
+                            },
+                            child: Container(
+                              width: 76,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: AppColors.red,
+                                borderRadius: BorderRadius.circular(10),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppColors.red.withValues(alpha: 0.55),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'GO',
+                                  style: GoogleFonts.orbitron(
+                                    fontSize: 16, fontWeight: FontWeight.w900,
+                                    color: Colors.white, letterSpacing: 3,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          // CHAIN 버튼
+                          if (hasChain) ...[
+                            const SizedBox(height: 5),
+                            GestureDetector(
+                              onTap: () {
+                                final allNodes = [
+                                  ...route.nodes,
+                                  ...svc.connectingRoutes.expand((r) => r.nodes),
+                                ];
+                                svc.requestSprint(
+                                  route: route.copyWith(
+                                    id: '${route.id}_chain',
+                                    name: '${route.name} +${svc.connectingRoutes.length}',
+                                    nodes: allNodes,
+                                    distanceKm: totalChainKm,
+                                  ),
+                                );
+                                Navigator.of(ctx).pop();
+                              },
+                              child: Container(
+                                width: 76,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  color: AppColors.surface,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.link, size: 9, color: AppColors.red),
+                                    const SizedBox(width: 3),
+                                    Text(
+                                      '${totalChainKm.toStringAsFixed(0)}km',
+                                      style: GoogleFonts.rajdhani(
+                                        fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(width: 6),
+                      // 닫기
+                      GestureDetector(
+                        onTap: () => svc.deselectRoute(),
+                        child: Container(
+                          width: 28, height: 28,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.06),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.close, size: 14, color: Colors.white54),
+                        ),
+                      ),
                     ],
-                  ),
-                ),
-                // 닫기 버튼
-                GestureDetector(
-                  onTap: () => svc.deselectRoute(),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 8, 10, 8),
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: Icon(Icons.close,
-                          size: 15, color: AppColors.gray.withOpacity(0.6)),
-                    ),
                   ),
                 ),
               ],
@@ -384,6 +384,29 @@ class RouteInfoOverlay extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _OvStatChip extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final Color? color;
+  const _OvStatChip({required this.icon, required this.value, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? AppColors.textSecondary;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 10, color: c),
+        const SizedBox(width: 3),
+        Text(
+          value,
+          style: GoogleFonts.rajdhani(fontSize: 12, fontWeight: FontWeight.w600, color: c),
+        ),
+      ],
     );
   }
 }

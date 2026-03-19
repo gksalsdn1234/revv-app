@@ -4,7 +4,6 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/colors.dart';
-import '../widgets/hud_bar.dart';
 import '../widgets/routes_bottom_sheet.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
@@ -327,9 +326,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
     final loc = context.read<LocationService>();
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        child: Stack(
+      backgroundColor: Colors.black,
+      extendBodyBehindAppBar: true,
+      body: Stack(
           children: [
             // 지도 — 전체 화면
             mbx.MapWidget(
@@ -343,35 +342,101 @@ class _RoutesScreenState extends State<RoutesScreen> {
               onMapCreated: _onMapCreated,
               onStyleLoadedListener: _onStyleLoaded,
             ),
-            // HUD 상단
-            const Positioned(top: 0, left: 0, right: 0, child: HudBar()),
-            // 루트 계획 버튼 (ROUTES 탭에서만)
-            if (_tab == 0)
-              Positioned(
-                top: 56,
-                right: 12,
-                child: GestureDetector(
-                  onTap: () => RouteWizardSheet.show(context),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: AppColors.panel.withOpacity(0.92),
-                      borderRadius: BorderRadius.circular(4),
-                      border:
-                          Border.all(color: AppColors.red.withOpacity(0.5)),
+            // ── 상단 플로팅 헤더 ──
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 10,
+              left: 14,
+              right: 14,
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      width: 40, height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.62),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+                      ),
+                      child: const Icon(Icons.arrow_back_ios_new_rounded, size: 15, color: Colors.white),
                     ),
-                    child: Text(
-                      '🗺 루트 계획',
-                      style: GoogleFonts.rajdhani(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Container(
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => _switchTab(0),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: _tab == 0 ? AppColors.red : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'ROUTES',
+                                    style: GoogleFonts.rajdhani(
+                                      fontSize: 11, fontWeight: FontWeight.w700,
+                                      color: _tab == 0 ? Colors.white : Colors.white38,
+                                      letterSpacing: 2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => _switchTab(1),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: _tab == 1 ? AppColors.red : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'TRIP',
+                                    style: GoogleFonts.rajdhani(
+                                      fontSize: 11, fontWeight: FontWeight.w700,
+                                      color: _tab == 1 ? Colors.white : Colors.white38,
+                                      letterSpacing: 2,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  if (_tab == 0)
+                    GestureDetector(
+                      onTap: () => RouteWizardSheet.show(context),
+                      child: Container(
+                        width: 40, height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.62),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
+                        ),
+                        child: const Icon(Icons.add_road_rounded, size: 18, color: AppColors.red),
+                      ),
+                    )
+                  else
+                    const SizedBox(width: 40),
+                ],
               ),
+            ),
             // 로딩 오버레이
             Consumer<RouteService>(
               builder: (context, svc, _) {
@@ -406,7 +471,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
               builder: (context, svc, _) {
                 if (svc.errorMessage == null) return const SizedBox.shrink();
                 return Positioned(
-                  top: 80,
+                  top: MediaQuery.of(context).padding.top + 62,
                   left: 16,
                   right: 16,
                   child: Container(
@@ -566,7 +631,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
                           physics: const ClampingScrollPhysics(),
                           child: _BottomPanel(
                             tab: _tab,
-                            onTabChange: _switchTab,
                             routesChild: const RoutesBottomSheet(),
                             tripChild: _TripPanel(
                               selectedCategory: _selectedCategory,
@@ -585,14 +649,12 @@ class _RoutesScreenState extends State<RoutesScreen> {
                     // ROUTES 탭: 얇은 바만 (오버레이가 지도 위에 표시됨)
                     : _BottomPanel(
                         tab: _tab,
-                        onTabChange: _switchTab,
                         routesChild: const RoutesBottomSheet(),
                         tripChild: const SizedBox.shrink(),
                       ),
               ),
           ],
         ),
-      ),
     );
   }
 }
@@ -601,13 +663,11 @@ class _RoutesScreenState extends State<RoutesScreen> {
 
 class _BottomPanel extends StatelessWidget {
   final int tab;
-  final ValueChanged<int> onTabChange;
   final Widget routesChild;
   final Widget tripChild;
 
   const _BottomPanel({
     required this.tab,
-    required this.onTabChange,
     required this.routesChild,
     required this.tripChild,
   });
@@ -629,62 +689,9 @@ class _BottomPanel extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 탭 헤더
-          Row(
-            children: [
-              _TabBtn(
-                label: '🗺  ROUTES',
-                active: tab == 0,
-                onTap: () => onTabChange(0),
-              ),
-              _TabBtn(
-                label: '📍  TRIP',
-                active: tab == 1,
-                onTap: () => onTabChange(1),
-              ),
-            ],
-          ),
-          // 탭 내용
+          // 탭 내용만 (탭 헤더는 상단 플로팅 필로 이동)
           tab == 0 ? routesChild : tripChild,
         ],
-      ),
-    );
-  }
-}
-
-class _TabBtn extends StatelessWidget {
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-  const _TabBtn(
-      {required this.label, required this.active, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: active ? AppColors.red : Colors.transparent,
-                width: 2,
-              ),
-            ),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.rajdhani(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: active ? Colors.white : AppColors.gray,
-              letterSpacing: 2,
-            ),
-          ),
-        ),
       ),
     );
   }

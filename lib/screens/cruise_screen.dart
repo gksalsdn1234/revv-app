@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../models/revv_route.dart';
-import '../widgets/hud_bar.dart';
 import '../widgets/map_widget.dart';
 import '../widgets/jarvis_panel.dart';
-import '../widgets/mic_button.dart';
 import '../services/location_service.dart';
 import '../services/weather_service.dart';
 import '../services/route_service.dart';
@@ -30,17 +29,21 @@ class _CruiseScreenState extends State<CruiseScreen> {
   List<LatLng>? _navPolyline;
   RevvRoute? _lastFetchedRoute;
   bool _nearRouteStart = false;
-  bool _menuOpen = false;
   LocationService? _locationService;
+  int _activeTab = 0;
 
-  // ── Sprint 오버레이 상태 (ANR 방지: MapWidget 하나만 유지) ──
+  // ── Sprint 오버레이 상태 ──
   bool _isSprinting = false;
   RevvRoute? _sprintRoute;
-  List<LatLng>? _sprintNavPolyline; // SprintScreen에서 받아온 nav 경로
+  List<LatLng>? _sprintNavPolyline;
 
   @override
   void initState() {
     super.initState();
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+    ));
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final loc = context.read<LocationService>();
       _locationService = loc;
@@ -71,14 +74,10 @@ class _CruiseScreenState extends State<CruiseScreen> {
   void _onLocationChanged() {
     final route = context.read<RouteService>().selectedRoute;
     if (route == null) return;
-
-    // 루트 선택 시 내비 경로 한 번만 fetch
     if (route != _lastFetchedRoute) {
       _lastFetchedRoute = route;
       _fetchNavRoute(route);
     }
-
-    // 루트 시작점 근접 감지 (300m)
     final loc = context.read<LocationService>();
     final dist = RevvRoute.haversineKm(LatLng(loc.lat, loc.lng), route.nodes.first);
     final isNear = dist < 0.3;
@@ -97,21 +96,17 @@ class _CruiseScreenState extends State<CruiseScreen> {
     setState(() => _navPolyline = polyline);
   }
 
-  // Sprint 시작 — Navigator push 없이 오버레이로 전환 (ANR 방지)
   void _goSprint() {
     if (_isSprinting) return;
     final routeSvc = context.read<RouteService>();
-    // sprintRoute가 있으면 (CHAIN 전체 코스 등) 우선 사용, 없으면 selectedRoute
     final route = routeSvc.sprintRoute ?? routeSvc.selectedRoute;
     setState(() {
       _isSprinting = true;
       _sprintRoute = route;
       _sprintNavPolyline = null;
-      _menuOpen = false;
     });
   }
 
-  // Sprint 종료 콜백 — SprintScreen이 호출
   void _onSprintEnd(RunSession? session) {
     setState(() {
       _isSprinting = false;
@@ -121,11 +116,33 @@ class _CruiseScreenState extends State<CruiseScreen> {
     if (session != null && mounted) {
       Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => RunCardScreen(session: session),
-        ),
+        MaterialPageRoute(builder: (_) => RunCardScreen(session: session)),
       );
     }
+  }
+
+  void _openMore() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _MoreSheet(
+        onObd: () { Navigator.pop(context); OBDScreen.show(context); },
+        onAi: () {
+          Navigator.pop(context);
+          showModalBottomSheet(
+            context: context,
+            backgroundColor: AppColors.panel,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+            ),
+            builder: (_) => const JarvisPanel(),
+          );
+        },
+        onSettings: () { Navigator.pop(context); SettingsScreen.show(context); },
+        onMic: () { Navigator.pop(context); },
+      ),
+    );
   }
 
   @override
@@ -133,7 +150,6 @@ class _CruiseScreenState extends State<CruiseScreen> {
     final routeSvc = context.watch<RouteService>();
     final selectedRoute = routeSvc.selectedRoute;
 
-    // routes_bottom_sheet에서 requestSprint() 호출 감지
     if (routeSvc.sprintRequested && !_isSprinting) {
       routeSvc.clearSprintRequest();
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -144,546 +160,439 @@ class _CruiseScreenState extends State<CruiseScreen> {
     return PopScope(
       canPop: false,
       child: Scaffold(
-        backgroundColor: AppColors.bg,
-        body: SafeArea(
-          child: Stack(
-            children: [
-              // ── 풀스크린 레이아웃 (MapWidget 항상 하나만 유지) ──
-              Column(
-                children: [
-                  const HudBar(),
-                  Expanded(
-                    child: MapWidget(
-                      isSprintMode: _isSprinting,
-                      navPolyline: _isSprinting ? _sprintNavPolyline : _navPolyline,
-                      routePolyline: _isSprinting
-                          ? _sprintRoute?.nodes
-                          : selectedRoute?.nodes,
-                    ),
-                  ),
-                ],
+        backgroundColor: Colors.black,
+        extendBody: true,
+        body: Stack(
+          children: [
+            // ── 풀스크린 맵 ──
+            Positioned.fill(
+              child: MapWidget(
+                isSprintMode: _isSprinting,
+                navPolyline: _isSprinting ? _sprintNavPolyline : _navPolyline,
+                routePolyline: _isSprinting
+                    ? _sprintRoute?.nodes
+                    : selectedRoute?.nodes,
+              ),
+            ),
+
+            // ── 상단 플로팅 HUD ──
+            if (!_isSprinting)
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 10,
+                left: 14,
+                right: 14,
+                child: const _TopFloatingHud(),
               ),
 
-              // ── 루트 시작점 배너 (Sprint 중에는 숨김) ──
-              if (!_isSprinting && _nearRouteStart && selectedRoute != null)
-                Positioned(
-                  top: 56 + 8,
-                  left: 60,
-                  right: 12,
-                  child: _NearStartBanner(
-                    routeName: selectedRoute.name,
-                    onSprint: _goSprint,
-                  ),
-                ),
+            // ── 속도 게이지 (좌하단 플로팅) ──
+            if (!_isSprinting)
+              Positioned(
+                bottom: 80 + MediaQuery.of(context).padding.bottom + 18,
+                left: 14,
+                child: const _SpeedGauge(),
+              ),
 
-              // ── 선택된 루트 칩 (Sprint 중에는 숨김) ──
-              if (!_isSprinting && selectedRoute != null)
-                Positioned(
-                  bottom: 68,
-                  left: 60,
-                  right: 12,
-                  child: _RouteChip(route: selectedRoute),
+            // ── 루트 시작 근접 배너 ──
+            if (!_isSprinting && _nearRouteStart && selectedRoute != null)
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 70,
+                left: 14,
+                right: 14,
+                child: _NearStartBanner(
+                  routeName: selectedRoute.name,
+                  onSprint: _goSprint,
                 ),
+              ),
 
-              // ── 메뉴 오픈 시 딤 (Sprint 중에는 숨김) ──
-              if (!_isSprinting && _menuOpen)
-                Positioned.fill(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _menuOpen = false),
-                    child: Container(color: Colors.black.withValues(alpha: 0.45)),
-                  ),
+            // ── 루트 선택 카드 (하단 탭바 바로 위) ──
+            if (!_isSprinting && selectedRoute != null)
+              Positioned(
+                bottom: 74 + MediaQuery.of(context).padding.bottom,
+                left: 0,
+                right: 0,
+                child: _RouteSelectedCard(
+                  route: selectedRoute,
+                  onGo: _goSprint,
+                  onDismiss: () => routeSvc.deselectRoute(),
                 ),
+              ),
 
-              // ── 슬라이드 레일 오버레이 (Sprint 중에는 숨김) ──
-              if (!_isSprinting) AnimatedPositioned(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeInOut,
-                left: _menuOpen ? 0 : -64,
-                top: 0,
-                bottom: 0,
-                width: 64,
-                child: _LeftRail(
-                  onSprint: () {
-                    setState(() => _menuOpen = false);
-                    _goSprint();
+            // ── Sprint 오버레이 ──
+            if (_isSprinting)
+              Positioned.fill(
+                child: SprintScreen(
+                  selectedRoute: _sprintRoute,
+                  onEnd: _onSprintEnd,
+                  onNavPolylineChanged: (poly) {
+                    if (mounted) setState(() => _sprintNavPolyline = poly);
                   },
-                  onClose: () => setState(() => _menuOpen = false),
                 ),
               ),
 
-              // ── 햄버거 메뉴 버튼 (Sprint 중에는 숨김, 메뉴 열리면 레일 밖으로) ──
-              if (!_isSprinting) AnimatedPositioned(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeInOut,
-                top: 52 + 12,
-                left: _menuOpen ? 68 : 12,
-                child: GestureDetector(
-                  onTap: () => setState(() => _menuOpen = !_menuOpen),
-                  child: Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: AppColors.panel,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.divider),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.4),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      _menuOpen ? Icons.close : Icons.menu,
-                      size: 18,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
+            // ── 하단 탭바 ──
+            if (!_isSprinting)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: _BottomNavBar(
+                  activeTab: _activeTab,
+                  onRoutes: () {
+                    setState(() => _activeTab = 0);
+                    Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const RoutesScreen()));
+                  },
+                  onTrip: () {
+                    setState(() => _activeTab = 1);
+                    Navigator.push(context,
+                        MaterialPageRoute(
+                            builder: (_) => const RoutesScreen(initialTab: 1)));
+                  },
+                  onGo: _goSprint,
+                  onLog: () {
+                    setState(() => _activeTab = 3);
+                    HistoryScreen.show(context);
+                  },
+                  onMore: () {
+                    setState(() => _activeTab = 4);
+                    _openMore();
+                  },
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
-              // ── SprintScreen 오버레이 (ANR 방지: MapWidget 하나만 유지) ──
-              if (_isSprinting)
-                Positioned.fill(
-                  child: SprintScreen(
-                    selectedRoute: _sprintRoute,
-                    onEnd: _onSprintEnd,
-                    onNavPolylineChanged: (poly) {
-                      if (mounted) setState(() => _sprintNavPolyline = poly);
-                    },
-                  ),
-                ),
+// ══════════════════════════════════════════════════════════════════
+// 상단 플로팅 HUD — 투명 필 오버레이
+// ══════════════════════════════════════════════════════════════════
+class _TopFloatingHud extends StatelessWidget {
+  const _TopFloatingHud();
 
-              // ── 하단 퀵액세스 바 (Sprint 중에는 숨김) ──
-              if (!_isSprinting)
-                Positioned(
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  child: _BottomQuickBar(
-                    onSprint: _goSprint,
-                    onOpenMenu: () => setState(() => _menuOpen = !_menuOpen),
-                  ),
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        // REVV 로고 필
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: AppColors.red.withValues(alpha: 0.55), width: 1),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 7, height: 7,
+                decoration: BoxDecoration(
+                  color: AppColors.red,
+                  shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: AppColors.red, blurRadius: 5)],
                 ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'REVV',
+                style: GoogleFonts.orbitron(
+                  fontSize: 12, fontWeight: FontWeight.w900,
+                  color: Colors.white, letterSpacing: 2.5,
+                ),
+              ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _NearStartBanner extends StatelessWidget {
-  final String routeName;
-  final VoidCallback onSprint;
-  const _NearStartBanner({required this.routeName, required this.onSprint});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: AppColors.red.withValues(alpha: 0.6)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 6, height: 6,
-            decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '$routeName 시작 지점 근처예요',
-              style: GoogleFonts.rajdhani(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
-            ),
-          ),
-          GestureDetector(
-            onTap: onSprint,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(color: AppColors.red, borderRadius: BorderRadius.circular(3)),
-              child: Text(
-                'SPRINT',
-                style: GoogleFonts.rajdhani(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 2),
+        const Spacer(),
+        // 날씨 + 시간 필
+        Consumer<WeatherService>(
+          builder: (_, w, __) {
+            final now = DateTime.now();
+            final h = now.hour.toString().padLeft(2, '0');
+            final m = now.minute.toString().padLeft(2, '0');
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── 왼쪽 세로 레일 (슬라이드 오버레이) ──────────────────────
-class _LeftRail extends StatelessWidget {
-  final VoidCallback onSprint;
-  final VoidCallback onClose;
-  const _LeftRail({required this.onSprint, required this.onClose});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 64,
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        border: Border(right: BorderSide(color: AppColors.divider)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.5),
-            blurRadius: 20,
-            offset: const Offset(6, 0),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          const SizedBox(height: 12),
-          // 속도
-          Consumer<LocationService>(
-            builder: (_, loc, __) => _SpeedTile(
-              value: loc.hasPermission ? loc.speedKmh.toStringAsFixed(0) : '—',
-            ),
-          ),
-          const SizedBox(height: 4),
-          // 날씨
-          Consumer<WeatherService>(
-            builder: (_, w, __) => _WeatherTile(emoji: w.weatherEmoji, temp: w.tempDisplay),
-          ),
-          Container(
-            height: 1,
-            color: AppColors.red.withValues(alpha: 0.1),
-            margin: const EdgeInsets.symmetric(vertical: 8),
-          ),
-          // 메뉴 아이템
-          _RailItem(
-            icon: Icons.route_outlined,
-            label: '루트',
-            onTap: () {
-              onClose();
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const RoutesScreen()));
-            },
-          ),
-          _RailItem(
-            icon: Icons.map_outlined,
-            label: '여정',
-            onTap: () {
-              onClose();
-              Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const RoutesScreen(initialTab: 1)));
-            },
-          ),
-          _RailItem(
-            icon: Icons.speed_outlined,
-            label: 'OBD',
-            onTap: () {
-              onClose();
-              OBDScreen.show(context);
-            },
-          ),
-          _RailItem(
-            icon: Icons.history,
-            label: '기록',
-            onTap: () {
-              onClose();
-              HistoryScreen.show(context);
-            },
-          ),
-          _RailItem(
-            icon: Icons.chat_bubble_outline,
-            label: 'AI',
-            onTap: () {
-              onClose();
-              showModalBottomSheet(
-                context: context,
-                backgroundColor: AppColors.panel,
-                shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-                ),
-                builder: (_) => const JarvisPanel(),
-              );
-            },
-          ),
-          _RailItem(
-            icon: Icons.settings_outlined,
-            label: '설정',
-            onTap: () {
-              onClose();
-              SettingsScreen.show(context);
-            },
-          ),
-          const Spacer(),
-          // GO 버튼 (레일 내 하단)
-          GestureDetector(
-            onTap: onSprint,
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              color: AppColors.red,
-              child: Column(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.flag, size: 18, color: Colors.white),
-                  const SizedBox(height: 4),
+                  Text(w.weatherEmoji, style: const TextStyle(fontSize: 14)),
+                  const SizedBox(width: 5),
                   Text(
-                    'GO',
+                    w.tempDisplay,
                     style: GoogleFonts.rajdhani(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                      letterSpacing: 3,
+                      fontSize: 12, fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  Container(
+                    width: 1, height: 13,
+                    color: Colors.white.withValues(alpha: 0.15),
+                    margin: const EdgeInsets.symmetric(horizontal: 9),
+                  ),
+                  Text(
+                    '$h:$m',
+                    style: GoogleFonts.orbitron(
+                      fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white,
                     ),
                   ),
                 ],
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SpeedTile extends StatelessWidget {
-  final String value;
-  const _SpeedTile({required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: GoogleFonts.orbitron(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+            );
+          },
         ),
-        Text('km/h', style: GoogleFonts.rajdhani(fontSize: 8, color: AppColors.textSecondary, letterSpacing: 1)),
       ],
     );
   }
 }
 
-class _WeatherTile extends StatelessWidget {
-  final String emoji;
-  final String temp;
-  const _WeatherTile({required this.emoji, required this.temp});
+// ══════════════════════════════════════════════════════════════════
+// 속도 게이지 — 원형, 항상 좌하단
+// ══════════════════════════════════════════════════════════════════
+class _SpeedGauge extends StatelessWidget {
+  const _SpeedGauge();
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(emoji, style: const TextStyle(fontSize: 16)),
-        Text(temp, style: GoogleFonts.rajdhani(fontSize: 10, color: AppColors.textSecondary)),
-      ],
-    );
-  }
-}
-
-class _RailItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _RailItem({required this.icon, required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          width: double.infinity,
-          height: 52,
+    return Consumer<LocationService>(
+      builder: (_, loc, __) {
+        final speed = loc.hasPermission ? loc.speedKmh.toStringAsFixed(0) : '--';
+        return Container(
+          width: 74,
+          height: 74,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.72),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: AppColors.red.withValues(alpha: 0.55),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.red.withValues(alpha: 0.18),
+                blurRadius: 20,
+                spreadRadius: 3,
+              ),
+            ],
+          ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 20, color: AppColors.textSecondary),
-              const SizedBox(height: 3),
               Text(
-                label,
+                speed,
+                style: GoogleFonts.orbitron(
+                  fontSize: 23, fontWeight: FontWeight.w900,
+                  color: Colors.white, height: 1.0,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                'km/h',
                 style: GoogleFonts.rajdhani(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary,
-                  letterSpacing: 0.5,
+                  fontSize: 8, fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary, letterSpacing: 1,
                 ),
               ),
             ],
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
-// ── 선택 루트 칩 ─────────────────────────────────────────────
-class _RouteChip extends StatelessWidget {
+// ══════════════════════════════════════════════════════════════════
+// 루트 선택 카드 — 하단 탭바 위 플로팅
+// ══════════════════════════════════════════════════════════════════
+class _RouteSelectedCard extends StatelessWidget {
   final RevvRoute route;
-  const _RouteChip({required this.route});
+  final VoidCallback onGo;
+  final VoidCallback onDismiss;
+  const _RouteSelectedCard({required this.route, required this.onGo, required this.onDismiss});
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.divider),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 6, height: 6,
-            decoration: const BoxDecoration(color: AppColors.red, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '${route.name}  ·  ${route.distanceDisplay}',
-            style: GoogleFonts.rajdhani(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
-            ),
-          ),
-        ],
-      ),
-    );
+  Color _diffColor(int level) {
+    switch (level) {
+      case 4: return const Color(0xFFEF4444);
+      case 3: return const Color(0xFFF97316);
+      case 2: return const Color(0xFFF59E0B);
+      case 1: return const Color(0xFF22C55E);
+      default: return const Color(0xFF6B7280);
+    }
   }
-}
-
-
-// ── 하단 퀵액세스 바 ─────────────────────────────────────────
-// 항상 보이는 5개 버튼: 루트 / 여정 / GO / 기록 / 더보기
-class _BottomQuickBar extends StatelessWidget {
-  final VoidCallback onSprint;
-  final VoidCallback onOpenMenu;
-  const _BottomQuickBar({required this.onSprint, required this.onOpenMenu});
 
   @override
   Widget build(BuildContext context) {
+    final svc = context.watch<RouteService>();
+    final diffColor = _diffColor(route.difficultyLevel);
+    final hasChain = svc.connectingRoutes.isNotEmpty;
+    final totalChainKm = route.distanceKm +
+        svc.connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm);
+
     return Container(
+      margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.97),
-        border: Border(top: BorderSide(color: AppColors.divider, width: 1)),
+        color: const Color(0xFF141416),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: diffColor.withValues(alpha: 0.45), width: 1.5),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.35),
-            blurRadius: 16,
-            offset: const Offset(0, -3),
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.7), blurRadius: 28, offset: const Offset(0, 8)),
+          BoxShadow(color: diffColor.withValues(alpha: 0.1), blurRadius: 24, spreadRadius: 2),
         ],
       ),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 58,
-          child: Row(
-            children: [
-              // 루트 탐색
-              _QuickBtn(
-                icon: Icons.route_outlined,
-                label: '루트',
-                onTap: () => Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const RoutesScreen())),
-              ),
-              // 여정 (TRIP)
-              _QuickBtn(
-                icon: Icons.explore_outlined,
-                label: '여정',
-                onTap: () => Navigator.push(context,
-                    MaterialPageRoute(
-                        builder: (_) => const RoutesScreen(initialTab: 1))),
-              ),
-              // GO — 가운데, 강조
-              Expanded(
-                child: GestureDetector(
-                  onTap: onSprint,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.red,
-                      borderRadius: BorderRadius.circular(10),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.redGlow,
-                          blurRadius: 12,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(height: 3, color: diffColor),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 11, 10, 12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.flag_rounded, size: 16, color: Colors.white),
-                        const SizedBox(height: 1),
-                        Text(
-                          'GO',
-                          style: GoogleFonts.rajdhani(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                            color: Colors.white,
-                            letterSpacing: 2,
-                          ),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: diffColor.withValues(alpha: 0.18),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                route.difficultyLabel,
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 9, fontWeight: FontWeight.w800,
+                                  color: diffColor, letterSpacing: 1,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                route.name,
+                                style: GoogleFonts.orbitron(
+                                  fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 7),
+                        Row(
+                          children: [
+                            _StatChip(icon: Icons.straighten, value: route.distanceDisplay),
+                            const SizedBox(width: 12),
+                            _StatChip(icon: Icons.schedule, value: route.durationDisplay),
+                            if (route.windingDensityPct > 0) ...[
+                              const SizedBox(width: 12),
+                              _StatChip(
+                                icon: Icons.turn_right,
+                                value: '${route.windingDensityPct.toStringAsFixed(0)}%',
+                                color: diffColor,
+                              ),
+                            ],
+                          ],
                         ),
                       ],
                     ),
                   ),
-                ),
-              ),
-              // 기록
-              _QuickBtn(
-                icon: Icons.history,
-                label: '기록',
-                onTap: () => HistoryScreen.show(context),
-              ),
-              // 더보기 (레일)
-              _QuickBtn(
-                icon: Icons.more_horiz,
-                label: '더보기',
-                onTap: onOpenMenu,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _QuickBtn extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _QuickBtn({required this.icon, required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 22, color: AppColors.textSecondary),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: GoogleFonts.rajdhani(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textSecondary,
-                letterSpacing: 0.5,
+                  const SizedBox(width: 12),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        onTap: onGo,
+                        child: Container(
+                          width: 76,
+                          height: 44,
+                          decoration: BoxDecoration(
+                            color: AppColors.red,
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.red.withValues(alpha: 0.55),
+                                blurRadius: 16,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Center(
+                            child: Text(
+                              'GO',
+                              style: GoogleFonts.orbitron(
+                                fontSize: 16, fontWeight: FontWeight.w900,
+                                color: Colors.white, letterSpacing: 3,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (hasChain) ...[
+                        const SizedBox(height: 5),
+                        GestureDetector(
+                          onTap: () {
+                            final allNodes = [...route.nodes, ...svc.connectingRoutes.expand((r) => r.nodes)];
+                            svc.requestSprint(
+                              route: route.copyWith(
+                                id: '${route.id}_chain',
+                                name: '${route.name} +${svc.connectingRoutes.length}',
+                                nodes: allNodes,
+                                distanceKm: totalChainKm,
+                              ),
+                            );
+                          },
+                          child: Container(
+                            width: 76,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.link, size: 9, color: AppColors.red),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${totalChainKm.toStringAsFixed(0)}km',
+                                  style: GoogleFonts.rajdhani(
+                                    fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(width: 6),
+                  GestureDetector(
+                    onTap: onDismiss,
+                    child: Container(
+                      width: 28, height: 28,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.06),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.close, size: 14, color: Colors.white54),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -693,30 +602,426 @@ class _QuickBtn extends StatelessWidget {
   }
 }
 
-class _SprintRoute extends PageRouteBuilder {
-  _SprintRoute(Widget page)
-      : super(
-          pageBuilder: (_, __, ___) => page,
-          transitionDuration: const Duration(milliseconds: 400),
-          transitionsBuilder: (context, animation, _, child) {
-            return Stack(
+class _StatChip extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final Color? color;
+  const _StatChip({required this.icon, required this.value, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? AppColors.textSecondary;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 10, color: c),
+        const SizedBox(width: 3),
+        Text(
+          value,
+          style: GoogleFonts.rajdhani(
+            fontSize: 12, fontWeight: FontWeight.w600, color: c,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 루트 시작 근접 배너
+// ══════════════════════════════════════════════════════════════════
+class _NearStartBanner extends StatelessWidget {
+  final String routeName;
+  final VoidCallback onSprint;
+  const _NearStartBanner({required this.routeName, required this.onSprint});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A0808),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.red.withValues(alpha: 0.7), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.red.withValues(alpha: 0.3),
+            blurRadius: 24,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8, height: 8,
+            decoration: BoxDecoration(
+              color: AppColors.red,
+              shape: BoxShape.circle,
+              boxShadow: [BoxShadow(color: AppColors.red, blurRadius: 8)],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SlideTransition(
-                  position: Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-                      .animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
-                  child: child,
-                ),
-                IgnorePointer(
-                  child: FadeTransition(
-                    opacity: TweenSequence([
-                      TweenSequenceItem(tween: Tween(begin: 0.0, end: 0.25), weight: 50),
-                      TweenSequenceItem(tween: Tween(begin: 0.25, end: 0.0), weight: 50),
-                    ]).animate(animation),
-                    child: Container(color: AppColors.red),
+                Text(
+                  '시작 지점 근처',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 10, fontWeight: FontWeight.w700,
+                    color: AppColors.red, letterSpacing: 1,
                   ),
                 ),
+                Text(
+                  routeName,
+                  style: GoogleFonts.orbitron(
+                    fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
-            );
-          },
-        );
+            ),
+          ),
+          const SizedBox(width: 10),
+          GestureDetector(
+            onTap: onSprint,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+              decoration: BoxDecoration(
+                color: AppColors.red,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.red.withValues(alpha: 0.5),
+                    blurRadius: 14,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Text(
+                'START',
+                style: GoogleFonts.orbitron(
+                  fontSize: 11, fontWeight: FontWeight.w900,
+                  color: Colors.white, letterSpacing: 2,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 하단 네비게이션 바 — 가운데 GO 원형 버튼 히어로
+// ══════════════════════════════════════════════════════════════════
+class _BottomNavBar extends StatelessWidget {
+  final int activeTab;
+  final VoidCallback onRoutes;
+  final VoidCallback onTrip;
+  final VoidCallback onGo;
+  final VoidCallback onLog;
+  final VoidCallback onMore;
+
+  const _BottomNavBar({
+    required this.activeTab,
+    required this.onRoutes,
+    required this.onTrip,
+    required this.onGo,
+    required this.onLog,
+    required this.onMore,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.of(context).padding.bottom;
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xF2101012),
+        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.07), width: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.65),
+            blurRadius: 28,
+            offset: const Offset(0, -6),
+          ),
+        ],
+      ),
+      child: SizedBox(
+        height: 64 + bottomPad,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _NavItem(
+              icon: Icons.route_outlined,
+              activeIcon: Icons.route,
+              label: 'ROUTES',
+              active: activeTab == 0,
+              onTap: onRoutes,
+            ),
+            _NavItem(
+              icon: Icons.explore_outlined,
+              activeIcon: Icons.explore,
+              label: 'TRIP',
+              active: activeTab == 1,
+              onTap: onTrip,
+            ),
+            // GO 히어로 버튼
+            Expanded(
+              child: GestureDetector(
+                onTap: onGo,
+                child: SizedBox(
+                  height: 64,
+                  child: Stack(
+                    alignment: Alignment.topCenter,
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned(
+                        top: -18,
+                        child: Container(
+                          width: 66,
+                          height: 66,
+                          decoration: BoxDecoration(
+                            color: AppColors.red,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: const Color(0xF2101012), width: 3),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.red.withValues(alpha: 0.65),
+                                blurRadius: 22,
+                                spreadRadius: 3,
+                                offset: const Offset(0, 4),
+                              ),
+                              BoxShadow(
+                                color: AppColors.red.withValues(alpha: 0.2),
+                                blurRadius: 44,
+                                spreadRadius: 8,
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.navigation_rounded, size: 20, color: Colors.white),
+                              Text(
+                                'GO',
+                                style: GoogleFonts.orbitron(
+                                  fontSize: 9, fontWeight: FontWeight.w900,
+                                  color: Colors.white, letterSpacing: 2,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            _NavItem(
+              icon: Icons.history,
+              activeIcon: Icons.history,
+              label: 'LOG',
+              active: activeTab == 3,
+              onTap: onLog,
+            ),
+            _NavItem(
+              icon: Icons.more_horiz,
+              activeIcon: Icons.more_horiz,
+              label: 'MORE',
+              active: activeTab == 4,
+              onTap: onMore,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatelessWidget {
+  final IconData icon;
+  final IconData activeIcon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _NavItem({
+    required this.icon,
+    required this.activeIcon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          height: 64,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                active ? activeIcon : icon,
+                size: 23,
+                color: active ? AppColors.red : Colors.white30,
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: GoogleFonts.rajdhani(
+                  fontSize: 8, fontWeight: FontWeight.w700,
+                  color: active ? AppColors.red : Colors.white30,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 5),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                width: active ? 20 : 0,
+                height: 2,
+                decoration: BoxDecoration(
+                  color: AppColors.red,
+                  borderRadius: BorderRadius.circular(1),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// MORE 바텀시트
+// ══════════════════════════════════════════════════════════════════
+class _MoreSheet extends StatelessWidget {
+  final VoidCallback onObd;
+  final VoidCallback onAi;
+  final VoidCallback onSettings;
+  final VoidCallback onMic;
+
+  const _MoreSheet({
+    required this.onObd,
+    required this.onAi,
+    required this.onSettings,
+    required this.onMic,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF131315),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 10),
+          Container(
+            width: 36, height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 20),
+          _MoreItem(
+            icon: Icons.speed_rounded,
+            label: 'OBD 진단',
+            sub: '실시간 차량 데이터',
+            onTap: onObd,
+          ),
+          _MoreItem(
+            icon: Icons.auto_awesome_rounded,
+            label: 'Jarvis AI',
+            sub: '드라이빙 브리핑',
+            onTap: onAi,
+          ),
+          _MoreItem(
+            icon: Icons.mic_rounded,
+            label: '마이크',
+            sub: '음성 명령',
+            onTap: onMic,
+          ),
+          _MoreItem(
+            icon: Icons.settings_rounded,
+            label: '설정',
+            sub: '앱 환경설정',
+            onTap: onSettings,
+          ),
+          SizedBox(height: MediaQuery.of(context).padding.bottom + 20),
+        ],
+      ),
+    );
+  }
+}
+
+class _MoreItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String sub;
+  final VoidCallback onTap;
+
+  const _MoreItem({
+    required this.icon,
+    required this.label,
+    required this.sub,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                width: 44, height: 44,
+                decoration: BoxDecoration(
+                  color: AppColors.red.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(icon, size: 21, color: AppColors.red),
+              ),
+              const SizedBox(width: 14),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    sub,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 11, color: Colors.white38,
+                    ),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              const Icon(Icons.chevron_right, size: 18, color: Colors.white24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
