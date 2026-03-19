@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../theme/colors.dart';
 import '../models/revv_route.dart';
 import '../services/route_service.dart';
@@ -11,42 +10,6 @@ import '../services/route_brief_service.dart';
 import '../services/weather_service.dart';
 import '../services/saved_route_service.dart';
 import '../widgets/sprint_toggle.dart';
-
-// ── Google Maps URL 오픈 ──────────────────────────────────────
-Future<void> _openGoogleMaps(RevvRoute route, LocationService loc) async {
-  final nodes = route.nodes;
-  if (nodes.isEmpty) return;
-
-  final origin = '${loc.lat},${loc.lng}';
-  final destination = '${nodes.last.lat},${nodes.last.lng}';
-
-  // 루트 노드를 최대 8개 웨이포인트로 균등 샘플링
-  final waypoints = <String>[];
-  if (nodes.length > 2) {
-    final count = nodes.length < 10 ? nodes.length - 2 : 8;
-    final step = (nodes.length - 1) / (count + 1);
-    for (int i = 1; i <= count; i++) {
-      final idx = (i * step).round().clamp(1, nodes.length - 2);
-      waypoints.add('${nodes[idx].lat},${nodes[idx].lng}');
-    }
-  }
-
-  final waypointsParam = waypoints.isNotEmpty
-      ? '&waypoints=${waypoints.join('%7C')}'
-      : '';
-
-  final url = Uri.parse(
-    'https://www.google.com/maps/dir/?api=1'
-    '&origin=$origin'
-    '&destination=$destination'
-    '$waypointsParam'
-    '&travelmode=driving',
-  );
-
-  if (await canLaunchUrl(url)) {
-    await launchUrl(url, mode: LaunchMode.externalApplication);
-  }
-}
 
 // ── 난이도 색상 헬퍼 ──────────────────────────────────────────
 Color _diffColor(int level) {
@@ -515,47 +478,16 @@ class _RoutesBottomSheetState extends State<RoutesBottomSheet> {
                 ),
                 const SizedBox(height: 12),
 
-                Row(
-                  children: [
-                    // ── REVV 내 스프린트 시작 ─────────────────────
-                    Expanded(
-                      child: RedGlowButton(
-                        label: '이 루트로 달리기',
-                        filled: true,
-                        height: 44,
-                        onTap: () {
-                          // CruiseScreen에 Sprint 시작 요청
-                          // (Navigator.pushReplacement 대신 오버레이 방식 — ANR 방지)
-                          svc.requestSprint();
-                          Navigator.of(context).pop();
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    // ── Google Maps 외부 오픈 ──────────────────────
-                    GestureDetector(
-                      onTap: () => _openGoogleMaps(
-                          svc.selectedRoute!,
-                          context.read<LocationService>()),
-                      child: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.divider),
-                        ),
-                        child: const Center(
-                          child: Text('G', style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white70,
-                            letterSpacing: -0.5,
-                          )),
-                        ),
-                      ),
-                    ),
-                  ],
+                RedGlowButton(
+                  label: '이 루트로 달리기',
+                  filled: true,
+                  height: 44,
+                  onTap: () {
+                    // CruiseScreen에 Sprint 시작 요청
+                    // (Navigator.pushReplacement 대신 오버레이 방식 — ANR 방지)
+                    svc.requestSprint();
+                    Navigator.of(context).pop();
+                  },
                 ),
               ],
             ),
