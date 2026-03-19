@@ -30,6 +30,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
   mbx.PolylineAnnotationManager? _polyManager;
   mbx.PointAnnotationManager? _poiManager;
   final List<mbx.PolylineAnnotation> _polylines = [];
+  // annotation.id → RevvRoute 매핑 (폴리라인 탭 선택용)
+  final Map<String, RevvRoute> _annotationToRoute = {};
   bool _styleLoaded = false;
   bool _isDrawing = false;
   String? _lastPoiRouteId;
@@ -59,7 +61,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
       if (!mounted) return;
       final loc = context.read<LocationService>();
       _routeSvc = context.read<RouteService>();
-      _routeSvc!.resetCache();
+      // resetCache() 제거 — 캐시 유지로 매번 재탐색 방지
       _routeSvc!.fetchRoutes(loc.lat, loc.lng);
       _routeSvc!.addListener(_onRouteServiceChanged);
       if (_tab == 1) _searchPois();
@@ -108,6 +110,12 @@ class _RoutesScreenState extends State<RoutesScreen> {
     _styleLoaded = true;
     _polyManager =
         await _mapController?.annotations.createPolylineAnnotationManager();
+    // 폴리라인 탭 → 루트 선택 리스너 등록
+    _polyManager?.addOnPolylineAnnotationClickListener(
+      _PolylineClickHandler(_annotationToRoute, (route) {
+        context.read<RouteService>().selectRoute(route);
+      }),
+    );
     _poiManager =
         await _mapController?.annotations.createPointAnnotationManager();
     await _applyCustomStyle();
@@ -140,6 +148,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
     try {
       await _polyManager!.deleteAll();
       _polylines.clear();
+      _annotationToRoute.clear(); // 매핑 초기화
       final unselected = routes.where((r) => r.id != selected?.id).toList();
       final selectedList = routes.where((r) => r.id == selected?.id).toList();
       for (final route in [...unselected, ...selectedList]) {
@@ -150,11 +159,15 @@ class _RoutesScreenState extends State<RoutesScreen> {
           mbx.PolylineAnnotationOptions(
             geometry: mbx.LineString(coordinates: coords),
             lineColor: isSel ? AppColors.red.value : 0xFFFFFFFF,
-            lineWidth: isSel ? 5.0 : 2.0,
-            lineOpacity: isSel ? 1.0 : 0.3,
+            lineWidth: isSel ? 5.5 : 4.0, // 미선택 4.0 → 탭 용이
+            lineOpacity: isSel ? 1.0 : 0.28,
           ),
         );
         _polylines.add(poly);
+        // annotation id → RevvRoute 매핑 저장 (탭 선택용)
+        if (poly.id != null) {
+          _annotationToRoute[poly.id!] = route;
+        }
       }
     } finally {
       _isDrawing = false;
@@ -784,6 +797,25 @@ class _TripPanel extends StatelessWidget {
         const SizedBox(height: 8),
       ],
     );
+  }
+}
+
+// ── 폴리라인 탭 → 루트 선택 리스너 ────────────────────────────────
+
+class _PolylineClickHandler extends mbx.OnPolylineAnnotationClickListener {
+  final Map<String, RevvRoute> annotationToRoute;
+  final void Function(RevvRoute) onSelect;
+
+  _PolylineClickHandler(this.annotationToRoute, this.onSelect);
+
+  @override
+  bool onPolylineAnnotationClick(mbx.PolylineAnnotation annotation) {
+    final route = annotationToRoute[annotation.id];
+    if (route != null) {
+      onSelect(route);
+      return true; // 이벤트 소비
+    }
+    return false;
   }
 }
 
