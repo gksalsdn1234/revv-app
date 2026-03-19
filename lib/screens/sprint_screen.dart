@@ -20,6 +20,7 @@ import '../services/imu_service.dart';
 import '../services/turn_by_turn_service.dart';
 import '../services/settings_service.dart';
 import '../models/nav_step.dart';
+import '../models/run_session.dart';
 import 'run_card_screen.dart';
 import 'obd_screen.dart';
 
