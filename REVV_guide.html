@@ -1111,6 +1111,27 @@ ${ideaTexts || '(없음)'}
                     <div class="patch-line block-note">💬 "루트창이 지도를 가려서 루트가 어디 있는지 모르겠다" → 해결. 지도 위 라인 탭으로 루트 선택 가능</div>
                 </div>
 
+                <!-- v1.38 패치 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.38</span>
+                        <span class="patch-date">2026-03-19</span>
+                        <span class="patch-tag ui">UI</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line"><strong>스프린트 화면 풀스크린 네비 리디자인</strong></div>
+                    <div class="patch-line">• SprintHudBar + _OBDStrip + _SpeedDisplay 제거 → 지도 100% 활용</div>
+                    <div class="patch-line">• 레이아웃: Column(HudBar+지도) → Stack(지도+오버레이) 풀스크린 구조</div>
+                    <div class="patch-line"><strong>G-Force 원형 미터 (_GForceMeter) 대형 리디자인</strong></div>
+                    <div class="patch-line">• 164×186px 컨테이너, 144×144px 원형 캔버스</div>
+                    <div class="patch-line">• 동심원 3개: 0.3G(파랑)/0.6G(주황)/1.0G(빨강) — 라벨 포함</div>
+                    <div class="patch-line">• 자동차 실루엣 중앙 (차체 + 캐빈 + 바퀴 4개, 전면 하이라이트)</div>
+                    <div class="patch-line">• 도트 색상: &lt;0.3G=파랑, 0.3~0.6G=주황, &gt;0.6G=빨강 (합성 G 기준)</div>
+                    <div class="patch-line">• 궤적 trail 30개: 알파 페이드 시각화</div>
+                    <div class="patch-line">• LAT/LON 수치 분리 표시 (Orbitron, 컬러 연동)</div>
+                    <div class="patch-line">• 우하단 고정 배치 (바텀바 위 80px)</div>
+                </div>
+
                 <!-- v1.37 패치 -->
                 <div class="patch-entry">
                     <div class="patch-header">

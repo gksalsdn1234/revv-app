@@ -4,16 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/colors.dart';
-import '../widgets/hud_bar.dart';
 import '../widgets/map_widget.dart';
 import '../widgets/sprint_toggle.dart';
 import '../widgets/mic_button.dart';
 import '../models/revv_route.dart';
-import '../models/obd_data.dart';
 import '../services/location_service.dart';
 import '../services/weather_service.dart';
 import '../services/run_session_service.dart';
-import '../services/obd_service.dart';
 import '../services/driving_context_service.dart';
 import '../services/directions_service.dart';
 import '../services/imu_service.dart';
@@ -22,11 +19,9 @@ import '../services/settings_service.dart';
 import '../models/nav_step.dart';
 import '../models/run_session.dart';
 import 'run_card_screen.dart';
-import 'obd_screen.dart';
 
 class SprintScreen extends StatefulWidget {
   final RevvRoute? selectedRoute;
-  /// CruiseScreen이 오버레이 방식으로 호출할 때 사용 (ANR 방지)
   final void Function(RunSession? session)? onEnd;
   final void Function(List<LatLng>? poly)? onNavPolylineChanged;
 
@@ -46,24 +41,27 @@ class _SprintScreenState extends State<SprintScreen>
   LocationService? _locationService;
   RunSessionService? _runSessionService;
 
-  List<LatLng>? _navPolyline;        // 현재위치 → 루트시작점 경로
-  bool _onRoute = false;             // 루트 시작점 진입 여부
-  bool _isOffRoute = false;          // 루트 이탈 여부
-  String? _routeStatusMsg;           // "루트 진입!" 표시용
-  TurnByTurnService? _tbtService;    // 턴바이턴
-  double _tbtDistM = 0;             // 다음 maneuver까지 거리
-  bool _isMuted = false;             // TTS 음소거 (항상 표시)
+  List<LatLng>? _navPolyline;
+  bool _onRoute = false;
+  bool _isOffRoute = false;
+  String? _routeStatusMsg;
+  TurnByTurnService? _tbtService;
+  double _tbtDistM = 0;
+  bool _isMuted = false;
 
-  // ── G-Force 레드 플래시 (v2) ──
+  // G-Force 레드 플래시
   late AnimationController _flashCtrl;
   late Animation<double> _flashAnim;
   double _lastFlashG = 0;
-  static const double _flashThreshold = 0.65; // 0.65G 초과 시 플래시
+  static const double _flashThreshold = 0.65;
+
+  // G-Force 궤적 (trail)
+  final List<Offset> _gTrail = [];
+  static const int _trailLen = 30;
 
   @override
   void initState() {
     super.initState();
-    // G-Force 플래시 애니메이션 초기화
     _flashCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 400),
@@ -73,9 +71,7 @@ class _SprintScreenState extends State<SprintScreen>
     );
   }
 
-  void _triggerGFlash() {
-    _flashCtrl.forward(from: 0);
-  }
+  void _triggerGFlash() => _flashCtrl.forward(from: 0);
 
   @override
   void didChangeDependencies() {
@@ -84,34 +80,22 @@ class _SprintScreenState extends State<SprintScreen>
       _locationService = context.read<LocationService>();
       _runSessionService = context.read<RunSessionService>();
       final weather = context.read<WeatherService>();
-      final weatherEmoji = weather.weatherEmoji;
-      final tempDisplay = weather.tempDisplay;
-      final weatherDesc = weather.weatherDesc;
-      final selectedRoute = widget.selectedRoute;
 
-      // 빌드 완료 후 startSession 호출 (notifyListeners 충돌 방지)
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _runSessionService!.startSession(
-          selectedRoute,
-          weatherEmoji: weatherEmoji,
-          tempDisplay: tempDisplay,
-          weatherDesc: weatherDesc,
+          widget.selectedRoute,
+          weatherEmoji: weather.weatherEmoji,
+          tempDisplay: weather.tempDisplay,
+          weatherDesc: weather.weatherDesc,
         );
       });
 
       _locationService!.addListener(_onLocation);
-
-      // G-Force 리스너
       context.read<ImuService>().addListener(_onImu);
-
-      // SettingsService에서 초기 음소거 값 읽기
       _isMuted = context.read<SettingsService>().ttsMuted;
 
-      // 루트가 있으면 진입 경로 즉시 fetch
-      if (selectedRoute != null) {
-        _fetchNavRoute();
-      }
+      if (widget.selectedRoute != null) _fetchNavRoute();
     }
   }
 
@@ -124,14 +108,13 @@ class _SprintScreenState extends State<SprintScreen>
     );
     if (!mounted) return;
     setState(() => _navPolyline = result.polyline);
-    widget.onNavPolylineChanged?.call(result.polyline); // CruiseScreen에 통보
+    widget.onNavPolylineChanged?.call(result.polyline);
     if (result.steps.isNotEmpty) {
       _tbtService?.stop();
-      final muteInit = context.read<SettingsService>().ttsMuted;
       _tbtService = TurnByTurnService(
         steps: result.steps,
         onUpdate: () { if (mounted) setState(() {}); },
-        initialMuted: muteInit,
+        initialMuted: context.read<SettingsService>().ttsMuted,
       );
     }
   }
@@ -140,12 +123,9 @@ class _SprintScreenState extends State<SprintScreen>
     final loc = _locationService;
     if (loc == null) return;
     _runSessionService?.recordPosition(loc.lat, loc.lng, loc.speedKmh);
-
-    // DriveMode 기록 (mode 변경 시에만 내부에서 처리)
     final drivingCtx = context.read<DrivingContextService>();
     _runSessionService?.recordDriveMode(drivingCtx.mode.name);
 
-    // 루트 시작점 200m 이내 진입 시 nav 경로 숨기기
     if (!_onRoute && widget.selectedRoute != null && _navPolyline != null) {
       final start = widget.selectedRoute!.nodes.first;
       final dist = RevvRoute.haversineKm(LatLng(loc.lat, loc.lng), start);
@@ -164,18 +144,16 @@ class _SprintScreenState extends State<SprintScreen>
       }
     }
 
-    // 루트 이탈 감지 (루트 진입 후에만)
     if (_onRoute && widget.selectedRoute != null) {
       final pos = LatLng(loc.lat, loc.lng);
-      final nodes = widget.selectedRoute!.nodes;
       double minDist = double.infinity;
-      for (final node in nodes) {
+      for (final node in widget.selectedRoute!.nodes) {
         final d = RevvRoute.haversineKm(pos, node);
         if (d < minDist) minDist = d;
-        if (minDist < 0.2) break; // 200m 이내면 즉시 종료
+        if (minDist < 0.2) break;
       }
       final wasOff = _isOffRoute;
-      final nowOff = minDist > 0.3; // 300m 초과 = 이탈
+      final nowOff = minDist > 0.3;
       if (wasOff != nowOff) {
         setState(() {
           _isOffRoute = nowOff;
@@ -189,13 +167,10 @@ class _SprintScreenState extends State<SprintScreen>
       }
     }
 
-    // 턴바이턴 위치 업데이트
     if (_tbtService != null) {
       _tbtService!.updateLocation(loc.lat, loc.lng);
       final d = _tbtService!.distanceToNextM(loc.lat, loc.lng);
-      if ((d - _tbtDistM).abs() > 5) {
-        setState(() => _tbtDistM = d);
-      }
+      if ((d - _tbtDistM).abs() > 5) setState(() => _tbtDistM = d);
     }
   }
 
@@ -205,11 +180,20 @@ class _SprintScreenState extends State<SprintScreen>
     context.read<SettingsService>().setTtsMuted(_isMuted);
   }
 
-  // G-Force 임계 초과 시 플래시 트리거
   void _onImu() {
     if (!mounted) return;
     final imu = context.read<ImuService>();
-    final g = imu.lateralG.abs();
+    final lG = imu.lateralG;
+    final nG = imu.longitudinalG;
+    final g = lG.abs();
+
+    // 궤적 업데이트
+    setState(() {
+      _gTrail.add(Offset(lG, nG));
+      if (_gTrail.length > _trailLen) _gTrail.removeAt(0);
+    });
+
+    // 플래시 트리거
     if (g >= _flashThreshold && _lastFlashG < _flashThreshold) {
       _triggerGFlash();
     }
@@ -225,14 +209,12 @@ class _SprintScreenState extends State<SprintScreen>
       maxLateralG: imu.maxLateralG,
       maxLonG: imu.maxLonG,
     );
-    imu.resetMaxG(); // 다음 세션을 위해 초기화
+    imu.resetMaxG();
     if (!mounted) return;
-    // 오버레이 모드 (CruiseScreen이 부모)
     if (widget.onEnd != null) {
       widget.onEnd!(session);
       return;
     }
-    // 독립 화면 모드 (기존 호환)
     Navigator.pushReplacement(
       context,
       _RunCardRoute(RunCardScreen(session: session)),
@@ -247,203 +229,115 @@ class _SprintScreenState extends State<SprintScreen>
     super.dispose();
   }
 
+  // ── 메인 빌드: 풀스크린 네비게이션 + 오버레이 ──────────────
   Widget _buildSprintBody(BuildContext context) {
-    return Column(
-      children: [
-        const SprintHudBar(),
-        if (widget.selectedRoute != null)
-          Container(
-            width: double.infinity,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            color: AppColors.panel,
-            child: Text(
-              '${widget.selectedRoute!.name}  ·  ${widget.selectedRoute!.distanceDisplay}',
-              style: GoogleFonts.rajdhani(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppColors.red,
+    return Consumer<DrivingContextService>(
+      builder: (_, ctx, __) => Stack(
+        children: [
+          // ── 지도 (독립 모드만 — 오버레이 모드는 CruiseScreen 지도 사용) ──
+          if (widget.onEnd == null)
+            Positioned.fill(
+              child: MapWidget(
+                isSprintMode: true,
+                navPolyline: _navPolyline,
+                routePolyline: widget.selectedRoute?.nodes,
               ),
             ),
+
+          // ── 드라이브 모드 테두리 글로우 ──
+          if (ctx.mode != DriveMode.cruise)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: ctx.mode.color.withValues(alpha: 0.6),
+                      width: 3,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // ── 상단: 턴바이턴 배너 ──
+          if (_tbtService != null && _tbtService!.upcomingStep != null)
+            Positioned(
+              top: 0, left: 0, right: 0,
+              child: _NavBanner(
+                step: _tbtService!.upcomingStep!,
+                distanceM: _tbtDistM,
+                muted: _tbtService!.muted,
+                onToggleMute: _tbtService!.toggleMute,
+              ),
+            ),
+
+          // ── 상단 우측: 드라이브 모드 배지 ──
+          if (ctx.mode != DriveMode.cruise)
+            Positioned(
+              top: (_tbtService?.upcomingStep != null) ? 76 : 16,
+              right: 14,
+              child: _ModeBadge(mode: ctx.mode),
+            ),
+
+          // ── 상단 좌측: 경과/거리 pill ──
+          Positioned(
+            top: (_tbtService?.upcomingStep != null) ? 76 : 16,
+            left: 14,
+            child: const _LiveStatHUD(),
           ),
-        // OBD 데이터 스트립
-        const _OBDStrip(),
-        Expanded(
-          child: Consumer<DrivingContextService>(
-            builder: (_, ctx, __) => Stack(
-              children: [
-                // ── 오버레이 모드: 지도는 CruiseScreen에서 제공 ──────────────
-                // 독립 모드: 자체 MapWidget 사용
-                if (widget.onEnd == null) ...[
-                  Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: ctx.mode != DriveMode.cruise
-                            ? ctx.mode.color.withValues(alpha: 0.55)
-                            : Colors.transparent,
-                        width: 2.5,
-                      ),
-                    ),
-                    child: MapWidget(
-                      isSprintMode: true,
-                      navPolyline: _navPolyline,
-                      routePolyline: widget.selectedRoute?.nodes,
-                    ),
-                  ),
-                ],
-                // 오버레이 모드 드라이빙 테두리 (지도 없이 테두리만)
-                if (widget.onEnd != null && ctx.mode != DriveMode.cruise)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: ctx.mode.color.withValues(alpha: 0.55),
-                            width: 2.5,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                      // 턴바이턴 안내 배너
-                      if (_tbtService != null && _tbtService!.upcomingStep != null)
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          child: _NavBanner(
-                            step: _tbtService!.upcomingStep!,
-                            distanceM: _tbtDistM,
-                            muted: _tbtService!.muted,
-                            onToggleMute: _tbtService!.toggleMute,
-                          ),
-                        ),
-                      // 경과/거리 HUD (좌상단)
-                      const Positioned(
-                        top: 10,
-                        left: 12,
-                        child: _LiveStatHUD(),
-                      ),
-                      // 속도 크게 표시 (왼쪽 하단)
-                      const Positioned(
-                        bottom: 14,
-                        left: 12,
-                        child: _SpeedDisplay(),
-                      ),
-                      // G포스 미니 위젯 (우하단)
-                      const Positioned(
-                        bottom: 14,
-                        right: 12,
-                        child: _MiniGForce(),
-                      ),
-                      // 모드 뱃지 (cruise 아닐 때만)
-                      if (ctx.mode != DriveMode.cruise)
-                        Positioned(
-                          top: 10,
-                          right: 12,
-                          child: _ModeBadge(mode: ctx.mode),
-                        ),
-                      // 루트 진입 메시지
-                      if (_routeStatusMsg != null)
-                        Positioned(
-                          bottom: 20,
-                          left: 0,
-                          right: 0,
-                          child: Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: AppColors.panel.withValues(alpha: 0.92),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: AppColors.red.withValues(alpha: 0.7)),
-                              ),
-                              child: Text(
-                                '🏁  $_routeStatusMsg',
-                                style: GoogleFonts.rajdhani(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.red,
-                                  letterSpacing: 2,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      // 루트 이탈 경고
-                      if (_isOffRoute)
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.withValues(alpha: 0.95),
-                              border: Border(
-                                  bottom: BorderSide(
-                                      color: Colors.orange.shade700,
-                                      width: 1.5)),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.warning_amber_rounded,
-                                    color: Colors.white, size: 18),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    '⚠️  루트를 벗어났어요 — 루트로 돌아가세요',
-                                    style: GoogleFonts.rajdhani(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.white,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      // nav 중일 때 안내 메시지 (루트 아직 미진입)
-                      if (!_onRoute && _navPolyline != null && widget.selectedRoute != null)
-                        Positioned(
-                          bottom: 20,
-                          left: 0,
-                          right: 0,
-                          child: Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: AppColors.panel.withValues(alpha: 0.88),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.blue.withValues(alpha: 0.5)),
-                              ),
-                              child: Text(
-                                '🔵  ${widget.selectedRoute!.name} 으로 이동 중',
-                                style: GoogleFonts.rajdhani(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.lightBlue,
-                                  letterSpacing: 1,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+
+          // ── 하단 우측: G-Force 원형 미터 ──
+          Positioned(
+            bottom: 80, // 바텀바 위
+            right: 14,
+            child: _GForceMeter(trail: _gTrail),
+          ),
+
+          // ── 루트 이동 중 안내 ──
+          if (!_onRoute && _navPolyline != null && widget.selectedRoute != null)
+            Positioned(
+              bottom: 88,
+              left: 0, right: 0,
+              child: Center(
+                child: _StatusPill(
+                  text: '🔵  ${widget.selectedRoute!.name} 으로 이동 중',
+                  color: Colors.lightBlueAccent,
                 ),
               ),
-              Consumer<DrivingContextService>(
-                builder: (_, ctx, __) => _SprintBottomBar(
-                  onEnd: _endRun,
-                  modeColor: ctx.mode.color,
-                  muted: _isMuted,
-                  onToggleMute: _toggleMute,
+            ),
+
+          // ── 루트 진입 / 복귀 메시지 ──
+          if (_routeStatusMsg != null)
+            Positioned(
+              bottom: 88,
+              left: 0, right: 0,
+              child: Center(
+                child: _StatusPill(
+                  text: '🏁  $_routeStatusMsg',
+                  color: AppColors.red,
                 ),
               ),
-            ],
+            ),
+
+          // ── 루트 이탈 경고 배너 ──
+          if (_isOffRoute)
+            const Positioned(
+              top: 0, left: 0, right: 0,
+              child: _OffRouteBanner(),
+            ),
+
+          // ── 하단 바: 음소거 + 마이크 + 런 종료 ──
+          Positioned(
+            bottom: 0, left: 0, right: 0,
+            child: _SprintBottomBar(
+              onEnd: _endRun,
+              modeColor: ctx.mode.color,
+              muted: _isMuted,
+              onToggleMute: _toggleMute,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -452,7 +346,9 @@ class _SprintScreenState extends State<SprintScreen>
     return AnimatedBuilder(
       animation: _flashAnim,
       builder: (_, __) {
-        if (_flashCtrl.status == AnimationStatus.dismissed) return const SizedBox.shrink();
+        if (_flashCtrl.status == AnimationStatus.dismissed) {
+          return const SizedBox.shrink();
+        }
         final opacity = (1 - _flashAnim.value) * 0.45;
         return Positioned.fill(
           child: IgnorePointer(
@@ -478,19 +374,17 @@ class _SprintScreenState extends State<SprintScreen>
   Widget build(BuildContext context) {
     final body = Stack(
       children: [
-        SafeArea(child: _buildSprintBody(context)),
+        _buildSprintBody(context),
         _buildFlashOverlay(),
       ],
     );
 
-    // ── 오버레이 모드: CruiseScreen이 부모 ──
     if (widget.onEnd != null) {
       return PopScope(
         canPop: false,
         child: Material(color: Colors.transparent, child: body),
       );
     }
-    // ── 독립 화면 모드 ──
     return PopScope(
       canPop: false,
       child: Scaffold(backgroundColor: AppColors.bg, body: body),
@@ -498,8 +392,305 @@ class _SprintScreenState extends State<SprintScreen>
   }
 }
 
-// ── 라이브 스탯 HUD ──────────────────────────────────────────
+// ── G-Force 원형 미터 ─────────────────────────────────────────
+class _GForceMeter extends StatelessWidget {
+  final List<Offset> trail;
+  const _GForceMeter({required this.trail});
 
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<ImuService>(
+      builder: (_, imu, __) {
+        final lG = imu.lateralG.clamp(-1.5, 1.5);
+        final nG = imu.longitudinalG.clamp(-1.5, 1.5);
+        final total = math.sqrt(lG * lG + nG * nG);
+
+        final dotColor = _gColor(total);
+
+        return Container(
+          width: 164,
+          height: 186,
+          decoration: BoxDecoration(
+            color: AppColors.bg.withValues(alpha: 0.88),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: dotColor.withValues(alpha: 0.35),
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: dotColor.withValues(alpha: 0.15),
+                blurRadius: 12,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              // 원형 + 자동차 + 도트
+              SizedBox(
+                width: 144,
+                height: 144,
+                child: CustomPaint(
+                  painter: _GForcePainter(
+                    lateralG: lG,
+                    longitudinalG: nG,
+                    trail: trail,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              // LAT / LON 수치
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    _GLabel(label: 'LAT', value: lG, axis: 'L↔R'),
+                    _GLabel(label: 'LON', value: nG, axis: '↑↓', alignRight: true),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 6),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  static Color _gColor(double total) {
+    if (total > 0.6) return AppColors.red;
+    if (total > 0.3) return Colors.orange;
+    return Colors.lightBlueAccent;
+  }
+}
+
+class _GLabel extends StatelessWidget {
+  final String label;
+  final double value;
+  final String axis;
+  final bool alignRight;
+  const _GLabel({
+    required this.label,
+    required this.value,
+    required this.axis,
+    this.alignRight = false,
+  });
+
+  Color get _color {
+    final abs = value.abs();
+    if (abs > 0.6) return AppColors.red;
+    if (abs > 0.3) return Colors.orange;
+    return Colors.lightBlueAccent;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment:
+          alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.rajdhani(
+            fontSize: 8,
+            color: AppColors.gray,
+            letterSpacing: 1.5,
+          ),
+        ),
+        Text(
+          '${value >= 0 ? '+' : ''}${value.toStringAsFixed(2)}G',
+          style: GoogleFonts.orbitron(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: _color,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── G-Force CustomPainter ─────────────────────────────────────
+class _GForcePainter extends CustomPainter {
+  final double lateralG;
+  final double longitudinalG;
+  final List<Offset> trail;
+
+  const _GForcePainter({
+    required this.lateralG,
+    required this.longitudinalG,
+    required this.trail,
+  });
+
+  static const double _maxG = 1.5;
+
+  Color _dotColor(double total) {
+    if (total > 0.6) return AppColors.red;
+    if (total > 0.3) return Colors.orange;
+    return Colors.lightBlueAccent;
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final r = cx - 4;
+
+    // ── 배경 원 ──
+    canvas.drawCircle(
+      Offset(cx, cy), r,
+      Paint()
+        ..color = const Color(0xFF111111)
+        ..style = PaintingStyle.fill,
+    );
+
+    // ── 동심원 링 (0.3G, 0.6G, 1.0G) ──
+    _drawRing(canvas, cx, cy, r * (0.3 / _maxG), Colors.lightBlueAccent.withValues(alpha: 0.3));
+    _drawRing(canvas, cx, cy, r * (0.6 / _maxG), Colors.orange.withValues(alpha: 0.35));
+    _drawRing(canvas, cx, cy, r * (1.0 / _maxG), AppColors.red.withValues(alpha: 0.4));
+
+    // ── 링 라벨 ──
+    _drawRingLabel(canvas, cx, cy, r * (0.3 / _maxG), '0.3G', Colors.lightBlueAccent.withValues(alpha: 0.55));
+    _drawRingLabel(canvas, cx, cy, r * (0.6 / _maxG), '0.6G', Colors.orange.withValues(alpha: 0.6));
+    _drawRingLabel(canvas, cx, cy, r * (1.0 / _maxG), '1.0G', AppColors.red.withValues(alpha: 0.65));
+
+    // ── 십자선 ──
+    final crossPaint = Paint()
+      ..color = Colors.white12
+      ..strokeWidth = 0.8;
+    canvas.drawLine(Offset(cx - r, cy), Offset(cx + r, cy), crossPaint);
+    canvas.drawLine(Offset(cx, cy - r), Offset(cx, cy + r), crossPaint);
+
+    // ── 자동차 실루엣 (중앙) ──
+    _drawCar(canvas, cx, cy);
+
+    // ── 궤적 (trail) ──
+    for (int i = 0; i < trail.length; i++) {
+      final t = trail[i];
+      final dx = t.dx / _maxG * r;
+      final dy = -t.dy / _maxG * r;
+      final alpha = (i / trail.length) * 0.5;
+      final total = math.sqrt(t.dx * t.dx + t.dy * t.dy);
+      canvas.drawCircle(
+        Offset(cx + dx, cy + dy),
+        2.5,
+        Paint()..color = _dotColor(total).withValues(alpha: alpha),
+      );
+    }
+
+    // ── 현재 G 도트 ──
+    final dx = lateralG / _maxG * r;
+    final dy = -longitudinalG / _maxG * r;
+    final total = math.sqrt(lateralG * lateralG + longitudinalG * longitudinalG);
+    final dotColor = _dotColor(total);
+
+    // 글로우
+    canvas.drawCircle(
+      Offset(cx + dx, cy + dy), 9,
+      Paint()..color = dotColor.withValues(alpha: 0.25),
+    );
+    // 도트
+    canvas.drawCircle(
+      Offset(cx + dx, cy + dy), 5.5,
+      Paint()..color = dotColor,
+    );
+    // 하이라이트
+    canvas.drawCircle(
+      Offset(cx + dx - 1.5, cy + dy - 1.5), 1.8,
+      Paint()..color = Colors.white.withValues(alpha: 0.7),
+    );
+  }
+
+  void _drawRing(Canvas canvas, double cx, double cy, double r, Color color) {
+    canvas.drawCircle(
+      Offset(cx, cy), r,
+      Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  void _drawRingLabel(Canvas canvas, double cx, double cy, double r,
+      String label, Color color) {
+    final tp = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: TextStyle(
+          color: color,
+          fontSize: 7,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset(cx + r + 2, cy - tp.height / 2));
+  }
+
+  void _drawCar(Canvas canvas, double cx, double cy) {
+    final paint = Paint()..color = Colors.white.withValues(alpha: 0.18);
+    final strokePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.28)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+
+    // 차체
+    final body = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(cx, cy), width: 12, height: 22),
+      const Radius.circular(3),
+    );
+    canvas.drawRRect(body, paint);
+    canvas.drawRRect(body, strokePaint);
+
+    // 지붕 (캐빈)
+    final cabin = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(cx, cy - 2), width: 9, height: 12),
+      const Radius.circular(2),
+    );
+    canvas.drawRRect(cabin, paint);
+    canvas.drawRRect(cabin, strokePaint);
+
+    // 바퀴 4개
+    const wheelW = 4.0;
+    const wheelH = 5.0;
+    for (final pos in [
+      Offset(cx - 8, cy - 8),
+      Offset(cx + 5, cy - 8),
+      Offset(cx - 8, cy + 5),
+      Offset(cx + 5, cy + 5),
+    ]) {
+      final wheel = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: pos, width: wheelW, height: wheelH),
+        const Radius.circular(1),
+      );
+      canvas.drawRRect(wheel, Paint()..color = Colors.white.withValues(alpha: 0.35));
+    }
+
+    // 전면 표시 (위쪽 = 전진 방향)
+    canvas.drawLine(
+      Offset(cx - 3, cy - 10),
+      Offset(cx + 3, cy - 10),
+      Paint()
+        ..color = Colors.lightBlueAccent.withValues(alpha: 0.6)
+        ..strokeWidth = 1.5
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_GForcePainter old) =>
+      old.lateralG != lateralG ||
+      old.longitudinalG != longitudinalG ||
+      old.trail.length != trail.length;
+}
+
+// ── 라이브 스탯 HUD ──────────────────────────────────────────
 class _LiveStatHUD extends StatefulWidget {
   const _LiveStatHUD();
 
@@ -524,7 +715,7 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
     super.dispose();
   }
 
-  String _formatDuration(Duration d) {
+  String _fmt(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
@@ -534,125 +725,155 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
   @override
   Widget build(BuildContext context) {
     final session = context.read<RunSessionService>();
-    final duration = session.currentDuration;
-    final distKm = session.currentDistance;
+    final dur = session.currentDuration;
+    final dist = session.currentDistance;
+    final distStr = dist >= 1.0
+        ? '${dist.toStringAsFixed(2)} km'
+        : '${(dist * 1000).toStringAsFixed(0)} m';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.red.withValues(alpha: 0.25)),
+        color: AppColors.bg.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white12),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 8),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _HudStat(
-            label: '경과',
-            value: _formatDuration(duration),
-            icon: Icons.timer_outlined,
-          ),
-          Container(
-            width: 1,
-            height: 28,
-            margin: const EdgeInsets.symmetric(horizontal: 10),
-            color: Colors.white12,
-          ),
-          _HudStat(
-            label: '거리',
-            value: distKm >= 1.0
-                ? '${distKm.toStringAsFixed(2)} km'
-                : '${(distKm * 1000).toStringAsFixed(0)} m',
-            icon: Icons.straighten,
-          ),
+          _Pill(icon: Icons.timer_outlined, value: _fmt(dur)),
+          const SizedBox(width: 2),
+          Container(width: 1, height: 22, color: Colors.white12, margin: const EdgeInsets.symmetric(horizontal: 8)),
+          _Pill(icon: Icons.straighten, value: distStr),
         ],
       ),
     );
   }
 }
 
-class _HudStat extends StatelessWidget {
-  final String label;
-  final String value;
+class _Pill extends StatelessWidget {
   final IconData icon;
-  const _HudStat({required this.label, required this.value, required this.icon});
+  final String value;
+  const _Pill({required this.icon, required this.value});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 9, color: AppColors.gray),
-            const SizedBox(width: 3),
-            Text(
-              label,
-              style: GoogleFonts.rajdhani(fontSize: 9, color: AppColors.gray, letterSpacing: 1),
-            ),
-          ],
-        ),
-        const SizedBox(height: 1),
+        Icon(icon, size: 10, color: AppColors.gray),
+        const SizedBox(width: 4),
         Text(
           value,
-          style: GoogleFonts.orbitron(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
+          style: GoogleFonts.orbitron(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
         ),
       ],
     );
   }
 }
 
-// ── 속도 표시 (대형, 지도 위 오버레이) ──────────────────────
-class _SpeedDisplay extends StatelessWidget {
-  const _SpeedDisplay();
+// ── 상태 메시지 pill ─────────────────────────────────────────
+class _StatusPill extends StatelessWidget {
+  final String text;
+  final Color color;
+  const _StatusPill({required this.text, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    final speed = context.select<LocationService, double>((l) => l.speedKmh);
-    final speedInt = speed.round();
-    // 속도 색상: 느림=흰색, 보통=초록, 빠름=주황/빨강
-    final Color speedColor = speedInt > 100
-        ? AppColors.red
-        : speedInt > 60
-            ? Colors.orange
-            : Colors.white;
-
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
       decoration: BoxDecoration(
-        color: AppColors.bg.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: speedColor.withValues(alpha: 0.35),
-          width: 1.5,
-        ),
+        color: AppColors.panel.withValues(alpha: 0.93),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.6)),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
-            blurRadius: 10,
+          BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 10),
+        ],
+      ),
+      child: Text(
+        text,
+        style: GoogleFonts.rajdhani(
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          color: color,
+          letterSpacing: 1.5,
+        ),
+      ),
+    );
+  }
+}
+
+// ── 루트 이탈 경고 배너 ───────────────────────────────────────
+class _OffRouteBanner extends StatelessWidget {
+  const _OffRouteBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.95),
+        border: Border(
+          bottom: BorderSide(color: Colors.orange.shade700, width: 1.5),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '⚠️  루트를 벗어났어요 — 루트로 돌아가세요',
+              style: GoogleFonts.rajdhani(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                letterSpacing: 0.5,
+              ),
+            ),
           ),
         ],
       ),
-      child: Column(
+    );
+  }
+}
+
+// ── 드라이빙 모드 뱃지 ───────────────────────────────────────
+class _ModeBadge extends StatelessWidget {
+  final DriveMode mode;
+  const _ModeBadge({required this.mode});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 400),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.bg.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: mode.color.withValues(alpha: 0.7), width: 1),
+        boxShadow: [
+          BoxShadow(color: mode.color.withValues(alpha: 0.2), blurRadius: 8),
+        ],
+      ),
+      child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          Text(mode.emoji, style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 5),
           Text(
-            '$speedInt',
-            style: GoogleFonts.orbitron(
-              fontSize: 46,
-              fontWeight: FontWeight.w900,
-              color: speedColor,
-              height: 1.0,
-            ),
-          ),
-          Text(
-            'km/h',
+            mode.label,
             style: GoogleFonts.rajdhani(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: AppColors.gray,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: mode.color,
               letterSpacing: 2,
             ),
           ),
@@ -662,210 +883,7 @@ class _SpeedDisplay extends StatelessWidget {
   }
 }
 
-// ── OBD 스트립 ───────────────────────────────────────────────
-
-class _OBDStrip extends StatelessWidget {
-  const _OBDStrip();
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<OBDService>(
-      builder: (context, obd, _) {
-        final state = obd.state;
-        final data = obd.data;
-
-        // 연결 안 됨: 작은 연결 버튼만 표시
-        if (state == OBDState.disconnected || state == OBDState.error) {
-          return GestureDetector(
-            onTap: () => OBDScreen.show(context),
-            child: Container(
-              width: double.infinity,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              color: AppColors.bg,
-              child: Row(
-                children: [
-                  Icon(Icons.bluetooth_searching,
-                      size: 13,
-                      color: state == OBDState.error
-                          ? AppColors.red
-                          : Colors.white24),
-                  const SizedBox(width: 6),
-                  Text(
-                    state == OBDState.error
-                        ? (obd.errorMsg ?? 'OBD 연결 실패 — 탭해서 재시도')
-                        : 'OBD 연결하기 — 탭해서 연결',
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 11,
-                      color: state == OBDState.error
-                          ? AppColors.red
-                          : Colors.white24,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }
-
-        // 스캔/연결 중
-        if (state == OBDState.scanning || state == OBDState.connecting) {
-          return Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-            color: AppColors.bg,
-            child: Row(
-              children: [
-                const SizedBox(
-                  width: 10,
-                  height: 10,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 1.5, color: AppColors.red),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  state == OBDState.scanning ? 'OBD 기기 탐색 중...' : 'OBD 연결 중...',
-                  style: GoogleFonts.rajdhani(
-                      fontSize: 11, color: AppColors.gray),
-                ),
-              ],
-            ),
-          );
-        }
-
-        // 연결됨 — 데이터 표시 (탭 → OBD 전체 화면)
-        return GestureDetector(
-          onTap: () => OBDScreen.show(context),
-          child: Container(
-            color: AppColors.bg,
-            child: Column(
-              children: [
-                _OBDRow(data: data),
-                Container(height: 1, color: AppColors.red.withValues(alpha: 0.12)),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _OBDRow extends StatelessWidget {
-  final OBDData? data;
-  const _OBDRow({required this.data});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Row(
-        children: [
-          // RPM
-          _OBDCell(
-            label: 'RPM',
-            value: data?.rpmDisplay ?? '—',
-            highlight: _rpmColor(data?.rpm),
-          ),
-          _divider(),
-          // 연료
-          _OBDCell(
-            label: '연료',
-            value: data?.fuelDisplay ?? '—',
-            highlight: _fuelColor(data?.fuelLevelPct),
-          ),
-          _divider(),
-          // 스로틀
-          _OBDCell(
-            label: '스로틀',
-            value: data?.throttleDisplay ?? '—',
-          ),
-          _divider(),
-          // 냉각수
-          _OBDCell(
-            label: '냉각수',
-            value: data?.coolantDisplay ?? '—',
-            highlight: _coolantColor(data?.coolantTempC),
-          ),
-          const Spacer(),
-          // 연결 상태 점
-          Container(
-            width: 6,
-            height: 6,
-            decoration: const BoxDecoration(
-              color: Color(0xFF00FF88),
-              shape: BoxShape.circle,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _divider() => Container(
-        width: 1,
-        height: 20,
-        margin: const EdgeInsets.symmetric(horizontal: 10),
-        color: Colors.white12,
-      );
-
-  Color? _rpmColor(int? rpm) {
-    if (rpm == null) return null;
-    if (rpm > 5000) return AppColors.red;
-    if (rpm > 3500) return Colors.orange;
-    return null;
-  }
-
-  Color? _fuelColor(double? pct) {
-    if (pct == null) return null;
-    if (pct < 15) return AppColors.red;
-    if (pct < 30) return Colors.orange;
-    return null;
-  }
-
-  Color? _coolantColor(int? temp) {
-    if (temp == null) return null;
-    if (temp > 105) return AppColors.red;
-    if (temp > 95) return Colors.orange;
-    return null;
-  }
-}
-
-class _OBDCell extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color? highlight;
-  const _OBDCell({required this.label, required this.value, this.highlight});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          label,
-          style: GoogleFonts.rajdhani(
-            fontSize: 9,
-            color: AppColors.gray,
-            letterSpacing: 1,
-          ),
-        ),
-        Text(
-          value,
-          style: GoogleFonts.orbitron(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: highlight ?? Colors.white,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 // ── 바텀 바 ──────────────────────────────────────────────────
-
 class _SprintBottomBar extends StatelessWidget {
   final VoidCallback onEnd;
   final Color modeColor;
@@ -881,50 +899,31 @@ class _SprintBottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 64,
+      height: 68,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.96),
+        color: AppColors.bg.withValues(alpha: 0.93),
         border: Border(
-          top: BorderSide(color: modeColor.withValues(alpha: 0.55), width: 1.5),
+          top: BorderSide(color: modeColor.withValues(alpha: 0.5), width: 1.5),
         ),
       ),
       child: Row(
         children: [
-          // 음소거 토글 버튼
-          GestureDetector(
+          // 음소거
+          _BarBtn(
+            icon: muted ? Icons.volume_off : Icons.volume_up,
+            color: muted ? AppColors.gray : Colors.lightBlueAccent,
             onTap: onToggleMute,
-            child: Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: muted
-                    ? AppColors.surface
-                    : Colors.lightBlueAccent.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: muted
-                      ? AppColors.divider
-                      : Colors.lightBlueAccent.withValues(alpha: 0.5),
-                ),
-              ),
-              child: Icon(
-                muted ? Icons.volume_off : Icons.volume_up,
-                size: 20,
-                color: muted ? AppColors.gray : Colors.lightBlueAccent,
-              ),
-            ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           const MicButton(),
-          const SizedBox(width: 12),
-          Expanded(
-            child: RedGlowButton(
-              label: '🏁 런 종료',
-              filled: true,
-              height: 48,
-              onTap: onEnd,
-            ),
+          const Spacer(),
+          // 런 종료 버튼
+          RedGlowButton(
+            label: '🏁 런 종료',
+            filled: true,
+            height: 48,
+            onTap: onEnd,
           ),
         ],
       ),
@@ -932,123 +931,28 @@ class _SprintBottomBar extends StatelessWidget {
   }
 }
 
-// ── 드라이빙 모드 뱃지 ───────────────────────────────────────
-
-class _ModeBadge extends StatelessWidget {
-  final DriveMode mode;
-  const _ModeBadge({required this.mode});
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 400),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: mode.color.withValues(alpha: 0.7), width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(mode.emoji, style: const TextStyle(fontSize: 11)),
-          const SizedBox(width: 5),
-          Text(
-            mode.label,
-            style: GoogleFonts.rajdhani(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: mode.color,
-              letterSpacing: 2,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── 미니 G포스 원형 위젯 ─────────────────────────────────────
-class _MiniGForce extends StatelessWidget {
-  const _MiniGForce();
+class _BarBtn extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+  const _BarBtn({required this.icon, required this.color, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ImuService>(
-      builder: (_, imu, __) {
-        final lG = imu.lateralG.clamp(-1.5, 1.5);
-        final nG = imu.longitudinalG.clamp(-1.5, 1.5);
-        final total = math.sqrt(lG * lG + nG * nG);
-        final color = total > 0.8
-            ? AppColors.red
-            : total > 0.4
-                ? Colors.orange
-                : Colors.white70;
-        return Container(
-          width: 76,
-          height: 76,
-          decoration: BoxDecoration(
-            color: AppColors.panel.withValues(alpha: 0.9),
-            shape: BoxShape.circle,
-            border: Border.all(color: AppColors.red.withValues(alpha: 0.3), width: 1),
-          ),
-          child: CustomPaint(
-            painter: _MiniGForcePainter(lateralG: lG, longitudinalG: nG),
-            child: Center(
-              child: Text(
-                total.toStringAsFixed(2),
-                style: GoogleFonts.orbitron(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
-              ),
-            ),
-          ),
-        );
-      },
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 46,
+        height: 46,
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
+        ),
+        child: Icon(icon, size: 20, color: color),
+      ),
     );
   }
-}
-
-class _MiniGForcePainter extends CustomPainter {
-  final double lateralG;
-  final double longitudinalG;
-  const _MiniGForcePainter({required this.lateralG, required this.longitudinalG});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    final r = cx - 6;
-
-    // 외곽 원
-    canvas.drawCircle(Offset(cx, cy), r, Paint()
-      ..color = Colors.white12
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1);
-
-    // 십자선
-    final cross = Paint()..color = Colors.white10..strokeWidth = 0.8;
-    canvas.drawLine(Offset(cx - r, cy), Offset(cx + r, cy), cross);
-    canvas.drawLine(Offset(cx, cy - r), Offset(cx, cy + r), cross);
-
-    // G 볼
-    const maxG = 1.5;
-    final dx = lateralG / maxG * r;
-    final dy = -longitudinalG / maxG * r; // 가속 = 위
-    final total = math.sqrt(lateralG * lateralG + longitudinalG * longitudinalG);
-    final dotColor = total > 0.8
-        ? AppColors.red
-        : total > 0.4
-            ? Colors.orange
-            : Colors.white70;
-    canvas.drawCircle(Offset(cx + dx, cy + dy), 5, Paint()..color = dotColor);
-  }
-
-  @override
-  bool shouldRepaint(_MiniGForcePainter old) =>
-      old.lateralG != lateralG || old.longitudinalG != longitudinalG;
 }
 
 // ── 턴바이턴 안내 배너 ────────────────────────────────────────
@@ -1072,14 +976,16 @@ class _NavBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.95),
-        border: Border(bottom: BorderSide(color: Colors.blue.withValues(alpha: 0.4))),
+        color: AppColors.bg.withValues(alpha: 0.94),
+        border: Border(
+          bottom: BorderSide(color: Colors.lightBlueAccent.withValues(alpha: 0.4)),
+        ),
       ),
       child: Row(
         children: [
-          Icon(step.icon, color: Colors.lightBlueAccent, size: 32),
+          Icon(step.icon, color: Colors.lightBlueAccent, size: 34),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -1089,7 +995,7 @@ class _NavBanner extends StatelessWidget {
                 Text(
                   step.koreanInstruction,
                   style: GoogleFonts.rajdhani(
-                    fontSize: 16,
+                    fontSize: 17,
                     fontWeight: FontWeight.w700,
                     color: Colors.white,
                   ),
@@ -1108,12 +1014,12 @@ class _NavBanner extends StatelessWidget {
           Text(
             _distText,
             style: GoogleFonts.orbitron(
-              fontSize: 14,
+              fontSize: 16,
               fontWeight: FontWeight.w700,
               color: Colors.lightBlueAccent,
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 10),
           GestureDetector(
             onTap: onToggleMute,
             child: Icon(
@@ -1140,9 +1046,7 @@ class _RunCardRoute extends PageRouteBuilder {
                 position: Tween<Offset>(
                   begin: const Offset(0, 0.3),
                   end: Offset.zero,
-                ).animate(
-                  CurvedAnimation(parent: animation, curve: Curves.easeOut),
-                ),
+                ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
                 child: child,
               ),
             );
