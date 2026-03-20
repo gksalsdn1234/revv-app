@@ -14,6 +14,7 @@ class LocationService extends ChangeNotifier {
   bool isTracking = false;
 
   StreamSubscription<Position>? _subscription;
+  bool _notifyPending = false;
 
   Future<void> requestPermission() async {
     final status = await Permission.locationWhenInUse.request();
@@ -35,10 +36,19 @@ class LocationService extends ChangeNotifier {
       currentPosition = position;
       speedKmh = (position.speed * 3.6).clamp(0, 300);
       if (position.heading >= 0) heading = position.heading;
-      notifyListeners();
+      _scheduleNotify();
     }, onError: (_) {
       // GPS 신호 없을 때 마지막 위치 유지, 속도 0
       speedKmh = 0;
+      _scheduleNotify();
+    });
+  }
+
+  void _scheduleNotify() {
+    if (_notifyPending) return;
+    _notifyPending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _notifyPending = false;
       notifyListeners();
     });
   }
