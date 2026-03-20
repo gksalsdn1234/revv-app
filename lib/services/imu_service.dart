@@ -42,6 +42,7 @@ class ImuService extends ChangeNotifier {
 
   StreamSubscription? _accelSub;
   StreamSubscription? _gyroSub;
+  bool _notifyPending = false; // 프레임당 1회만 notify (레이아웃 assertion 방지)
 
   // ── 공개 G값 ──────────────────────────────────────────────
 
@@ -104,7 +105,16 @@ class ImuService extends ChangeNotifier {
       final nG = (_longitudinal() / _g).abs();
       if (lG > _maxLateralG) _maxLateralG = lG;
       if (nG > _maxLonG) _maxLonG = nG;
-      notifyListeners();
+      // addPostFrameCallback으로 감싸야 layout 패스 중 notifyListeners() 호출 방지
+      // → '!_debugDoingThisLayout' assertion + RenderBox not laid out 해결
+      // 프레임당 1회만 등록 (50Hz 센서가 한 프레임 안에 여러 번 올 수 있음)
+      if (!_notifyPending) {
+        _notifyPending = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _notifyPending = false;
+          notifyListeners();
+        });
+      }
     });
 
     _gyroSub = gyroscopeEventStream(
