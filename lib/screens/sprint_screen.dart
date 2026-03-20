@@ -55,8 +55,9 @@ class _SprintScreenState extends State<SprintScreen>
   double _lastFlashG = 0;
   static const double _flashThreshold = 0.65;
 
-  // G-Force (trail — 호환용)
-  final List<Offset> _gTrail = [];
+  // G-Force 표시값 — Consumer 대신 State로 관리 (layout assertion 방지)
+  double _displayLateralG = 0;
+  double _displayLonG = 0;
 
   // 루트 진행률 (0.0 ~ 1.0)
   double _routeProgressPct = 0.0;
@@ -198,6 +199,16 @@ class _SprintScreenState extends State<SprintScreen>
       _triggerGFlash();
     }
     _lastFlashG = g;
+
+    // G 표시값 업데이트 — Consumer 대신 setState로 관리
+    // (addPostFrameCallback 안에서 호출되므로 setState 안전)
+    if ((lG - _displayLateralG).abs() > 0.005 ||
+        (nG - _displayLonG).abs() > 0.005) {
+      setState(() {
+        _displayLateralG = lG;
+        _displayLonG = nG;
+      });
+    }
   }
 
   void _endRun() {
@@ -292,7 +303,10 @@ class _SprintScreenState extends State<SprintScreen>
           Positioned(
             bottom: 80, // 바텀바 위
             right: 14,
-            child: _GForceMeter(trail: _gTrail),
+            child: _GForceMeter(
+              lateralG: _displayLateralG,
+              lonG: _displayLonG,
+            ),
           ),
 
           // ── 루트 이동 중 안내 ──
@@ -427,9 +441,12 @@ class _SprintScreenState extends State<SprintScreen>
 // 자동차 실루엣 중앙 고정, G force 방향으로 외부 글로우가 쏠림
 // lateralG > 0 = 오른쪽 코너링 → 차 오른쪽 빛남
 // longitudinalG > 0 = 가속 → 차 뒤쪽 빛남  /  < 0 = 제동 → 앞쪽 빛남
+// Consumer<ImuService> 완전 제거 — 부모 State에서 파라미터로 전달
+// (Consumer 50Hz 리빌드가 layout assertion 유발했던 문제 해결)
 class _GForceMeter extends StatelessWidget {
-  final List<Offset> trail; // unused but kept for API compatibility
-  const _GForceMeter({required this.trail});
+  final double lateralG;
+  final double lonG;
+  const _GForceMeter({required this.lateralG, required this.lonG});
 
   static Color _gColor(double total) {
     if (total > 0.6) return AppColors.red;
@@ -439,10 +456,8 @@ class _GForceMeter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ImuService>(
-      builder: (_, imu, __) {
-        final lG = imu.lateralG.clamp(-1.5, 1.5);   // 좌(-) 우(+)
-        final nG = imu.longitudinalG.clamp(-1.5, 1.5); // 제동(-) 가속(+)
+        final lG = lateralG.clamp(-1.5, 1.5);   // 좌(-) 우(+)
+        final nG = lonG.clamp(-1.5, 1.5); // 제동(-) 가속(+)
         final total = math.sqrt(lG * lG + nG * nG);
         final glowColor = _gColor(total);
         final glowAlpha = (total / 1.5).clamp(0.0, 1.0);
@@ -514,8 +529,6 @@ class _GForceMeter extends StatelessWidget {
             ],
           ),
         );
-      },
-    );
   }
 }
 
