@@ -59,6 +59,10 @@ class _SprintScreenState extends State<SprintScreen>
   double _displayLateralG = 0;
   double _displayLonG = 0;
 
+  // DriveMode — Consumer<DrivingContextService> 대신 State로 관리
+  DriveMode _driveMode = DriveMode.cruise;
+  DrivingContextService? _drivingCtxService;
+
   // 루트 진행률 (0.0 ~ 1.0)
   double _routeProgressPct = 0.0;
 
@@ -96,6 +100,8 @@ class _SprintScreenState extends State<SprintScreen>
 
       _locationService!.addListener(_onLocation);
       context.read<ImuService>().addListener(_onImu);
+      _drivingCtxService = context.read<DrivingContextService>();
+      _drivingCtxService!.addListener(_onDriveMode);
       _isMuted = context.read<SettingsService>().ttsMuted;
 
       if (widget.selectedRoute != null) _fetchNavRoute();
@@ -181,6 +187,12 @@ class _SprintScreenState extends State<SprintScreen>
     }
   }
 
+  void _onDriveMode() {
+    if (!mounted) return;
+    final mode = _drivingCtxService?.mode ?? DriveMode.cruise;
+    if (mode != _driveMode) setState(() => _driveMode = mode);
+  }
+
   void _toggleMute() {
     setState(() => _isMuted = !_isMuted);
     _tbtService?.toggleMute();
@@ -235,145 +247,145 @@ class _SprintScreenState extends State<SprintScreen>
   @override
   void dispose() {
     _locationService?.removeListener(_onLocation);
+    _drivingCtxService?.removeListener(_onDriveMode);
     _tbtService?.stop();
     _flashCtrl.dispose();
     super.dispose();
   }
 
   // ── 메인 빌드: 풀스크린 네비게이션 + 오버레이 ──────────────
+  // Consumer<DrivingContextService> 완전 제거 — _driveMode 로컬 State 사용
+  // (Consumer rebuild이 build/layout 충돌 유발 → !_debugDoingThisLayout 해결)
   Widget _buildSprintBody(BuildContext context) {
-    return Consumer<DrivingContextService>(
-      // StackFit.expand 제거 — tight constraints는 부모 Positioned.fill에서 제공
-      // StackFit.expand + Consumer<ImuService>(50Hz) 조합이 layout assertion 유발
-      builder: (_, ctx, __) => Stack(
-        children: [
-          // ── 지도 (독립 모드만 — 오버레이 모드는 CruiseScreen 지도 사용) ──
-          if (widget.onEnd == null)
-            Positioned.fill(
-              child: MapWidget(
-                isSprintMode: true,
-                navPolyline: _navPolyline,
-                routePolyline: widget.selectedRoute?.nodes,
-              ),
+    final tbtTop = (_tbtService?.upcomingStep != null) ? 76.0 : 16.0;
+    return Stack(
+      children: [
+        // ── 지도 (독립 모드만 — 오버레이 모드는 CruiseScreen 지도 사용) ──
+        if (widget.onEnd == null)
+          Positioned.fill(
+            child: MapWidget(
+              isSprintMode: true,
+              navPolyline: _navPolyline,
+              routePolyline: widget.selectedRoute?.nodes,
             ),
+          ),
 
-          // ── 드라이브 모드 테두리 글로우 ──
-          if (ctx.mode != DriveMode.cruise)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: ctx.mode.color.withValues(alpha: 0.6),
-                      width: 3,
-                    ),
+        // ── 드라이브 모드 테두리 글로우 ──
+        if (_driveMode != DriveMode.cruise)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: _driveMode.color.withValues(alpha: 0.6),
+                    width: 3,
                   ),
                 ),
               ),
             ),
-
-          // ── 상단: 턴바이턴 배너 ──
-          if (_tbtService != null && _tbtService!.upcomingStep != null)
-            Positioned(
-              top: 0, left: 0, right: 0,
-              child: _NavBanner(
-                step: _tbtService!.upcomingStep!,
-                distanceM: _tbtDistM,
-                muted: _tbtService!.muted,
-                onToggleMute: _tbtService!.toggleMute,
-              ),
-            ),
-
-          // ── 상단 우측: 드라이브 모드 배지 ──
-          if (ctx.mode != DriveMode.cruise)
-            Positioned(
-              top: (_tbtService?.upcomingStep != null) ? 76 : 16,
-              right: 14,
-              child: _ModeBadge(mode: ctx.mode),
-            ),
-
-          // ── 상단 좌측: 경과/거리 pill ──
-          Positioned(
-            top: (_tbtService?.upcomingStep != null) ? 76 : 16,
-            left: 14,
-            child: const _LiveStatHUD(),
           ),
 
-          // ── 하단 우측: G-Force 원형 미터 ──
+        // ── 상단: 턴바이턴 배너 ──
+        if (_tbtService != null && _tbtService!.upcomingStep != null)
           Positioned(
-            bottom: 80, // 바텀바 위
+            top: 0, left: 0, right: 0,
+            child: _NavBanner(
+              step: _tbtService!.upcomingStep!,
+              distanceM: _tbtDistM,
+              muted: _tbtService!.muted,
+              onToggleMute: _tbtService!.toggleMute,
+            ),
+          ),
+
+        // ── 상단 우측: 드라이브 모드 배지 ──
+        if (_driveMode != DriveMode.cruise)
+          Positioned(
+            top: tbtTop,
             right: 14,
-            child: _GForceMeter(
-              lateralG: _displayLateralG,
-              lonG: _displayLonG,
-            ),
+            child: _ModeBadge(mode: _driveMode),
           ),
 
-          // ── 루트 이동 중 안내 ──
-          if (!_onRoute && _navPolyline != null && widget.selectedRoute != null)
-            Positioned(
-              bottom: 88,
-              left: 0, right: 0,
-              child: Center(
-                child: _StatusPill(
-                  text: '🔵  ${widget.selectedRoute!.name} 으로 이동 중',
-                  color: Colors.lightBlueAccent,
-                ),
-              ),
-            ),
+        // ── 상단 좌측: 경과/거리 pill ──
+        Positioned(
+          top: tbtTop,
+          left: 14,
+          child: const _LiveStatHUD(),
+        ),
 
-          // ── 루트 진입 / 복귀 메시지 ──
-          if (_routeStatusMsg != null)
-            Positioned(
-              bottom: 88,
-              left: 0, right: 0,
-              child: Center(
-                child: _StatusPill(
-                  text: '🏁  $_routeStatusMsg',
-                  color: AppColors.red,
-                ),
-              ),
-            ),
+        // ── 하단 우측: G-Force 원형 미터 ──
+        Positioned(
+          bottom: 80,
+          right: 14,
+          child: _GForceMeter(
+            lateralG: _displayLateralG,
+            lonG: _displayLonG,
+          ),
+        ),
 
-          // ── 루트 이탈 경고 배너 ──
-          if (_isOffRoute)
-            const Positioned(
-              top: 0, left: 0, right: 0,
-              child: _OffRouteBanner(),
-            ),
-
-          // ── 하단 좌측: 커브 예고 아이콘 ──
-          if (_tbtService != null)
-            Positioned(
-              bottom: 84,
-              left: 14,
-              child: _CurvePreviewIcon(
-                step: _tbtService!.upcomingStep,
-                distM: _tbtDistM,
-              ),
-            ),
-
-          // ── 루트 진행률 바 (바텀바 바로 위, 3px) ──
-          if (_onRoute && widget.selectedRoute != null)
-            Positioned(
-              bottom: 68,
-              left: 0,
-              right: 0,
-              child: _RouteProgressBar(pct: _routeProgressPct),
-            ),
-
-          // ── 하단 바: 음소거 + 마이크 + 런 종료 ──
+        // ── 루트 이동 중 안내 ──
+        if (!_onRoute && _navPolyline != null && widget.selectedRoute != null)
           Positioned(
-            bottom: 0, left: 0, right: 0,
-            child: _SprintBottomBar(
-              onEnd: _endRun,
-              modeColor: ctx.mode.color,
-              muted: _isMuted,
-              onToggleMute: _toggleMute,
+            bottom: 88,
+            left: 0, right: 0,
+            child: Center(
+              child: _StatusPill(
+                text: '🔵  ${widget.selectedRoute!.name} 으로 이동 중',
+                color: Colors.lightBlueAccent,
+              ),
             ),
           ),
-        ],
-      ),
+
+        // ── 루트 진입 / 복귀 메시지 ──
+        if (_routeStatusMsg != null)
+          Positioned(
+            bottom: 88,
+            left: 0, right: 0,
+            child: Center(
+              child: _StatusPill(
+                text: '🏁  $_routeStatusMsg',
+                color: AppColors.red,
+              ),
+            ),
+          ),
+
+        // ── 루트 이탈 경고 배너 ──
+        if (_isOffRoute)
+          const Positioned(
+            top: 0, left: 0, right: 0,
+            child: _OffRouteBanner(),
+          ),
+
+        // ── 하단 좌측: 커브 예고 아이콘 ──
+        if (_tbtService != null)
+          Positioned(
+            bottom: 84,
+            left: 14,
+            child: _CurvePreviewIcon(
+              step: _tbtService!.upcomingStep,
+              distM: _tbtDistM,
+            ),
+          ),
+
+        // ── 루트 진행률 바 (바텀바 바로 위, 3px) ──
+        if (_onRoute && widget.selectedRoute != null)
+          Positioned(
+            bottom: 68,
+            left: 0,
+            right: 0,
+            child: _RouteProgressBar(pct: _routeProgressPct),
+          ),
+
+        // ── 하단 바: 음소거 + 마이크 + 런 종료 ──
+        Positioned(
+          bottom: 0, left: 0, right: 0,
+          child: _SprintBottomBar(
+            onEnd: _endRun,
+            modeColor: _driveMode.color,
+            muted: _isMuted,
+            onToggleMute: _toggleMute,
+          ),
+        ),
+      ],
     );
   }
 
