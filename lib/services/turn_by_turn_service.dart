@@ -9,6 +9,7 @@ class TurnByTurnService {
   final VoidCallback onUpdate;
 
   int _idx = 0;
+  bool _announced500 = false; // 급커브 사전 경고 (sharp turn만)
   bool _announced300 = false;
   bool _announced100 = false;
   final FlutterTts _tts = FlutterTts();
@@ -38,27 +39,51 @@ class TurnByTurnService {
     if (steps.isNotEmpty) await _tts.speak(steps[0].koreanInstruction);
   }
 
+  /// modifier → 커브 강도 한국어
+  String _curveWarning(NavStep step) {
+    return switch (step.modifier) {
+      'sharp left'   => '급좌회전 주의. ',
+      'sharp right'  => '급우회전 주의. ',
+      'left'         => '좌회전 커브. ',
+      'right'        => '우회전 커브. ',
+      'slight left'  => '완만한 좌측 커브. ',
+      'slight right' => '완만한 우측 커브. ',
+      _              => '',
+    };
+  }
+
   /// 위치 업데이트 — _onLocation에서 호출
   void updateLocation(double lat, double lng) {
     if (_stopped || _idx + 1 >= steps.length) return;
 
     final distM = _haversineM(LatLng(lat, lng), steps[_idx + 1].location);
+    final next = steps[_idx + 1];
 
-    // 300m 예고
+    // 500m 급커브 사전 경고 (sharp turn만)
+    if (!_announced500 && distM < 500) {
+      _announced500 = true;
+      if (next.modifier == 'sharp left' || next.modifier == 'sharp right') {
+        _speak('500미터 앞 ${_curveWarning(next)}속도를 줄이세요');
+      }
+    }
+
+    // 300m 예고 — 커브 강도 포함
     if (!_announced300 && distM < 300) {
       _announced300 = true;
-      _speak('300미터 앞 ${steps[_idx + 1].koreanInstruction}');
+      final warning = _curveWarning(next);
+      _speak('300미터 앞 $warning${next.koreanInstruction}');
     }
 
     // 80m 재안내
     if (!_announced100 && distM < 80) {
       _announced100 = true;
-      _speak(steps[_idx + 1].koreanInstruction);
+      _speak(next.koreanInstruction);
     }
 
     // 25m 이내 → 스텝 전진
     if (distM < 25) {
       _idx++;
+      _announced500 = false;
       _announced300 = false;
       _announced100 = false;
       onUpdate();

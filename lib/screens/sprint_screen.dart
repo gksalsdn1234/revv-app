@@ -55,8 +55,11 @@ class _SprintScreenState extends State<SprintScreen>
   double _lastFlashG = 0;
   static const double _flashThreshold = 0.65;
 
-  // G-Force (trail — 호환용, 실제 렌더링에 미사용)
+  // G-Force (trail — 호환용)
   final List<Offset> _gTrail = [];
+
+  // 루트 진행률 (0.0 ~ 1.0)
+  double _routeProgressPct = 0.0;
 
   @override
   void initState() {
@@ -145,18 +148,22 @@ class _SprintScreenState extends State<SprintScreen>
 
     if (_onRoute && widget.selectedRoute != null) {
       final pos = LatLng(loc.lat, loc.lng);
+      final nodes = widget.selectedRoute!.nodes;
       double minDist = double.infinity;
-      for (final node in widget.selectedRoute!.nodes) {
-        final d = RevvRoute.haversineKm(pos, node);
-        if (d < minDist) minDist = d;
-        if (minDist < 0.2) break;
+      int closestIdx = 0;
+      for (int i = 0; i < nodes.length; i++) {
+        final d = RevvRoute.haversineKm(pos, nodes[i]);
+        if (d < minDist) { minDist = d; closestIdx = i; }
+        if (minDist < 0.05) break;
       }
       final wasOff = _isOffRoute;
       final nowOff = minDist > 0.3;
-      if (wasOff != nowOff) {
+      final newPct = nodes.length > 1 ? closestIdx / (nodes.length - 1) : 0.0;
+      if (wasOff != nowOff || (newPct - _routeProgressPct).abs() > 0.005) {
         setState(() {
           _isOffRoute = nowOff;
-          if (!nowOff) {
+          _routeProgressPct = newPct;
+          if (!nowOff && wasOff) {
             _routeStatusMsg = '루트로 복귀했어요!';
             Future.delayed(const Duration(seconds: 2), () {
               if (mounted) setState(() => _routeStatusMsg = null);
@@ -225,8 +232,9 @@ class _SprintScreenState extends State<SprintScreen>
   // ── 메인 빌드: 풀스크린 네비게이션 + 오버레이 ──────────────
   Widget _buildSprintBody(BuildContext context) {
     return Consumer<DrivingContextService>(
+      // StackFit.expand 제거 — tight constraints는 부모 Positioned.fill에서 제공
+      // StackFit.expand + Consumer<ImuService>(50Hz) 조합이 layout assertion 유발
       builder: (_, ctx, __) => Stack(
-        fit: StackFit.expand, // 오버레이 모드에서도 부모 크기 채우기 (RenderBox layout fix)
         children: [
           // ── 지도 (독립 모드만 — 오버레이 모드는 CruiseScreen 지도 사용) ──
           if (widget.onEnd == null)
@@ -320,6 +328,26 @@ class _SprintScreenState extends State<SprintScreen>
               child: _OffRouteBanner(),
             ),
 
+          // ── 하단 좌측: 커브 예고 아이콘 ──
+          if (_tbtService != null)
+            Positioned(
+              bottom: 84,
+              left: 14,
+              child: _CurvePreviewIcon(
+                step: _tbtService!.upcomingStep,
+                distM: _tbtDistM,
+              ),
+            ),
+
+          // ── 루트 진행률 바 (바텀바 바로 위, 3px) ──
+          if (_onRoute && widget.selectedRoute != null)
+            Positioned(
+              bottom: 68,
+              left: 0,
+              right: 0,
+              child: _RouteProgressBar(pct: _routeProgressPct),
+            ),
+
           // ── 하단 바: 음소거 + 마이크 + 런 종료 ──
           Positioned(
             bottom: 0, left: 0, right: 0,
@@ -367,11 +395,12 @@ class _SprintScreenState extends State<SprintScreen>
 
   @override
   Widget build(BuildContext context) {
+    // Positioned.fill로 자식을 감싸는 방식 — StackFit.expand 대체
+    // StackFit.expand는 Consumer<ImuService>(50Hz)와 충돌해 !_debugDoingThisLayout 유발
     final body = Stack(
-      fit: StackFit.expand,
       children: [
-        _buildSprintBody(context),
-        _buildFlashOverlay(),
+        Positioned.fill(child: _buildSprintBody(context)),
+        _buildFlashOverlay(), // 이미 Positioned.fill 반환
       ],
     );
 
@@ -1007,6 +1036,122 @@ class _NavBanner extends StatelessWidget {
               size: 22,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 루트 진행률 바 ────────────────────────────────────────────
+// 바텀바 바로 위 3px 슬림 바, 왼→오른쪽으로 채워짐
+class _RouteProgressBar extends StatelessWidget {
+  final double pct; // 0.0 ~ 1.0
+  const _RouteProgressBar({required this.pct});
+
+  Color get _color {
+    if (pct > 0.85) return AppColors.red;
+    if (pct > 0.5)  return Colors.orange;
+    return Colors.lightBlueAccent;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (_, constraints) {
+        final w = constraints.maxWidth;
+        return SizedBox(
+          height: 3,
+          child: Stack(
+            children: [
+              // 배경 트랙
+              Container(color: Colors.white.withValues(alpha: 0.08)),
+              // 진행 바
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeOut,
+                width: w * pct.clamp(0.0, 1.0),
+                color: _color,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ── 커브 예고 아이콘 ──────────────────────────────────────────
+// TBT 배너 없을 때도 항상 표시 — 작은 원형에 방향 아이콘 + 거리 + 강도
+class _CurvePreviewIcon extends StatelessWidget {
+  final NavStep? step;
+  final double distM;
+  const _CurvePreviewIcon({required this.step, required this.distM});
+
+  // modifier → 커브 강도 레이블 + 색상
+  static ({String label, Color color}) _severity(String? modifier) {
+    return switch (modifier) {
+      'sharp left' || 'sharp right' => (label: 'SHARP', color: AppColors.red),
+      'left' || 'right'             => (label: 'CURVE', color: Colors.orange),
+      'slight left' || 'slight right' => (label: 'EASY', color: Colors.lightBlueAccent),
+      _                             => (label: '', color: Colors.white38),
+    };
+  }
+
+  String get _distText {
+    if (distM <= 0) return '';
+    if (distM >= 1000) return '${(distM / 1000).toStringAsFixed(1)}km';
+    return '${distM.toInt()}m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = step;
+    // depart/arrive/straight는 표시 안함
+    if (s == null || s.type == 'depart' || s.type == 'arrive') {
+      return const SizedBox.shrink();
+    }
+    if (s.modifier == null || s.modifier == 'straight') {
+      return const SizedBox.shrink();
+    }
+    final sev = _severity(s.modifier);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.bg.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: sev.color.withValues(alpha: 0.5), width: 1),
+        boxShadow: [
+          BoxShadow(color: sev.color.withValues(alpha: 0.2), blurRadius: 10),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(s.icon, color: sev.color, size: 28),
+          if (sev.label.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              sev.label,
+              style: GoogleFonts.rajdhani(
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+                color: sev.color,
+                letterSpacing: 1.5,
+              ),
+            ),
+          ],
+          if (_distText.isNotEmpty) ...[
+            const SizedBox(height: 1),
+            Text(
+              _distText,
+              style: GoogleFonts.orbitron(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: Colors.white70,
+              ),
+            ),
+          ],
         ],
       ),
     );
