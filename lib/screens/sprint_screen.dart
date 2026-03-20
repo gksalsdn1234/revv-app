@@ -395,13 +395,19 @@ class _SprintScreenState extends State<SprintScreen>
 
   @override
   Widget build(BuildContext context) {
-    // Positioned.fill로 자식을 감싸는 방식 — StackFit.expand 대체
-    // StackFit.expand는 Consumer<ImuService>(50Hz)와 충돌해 !_debugDoingThisLayout 유발
-    final body = Stack(
-      children: [
-        Positioned.fill(child: _buildSprintBody(context)),
-        _buildFlashOverlay(), // 이미 Positioned.fill 반환
-      ],
+    // SizedBox.expand() 필수:
+    // 오버레이 모드에서 CruiseScreen Stack이 StackFit.loose(기본값) 이므로
+    // non-Positioned 자식인 SprintScreen에 loose constraints가 전달됨.
+    // body Stack의 자식이 전부 Positioned → loose 환경에서 Stack 크기 = 0×0
+    // → Positioned.fill이 0×0을 채우려 하면 RenderDecoratedBox layout 실패.
+    // SizedBox.expand()는 loose constraints에서도 강제로 최대 크기(fullscreen)를 사용.
+    final body = SizedBox.expand(
+      child: Stack(
+        children: [
+          Positioned.fill(child: _buildSprintBody(context)),
+          _buildFlashOverlay(), // Positioned.fill 반환
+        ],
+      ),
     );
 
     if (widget.onEnd != null) {
