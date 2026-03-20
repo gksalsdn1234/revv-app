@@ -41,7 +41,8 @@ class SprintScreen extends StatefulWidget {
   State<SprintScreen> createState() => _SprintScreenState();
 }
 
-class _SprintScreenState extends State<SprintScreen> {
+class _SprintScreenState extends State<SprintScreen>
+    with SingleTickerProviderStateMixin {
   LocationService? _locationService;
   RunSessionService? _runSessionService;
 
@@ -52,6 +53,29 @@ class _SprintScreenState extends State<SprintScreen> {
   TurnByTurnService? _tbtService;    // 턴바이턴
   double _tbtDistM = 0;             // 다음 maneuver까지 거리
   bool _isMuted = false;             // TTS 음소거 (항상 표시)
+
+  // ── G-Force 레드 플래시 (v2) ──
+  late AnimationController _flashCtrl;
+  late Animation<double> _flashAnim;
+  double _lastFlashG = 0;
+  static const double _flashThreshold = 0.65; // 0.65G 초과 시 플래시
+
+  @override
+  void initState() {
+    super.initState();
+    // G-Force 플래시 애니메이션 초기화
+    _flashCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _flashAnim = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _flashCtrl, curve: Curves.easeOut),
+    );
+  }
+
+  void _triggerGFlash() {
+    _flashCtrl.forward(from: 0);
+  }
 
   @override
   void didChangeDependencies() {
@@ -77,6 +101,9 @@ class _SprintScreenState extends State<SprintScreen> {
       });
 
       _locationService!.addListener(_onLocation);
+
+      // G-Force 리스너
+      context.read<ImuService>().addListener(_onImu);
 
       // SettingsService에서 초기 음소거 값 읽기
       _isMuted = context.read<SettingsService>().ttsMuted;
@@ -178,9 +205,21 @@ class _SprintScreenState extends State<SprintScreen> {
     context.read<SettingsService>().setTtsMuted(_isMuted);
   }
 
+  // G-Force 임계 초과 시 플래시 트리거
+  void _onImu() {
+    if (!mounted) return;
+    final imu = context.read<ImuService>();
+    final g = imu.lateralG.abs();
+    if (g >= _flashThreshold && _lastFlashG < _flashThreshold) {
+      _triggerGFlash();
+    }
+    _lastFlashG = g;
+  }
+
   void _endRun() {
     _locationService?.removeListener(_onLocation);
     _tbtService?.stop();
+    try { context.read<ImuService>().removeListener(_onImu); } catch (_) {}
     final imu = context.read<ImuService>();
     final session = _runSessionService?.stopSession(
       maxLateralG: imu.maxLateralG,
@@ -204,6 +243,7 @@ class _SprintScreenState extends State<SprintScreen> {
   void dispose() {
     _locationService?.removeListener(_onLocation);
     _tbtService?.stop();
+    _flashCtrl.dispose();
     super.dispose();
   }
 
@@ -407,25 +447,53 @@ class _SprintScreenState extends State<SprintScreen> {
     );
   }
 
+  // G-Force 레드 플래시 오버레이
+  Widget _buildFlashOverlay() {
+    return AnimatedBuilder(
+      animation: _flashAnim,
+      builder: (_, __) {
+        if (_flashCtrl.status == AnimationStatus.dismissed) return const SizedBox.shrink();
+        final opacity = (1 - _flashAnim.value) * 0.45;
+        return Positioned.fill(
+          child: IgnorePointer(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppColors.red.withValues(alpha: opacity * 1.2),
+                    AppColors.red.withValues(alpha: opacity * 0.3),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // ── 오버레이 모드: CruiseScreen이 부모, Scaffold 없이 투명하게 ──
+    final body = Stack(
+      children: [
+        SafeArea(child: _buildSprintBody(context)),
+        _buildFlashOverlay(),
+      ],
+    );
+
+    // ── 오버레이 모드: CruiseScreen이 부모 ──
     if (widget.onEnd != null) {
       return PopScope(
         canPop: false,
-        child: Material(
-          color: Colors.transparent,
-          child: SafeArea(child: _buildSprintBody(context)),
-        ),
+        child: Material(color: Colors.transparent, child: body),
       );
     }
-    // ── 독립 화면 모드: 기존 방식 (Scaffold + 자체 MapWidget) ──
+    // ── 독립 화면 모드 ──
     return PopScope(
       canPop: false,
-      child: Scaffold(
-        backgroundColor: AppColors.bg,
-        body: SafeArea(child: _buildSprintBody(context)),
-      ),
+      child: Scaffold(backgroundColor: AppColors.bg, body: body),
     );
   }
 }

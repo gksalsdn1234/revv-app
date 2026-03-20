@@ -1111,16 +1111,43 @@ ${ideaTexts || '(없음)'}
                     <div class="patch-line block-note">💬 "루트창이 지도를 가려서 루트가 어디 있는지 모르겠다" → 해결. 지도 위 라인 탭으로 루트 선택 가능</div>
                 </div>
 
+                <!-- v1.37 패치 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.37</span>
+                        <span class="patch-date">2026-03-19</span>
+                        <span class="patch-tag feat">FEAT</span>
+                        <span class="patch-tag ui">UI</span>
+                    </div>
+                    <div class="patch-line"><strong>UI 전면 리디자인 (Calimoto/Rever 레퍼런스)</strong></div>
+                    <div class="patch-line">• cruise_screen: HudBar 제거 → 투명 플로팅 필 오버레이 (로고 + 날씨 + 시간)</div>
+                    <div class="patch-line">• 속도 게이지: 좌하단 항상 표시 원형 (Orbitron, 레드 보더 글로우)</div>
+                    <div class="patch-line">• 하단 탭바 재설계: ROUTES | TRIP | [GO 원형 히어로 돌출] | LOG | MORE</div>
+                    <div class="patch-line">• MORE 바텀시트: OBD / Jarvis AI / 마이크 / 설정</div>
+                    <div class="patch-line">• routes_screen: 상단 플로팅 필 헤더 + SafeArea 제거 → 풀스크린 지도</div>
+                    <div class="patch-line">• RouteInfoOverlay: 난이도 스트립 + 통계 칩 + 대형 GO (76×44px 글로우)</div>
+                    <div class="patch-line"><strong>v3: 주행 히스토리 타임라인</strong></div>
+                    <div class="patch-line">• history_screen 전면 재설계 — 월별 그룹 타임라인 (레드 도트 + 수직선)</div>
+                    <div class="patch-line">• 상단 스탯 그리드: RUNS / KM / AVG / BEST G 카드 4칸</div>
+                    <div class="patch-line">• 런 카드: 거리 34px 대형 + G-Force 컬러 뱃지 (EASY/MED/HARD) + 회차 표시</div>
+                    <div class="patch-line"><strong>v2: G-Force 레드 플래시 효과</strong></div>
+                    <div class="patch-line">• sprint_screen: lateralG ≥ 0.65G 초과 시 화면 상단 레드 그라디언트 플래시</div>
+                    <div class="patch-line">• SingleTickerProviderStateMixin + AnimationController 400ms easeOut</div>
+                    <div class="patch-line"><strong>CHAIN 캐시 기반 탐색 + import 정리</strong></div>
+                    <div class="patch-line">• fetchConnectingRoutes: Overpass API 재호출 → 인메모리 haversine 즉시 탐색</div>
+                </div>
+
                 <!-- 다음 할 일 -->
                 <div class="patch-entry">
                     <div class="patch-header">
-                        <span class="patch-version">v1.37+ 예정</span>
+                        <span class="patch-version">v1.38+ 예정</span>
                         <span class="patch-date">다음 세션</span>
                         <span class="patch-tag feat">NEXT</span>
                     </div>
-                    <div class="patch-line">① 실기기 테스트 — G포스/TBT/BottomQuickBar/탭 선택/NavPolyline/CloudSync/GForceTab/루트이탈</div>
+                    <div class="patch-line">① 실기기 테스트 — G포스/TBT/NavPolyline/CloudSync/플래시/타임라인</div>
                     <div class="patch-line">② Firebase 보안 규칙 — users/{uid}/runs 오너 전용 read/write (Firebase Console)</div>
-                    <div class="patch-line">③ 런카드 공유 실기기 테스트 — share_plus v10 ShareParams 검증</div>
+                    <div class="patch-line">③ d1: 실시간 센서 로깅 — sensors_plus SQLite 0.1초 고정밀 저장</div>
+                    <div class="patch-line">④ d2: Gemini 드라이빙 분석 — 주행 로그 AI 코칭 리포트</div>
                     <div class="patch-line block-note">💬 실기기 end-to-end 주행 테스트가 최우선</div>
                 </div>
 
@@ -1272,9 +1299,14 @@ ${ideaTexts || '(없음)'}
             { id: '6', text: 'DrivingContextService — GPS bearing rate 기반 WINDING + OBD 기반 SPORT 모드 감지 + 스프린트 화면 반응', status: 'done' },
             { id: '7', text: 'WaypointOptimizer TSP+2-opt — 와인딩 구간 반드시 통과하는 경유지 순서 최적화', status: 'done' },
             { id: '8', text: '앱 내 통합 내비게이션 — DirectionsService로 nav polyline 자동 fetch + 200m 루트 진입 자동 감지', status: 'done' },
-            { id: '9', text: '실기기 테스트 — G포스/TBT/DrivingContext/NavPolyline/CloudSync/G-FORCE탭', status: 'pending' },
+            { id: '9', text: '실기기 테스트 — G포스/TBT/DrivingContext/NavPolyline/CloudSync/G-FORCE탭/플래시효과', status: 'pending' },
             { id: '10', text: 'Firebase 보안 규칙 — Firestore rules users/{uid}/runs 오너 전용', status: 'pending' },
             { id: '11', text: '루트+여정 통합 — RoutesScreen ROUTES/TRIP 2탭, trip_planner_screen deprecated', status: 'done' },
+            { id: '12', text: 'UI 전면 리디자인 — Calimoto/Rever 스타일, 풀스크린 맵, 원형 GO 버튼, 플로팅 HUD', status: 'done' },
+            { id: '13', text: 'v3 히스토리 타임라인 — 월별 그룹, 레드 타임라인 도트, 4칸 스탯 그리드, G뱃지', status: 'done' },
+            { id: '14', text: 'v2 G-Force 레드 플래시 — 0.65G 초과 시 상단 레드 그라디언트 플래시 (AnimationController)', status: 'done' },
+            { id: '15', text: 'd1: 실시간 센서 로깅 — sensors_plus SQLite 100ms 저장, 급조작 지점 자동 마킹', status: 'pending' },
+            { id: '16', text: 'd2: Gemini 드라이빙 분석 — 주행 로그 → Gemini API → AI 코칭 리포트', status: 'pending' },
         ];
     </script>
 </body>

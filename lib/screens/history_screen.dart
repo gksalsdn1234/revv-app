@@ -5,8 +5,6 @@ import '../theme/colors.dart';
 import '../models/run_summary.dart';
 import '../services/run_history_service.dart';
 import '../services/cloud_sync_service.dart';
-import '../widgets/corner_brackets.dart';
-import '../widgets/hud_bar.dart';
 
 class HistoryScreen extends StatelessWidget {
   const HistoryScreen({super.key});
@@ -21,392 +19,540 @@ class HistoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            const HudBar(),
-            // ── 헤더 ──
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: const Icon(Icons.arrow_back_ios,
-                        size: 16, color: AppColors.gray),
-                  ),
-                  const SizedBox(width: 10),
-                  Text(
-                    'RUN HISTORY',
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                      letterSpacing: 4,
+      backgroundColor: const Color(0xFF0C0C0E),
+      body: Consumer<RunHistoryService>(
+        builder: (_, svc, __) {
+          final history = svc.history; // 최신순
+          return CustomScrollView(
+            slivers: [
+              // ── 상단 헤더 (SliverAppBar 스타일) ──
+              SliverToBoxAdapter(
+                child: _Header(svc: svc),
+              ),
+              // ── 내용 ──
+              if (history.isEmpty)
+                const SliverFillRemaining(child: _EmptyState())
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(0, 4, 0, 40),
+                  sliver: SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (ctx, i) => _buildTimelineItem(ctx, svc, history, i),
+                      childCount: _itemCount(history),
                     ),
                   ),
-                  const Spacer(),
-                  // 클라우드 동기화 상태 표시
-                  Consumer<CloudSyncService>(
-                    builder: (_, sync, __) => _SyncBadge(sync: sync),
-                  ),
-                ],
-              ),
-            ),
-            // ── 통계 바 ──
-            Consumer<RunHistoryService>(
-              builder: (_, svc, __) => _StatsBar(svc: svc),
-            ),
-            const SizedBox(height: 4),
-            Divider(
-                color: AppColors.red.withValues(alpha: 0.12),
-                height: 1),
-            // ── 리스트 ──
-            Expanded(
-              child: Consumer<RunHistoryService>(
-                builder: (_, svc, __) {
-                  final history = svc.history;
-                  if (history.isEmpty) {
-                    return const _EmptyState();
-                  }
-                  return ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
-                    itemCount: history.length,
-                    itemBuilder: (ctx, i) {
-                      final run = history[i];
-                      final visitCount = svc.visitCount(run.routeId);
-                      return _RunTile(
-                        run: run,
-                        visitCount: visitCount,
-                        index: i,
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+                ),
+            ],
+          );
+        },
       ),
     );
   }
+
+  // 날짜 그룹 헤더 + 런 카드를 합산한 아이템 수
+  int _itemCount(List<RunSummary> history) {
+    if (history.isEmpty) return 0;
+    final groups = _groupByMonth(history);
+    return groups.fold<int>(0, (acc, g) => acc + 1 + g.runs.length);
+  }
+
+  Widget _buildTimelineItem(
+      BuildContext ctx, RunHistoryService svc, List<RunSummary> history, int idx) {
+    final groups = _groupByMonth(history);
+    int cursor = 0;
+    for (final group in groups) {
+      if (cursor == idx) return _MonthHeader(label: group.label);
+      cursor++;
+      for (int j = 0; j < group.runs.length; j++) {
+        if (cursor == idx) {
+          final run = group.runs[j];
+          final isLast = j == group.runs.length - 1;
+          return _TimelineRunCard(
+            run: run,
+            visitCount: svc.visitCount(run.routeId),
+            isLast: isLast,
+          );
+        }
+        cursor++;
+      }
+    }
+    return const SizedBox.shrink();
+  }
+
+  List<_MonthGroup> _groupByMonth(List<RunSummary> history) {
+    final Map<String, _MonthGroup> map = {};
+    for (final run in history) {
+      final key = '${run.date.year}-${run.date.month.toString().padLeft(2, '0')}';
+      map.putIfAbsent(key, () => _MonthGroup(_monthLabel(run.date), []));
+      map[key]!.runs.add(run);
+    }
+    return map.values.toList();
+  }
+
+  String _monthLabel(DateTime d) {
+    const months = ['1월', '2월', '3월', '4월', '5월', '6월',
+                    '7월', '8월', '9월', '10월', '11월', '12월'];
+    return '${d.year}년  ${months[d.month - 1]}';
+  }
 }
 
-// ── 상단 통계 바 ────────────────────────────────────────────────
-class _StatsBar extends StatelessWidget {
+class _MonthGroup {
+  final String label;
+  final List<RunSummary> runs;
+  _MonthGroup(this.label, this.runs);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 헤더 — 뒤로가기 + 타이틀 + 스탯 카드
+// ══════════════════════════════════════════════════════════════════
+class _Header extends StatelessWidget {
   final RunHistoryService svc;
-  const _StatsBar({required this.svc});
+  const _Header({required this.svc});
 
   @override
   Widget build(BuildContext context) {
+    final topPad = MediaQuery.of(context).padding.top;
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(4),
-        border:
-            Border.all(color: AppColors.red.withValues(alpha: 0.18)),
-      ),
-      child: Stack(
+      color: const Color(0xFF0C0C0E),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              _StatItem(
-                label: 'TOTAL RUNS',
-                value: '${svc.totalRuns}',
-                unit: '회',
-              ),
-              Container(
-                width: 1,
-                height: 32,
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                color: AppColors.red.withValues(alpha: 0.2),
-              ),
-              _StatItem(
-                label: 'TOTAL DIST',
-                value: svc.totalDistanceKm.toStringAsFixed(1),
-                unit: 'km',
-              ),
-              Container(
-                width: 1,
-                height: 32,
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                color: AppColors.red.withValues(alpha: 0.2),
-              ),
-              _StatItem(
-                label: 'AVG DIST',
-                value: svc.totalRuns > 0
-                    ? (svc.totalDistanceKm / svc.totalRuns)
-                        .toStringAsFixed(1)
-                    : '—',
-                unit: svc.totalRuns > 0 ? 'km' : '',
-              ),
-              if (svc.bestMaxG != null) ...[
-                Container(
-                  width: 1,
-                  height: 32,
-                  margin: const EdgeInsets.symmetric(horizontal: 20),
-                  color: AppColors.red.withValues(alpha: 0.2),
+          SizedBox(height: topPad + 12),
+          // 뒤로가기 + 타이틀 + 클라우드
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    width: 36, height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.06),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.arrow_back_ios_new_rounded,
+                        size: 15, color: Colors.white70),
+                  ),
                 ),
-                _StatItem(
-                  label: 'BEST G',
-                  value: svc.bestMaxG!.toStringAsFixed(2),
-                  unit: 'G',
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'RUN LOG',
+                      style: GoogleFonts.orbitron(
+                        fontSize: 18, fontWeight: FontWeight.w900,
+                        color: Colors.white, letterSpacing: 3,
+                      ),
+                    ),
+                    Text(
+                      '${svc.totalRuns}회 주행  ·  ${svc.totalDistanceKm.toStringAsFixed(0)} km',
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 11, color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                Consumer<CloudSyncService>(
+                  builder: (_, sync, __) => _SyncBadge(sync: sync),
                 ),
               ],
-            ],
+            ),
           ),
-          const Positioned.fill(child: CornerBrackets(padding: 0)),
+          const SizedBox(height: 16),
+          // 스탯 카드 그리드
+          _StatsGrid(svc: svc),
+          const SizedBox(height: 16),
+          // 구분선
+          Container(
+            height: 1,
+            margin: const EdgeInsets.symmetric(horizontal: 18),
+            color: Colors.white.withValues(alpha: 0.06),
+          ),
+          const SizedBox(height: 8),
         ],
       ),
     );
   }
 }
 
-class _StatItem extends StatelessWidget {
-  final String label;
-  final String value;
-  final String unit;
-  const _StatItem(
-      {required this.label, required this.value, required this.unit});
+// ── 스탯 그리드 (2×2) ────────────────────────────────────────────
+class _StatsGrid extends StatelessWidget {
+  final RunHistoryService svc;
+  const _StatsGrid({required this.svc});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          label,
-          style: GoogleFonts.rajdhani(
-            fontSize: 9,
-            fontWeight: FontWeight.w600,
-            color: AppColors.gray,
-            letterSpacing: 2,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Text(
-              value,
-              style: GoogleFonts.orbitron(
-                fontSize: 20,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-              ),
-            ),
-            if (unit.isNotEmpty) ...[
-              const SizedBox(width: 3),
-              Text(
-                unit,
-                style: GoogleFonts.rajdhani(
-                  fontSize: 11,
-                  color: AppColors.gray,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ],
-    );
-  }
-}
+    final avgKm = svc.totalRuns > 0
+        ? svc.totalDistanceKm / svc.totalRuns
+        : 0.0;
 
-// ── 런 타일 ─────────────────────────────────────────────────────
-class _RunTile extends StatelessWidget {
-  final RunSummary run;
-  final int visitCount;
-  final int index;
-  const _RunTile(
-      {required this.run,
-      required this.visitCount,
-      required this.index});
-
-  String _formatDate(DateTime d) {
-    const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
-    final wd = weekdays[d.weekday - 1];
-    return '${d.month}월 ${d.day}일 $wd';
-  }
-
-  String _formatTime(DateTime d) {
-    final h = d.hour.toString().padLeft(2, '0');
-    final m = d.minute.toString().padLeft(2, '0');
-    return '$h:$m';
-  }
-
-  @override
-  Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-            color: AppColors.red.withValues(alpha: 0.14),
-          ),
-        ),
-        child: Stack(
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── 날짜 / 시간 행 ──
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 5,
-                          height: 5,
-                          decoration: const BoxDecoration(
-                            color: AppColors.red,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 7),
-                        Text(
-                          _formatDate(run.date),
-                          style: GoogleFonts.rajdhani(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white.withValues(alpha: 0.55),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                    Text(
-                      _formatTime(run.date),
-                      style: GoogleFonts.orbitron(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.gray,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                // ── 거리 + 루트명 ──
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic,
-                  children: [
-                    Text(
-                      run.distanceKm.toStringAsFixed(1),
-                      style: GoogleFonts.orbitron(
-                        fontSize: 32,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'km',
-                      style: GoogleFonts.orbitron(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.gray,
-                      ),
-                    ),
-                    const Spacer(),
-                    // ── 루트명 + 회차 배지 ──
-                    Flexible(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            run.routeName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.end,
-                            style: GoogleFonts.rajdhani(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white.withValues(alpha: 0.7),
-                            ),
-                          ),
-                          if (visitCount >= 2) ...[
-                            const SizedBox(height: 3),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: AppColors.red.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(2),
-                                border: Border.all(
-                                    color: AppColors.red
-                                        .withValues(alpha: 0.4)),
-                              ),
-                              child: Text(
-                                '${visitCount}회차',
-                                style: GoogleFonts.rajdhani(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.red,
-                                  letterSpacing: 1,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                // ── 하단 칩 ──
-                Row(
-                  children: [
-                    _Chip('⏱ ${run.durationDisplay}'),
-                    const SizedBox(width: 10),
-                    _Chip('${run.weatherEmoji} ${run.tempDisplay}'),
-                  ],
-                ),
-              ],
-            ),
-            const Positioned.fill(
-                child: CornerBrackets(
-                    padding: 4,
-                    lineLength: 8,
-                    color: Color(0x28E3000F))),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(
+        children: [
+          Expanded(child: _StatCard(
+            icon: Icons.flag_rounded,
+            label: 'TOTAL RUNS',
+            value: '${svc.totalRuns}',
+            unit: '회',
+            color: AppColors.red,
+          )),
+          const SizedBox(width: 8),
+          Expanded(child: _StatCard(
+            icon: Icons.straighten,
+            label: 'TOTAL KM',
+            value: svc.totalDistanceKm.toStringAsFixed(0),
+            unit: 'km',
+            color: AppColors.cyan,
+          )),
+          const SizedBox(width: 8),
+          Expanded(child: _StatCard(
+            icon: Icons.av_timer,
+            label: 'AVG DIST',
+            value: avgKm.toStringAsFixed(1),
+            unit: 'km',
+            color: const Color(0xFFF59E0B),
+          )),
+          if (svc.bestMaxG != null) ...[
+            const SizedBox(width: 8),
+            Expanded(child: _StatCard(
+              icon: Icons.speed,
+              label: 'BEST G',
+              value: svc.bestMaxG!.toStringAsFixed(2),
+              unit: 'G',
+              color: const Color(0xFFEF4444),
+            )),
           ],
-        ),
+        ],
       ),
     );
   }
 }
 
-class _Chip extends StatelessWidget {
-  final String text;
-  const _Chip(this.text);
+class _StatCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final String unit;
+  final Color color;
+  const _StatCard({
+    required this.icon, required this.label,
+    required this.value, required this.unit, required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(3),
-        border: Border.all(
-            color: Colors.white.withValues(alpha: 0.08)),
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
       ),
-      child: Text(
-        text,
-        style: GoogleFonts.rajdhani(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: Colors.white.withValues(alpha: 0.55),
-        ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Flexible(
+                child: Text(
+                  value,
+                  style: GoogleFonts.orbitron(
+                    fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Text(unit, style: GoogleFonts.rajdhani(
+                fontSize: 10, color: AppColors.textSecondary, fontWeight: FontWeight.w600,
+              )),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(label, style: GoogleFonts.rajdhani(
+            fontSize: 8, color: color.withValues(alpha: 0.7),
+            fontWeight: FontWeight.w700, letterSpacing: 1,
+          )),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 월 헤더
+// ══════════════════════════════════════════════════════════════════
+class _MonthHeader extends StatelessWidget {
+  final String label;
+  const _MonthHeader({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.orbitron(
+              fontSize: 11, fontWeight: FontWeight.w700,
+              color: AppColors.red, letterSpacing: 2,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: AppColors.red.withValues(alpha: 0.2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 타임라인 런 카드
+// ══════════════════════════════════════════════════════════════════
+class _TimelineRunCard extends StatelessWidget {
+  final RunSummary run;
+  final int visitCount;
+  final bool isLast;
+  const _TimelineRunCard({
+    required this.run, required this.visitCount, required this.isLast,
+  });
+
+  String _weekday(DateTime d) {
+    const days = ['월', '화', '수', '목', '금', '토', '일'];
+    return days[d.weekday - 1];
+  }
+
+  Color _gColor(double? g) {
+    if (g == null || g == 0) return AppColors.textSecondary;
+    if (g >= 0.8) return const Color(0xFFEF4444);
+    if (g >= 0.5) return const Color(0xFFF97316);
+    return const Color(0xFFF59E0B);
+  }
+
+  String _gLabel(double? g) {
+    if (g == null || g == 0) return '—';
+    if (g >= 0.8) return 'HARD';
+    if (g >= 0.5) return 'MED';
+    return 'EASY';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final gColor = _gColor(run.maxLateralG);
+    final hasG = run.maxLateralG != null && run.maxLateralG! > 0;
+
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── 타임라인 선 + 점 ──
+          SizedBox(
+            width: 52,
+            child: Column(
+              children: [
+                // 상단 선
+                Container(
+                  width: 1.5,
+                  height: 20,
+                  color: AppColors.red.withValues(alpha: 0.25),
+                ),
+                // 점
+                Container(
+                  width: 10, height: 10,
+                  decoration: BoxDecoration(
+                    color: AppColors.red,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.red.withValues(alpha: 0.5),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                ),
+                // 하단 선
+                Expanded(
+                  child: Container(
+                    width: 1.5,
+                    color: isLast
+                        ? Colors.transparent
+                        : AppColors.red.withValues(alpha: 0.25),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // ── 카드 ──
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16, bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF141416),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: hasG
+                        ? gColor.withValues(alpha: 0.25)
+                        : Colors.white.withValues(alpha: 0.06),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 날짜 행
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '${run.date.month}/${run.date.day} (${_weekday(run.date)})',
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 11, fontWeight: FontWeight.w700,
+                              color: Colors.white60,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${run.date.hour.toString().padLeft(2, '0')}:${run.date.minute.toString().padLeft(2, '0')}',
+                          style: GoogleFonts.orbitron(
+                            fontSize: 10, color: Colors.white30, fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const Spacer(),
+                        // 날씨
+                        Text(
+                          '${run.weatherEmoji} ${run.tempDisplay}',
+                          style: GoogleFonts.rajdhani(
+                            fontSize: 11, color: Colors.white38,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    // 거리 + G 뱃지
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          run.distanceKm.toStringAsFixed(1),
+                          style: GoogleFonts.orbitron(
+                            fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white,
+                            height: 1.0,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'km',
+                          style: GoogleFonts.orbitron(
+                            fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (hasG)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: gColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: gColor.withValues(alpha: 0.4)),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  run.maxLateralG!.toStringAsFixed(2),
+                                  style: GoogleFonts.orbitron(
+                                    fontSize: 13, fontWeight: FontWeight.w800, color: gColor,
+                                  ),
+                                ),
+                                Text(
+                                  _gLabel(run.maxLateralG),
+                                  style: GoogleFonts.rajdhani(
+                                    fontSize: 7, fontWeight: FontWeight.w700,
+                                    color: gColor, letterSpacing: 1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // 루트명 + 소요시간
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            run.routeName,
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 13, fontWeight: FontWeight.w700,
+                              color: Colors.white70,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          run.durationDisplay,
+                          style: GoogleFonts.rajdhani(
+                            fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        // 회차 배지
+                        if (visitCount >= 2) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.red.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: AppColors.red.withValues(alpha: 0.35)),
+                            ),
+                            child: Text(
+                              '${visitCount}회차',
+                              style: GoogleFonts.rajdhani(
+                                fontSize: 9, fontWeight: FontWeight.w800,
+                                color: AppColors.red, letterSpacing: 1,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -422,28 +568,19 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.flag_outlined,
-            size: 48,
-            color: AppColors.red.withValues(alpha: 0.3),
-          ),
-          const SizedBox(height: 16),
+          Icon(Icons.flag_outlined, size: 52, color: AppColors.red.withValues(alpha: 0.25)),
+          const SizedBox(height: 18),
           Text(
             'NO RUNS YET',
             style: GoogleFonts.orbitron(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: Colors.white.withValues(alpha: 0.2),
-              letterSpacing: 4,
+              fontSize: 14, fontWeight: FontWeight.w800,
+              color: Colors.white.withValues(alpha: 0.18), letterSpacing: 4,
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'SPRINT 버튼으로 첫 드라이브를 시작해 보세요',
-            style: GoogleFonts.rajdhani(
-              fontSize: 12,
-              color: AppColors.gray,
-            ),
+            'GO 버튼으로 첫 드라이브를 시작하세요',
+            style: GoogleFonts.rajdhani(fontSize: 13, color: AppColors.textSecondary),
           ),
         ],
       ),
@@ -451,7 +588,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// ── 클라우드 동기화 상태 배지 ────────────────────────────────────
+// ── 클라우드 동기화 배지 ─────────────────────────────────────────
 class _SyncBadge extends StatelessWidget {
   final CloudSyncService sync;
   const _SyncBadge({required this.sync});
@@ -462,15 +599,9 @@ class _SyncBadge extends StatelessWidget {
       return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.cloud_off, size: 12, color: AppColors.gray),
+          Icon(Icons.cloud_off, size: 13, color: AppColors.textSecondary),
           const SizedBox(width: 4),
-          Text(
-            '오프라인',
-            style: GoogleFonts.rajdhani(
-              fontSize: 10,
-              color: AppColors.gray,
-            ),
-          ),
+          Text('오프라인', style: GoogleFonts.rajdhani(fontSize: 10, color: AppColors.textSecondary)),
         ],
       );
     }
@@ -480,27 +611,17 @@ class _SyncBadge extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(
-              width: 10,
-              height: 10,
-              child: CircularProgressIndicator(
-                strokeWidth: 1.5,
-                color: AppColors.cyan,
-              ),
+              width: 10, height: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.cyan),
             ),
             const SizedBox(width: 5),
-            Text(
-              '동기화 중',
-              style: GoogleFonts.rajdhani(
-                fontSize: 10,
-                color: AppColors.cyan,
-              ),
-            ),
+            Text('동기화 중', style: GoogleFonts.rajdhani(fontSize: 10, color: AppColors.cyan)),
           ],
         );
       case SyncStatus.error:
-        return Icon(Icons.cloud_off, size: 12, color: AppColors.red);
+        return Icon(Icons.cloud_off, size: 13, color: AppColors.red);
       default:
-        return Icon(Icons.cloud_done_outlined, size: 12, color: AppColors.cyan);
+        return Icon(Icons.cloud_done_outlined, size: 13, color: AppColors.cyan.withValues(alpha: 0.7));
     }
   }
 }
