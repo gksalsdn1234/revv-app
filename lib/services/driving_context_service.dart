@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 
 enum DriveMode { cruise, winding, sport }
 
@@ -47,6 +48,20 @@ class DrivingContextService extends ChangeNotifier {
   final List<double> _bearingHistory = [];
   static const _maxHistory = 12;
 
+  // ChangeNotifierProxyProvider2.update()는 Flutter build 페이즈 도중 호출됨
+  // → notifyListeners()를 build 도중 바로 호출하면 Consumer가 build 중 markNeedsBuild
+  //   → 같은 build 패스에서 레이아웃 재시도 → !_debugDoingThisLayout assertion
+  // _scheduleNotify()로 항상 프레임 완료 후 notify
+  bool _notifyPending = false;
+  void _scheduleNotify() {
+    if (_notifyPending) return;
+    _notifyPending = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _notifyPending = false;
+      notifyListeners();
+    });
+  }
+
   // GPS 업데이트: bearing(heading)과 속도 전달
   void updateFromGPS(double? heading, double speedKmh) {
     if (heading == null || speedKmh < 8) {
@@ -61,7 +76,7 @@ class DrivingContextService extends ChangeNotifier {
 
     _computeWinding();
     _resolveMode();
-    notifyListeners();
+    _scheduleNotify();
   }
 
   // OBD 업데이트: RPM과 속도로 스포츠 모드 추론
@@ -81,7 +96,7 @@ class DrivingContextService extends ChangeNotifier {
     // 스포츠 조건 해제 → winding/cruise로 복귀
     if (_mode == DriveMode.sport) {
       _resolveMode();
-      notifyListeners();
+      _scheduleNotify();
     }
   }
 
@@ -112,7 +127,7 @@ class DrivingContextService extends ChangeNotifier {
   void _setMode(DriveMode m) {
     if (_mode != m) {
       _mode = m;
-      notifyListeners();
+      _scheduleNotify();
     }
   }
 
@@ -120,6 +135,6 @@ class DrivingContextService extends ChangeNotifier {
     _bearingHistory.clear();
     _windingIntensity = 0.0;
     _mode = DriveMode.cruise;
-    notifyListeners();
+    _scheduleNotify();
   }
 }
