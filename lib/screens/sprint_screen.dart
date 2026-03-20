@@ -233,6 +233,7 @@ class _SprintScreenState extends State<SprintScreen>
   Widget _buildSprintBody(BuildContext context) {
     return Consumer<DrivingContextService>(
       builder: (_, ctx, __) => Stack(
+        fit: StackFit.expand, // 오버레이 모드에서도 부모 크기 채우기 (RenderBox layout fix)
         children: [
           // ── 지도 (독립 모드만 — 오버레이 모드는 CruiseScreen 지도 사용) ──
           if (widget.onEnd == null)
@@ -373,6 +374,7 @@ class _SprintScreenState extends State<SprintScreen>
   @override
   Widget build(BuildContext context) {
     final body = Stack(
+      fit: StackFit.expand,
       children: [
         _buildSprintBody(context),
         _buildFlashOverlay(),
