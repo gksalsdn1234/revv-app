@@ -70,6 +70,8 @@ class _MapWidgetState extends State<MapWidget> {
         _drawPolyline('route', widget.routePolyline ?? [], AppColors.red.value, 5.5);
       }
     }
+    // 스타일 재로드 중(_styleLoaded=false)에 polyline 변경이 오면
+    // _onStyleLoaded가 완료될 때 widget의 최신값을 자동으로 그림
   }
 
   @override

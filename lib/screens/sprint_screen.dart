@@ -55,9 +55,8 @@ class _SprintScreenState extends State<SprintScreen>
   double _lastFlashG = 0;
   static const double _flashThreshold = 0.65;
 
-  // G-Force 궤적 (trail)
+  // G-Force (trail — 호환용, 실제 렌더링에 미사용)
   final List<Offset> _gTrail = [];
-  static const int _trailLen = 30;
 
   @override
   void initState() {
@@ -186,12 +185,6 @@ class _SprintScreenState extends State<SprintScreen>
     final lG = imu.lateralG;
     final nG = imu.longitudinalG;
     final g = lG.abs();
-
-    // 궤적 업데이트
-    setState(() {
-      _gTrail.add(Offset(lG, nG));
-      if (_gTrail.length > _trailLen) _gTrail.removeAt(0);
-    });
 
     // 플래시 트리거
     if (g >= _flashThreshold && _lastFlashG < _flashThreshold) {
@@ -394,302 +387,285 @@ class _SprintScreenState extends State<SprintScreen>
   }
 }
 
-// ── G-Force 원형 미터 ─────────────────────────────────────────
+// ── G-Force 자동차 글로우 미터 ───────────────────────────────
+// 자동차 실루엣 중앙 고정, G force 방향으로 외부 글로우가 쏠림
+// lateralG > 0 = 오른쪽 코너링 → 차 오른쪽 빛남
+// longitudinalG > 0 = 가속 → 차 뒤쪽 빛남  /  < 0 = 제동 → 앞쪽 빛남
 class _GForceMeter extends StatelessWidget {
-  final List<Offset> trail;
+  final List<Offset> trail; // unused but kept for API compatibility
   const _GForceMeter({required this.trail});
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<ImuService>(
-      builder: (_, imu, __) {
-        final lG = imu.lateralG.clamp(-1.5, 1.5);
-        final nG = imu.longitudinalG.clamp(-1.5, 1.5);
-        final total = math.sqrt(lG * lG + nG * nG);
-
-        final dotColor = _gColor(total);
-
-        return Container(
-          width: 164,
-          height: 186,
-          decoration: BoxDecoration(
-            color: AppColors.bg.withValues(alpha: 0.88),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: dotColor.withValues(alpha: 0.35),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: dotColor.withValues(alpha: 0.15),
-                blurRadius: 12,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 10),
-              // 원형 + 자동차 + 도트
-              SizedBox(
-                width: 144,
-                height: 144,
-                child: CustomPaint(
-                  painter: _GForcePainter(
-                    lateralG: lG,
-                    longitudinalG: nG,
-                    trail: trail,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              // LAT / LON 수치
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    _GLabel(label: 'LAT', value: lG, axis: 'L↔R'),
-                    _GLabel(label: 'LON', value: nG, axis: '↑↓', alignRight: true),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 6),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   static Color _gColor(double total) {
     if (total > 0.6) return AppColors.red;
     if (total > 0.3) return Colors.orange;
     return Colors.lightBlueAccent;
   }
-}
-
-class _GLabel extends StatelessWidget {
-  final String label;
-  final double value;
-  final String axis;
-  final bool alignRight;
-  const _GLabel({
-    required this.label,
-    required this.value,
-    required this.axis,
-    this.alignRight = false,
-  });
-
-  Color get _color {
-    final abs = value.abs();
-    if (abs > 0.6) return AppColors.red;
-    if (abs > 0.3) return Colors.orange;
-    return Colors.lightBlueAccent;
-  }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment:
-          alignRight ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          label,
-          style: GoogleFonts.rajdhani(
-            fontSize: 8,
-            color: AppColors.gray,
-            letterSpacing: 1.5,
+    return Consumer<ImuService>(
+      builder: (_, imu, __) {
+        final lG = imu.lateralG.clamp(-1.5, 1.5);   // 좌(-) 우(+)
+        final nG = imu.longitudinalG.clamp(-1.5, 1.5); // 제동(-) 가속(+)
+        final total = math.sqrt(lG * lG + nG * nG);
+        final glowColor = _gColor(total);
+        final glowAlpha = (total / 1.5).clamp(0.0, 1.0);
+
+        // 글로우 중심: G force 반대 방향으로 이동 (관성 = 차가 그쪽으로 쏠림)
+        // 오른쪽 코너링(lG>0) → 차 오른쪽 면이 받는 힘 → 오른쪽 글로우
+        final glowOffsetX = lG / 1.5 * 28.0;
+        final glowOffsetY = -nG / 1.5 * 32.0; // 가속(+) → 뒤쪽 빛남 → y 위 방향
+
+        return Container(
+          width: 130,
+          height: 160,
+          decoration: BoxDecoration(
+            color: const Color(0xFF0A0A0A).withValues(alpha: 0.9),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: glowColor.withValues(alpha: 0.2 + glowAlpha * 0.3),
+              width: 1,
+            ),
+            boxShadow: [
+              // 외부 컨테이너 글로우
+              BoxShadow(
+                color: glowColor.withValues(alpha: glowAlpha * 0.25),
+                blurRadius: 16,
+                spreadRadius: 1,
+              ),
+            ],
           ),
-        ),
-        Text(
-          '${value >= 0 ? '+' : ''}${value.toStringAsFixed(2)}G',
-          style: GoogleFonts.orbitron(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: _color,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              // 자동차 + 방향성 글로우
+              SizedBox(
+                width: 114,
+                height: 120,
+                child: CustomPaint(
+                  painter: _CarGlowPainter(
+                    lateralG: lG,
+                    longitudinalG: nG,
+                    glowColor: glowColor,
+                    glowAlpha: glowAlpha,
+                    glowOffsetX: glowOffsetX,
+                    glowOffsetY: glowOffsetY,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              // 합성 G 수치
+              Text(
+                '${total.toStringAsFixed(2)}G',
+                style: GoogleFonts.orbitron(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: glowColor,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                total > 0.6 ? 'HIGH' : total > 0.3 ? 'MED' : 'LOW',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: glowColor.withValues(alpha: 0.7),
+                  letterSpacing: 2,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
 
-// ── G-Force CustomPainter ─────────────────────────────────────
-class _GForcePainter extends CustomPainter {
+// ── 자동차 글로우 CustomPainter ──────────────────────────────
+class _CarGlowPainter extends CustomPainter {
   final double lateralG;
   final double longitudinalG;
-  final List<Offset> trail;
+  final Color glowColor;
+  final double glowAlpha;
+  final double glowOffsetX;
+  final double glowOffsetY;
 
-  const _GForcePainter({
+  const _CarGlowPainter({
     required this.lateralG,
     required this.longitudinalG,
-    required this.trail,
+    required this.glowColor,
+    required this.glowAlpha,
+    required this.glowOffsetX,
+    required this.glowOffsetY,
   });
-
-  static const double _maxG = 1.5;
-
-  Color _dotColor(double total) {
-    if (total > 0.6) return AppColors.red;
-    if (total > 0.3) return Colors.orange;
-    return Colors.lightBlueAccent;
-  }
 
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
-    final cy = size.height / 2;
-    final r = cx - 4;
+    final cy = size.height / 2 + 4; // 약간 아래 중앙
 
-    // ── 배경 원 ──
-    canvas.drawCircle(
-      Offset(cx, cy), r,
-      Paint()
-        ..color = const Color(0xFF111111)
-        ..style = PaintingStyle.fill,
-    );
+    // ── 방향성 글로우 (차 뒤쪽에 그라디언트 광원) ──
+    if (glowAlpha > 0.04) {
+      // 글로우 중심 = G force 방향으로 오프셋된 위치
+      final glowCx = cx + glowOffsetX;
+      final glowCy = cy + glowOffsetY;
 
-    // ── 동심원 링 (0.3G, 0.6G, 1.0G) ──
-    _drawRing(canvas, cx, cy, r * (0.3 / _maxG), Colors.lightBlueAccent.withValues(alpha: 0.3));
-    _drawRing(canvas, cx, cy, r * (0.6 / _maxG), Colors.orange.withValues(alpha: 0.35));
-    _drawRing(canvas, cx, cy, r * (1.0 / _maxG), AppColors.red.withValues(alpha: 0.4));
+      final glowPaint = Paint()
+        ..shader = RadialGradient(
+          center: Alignment.center,
+          radius: 1.0,
+          colors: [
+            glowColor.withValues(alpha: glowAlpha * 0.7),
+            glowColor.withValues(alpha: glowAlpha * 0.3),
+            glowColor.withValues(alpha: 0),
+          ],
+          stops: const [0.0, 0.4, 1.0],
+        ).createShader(
+          Rect.fromCenter(center: Offset(glowCx, glowCy), width: 90, height: 90),
+        );
 
-    // ── 링 라벨 ──
-    _drawRingLabel(canvas, cx, cy, r * (0.3 / _maxG), '0.3G', Colors.lightBlueAccent.withValues(alpha: 0.55));
-    _drawRingLabel(canvas, cx, cy, r * (0.6 / _maxG), '0.6G', Colors.orange.withValues(alpha: 0.6));
-    _drawRingLabel(canvas, cx, cy, r * (1.0 / _maxG), '1.0G', AppColors.red.withValues(alpha: 0.65));
+      canvas.drawOval(
+        Rect.fromCenter(center: Offset(glowCx, glowCy), width: 90, height: 90),
+        glowPaint,
+      );
 
-    // ── 십자선 ──
-    final crossPaint = Paint()
-      ..color = Colors.white12
-      ..strokeWidth = 0.8;
-    canvas.drawLine(Offset(cx - r, cy), Offset(cx + r, cy), crossPaint);
-    canvas.drawLine(Offset(cx, cy - r), Offset(cx, cy + r), crossPaint);
-
-    // ── 자동차 실루엣 (중앙) ──
-    _drawCar(canvas, cx, cy);
-
-    // ── 궤적 (trail) ──
-    for (int i = 0; i < trail.length; i++) {
-      final t = trail[i];
-      final dx = t.dx / _maxG * r;
-      final dy = -t.dy / _maxG * r;
-      final alpha = (i / trail.length) * 0.5;
-      final total = math.sqrt(t.dx * t.dx + t.dy * t.dy);
-      canvas.drawCircle(
-        Offset(cx + dx, cy + dy),
-        2.5,
-        Paint()..color = _dotColor(total).withValues(alpha: alpha),
+      // 2차 글로우 (더 크고 흐릿하게)
+      final glow2 = Paint()
+        ..shader = RadialGradient(
+          center: Alignment.center,
+          radius: 1.0,
+          colors: [
+            glowColor.withValues(alpha: glowAlpha * 0.35),
+            glowColor.withValues(alpha: 0),
+          ],
+        ).createShader(
+          Rect.fromCenter(center: Offset(glowCx, glowCy), width: 130, height: 130),
+        );
+      canvas.drawOval(
+        Rect.fromCenter(center: Offset(glowCx, glowCy), width: 130, height: 130),
+        glow2,
       );
     }
 
-    // ── 현재 G 도트 ──
-    final dx = lateralG / _maxG * r;
-    final dy = -longitudinalG / _maxG * r;
-    final total = math.sqrt(lateralG * lateralG + longitudinalG * longitudinalG);
-    final dotColor = _dotColor(total);
-
-    // 글로우
-    canvas.drawCircle(
-      Offset(cx + dx, cy + dy), 9,
-      Paint()..color = dotColor.withValues(alpha: 0.25),
-    );
-    // 도트
-    canvas.drawCircle(
-      Offset(cx + dx, cy + dy), 5.5,
-      Paint()..color = dotColor,
-    );
-    // 하이라이트
-    canvas.drawCircle(
-      Offset(cx + dx - 1.5, cy + dy - 1.5), 1.8,
-      Paint()..color = Colors.white.withValues(alpha: 0.7),
-    );
-  }
-
-  void _drawRing(Canvas canvas, double cx, double cy, double r, Color color) {
-    canvas.drawCircle(
-      Offset(cx, cy), r,
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..strokeCap = StrokeCap.round,
-    );
-  }
-
-  void _drawRingLabel(Canvas canvas, double cx, double cy, double r,
-      String label, Color color) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: label,
-        style: TextStyle(
-          color: color,
-          fontSize: 7,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    tp.paint(canvas, Offset(cx + r + 2, cy - tp.height / 2));
+    // ── 자동차 실루엣 ──
+    _drawCar(canvas, cx, cy);
   }
 
   void _drawCar(Canvas canvas, double cx, double cy) {
-    final paint = Paint()..color = Colors.white.withValues(alpha: 0.18);
-    final strokePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.28)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-
-    // 차체
-    final body = RRect.fromRectAndRadius(
-      Rect.fromCenter(center: Offset(cx, cy), width: 12, height: 22),
-      const Radius.circular(3),
+    // 차체 (top-down)
+    final bodyRect = Rect.fromCenter(
+      center: Offset(cx, cy),
+      width: 28,
+      height: 52,
     );
-    canvas.drawRRect(body, paint);
-    canvas.drawRRect(body, strokePaint);
+    final bodyRRect = RRect.fromRectAndRadius(bodyRect, const Radius.circular(7));
 
-    // 지붕 (캐빈)
-    final cabin = RRect.fromRectAndRadius(
-      Rect.fromCenter(center: Offset(cx, cy - 2), width: 9, height: 12),
-      const Radius.circular(2),
+    // 글로우에 반응하는 차체 fill 색상
+    final bodyColor = Color.lerp(
+      const Color(0xFF2A2A2A),
+      glowColor,
+      glowAlpha * 0.25,
+    )!;
+
+    canvas.drawRRect(
+      bodyRRect,
+      Paint()..color = bodyColor,
     );
-    canvas.drawRRect(cabin, paint);
-    canvas.drawRRect(cabin, strokePaint);
+    canvas.drawRRect(
+      bodyRRect,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.2 + glowAlpha * 0.15)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
+
+    // 캐빈 (앞쪽이 위)
+    final cabinRect = Rect.fromCenter(
+      center: Offset(cx, cy - 4),
+      width: 20,
+      height: 26,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(cabinRect, const Radius.circular(5)),
+      Paint()..color = const Color(0xFF1A1A1A),
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(cabinRect, const Radius.circular(5)),
+      Paint()
+        ..color = Colors.white12
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8,
+    );
+
+    // 앞유리 (상단)
+    final windshieldRect = Rect.fromCenter(
+      center: Offset(cx, cy - 10),
+      width: 16,
+      height: 8,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(windshieldRect, const Radius.circular(2)),
+      Paint()..color = Colors.lightBlueAccent.withValues(alpha: 0.18),
+    );
 
     // 바퀴 4개
-    const wheelW = 4.0;
-    const wheelH = 5.0;
-    for (final pos in [
-      Offset(cx - 8, cy - 8),
-      Offset(cx + 5, cy - 8),
-      Offset(cx - 8, cy + 5),
-      Offset(cx + 5, cy + 5),
+    const wheelW = 7.0;
+    const wheelH = 10.0;
+    for (final wPos in [
+      Offset(cx - 18, cy - 17), // FL
+      Offset(cx + 18, cy - 17), // FR
+      Offset(cx - 18, cy + 14), // RL
+      Offset(cx + 18, cy + 14), // RR
     ]) {
-      final wheel = RRect.fromRectAndRadius(
-        Rect.fromCenter(center: pos, width: wheelW, height: wheelH),
-        const Radius.circular(1),
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: wPos, width: wheelW, height: wheelH),
+          const Radius.circular(2),
+        ),
+        Paint()..color = const Color(0xFF333333),
       );
-      canvas.drawRRect(wheel, Paint()..color = Colors.white.withValues(alpha: 0.35));
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: wPos, width: wheelW, height: wheelH),
+          const Radius.circular(2),
+        ),
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.25)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.8,
+      );
     }
 
-    // 전면 표시 (위쪽 = 전진 방향)
-    canvas.drawLine(
-      Offset(cx - 3, cy - 10),
-      Offset(cx + 3, cy - 10),
-      Paint()
-        ..color = Colors.lightBlueAccent.withValues(alpha: 0.6)
-        ..strokeWidth = 1.5
-        ..strokeCap = StrokeCap.round,
-    );
+    // 헤드라이트 (앞쪽)
+    for (final lPos in [Offset(cx - 9, cy - 26), Offset(cx + 9, cy - 26)]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: lPos, width: 5, height: 2.5),
+          const Radius.circular(1),
+        ),
+        Paint()..color = Colors.white.withValues(alpha: 0.7),
+      );
+    }
+
+    // 테일라이트 (뒤쪽)
+    for (final lPos in [Offset(cx - 9, cy + 26), Offset(cx + 9, cy + 26)]) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromCenter(center: lPos, width: 5, height: 2.5),
+          const Radius.circular(1),
+        ),
+        Paint()..color = AppColors.red.withValues(alpha: 0.8),
+      );
+    }
   }
 
   @override
-  bool shouldRepaint(_GForcePainter old) =>
+  bool shouldRepaint(_CarGlowPainter old) =>
       old.lateralG != lateralG ||
       old.longitudinalG != longitudinalG ||
-      old.trail.length != trail.length;
+      old.glowAlpha != glowAlpha;
 }
 
 // ── 라이브 스탯 HUD ──────────────────────────────────────────
