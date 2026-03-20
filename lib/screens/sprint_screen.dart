@@ -337,16 +337,17 @@ class _SprintScreenState extends State<SprintScreen>
 
   // G-Force 레드 플래시 오버레이
   Widget _buildFlashOverlay() {
-    return AnimatedBuilder(
-      animation: _flashAnim,
-      builder: (_, __) {
-        if (_flashCtrl.status == AnimationStatus.dismissed) {
-          return const SizedBox.shrink();
-        }
-        final opacity = (1 - _flashAnim.value) * 0.45;
-        return Positioned.fill(
-          child: IgnorePointer(
-            child: Container(
+    // Positioned.fill을 AnimatedBuilder 바깥에 — Stack 직접 자식으로 배치해야 layout 안전
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: AnimatedBuilder(
+          animation: _flashAnim,
+          builder: (_, __) {
+            if (_flashCtrl.status == AnimationStatus.dismissed) {
+              return const SizedBox.shrink();
+            }
+            final opacity = (1 - _flashAnim.value) * 0.45;
+            return Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
@@ -357,10 +358,10 @@ class _SprintScreenState extends State<SprintScreen>
                   ],
                 ),
               ),
-            ),
-          ),
-        );
-      },
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -418,7 +419,7 @@ class _GForceMeter extends StatelessWidget {
 
         return Container(
           width: 130,
-          height: 160,
+          // height 고정 제거 — Column이 내용물 높이에 맞게 자동 결정
           decoration: BoxDecoration(
             color: const Color(0xFF0A0A0A).withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(14),
