@@ -366,24 +366,27 @@ class _SprintScreenState extends State<SprintScreen>
 
   // G-Force 레드 플래시 오버레이
   Widget _buildFlashOverlay() {
-    // Positioned.fill을 AnimatedBuilder 바깥에 — Stack 직접 자식으로 배치해야 layout 안전
+    // ⚠️ Flutter issue #120874 fix:
+    // SizedBox.shrink() ↔ Container 위젯 타입 스위칭이 Positioned.fill 안에서
+    // !_debugDoingThisLayout assertion을 유발함.
+    // → 항상 Container를 반환하고, opacity=0.0으로 투명하게 처리.
     return Positioned.fill(
       child: IgnorePointer(
         child: AnimatedBuilder(
           animation: _flashAnim,
           builder: (_, __) {
-            if (_flashCtrl.status == AnimationStatus.dismissed) {
-              return const SizedBox.shrink();
-            }
-            final opacity = (1 - _flashAnim.value) * 0.45;
+            // 항상 Container 반환 — 절대 SizedBox.shrink()로 스위칭하지 않음
+            final opacity = _flashCtrl.isAnimating
+                ? (1.0 - _flashAnim.value) * 0.45
+                : 0.0;
             return Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    AppColors.red.withValues(alpha: opacity * 1.2),
-                    AppColors.red.withValues(alpha: opacity * 0.3),
+                    AppColors.red.withValues(alpha: (opacity * 1.2).clamp(0.0, 1.0)),
+                    AppColors.red.withValues(alpha: (opacity * 0.3).clamp(0.0, 1.0)),
                   ],
                 ),
               ),
@@ -770,6 +773,9 @@ class _NavBanner extends StatelessWidget {
 
 // ── 루트 진행률 바 ────────────────────────────────────────────
 // 바텀바 바로 위 3px 슬림 바, 왼→오른쪽으로 채워짐
+// ⚠️ LayoutBuilder + AnimatedContainer 조합이 Flutter 3.x에서
+//    rapid rebuild 시 !_debugDoingThisLayout assertion을 유발할 수 있음.
+//    → CustomPainter로 교체: layout 단계 없이 paint 단계에서만 그림.
 class _RouteProgressBar extends StatelessWidget {
   final double pct; // 0.0 ~ 1.0
   const _RouteProgressBar({required this.pct});
@@ -782,28 +788,43 @@ class _RouteProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (_, constraints) {
-        final w = constraints.maxWidth;
-        return SizedBox(
-          height: 3,
-          child: Stack(
-            children: [
-              // 배경 트랙
-              Container(color: Colors.white.withValues(alpha: 0.08)),
-              // 진행 바
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeOut,
-                width: w * pct.clamp(0.0, 1.0),
-                color: _color,
-              ),
-            ],
-          ),
-        );
-      },
+    return SizedBox(
+      height: 3,
+      width: double.infinity,
+      child: CustomPaint(
+        painter: _ProgressBarPainter(
+          pct: pct.clamp(0.0, 1.0),
+          color: _color,
+        ),
+      ),
     );
   }
+}
+
+class _ProgressBarPainter extends CustomPainter {
+  final double pct;
+  final Color color;
+  const _ProgressBarPainter({required this.pct, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 배경 트랙
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = Colors.white.withValues(alpha: 0.08),
+    );
+    // 진행 바
+    if (pct > 0) {
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, size.width * pct, size.height),
+        Paint()..color = color,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ProgressBarPainter old) =>
+      old.pct != pct || old.color != color;
 }
 
 // ── 커브 예고 아이콘 ──────────────────────────────────────────
