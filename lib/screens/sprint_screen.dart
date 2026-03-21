@@ -845,53 +845,65 @@ class _CurvePreviewIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = step;
-    // depart/arrive/straight는 표시 안함
-    if (s == null || s.type == 'depart' || s.type == 'arrive') {
-      return const SizedBox.shrink();
-    }
-    if (s.modifier == null || s.modifier == 'straight') {
-      return const SizedBox.shrink();
-    }
-    final sev = _severity(s.modifier);
+    // ⚠ SizedBox.shrink() ↔ Container 타입 스위칭 제거 (→ hit test "no size" 방지)
+    // 항상 IgnorePointer(child: Container) 반환.
+    // 표시 안할 때: ignoring=true + opacity=0 → 보이지 않고 터치 무시.
+    // IgnorePointer.ignoring=true → RenderIgnorePointer.hitTest()가 super 호출 없이
+    // 즉시 false 반환 → 내부 render object의 size 검사 없음.
+    final bool show = s != null &&
+        s.type != 'depart' &&
+        s.type != 'arrive' &&
+        s.modifier != null &&
+        s.modifier != 'straight';
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.bg.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: sev.color.withValues(alpha: 0.5), width: 1),
-        boxShadow: [
-          BoxShadow(color: sev.color.withValues(alpha: 0.2), blurRadius: 10),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(s.icon, color: sev.color, size: 28),
-          if (sev.label.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(
-              sev.label,
-              style: GoogleFonts.rajdhani(
-                fontSize: 9,
-                fontWeight: FontWeight.w800,
-                color: sev.color,
-                letterSpacing: 1.5,
-              ),
-            ),
-          ],
-          if (_distText.isNotEmpty) ...[
-            const SizedBox(height: 1),
-            Text(
-              _distText,
-              style: GoogleFonts.orbitron(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: Colors.white70,
-              ),
-            ),
-          ],
-        ],
+    final sev = show ? _severity(s!.modifier) : (label: '', color: Colors.transparent);
+
+    return IgnorePointer(
+      ignoring: !show,
+      child: Opacity(
+        opacity: show ? 1.0 : 0.0,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.bg.withValues(alpha: 0.88),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: sev.color.withValues(alpha: 0.5), width: 1),
+            boxShadow: [
+              BoxShadow(color: sev.color.withValues(alpha: 0.2), blurRadius: 10),
+            ],
+          ),
+          child: show
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(s!.icon, color: sev.color, size: 28),
+                    if (sev.label.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        sev.label,
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: sev.color,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    ],
+                    if (_distText.isNotEmpty) ...[
+                      const SizedBox(height: 1),
+                      Text(
+                        _distText,
+                        style: GoogleFonts.orbitron(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ],
+                )
+              : const SizedBox.shrink(),
+        ),
       ),
     );
   }
