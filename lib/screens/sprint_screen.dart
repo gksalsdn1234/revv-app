@@ -434,31 +434,16 @@ class _SprintScreenState extends State<SprintScreen>
 }
 
 // ── 라이브 스탯 HUD ──────────────────────────────────────────
-class _LiveStatHUD extends StatefulWidget {
+// ⚠️ Timer.periodic + setState() 패턴 제거:
+//    매초 setState()가 호출되면 Flutter layout 단계와 충돌 →
+//    !_debugDoingThisLayout assertion 유발 가능.
+//    → StatelessWidget + context.watch<RunSessionService>() 로 교체.
+//    RunSessionService.recordPosition()이 GPS 업데이트마다 notifyListeners()
+//    (addPostFrameCallback 경유, 프레임 간 안전) → 화면 자동 갱신.
+class _LiveStatHUD extends StatelessWidget {
   const _LiveStatHUD();
 
-  @override
-  State<_LiveStatHUD> createState() => _LiveStatHUDState();
-}
-
-class _LiveStatHUDState extends State<_LiveStatHUD> {
-  late Timer _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _timer.cancel();
-    super.dispose();
-  }
-
-  String _fmt(Duration d) {
+  static String _fmt(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
@@ -467,7 +452,8 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
 
   @override
   Widget build(BuildContext context) {
-    final session = context.read<RunSessionService>();
+    // watch → RunSessionService.notifyListeners() 시 자동 rebuild (GPS 업데이트마다)
+    final session = context.watch<RunSessionService>();
     final dur = session.currentDuration;
     final dist = session.currentDistance;
     final distStr = dist >= 1.0
