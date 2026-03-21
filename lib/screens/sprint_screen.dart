@@ -68,12 +68,18 @@ class _SprintScreenState extends State<SprintScreen>
       vsync: this,
       duration: const Duration(milliseconds: 400),
     );
-    _flashAnim = Tween<double>(begin: 0, end: 1).animate(
+    // value=1.0 → opacity=0.45(max), value=0.0 → opacity=0.0(invisible)
+    // FadeTransition은 paint-only(RenderAnimatedOpacity) — layout 미개입
+    _flashAnim = Tween<double>(begin: 0.0, end: 0.45).animate(
       CurvedAnimation(parent: _flashCtrl, curve: Curves.easeOut),
     );
   }
 
-  void _triggerGFlash() => _flashCtrl.forward(from: 0);
+  // value를 1.0으로 점프 후 reverse() — forward(from:0)의 isAnimating 타이밍 이슈 회피
+  void _triggerGFlash() {
+    _flashCtrl.value = 1.0;
+    _flashCtrl.reverse();
+  }
 
   @override
   void didChangeDependencies() {
@@ -366,32 +372,32 @@ class _SprintScreenState extends State<SprintScreen>
 
   // G-Force 레드 플래시 오버레이
   Widget _buildFlashOverlay() {
-    // ⚠️ Flutter issue #120874 fix:
-    // SizedBox.shrink() ↔ Container 위젯 타입 스위칭이 Positioned.fill 안에서
-    // !_debugDoingThisLayout assertion을 유발함.
-    // → 항상 Container를 반환하고, opacity=0.0으로 투명하게 처리.
+    // ⚠️ Flutter issue #120874 fix (final):
+    // AnimatedBuilder + Container → FadeTransition + DecoratedBox 로 교체
+    //
+    // FadeTransition → RenderAnimatedOpacity: paint-only, layout 미개입
+    // → !_debugDoingThisLayout assertion 원천 차단
+    //
+    // _flashCtrl.value=1.0 → reverse() 방식:
+    //   forward(from:0) 는 value setter가 동기적으로 notifyListeners()를 호출하는 시점에
+    //   isAnimating=false 상태 → AnimatedBuilder가 opacity=0으로 빌드 (타이밍 버그)
+    //   reverse()는 이미 value=1.0인 상태에서 시작 → 첫 프레임부터 opacity=0.45 보장
     return Positioned.fill(
       child: IgnorePointer(
-        child: AnimatedBuilder(
-          animation: _flashAnim,
-          builder: (_, __) {
-            // 항상 Container 반환 — 절대 SizedBox.shrink()로 스위칭하지 않음
-            final opacity = _flashCtrl.isAnimating
-                ? (1.0 - _flashAnim.value) * 0.45
-                : 0.0;
-            return Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    AppColors.red.withValues(alpha: (opacity * 1.2).clamp(0.0, 1.0)),
-                    AppColors.red.withValues(alpha: (opacity * 0.3).clamp(0.0, 1.0)),
-                  ],
-                ),
+        child: FadeTransition(
+          opacity: _flashAnim,
+          child: const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0x8AE53935), // red ~54% (0.45 * 1.2 ≈ 0.54)
+                  Color(0x22E53935), // red ~13% (0.45 * 0.3 ≈ 0.135)
+                ],
               ),
-            );
-          },
+            ),
+          ),
         ),
       ),
     );
