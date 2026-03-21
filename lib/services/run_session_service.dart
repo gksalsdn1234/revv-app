@@ -1,11 +1,9 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/run_session.dart';
 import '../models/revv_route.dart';
 
 class RunSessionService extends ChangeNotifier {
   bool isRecording = false;
-  Timer? _tickTimer; // 1초마다 notifyListeners → _LiveStatHUD 시계 갱신
 
   DateTime? _startTime;
   double _maxSpeedKmh = 0;
@@ -51,11 +49,6 @@ class RunSessionService extends ChangeNotifier {
     _currentMode = 'cruise';
     _currentModeStart = DateTime.now();
     _driveModeSeconds.clear();
-    // 1초 tick → _LiveStatHUD(context.watch) 시계 갱신
-    _tickTimer?.cancel();
-    _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (isRecording) notifyListeners();
-    });
     notifyListeners();
   }
 
@@ -95,8 +88,6 @@ class RunSessionService extends ChangeNotifier {
   }) {
     if (!isRecording || _startTime == null) return null;
     isRecording = false;
-    _tickTimer?.cancel();
-    _tickTimer = null;
     _finalizeCurrentMode();
     final session = RunSession(
       startTime: _startTime!,

@@ -249,11 +249,17 @@ class _SprintScreenState extends State<SprintScreen>
   // (Consumer rebuild이 build/layout 충돌 유발 → !_debugDoingThisLayout 해결)
   Widget _buildSprintBody(BuildContext context) {
     final tbtTop = (_tbtService?.upcomingStep != null) ? 76.0 : 16.0;
+    // ⚠ ValueKey 필수:
+    // Stack 자식 리스트에 if 조건부 위젯이 있으면 Flutter가 INDEX 기반으로 매칭.
+    // 조건 변경 시 인덱스가 밀려서 서로 다른 타입끼리 매칭 → render object 교체
+    // → !_debugDoingThisLayout / "no size" / RenderBox not laid out 등 유발.
+    // ValueKey로 각 위젯의 정체성을 보장 → 인덱스 무관하게 정확히 매칭.
     return Stack(
       children: [
         // ── 지도 (독립 모드만 — 오버레이 모드는 CruiseScreen 지도 사용) ──
         if (widget.onEnd == null)
           Positioned.fill(
+            key: const ValueKey('sprint-map'),
             child: MapWidget(
               isSprintMode: true,
               navPolyline: _navPolyline,
@@ -264,6 +270,7 @@ class _SprintScreenState extends State<SprintScreen>
         // ── 드라이브 모드 테두리 글로우 ──
         if (_driveMode != DriveMode.cruise)
           Positioned.fill(
+            key: const ValueKey('drive-glow'),
             child: IgnorePointer(
               child: Container(
                 decoration: BoxDecoration(
@@ -279,6 +286,7 @@ class _SprintScreenState extends State<SprintScreen>
         // ── 상단: 턴바이턴 배너 ──
         if (_tbtService != null && _tbtService!.upcomingStep != null)
           Positioned(
+            key: const ValueKey('nav-banner'),
             top: 0, left: 0, right: 0,
             child: _NavBanner(
               step: _tbtService!.upcomingStep!,
@@ -291,6 +299,7 @@ class _SprintScreenState extends State<SprintScreen>
         // ── 상단 우측: 드라이브 모드 배지 ──
         if (_driveMode != DriveMode.cruise)
           Positioned(
+            key: const ValueKey('mode-badge'),
             top: tbtTop,
             right: 14,
             child: _ModeBadge(mode: _driveMode),
@@ -298,6 +307,7 @@ class _SprintScreenState extends State<SprintScreen>
 
         // ── 상단 좌측: 경과/거리 pill ──
         Positioned(
+          key: const ValueKey('live-stat'),
           top: tbtTop,
           left: 14,
           child: const _LiveStatHUD(),
@@ -306,6 +316,7 @@ class _SprintScreenState extends State<SprintScreen>
         // ── 루트 이동 중 안내 ──
         if (!_onRoute && _navPolyline != null && widget.selectedRoute != null)
           Positioned(
+            key: const ValueKey('nav-status'),
             bottom: 88,
             left: 0, right: 0,
             child: Center(
@@ -319,6 +330,7 @@ class _SprintScreenState extends State<SprintScreen>
         // ── 루트 진입 / 복귀 메시지 ──
         if (_routeStatusMsg != null)
           Positioned(
+            key: const ValueKey('route-msg'),
             bottom: 88,
             left: 0, right: 0,
             child: Center(
@@ -331,14 +343,16 @@ class _SprintScreenState extends State<SprintScreen>
 
         // ── 루트 이탈 경고 배너 ──
         if (_isOffRoute)
-          const Positioned(
+          Positioned(
+            key: const ValueKey('off-route'),
             top: 0, left: 0, right: 0,
-            child: _OffRouteBanner(),
+            child: const _OffRouteBanner(),
           ),
 
         // ── 하단 좌측: 커브 예고 아이콘 ──
         if (_tbtService != null)
           Positioned(
+            key: const ValueKey('curve-icon'),
             bottom: 84,
             left: 14,
             child: _CurvePreviewIcon(
@@ -350,6 +364,7 @@ class _SprintScreenState extends State<SprintScreen>
         // ── 루트 진행률 바 (바텀바 바로 위, 3px) ──
         if (_onRoute && widget.selectedRoute != null)
           Positioned(
+            key: const ValueKey('route-progress'),
             bottom: 68,
             left: 0,
             right: 0,
@@ -358,6 +373,7 @@ class _SprintScreenState extends State<SprintScreen>
 
         // ── 하단 바: 음소거 + 마이크 + 런 종료 ──
         Positioned(
+          key: const ValueKey('bottom-bar'),
           bottom: 0, left: 0, right: 0,
           child: _SprintBottomBar(
             onEnd: _endRun,
@@ -440,10 +456,34 @@ class _SprintScreenState extends State<SprintScreen>
 //    → StatelessWidget + context.watch<RunSessionService>() 로 교체.
 //    RunSessionService.recordPosition()이 GPS 업데이트마다 notifyListeners()
 //    (addPostFrameCallback 경유, 프레임 간 안전) → 화면 자동 갱신.
-class _LiveStatHUD extends StatelessWidget {
+class _LiveStatHUD extends StatefulWidget {
   const _LiveStatHUD();
 
-  static String _fmt(Duration d) {
+  @override
+  State<_LiveStatHUD> createState() => _LiveStatHUDState();
+}
+
+class _LiveStatHUDState extends State<_LiveStatHUD> {
+  late Timer _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  String _fmt(Duration d) {
     final h = d.inHours;
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
@@ -452,8 +492,7 @@ class _LiveStatHUD extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // watch → RunSessionService.notifyListeners() 시 자동 rebuild (GPS 업데이트마다)
-    final session = context.watch<RunSessionService>();
+    final session = context.read<RunSessionService>();
     final dur = session.currentDuration;
     final dist = session.currentDistance;
     final distStr = dist >= 1.0
