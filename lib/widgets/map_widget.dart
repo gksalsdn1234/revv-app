@@ -255,6 +255,12 @@ class _MapWidgetState extends State<MapWidget> {
     final loc = context.read<LocationService>();
     final weatherIcon = context.read<WeatherService>().weatherIcon;
 
+    // ⚠ TLHC_VD + textureView: 에뮬레이터 GFXSTREAM 충돌 해결
+    // 기본 HybridComposition은 SurfaceView를 Flutter 뷰 계층에 직접 임베드 →
+    // 에뮬레이터에서 플랫폼 뷰 레이아웃 업데이트가 Flutter layout phase 중 발생 →
+    // !_debugDoingThisLayout assertion + touch 먹통 유발.
+    // TLHC_VD(Texture Layer Hybrid Composition + VirtualDisplay fallback) +
+    // textureView=true → 텍스처 기반 합성으로 layout phase 간섭 차단.
     return mbx.MapWidget(
       styleUri: widget.isSprintMode
           ? MapboxService.sprintStyle(weatherIcon)
@@ -264,6 +270,8 @@ class _MapWidgetState extends State<MapWidget> {
         zoom: widget.isSprintMode ? 16.5 : 15.0,
         pitch: widget.isSprintMode ? 50.0 : 20.0,
       ),
+      androidHostingMode: mbx.AndroidPlatformViewHostingMode.TLHC_VD,
+      textureView: true,
       onMapCreated: _onMapCreated,
       onStyleLoadedListener: _onStyleLoaded,
     );

@@ -1,8 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import '../models/run_session.dart';
 import '../models/revv_route.dart';
 
 class RunSessionService extends ChangeNotifier {
+  // ── post-frame 안전 notify ────────────────────────────────────
+  // recordPosition()은 LocationService post-frame callback 안에서 호출됨.
+  // 직접 notifyListeners() → Consumer rebuild → 같은 프레임 layout 재진입 가능.
+  // → addPostFrameCallback으로 항상 다음 프레임에 notify.
+  bool _notifyPending = false;
+  void _scheduleNotify() {
+    if (_notifyPending) return;
+    _notifyPending = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _notifyPending = false;
+      notifyListeners();
+    });
+  }
   bool isRecording = false;
 
   DateTime? _startTime;
@@ -49,7 +63,7 @@ class RunSessionService extends ChangeNotifier {
     _currentMode = 'cruise';
     _currentModeStart = DateTime.now();
     _driveModeSeconds.clear();
-    notifyListeners();
+    _scheduleNotify();
   }
 
   void recordPosition(double lat, double lng, double speedKmh) {
@@ -63,7 +77,7 @@ class RunSessionService extends ChangeNotifier {
     if (speedKmh > _maxSpeedKmh) _maxSpeedKmh = speedKmh;
     _totalSpeedSum += speedKmh;
     _speedSamples++;
-    notifyListeners();
+    _scheduleNotify();
   }
 
   /// DriveMode 변경 시 호출 (mode.name 전달 → 'cruise' / 'winding' / 'sport')
@@ -104,7 +118,7 @@ class RunSessionService extends ChangeNotifier {
       maxLonG: maxLonG,
       driveModeSeconds: Map.unmodifiable(Map.of(_driveModeSeconds)),
     );
-    notifyListeners();
+    _scheduleNotify();
     return session;
   }
 }

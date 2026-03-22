@@ -331,16 +331,25 @@ class _RoutesScreenState extends State<RoutesScreen> {
       body: Stack(
           children: [
             // 지도 — 전체 화면
-            mbx.MapWidget(
-              styleUri: MapboxService.cruiseStyle,
-              cameraOptions: mbx.CameraOptions(
-                center: mbx.Point(
-                    coordinates: mbx.Position(loc.lng, loc.lat)),
-                zoom: 10.0,
-                pitch: 0,
+            // ClipRect + SizedBox.expand: platform view layout 격리
+            ClipRect(
+              child: SizedBox.expand(
+                child: RepaintBoundary(
+                  child: mbx.MapWidget(
+                    styleUri: MapboxService.cruiseStyle,
+                    cameraOptions: mbx.CameraOptions(
+                      center: mbx.Point(
+                          coordinates: mbx.Position(loc.lng, loc.lat)),
+                      zoom: 10.0,
+                      pitch: 0,
+                    ),
+                    androidHostingMode: mbx.AndroidPlatformViewHostingMode.TLHC_VD,
+                    textureView: true,
+                    onMapCreated: _onMapCreated,
+                    onStyleLoadedListener: _onStyleLoaded,
+                  ),
+                ),
               ),
-              onMapCreated: _onMapCreated,
-              onStyleLoadedListener: _onStyleLoaded,
             ),
             // ── 상단 플로팅 헤더 ──
             Positioned(

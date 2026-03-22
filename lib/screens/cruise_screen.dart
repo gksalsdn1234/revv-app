@@ -170,15 +170,21 @@ class _CruiseScreenState extends State<CruiseScreen> {
         body: Stack(
           children: [
             // ── 풀스크린 맵 ──
+            // ClipRect + SizedBox.expand: platform view layout 변경이
+            // 상위 Stack으로 전파되는 것을 차단 → !_debugDoingThisLayout 방지
             Positioned.fill(
               key: const ValueKey('cruise-map'),
-              child: RepaintBoundary(
-                child: MapWidget(
-                  isSprintMode: _isSprinting,
-                  navPolyline: _isSprinting ? _sprintNavPolyline : _navPolyline,
-                  routePolyline: _isSprinting
-                      ? _sprintRoute?.nodes
-                      : selectedRoute?.nodes,
+              child: ClipRect(
+                child: SizedBox.expand(
+                  child: RepaintBoundary(
+                    child: MapWidget(
+                      isSprintMode: _isSprinting,
+                      navPolyline: _isSprinting ? _sprintNavPolyline : _navPolyline,
+                      routePolyline: _isSprinting
+                          ? _sprintRoute?.nodes
+                          : selectedRoute?.nodes,
+                    ),
+                  ),
                 ),
               ),
             ),

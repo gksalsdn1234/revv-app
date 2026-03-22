@@ -257,14 +257,20 @@ class _SprintScreenState extends State<SprintScreen>
     return Stack(
       children: [
         // ── 지도 (독립 모드만 — 오버레이 모드는 CruiseScreen 지도 사용) ──
+        // ClipRect + SizedBox.expand: platform view layout 변경이
+        // 상위 Stack으로 전파되는 것을 차단
         if (widget.onEnd == null)
           Positioned.fill(
             key: const ValueKey('sprint-map'),
-            child: RepaintBoundary(
-              child: MapWidget(
-                isSprintMode: true,
-                navPolyline: _navPolyline,
-                routePolyline: widget.selectedRoute?.nodes,
+            child: ClipRect(
+              child: SizedBox.expand(
+                child: RepaintBoundary(
+                  child: MapWidget(
+                    isSprintMode: true,
+                    navPolyline: _navPolyline,
+                    routePolyline: widget.selectedRoute?.nodes,
+                  ),
+                ),
               ),
             ),
           ),
