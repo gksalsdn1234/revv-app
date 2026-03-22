@@ -34,6 +34,16 @@ class _MapWidgetState extends State<MapWidget> {
   bool _locationPuckEnabled = false;
   LocationService? _locationService;
 
+  // ── 카메라 업데이트 1-프레임 격리 ──────────────────────────────
+  // LocationService notifyListeners (post-frame) → 모든 리스너 동기 실행:
+  //   MapWidget._onLocationChanged → _moveCamera (Mapbox 네이티브 호출)
+  //   SprintScreen._onLocation → setState (다음 프레임 dirty 마킹)
+  // 문제: _moveCamera의 platform view 업데이트가 다음 프레임 layout 중 도착
+  //   → !_debugDoingThisLayout assertion
+  // 해결: 카메라 업데이트를 별도 addPostFrameCallback으로 1프레임 격리
+  //   → setState 트리거 layout이 완전히 끝난 후 카메라 이동
+  bool _cameraPending = false;
+
   @override
   void initState() {
     super.initState();
@@ -81,9 +91,20 @@ class _MapWidgetState extends State<MapWidget> {
   }
 
   void _onLocationChanged() {
-    final loc = _locationService;
-    if (loc != null && _styleLoaded) {
-      _moveCamera(loc.lat, loc.lng, heading: loc.heading);
+    if (_locationService == null || !_styleLoaded) return;
+    // 카메라 업데이트를 다음 프레임 post-frame으로 격리:
+    // 현재 post-frame 사이클의 setState 들이 유발하는 layout이
+    // 완전히 끝난 후 Mapbox 네이티브 호출 실행
+    if (!_cameraPending) {
+      _cameraPending = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _cameraPending = false;
+        if (!mounted || !_styleLoaded) return;
+        final loc = _locationService;
+        if (loc != null) {
+          _moveCamera(loc.lat, loc.lng, heading: loc.heading);
+        }
+      });
     }
   }
 

@@ -147,11 +147,15 @@ class _CruiseScreenState extends State<CruiseScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final routeSvc = context.watch<RouteService>();
-    final selectedRoute = routeSvc.selectedRoute;
+    // ⚠ context.watch<RouteService>() → context.select 로 교체:
+    // watch는 RouteService의 모든 변경(loading, connecting 등)마다 CruiseScreen 전체 rebuild
+    // → 스프린트 중 SprintScreen + MapWidget까지 연쇄 rebuild → platform view 충돌 유발
+    // select는 필요한 속성만 감시 → 불필요한 rebuild 차단
+    final selectedRoute = context.select<RouteService, RevvRoute?>((r) => r.selectedRoute);
+    final sprintRequested = context.select<RouteService, bool>((r) => r.sprintRequested);
 
-    if (routeSvc.sprintRequested && !_isSprinting) {
-      routeSvc.clearSprintRequest();
+    if (sprintRequested && !_isSprinting) {
+      context.read<RouteService>().clearSprintRequest();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _goSprint();
       });
@@ -231,7 +235,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
                 child: _RouteSelectedCard(
                   route: selectedRoute,
                   onGo: _goSprint,
-                  onDismiss: () => routeSvc.deselectRoute(),
+                  onDismiss: () => context.read<RouteService>().deselectRoute(),
                 ),
               ),
 
@@ -449,11 +453,11 @@ class _RouteSelectedCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final svc = context.watch<RouteService>();
+    final connectingRoutes = context.select<RouteService, List<RevvRoute>>((r) => r.connectingRoutes);
     final diffColor = _diffColor(route.difficultyLevel);
-    final hasChain = svc.connectingRoutes.isNotEmpty;
+    final hasChain = connectingRoutes.isNotEmpty;
     final totalChainKm = route.distanceKm +
-        svc.connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm);
+        connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
