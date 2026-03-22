@@ -363,7 +363,9 @@ class OBDService extends ChangeNotifier {
 
       if (upd != null) {
         _data = upd;
-        notifyListeners();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          notifyListeners();
+        });
       }
     } catch (_) {}
   }
@@ -372,13 +374,17 @@ class OBDService extends ChangeNotifier {
 
   void _setState(OBDState s) {
     _state = s;
-    notifyListeners();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notifyListeners();
+    });
   }
 
   void _setError(String msg) {
     _errorMsg = msg;
     _state = OBDState.error;
-    notifyListeners();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notifyListeners();
+    });
   }
 
   @override

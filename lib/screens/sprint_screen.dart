@@ -437,9 +437,13 @@ class _SprintScreenState extends State<SprintScreen>
     );
 
     if (widget.onEnd != null) {
+      // ⚠ Material(color: transparent) 제거:
+      // _RenderInkFeatures.hitTestSelf()=true → 투명해도 모든 터치 흡수
+      // → 아래 CruiseScreen MapWidget 터치 불가 + hit test "no size" 에러 유발.
+      // RedGlowButton은 자체 로컬 Material 사용 → 상위 Material 불필요.
       return PopScope(
         canPop: false,
-        child: Material(color: Colors.transparent, child: body),
+        child: body,
       );
     }
     return PopScope(

@@ -43,18 +43,19 @@ class _JarvisPanelState extends State<JarvisPanel>
       const Duration(milliseconds: 40),
       (_) {
         if (!mounted) return;
-        if (_charIndex < _currentLine.length) {
-          setState(() {
-            _displayText += _currentLine[_charIndex];
-            _charIndex++;
-          });
-        } else {
-          _typeTimer?.cancel();
-          if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          if (_charIndex < _currentLine.length) {
+            setState(() {
+              _displayText += _currentLine[_charIndex];
+              _charIndex++;
+            });
+          } else {
+            _typeTimer?.cancel();
             setState(() => _typing = false);
-            _cursor.stop(); // 타이핑 끝나면 커서 정지
+            _cursor.stop();
           }
-        }
+        });
       },
     );
   }

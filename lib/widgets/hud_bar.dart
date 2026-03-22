@@ -22,7 +22,10 @@ class _HudBarState extends State<HudBar> {
     super.initState();
     _time = _formatted();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _time = _formatted());
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _time = _formatted());
+      });
     });
   }
 
@@ -98,7 +101,10 @@ class _SprintHudBarState extends State<SprintHudBar> {
     super.initState();
     _time = _formatted();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _time = _formatted());
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _time = _formatted());
+      });
     });
   }
 
