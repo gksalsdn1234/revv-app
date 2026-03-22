@@ -162,22 +162,31 @@ class _CruiseScreenState extends State<CruiseScreen> {
       child: Scaffold(
         backgroundColor: Colors.black,
         extendBody: true,
+        // ⚠ ValueKey 필수:
+        // Stack 자식 리스트에 if 조건부 위젯이 있으면 Flutter가 INDEX 기반으로 매칭.
+        // _isSprinting / selectedRoute / _nearRouteStart 변경 시 인덱스가 밀려서
+        // 서로 다른 타입끼리 매칭 → RenderDecoratedBox not laid out / no size 에러.
+        // ValueKey로 각 위젯의 정체성을 보장.
         body: Stack(
           children: [
             // ── 풀스크린 맵 ──
             Positioned.fill(
-              child: MapWidget(
-                isSprintMode: _isSprinting,
-                navPolyline: _isSprinting ? _sprintNavPolyline : _navPolyline,
-                routePolyline: _isSprinting
-                    ? _sprintRoute?.nodes
-                    : selectedRoute?.nodes,
+              key: const ValueKey('cruise-map'),
+              child: RepaintBoundary(
+                child: MapWidget(
+                  isSprintMode: _isSprinting,
+                  navPolyline: _isSprinting ? _sprintNavPolyline : _navPolyline,
+                  routePolyline: _isSprinting
+                      ? _sprintRoute?.nodes
+                      : selectedRoute?.nodes,
+                ),
               ),
             ),
 
             // ── 상단 플로팅 HUD ──
             if (!_isSprinting)
               Positioned(
+                key: const ValueKey('top-hud'),
                 top: MediaQuery.of(context).padding.top + 10,
                 left: 14,
                 right: 14,
@@ -187,6 +196,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
             // ── 속도 게이지 (좌하단 플로팅) ──
             if (!_isSprinting)
               Positioned(
+                key: const ValueKey('speed-gauge'),
                 bottom: 80 + MediaQuery.of(context).padding.bottom + 18,
                 left: 14,
                 child: const _SpeedGauge(),
@@ -195,6 +205,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
             // ── 루트 시작 근접 배너 ──
             if (!_isSprinting && _nearRouteStart && selectedRoute != null)
               Positioned(
+                key: const ValueKey('near-start'),
                 top: MediaQuery.of(context).padding.top + 70,
                 left: 14,
                 right: 14,
@@ -207,6 +218,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
             // ── 루트 선택 카드 (하단 탭바 바로 위) ──
             if (!_isSprinting && selectedRoute != null)
               Positioned(
+                key: const ValueKey('route-card'),
                 bottom: 74 + MediaQuery.of(context).padding.bottom,
                 left: 0,
                 right: 0,
@@ -220,6 +232,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
             // ── Sprint 오버레이 ──
             if (_isSprinting)
               Positioned.fill(
+                key: const ValueKey('sprint-overlay'),
                 child: SprintScreen(
                   selectedRoute: _sprintRoute,
                   onEnd: _onSprintEnd,
@@ -232,6 +245,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
             // ── 하단 탭바 ──
             if (!_isSprinting)
               Positioned(
+                key: const ValueKey('bottom-nav'),
                 bottom: 0,
                 left: 0,
                 right: 0,

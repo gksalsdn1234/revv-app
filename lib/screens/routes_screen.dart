@@ -492,6 +492,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
             // 집 위치 지도 핀 모드 오버레이
             if (_settingHome)
               Positioned.fill(
+                key: const ValueKey('home-pin-overlay'),
                 child: IgnorePointer(
                   ignoring: false,
                   child: Column(
@@ -526,6 +527,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
             // 집 설정 확인/취소 버튼 (핀 모드일 때)
             if (_settingHome)
               Positioned(
+                key: const ValueKey('home-pin-buttons'),
                 bottom: 24,
                 left: 24,
                 right: 24,
@@ -586,6 +588,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
             // 루트 정보 오버레이 카드 (ROUTES 탭 + 루트 선택 시 지도 위에 표시)
             if (_tab == 0 && !_settingHome)
               Positioned(
+                key: const ValueKey('route-info-overlay'),
                 bottom: 82, // 탭바(~36) + 컨트롤바(44) + 여유 2px
                 left: 0,
                 right: 0,
@@ -617,6 +620,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
             // 하단 패널 (ROUTES / TRIP 탭) — 핀 모드에선 숨김
             if (!_settingHome)
               Positioned(
+                key: const ValueKey('bottom-panel'),
                 bottom: 0,
                 left: 0,
                 right: 0,

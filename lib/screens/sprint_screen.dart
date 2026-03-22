@@ -260,10 +260,12 @@ class _SprintScreenState extends State<SprintScreen>
         if (widget.onEnd == null)
           Positioned.fill(
             key: const ValueKey('sprint-map'),
-            child: MapWidget(
-              isSprintMode: true,
-              navPolyline: _navPolyline,
-              routePolyline: widget.selectedRoute?.nodes,
+            child: RepaintBoundary(
+              child: MapWidget(
+                isSprintMode: true,
+                navPolyline: _navPolyline,
+                routePolyline: widget.selectedRoute?.nodes,
+              ),
             ),
           ),
 
