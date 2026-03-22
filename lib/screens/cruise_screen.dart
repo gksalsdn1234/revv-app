@@ -898,8 +898,7 @@ class _NavItem extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 5),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
+              Container(
                 width: active ? 20 : 0,
                 height: 2,
                 decoration: BoxDecoration(

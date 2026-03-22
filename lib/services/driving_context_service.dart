@@ -74,9 +74,14 @@ class DrivingContextService extends ChangeNotifier {
       _bearingHistory.removeAt(0);
     }
 
+    final prevMode = _mode;
+    final prevIntensity = _windingIntensity;
     _computeWinding();
     _resolveMode();
-    _scheduleNotify();
+    // 실제 상태 변경 시에만 notify (불필요한 post-frame 콜백 방지)
+    if (_mode != prevMode || (_windingIntensity - prevIntensity).abs() > 0.01) {
+      _scheduleNotify();
+    }
   }
 
   // OBD 업데이트: RPM과 속도로 스포츠 모드 추론

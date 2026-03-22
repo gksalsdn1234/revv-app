@@ -108,8 +108,9 @@ class _MicButtonState extends State<MicButton> with TickerProviderStateMixin {
       onTapDown: (_) => _onPressDown(),
       onTapUp: (_) => _onPressUp(),
       onTapCancel: () => _onPressUp(),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
+      // AnimatedContainer → Container: implicit animation이
+      // layout phase에서 크기 변경 → !_debugDoingThisLayout 유발 가능
+      child: Container(
         width: 56,
         height: 56,
         decoration: BoxDecoration(

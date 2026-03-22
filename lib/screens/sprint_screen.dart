@@ -626,8 +626,11 @@ class _ModeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 400),
+    // ⚠ AnimatedContainer 제거:
+    // implicit animation이 layout 단계에서 크기를 변경하면
+    // 부모 Stack의 Positioned relayout과 충돌 → !_debugDoingThisLayout.
+    // 색상 변경은 즉시 적용 (시각적 차이 거의 없음).
+    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: AppColors.bg.withValues(alpha: 0.88),
