@@ -43,19 +43,16 @@ class _JarvisPanelState extends State<JarvisPanel>
       const Duration(milliseconds: 40),
       (_) {
         if (!mounted) return;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          if (_charIndex < _currentLine.length) {
-            setState(() {
-              _displayText += _currentLine[_charIndex];
-              _charIndex++;
-            });
-          } else {
-            _typeTimer?.cancel();
-            setState(() => _typing = false);
-            _cursor.stop();
-          }
-        });
+        if (_charIndex < _currentLine.length) {
+          setState(() {
+            _displayText += _currentLine[_charIndex];
+            _charIndex++;
+          });
+        } else {
+          _typeTimer?.cancel();
+          setState(() => _typing = false);
+          _cursor.stop();
+        }
       },
     );
   }

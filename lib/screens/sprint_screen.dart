@@ -481,11 +481,9 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
   @override
   void initState() {
     super.initState();
+    // Timer callback은 이벤트 루프에서 실행 (layout phase 아님) → setState 직접 호출 안전
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) setState(() {});
-      });
+      if (mounted) setState(() {});
     });
   }
 
