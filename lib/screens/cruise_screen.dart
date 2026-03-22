@@ -568,11 +568,12 @@ class _RouteSelectedCard extends StatelessWidget {
                         const SizedBox(height: 5),
                         GestureDetector(
                           onTap: () {
-                            final allNodes = [...route.nodes, ...svc.connectingRoutes.expand((r) => r.nodes)];
-                            svc.requestSprint(
+                            final rs = context.read<RouteService>();
+                            final allNodes = <LatLng>[...route.nodes, ...rs.connectingRoutes.expand((r) => r.nodes)];
+                            rs.requestSprint(
                               route: route.copyWith(
                                 id: '${route.id}_chain',
-                                name: '${route.name} +${svc.connectingRoutes.length}',
+                                name: '${route.name} +${rs.connectingRoutes.length}',
                                 nodes: allNodes,
                                 distanceKm: totalChainKm,
                               ),
