@@ -700,13 +700,17 @@ class _SprintBottomBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           const MicButton(),
-          const Spacer(),
-          // 런 종료 버튼
-          RedGlowButton(
-            label: '🏁 런 종료',
-            filled: true,
-            height: 48,
-            onTap: onEnd,
+          const SizedBox(width: 12),
+          // 런 종료 버튼 — Expanded 필수:
+          // RedGlowButton 내부 SizedBox(width: infinity) + Row = 무한 너비 에러
+          // Expanded가 Row의 남은 공간을 배분 → 유한 너비로 변환
+          Expanded(
+            child: RedGlowButton(
+              label: '🏁 런 종료',
+              filled: true,
+              height: 48,
+              onTap: onEnd,
+            ),
           ),
         ],
       ),
