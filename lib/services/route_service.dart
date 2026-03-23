@@ -163,12 +163,14 @@ class RouteService extends ChangeNotifier {
   Future<List<RevvRoute>> _fetchAndScore(double lat, double lng, int radiusM) async {
     // primary도 추가 — 캐나다 일부 구간은 1차선 primary가 와인딩 명소
     final query = '''
-[out:json][timeout:35];
+[out:json][timeout:40];
 (
   way["highway"="primary"](around:$radiusM,$lat,$lng);
   way["highway"="secondary"](around:$radiusM,$lat,$lng);
   way["highway"="tertiary"](around:$radiusM,$lat,$lng);
   way["highway"="unclassified"](around:$radiusM,$lat,$lng);
+  way["highway"="secondary_link"](around:$radiusM,$lat,$lng);
+  way["highway"="tertiary_link"](around:$radiusM,$lat,$lng);
 );
 out geom qt;
 (
@@ -335,19 +337,20 @@ out qt;
 
     for (final way in ways) {
       final dist = _totalDistance(way.nodes);
-      if (dist < 5.0) continue;
+      if (dist < 3.0) continue;
 
       final curves = _analyzeCurves(way.nodes);
 
       // ── 품질 필터 ─────────────────────────────────────────────
-      // 최소 연속 와인딩 1.5km 미달 탈락
-      if (curves.maxContinuousKm < 1.5) continue;
+      // 최소 연속 와인딩 0.8km 미달 탈락
+      // (캐나다 시골 OSM 노드 희소 → 실제보다 낮게 계산됨 → 완화)
+      if (curves.maxContinuousKm < 0.8) continue;
 
       // 커브 밀도: (tight×2 + med×1) / totalKm
-      // 0.4 미만 = 전체의 40% 이하가 커브 → 직선 위주 탈락
+      // 0.2 미만만 탈락 (기존 0.4는 너무 빡빡 — 산간 도로는 직선 구간 혼합)
       final curveScore = curves.tightKm * 2 + curves.mediumKm;
       final curveRatio = curveScore / dist;
-      if (curveRatio < 0.4) continue;
+      if (curveRatio < 0.2) continue;
 
       // ── 점수 계산 ─────────────────────────────────────────────
       // 밀도 × √거리: 꼬불꼬불한 비율이 높고 적당히 긴 도로 우선
@@ -477,7 +480,8 @@ out qt;
         tightKm += segLen;
         currentContinuousKm += segLen;
         straightAccum = 0;
-      } else if (rate >= 50) {
+      } else if (rate >= 30) {
+        // 기존 50 → 30: 캐나다 시골 OSM 노드 희소로 실제보다 낮게 계산됨
         mediumKm += segLen;
         currentContinuousKm += segLen;
         straightAccum = 0;
