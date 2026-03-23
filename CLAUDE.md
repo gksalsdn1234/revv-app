@@ -10,6 +10,8 @@
 - **버전 관리**: pre-commit 훅이 `lib/widgets/hud_bar.dart` 버전 자동 동기화
 - **에뮬레이터**: Mapbox + Android Emulator GFXSTREAM 충돌 → 실기기 필요
 - **커뮤니케이션**: 한국어
+- **아이디어 제안**: 작업 중 UX 개선, 버그 예방, 성능 최적화 관련 좋은 아이디어가 떠오르면 민우에게 적극적으로 제안할 것. 단, 작업 흐름을 방해하지 않게 작업 완료 후 간략히 제안
+- **세계수 업데이트**: 주요 기능 추가/변경 시 `C:\Users\gksal\REVV\REVV_guide.html` (세계수 로드맵)도 반드시 함께 업데이트할 것. GitHub push 시 자동으로 revv-eb7c9.web.app에 배포됨
 
 ## 현재 버전: v1.38 (2026-03-19)
 
