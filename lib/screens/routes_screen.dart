@@ -1209,7 +1209,7 @@ class _RadiusBtn extends StatelessWidget {
     return GestureDetector(
       onTap: () {
         final loc = context.read<LocationService>();
-        context.read<RouteService>().changeRadius(loc.lat, loc.lng, km.toDouble());
+        context.read<RouteService>().changeRadius(km, loc.lat, loc.lng);
       },
       child: Container(
         margin: const EdgeInsets.only(left: 3),
