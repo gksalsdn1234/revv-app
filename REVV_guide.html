@@ -1210,7 +1210,7 @@ ${ideaTexts || '(없음)'}
                 icon: 'fa-gears',
                 items: [
                     { id: 'e1', status: 'done', title: '와인딩 곡률 분석 로직', intent: '도로의 굴곡을 분석하여 드라이빙의 재미를 수치화합니다.', prompt: 'Flutter에서 LatLng 배열을 받아 곡률(Curvature)을 분석하고 Winding Score를 산출하는 클래스를 짜줘.', feature: '고도 변화를 반영한 점수 산출.' },
-                    { id: 'e2', status: 'wip', title: '스마트 경유지 앵커링', intent: '일상지 사이에 와인딩 코스를 강제로 삽입합니다.', prompt: 'Google Maps Flutter에서 특정 좌표(와인딩 코스)를 반드시 통과하는 경로 최적화 로직을 짜줘.', feature: '와인딩 경유 모드 토글 기능.' },
+                    { id: 'e2', status: 'done', title: '스마트 경유지 앵커링', intent: '일상지 사이에 와인딩 코스를 강제로 삽입합니다.', prompt: 'Google Maps Flutter에서 특정 좌표(와인딩 코스)를 반드시 통과하는 경로 최적화 로직을 짜줘.', feature: '와인딩 경유 모드 토글 기능.' },
                     { id: 'e3', title: 'Snap-to-Road 보정', intent: 'GPS 오차를 잡아 도로 위에 궤적을 안착시킵니다.', prompt: 'Flutter Geolocator 원시 데이터를 Mapbox Map Matching API를 이용해 도로에 스냅하는 서비스 만들어줘.', feature: '음영 지역 위치 추측(DR) 알고리즘.' },
                     { id: 'e4', title: '드래그 0-100 타이머', intent: '직선 구간에서 정밀한 가속 성능을 측정합니다.', prompt: 'GPS 속도 데이터로 0→100km/h 구간을 감지하고 정밀 타이머를 기록하는 Flutter 서비스를 만들어줘.', feature: '개인 기록 갱신 시 진동+사운드 축하 이펙트.' },
                     { id: 'e5', status: 'done', title: 'OBD2 딥 인테그레이션', intent: '차량 내부 데이터를 실시간으로 끌어와 분석합니다.', prompt: 'flutter_blue_plus로 ELM327 OBD2 동글과 연결해 RPM, 냉각수 온도, 스로틀 개도를 파싱하는 서비스를 만들어줘.', feature: '엔진 과열 감지 시 JARVIS 자동 경고 음성.' }
@@ -1222,8 +1222,8 @@ ${ideaTexts || '(없음)'}
                 icon: 'fa-map-location-dot',
                 items: [
                     { id: 'v1', status: 'done', title: '다크 레이싱 맵 스타일', intent: '밤 주행 시인성을 극대화한 강렬한 디자인입니다.', prompt: 'Flutter Google Maps용 다크/네온 레드 커스텀 스타일 JSON 파일을 생성해줘.', feature: '속도 반응형 자동 줌인/줌아웃.' },
-                    { id: 'v2', status: 'wip', title: 'G-Force 커스텀 페인터', intent: '횡압력을 시각적으로 표현하여 한계를 느끼게 합니다.', prompt: 'Flutter CustomPainter로 움직이는 실시간 G-Force 미터 위젯을 만들어줘.', feature: '한계 G 도달 시 화면 레드 플래시 효과.' },
-                    { id: 'v3', status: 'wip', title: '주행 히스토리 타임라인', intent: '주행 여정을 일기처럼 아름답게 기록합니다.', prompt: '와인딩 구간과 경유지가 섞인 수직 타임라인 UI를 Flutter로 구현해줘.', feature: '주행 당시 날씨/노면 정보 자동 기록.' },
+                    { id: 'v2', status: 'done', title: 'G-Force 커스텀 페인터', intent: '횡압력을 시각적으로 표현하여 한계를 느끼게 합니다.', prompt: 'Flutter CustomPainter로 움직이는 실시간 G-Force 미터 위젯을 만들어줘.', feature: '한계 G 도달 시 화면 레드 플래시 효과.' },
+                    { id: 'v3', status: 'done', title: '주행 히스토리 타임라인', intent: '주행 여정을 일기처럼 아름답게 기록합니다.', prompt: '와인딩 구간과 경유지가 섞인 수직 타임라인 UI를 Flutter로 구현해줘.', feature: '주행 당시 날씨/노면 정보 자동 기록.' },
                     { id: 'v4', title: 'AR 헤드업 디스플레이', intent: '카메라 화면 위에 속도/G포스를 오버레이하여 레이싱 감성을 극대화합니다.', prompt: 'Flutter camera 패키지로 카메라 피드 위에 속도계, G포스, 코너 각도를 AR로 오버레이하는 위젯을 만들어줘.', feature: '영상 녹화 + HUD 합성 저장 기능.' },
                     { id: 'v5', title: '3D 지형 고도 시각화', intent: '산길 코스의 오르막/내리막을 3D로 미리 볼 수 있습니다.', prompt: 'Mapbox Flutter에서 경로 고도 데이터를 받아 3D Terrain 뷰와 고도 프로파일 차트를 함께 표시하는 UI를 만들어줘.', feature: '최대 경사도 구간 자동 하이라이트.' }
                 ]
@@ -1266,7 +1266,7 @@ ${ideaTexts || '(없음)'}
                 title: 'Dev & Launch',
                 icon: 'fa-rocket',
                 items: [
-                    { id: 'i1', status: 'wip', title: 'Firebase 통합 관리', intent: '사용자 데이터의 안전한 클라우드 저장소입니다.', prompt: 'Flutter 앱에 Firebase 소셜 로그인 및 데이터 동기화 구조를 구축해줘.', feature: '오프라인 주행 데이터 선저장 후동기화.' },
+                    { id: 'i1', status: 'done', title: 'Firebase 통합 관리', intent: '사용자 데이터의 안전한 클라우드 저장소입니다.', prompt: 'Flutter 앱에 Firebase 소셜 로그인 및 데이터 동기화 구조를 구축해줘.', feature: '오프라인 주행 데이터 선저장 후동기화.' },
                     { id: 'i2', title: '앱스토어 심사 가이드', intent: '성공적인 배포를 위한 최종 관문입니다.', prompt: '드라이빙 앱용 안전 면책 조항 및 스토어 등록용 마케팅 문구를 작성해줘.', feature: '출시 기념 한정판 엠블럼 부여.' },
                     { id: 'i3', title: 'CarPlay / Android Auto', intent: '차량 디스플레이에서 REVV를 네이티브로 조작합니다.', prompt: 'Flutter 앱을 Apple CarPlay 및 Android Auto와 연동하는 구조를 설계하고 지도/속도 표시 기능을 구현해줘.', feature: '핸들 버튼으로 JARVIS 호출 기능.' },
                     { id: 'i4', title: 'REVV Pro 구독 모델', intent: '지속 가능한 수익 구조로 앱을 오래 운영합니다.', prompt: 'Flutter에서 RevenueCat을 사용해 월/연간 구독 및 일회성 인앱 구매를 구현하는 코드를 짜줘.', feature: 'Pro 전용: AI 코칭 무제한, 고화질 영상 저장, 클럽 리더 권한.' }
@@ -1328,6 +1328,9 @@ ${ideaTexts || '(없음)'}
             { id: '14', text: 'v2 G-Force 레드 플래시 — 0.65G 초과 시 상단 레드 그라디언트 플래시 (AnimationController)', status: 'done' },
             { id: '15', text: 'd1: 실시간 센서 로깅 — sensors_plus SQLite 100ms 저장, 급조작 지점 자동 마킹', status: 'pending' },
             { id: '16', text: 'd2: Gemini 드라이빙 분석 — 주행 로그 → Gemini API → AI 코칭 리포트', status: 'pending' },
+            { id: '17', text: '터치 프리즈 버그 수정 — RedGlowButton SizedBox(width:infinity) → Expanded 래핑, Timer addPostFrameCallback 데드락 → 직접 setState 복원', status: 'done' },
+            { id: '18', text: '루트 UX 오버홀 (B안) — 난이도 색상 폴리라인(SCENIC~EXTREME), 지도 탭으로 루트 선택, 상단 말풍선 툴팁, 하단 미니 칩 바 + 반경 버튼', status: 'done' },
+            { id: '19', text: '실기기 테스트 (루트 UX) — 난이도 폴리라인 색상 확인, 말풍선 GO 동작, 칩 바 터치 확인', status: 'pending' },
         ];
     </script>
 </body>
