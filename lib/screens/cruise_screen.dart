@@ -266,12 +266,6 @@ class _CruiseScreenState extends State<CruiseScreen> {
                     Navigator.push(context,
                         MaterialPageRoute(builder: (_) => const RoutesScreen()));
                   },
-                  onTrip: () {
-                    setState(() => _activeTab = 1);
-                    Navigator.push(context,
-                        MaterialPageRoute(
-                            builder: (_) => const RoutesScreen(initialTab: 1)));
-                  },
                   onGo: _goSprint,
                   onLog: () {
                     setState(() => _activeTab = 3);
@@ -746,7 +740,6 @@ class _NearStartBanner extends StatelessWidget {
 class _BottomNavBar extends StatelessWidget {
   final int activeTab;
   final VoidCallback onRoutes;
-  final VoidCallback onTrip;
   final VoidCallback onGo;
   final VoidCallback onLog;
   final VoidCallback onMore;
@@ -754,7 +747,6 @@ class _BottomNavBar extends StatelessWidget {
   const _BottomNavBar({
     required this.activeTab,
     required this.onRoutes,
-    required this.onTrip,
     required this.onGo,
     required this.onLog,
     required this.onMore,
@@ -786,13 +778,6 @@ class _BottomNavBar extends StatelessWidget {
               label: 'ROUTES',
               active: activeTab == 0,
               onTap: onRoutes,
-            ),
-            _NavItem(
-              icon: Icons.explore_outlined,
-              activeIcon: Icons.explore,
-              label: 'TRIP',
-              active: activeTab == 1,
-              onTap: onTrip,
             ),
             // GO 히어로 버튼
             Expanded(
