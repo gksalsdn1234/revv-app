@@ -163,14 +163,12 @@ class RouteService extends ChangeNotifier {
   Future<List<RevvRoute>> _fetchAndScore(double lat, double lng, int radiusM) async {
     // primary도 추가 — 캐나다 일부 구간은 1차선 primary가 와인딩 명소
     final query = '''
-[out:json][timeout:40];
+[out:json][timeout:30];
 (
   way["highway"="primary"](around:$radiusM,$lat,$lng);
   way["highway"="secondary"](around:$radiusM,$lat,$lng);
   way["highway"="tertiary"](around:$radiusM,$lat,$lng);
   way["highway"="unclassified"](around:$radiusM,$lat,$lng);
-  way["highway"="secondary_link"](around:$radiusM,$lat,$lng);
-  way["highway"="tertiary_link"](around:$radiusM,$lat,$lng);
 );
 out geom qt;
 (
@@ -194,7 +192,7 @@ out qt;
         final r = await http.post(
           Uri.parse(url),
           body: {'data': query},
-        ).timeout(const Duration(seconds: 35));
+        ).timeout(const Duration(seconds: 45)); // Overpass timeout(30s)보다 여유있게
         if (r.statusCode == 200) { res = r; break; }
         debugPrint('[RouteService] $url → ${r.statusCode}');
       } catch (e) {
