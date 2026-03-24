@@ -6,9 +6,7 @@ import '../theme/colors.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/mapbox_service.dart';
-import '../services/poi_service.dart';
 import '../models/revv_route.dart';
-import '../models/poi.dart';
 import 'route_wizard_screen.dart';
 
 class RoutesScreen extends StatefulWidget {
@@ -22,12 +20,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
   // ── 지도 ──────────────────────────────────────────────────────
   mbx.MapboxMap? _mapController;
   mbx.PolylineAnnotationManager? _polyManager;
-  mbx.PointAnnotationManager? _poiManager;
   final List<mbx.PolylineAnnotation> _polylines = [];
   final Map<String, RevvRoute> _annotationToRoute = {};
   bool _styleLoaded = false;
   bool _isDrawing = false;
-  String? _lastPoiRouteId;
   String? _lastFlownRouteId;
   RouteService? _routeSvc;
 
@@ -69,11 +65,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
         );
       }
       _drawRoutes(_routeSvc!.routes, sel);
-      final newId = sel?.id;
-      if (newId != null && newId != _lastPoiRouteId) {
-        _lastPoiRouteId = newId;
-        _drawPoiPins(sel!);
-      }
     }
   }
 
@@ -91,8 +82,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
         context.read<RouteService>().selectRoute(route);
       }),
     );
-    _poiManager =
-        await _mapController?.annotations.createPointAnnotationManager();
     await _applyCustomStyle();
     final svc = context.read<RouteService>();
     if (svc.routes.isNotEmpty) {
@@ -157,30 +146,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
       }
     } finally {
       _isDrawing = false;
-    }
-  }
-
-  // ── 선택 루트 주변 POI 핀 ──────────────────────────────────────
-  Future<void> _drawPoiPins(RevvRoute route) async {
-    final manager = _poiManager;
-    if (manager == null) return;
-    await manager.deleteAll();
-    final pois = await PoiService.searchNearby(
-      route.centerPoint.lat,
-      route.centerPoint.lng,
-      radiusM: 8000,
-      maxTotal: 20,
-    );
-    for (final poi in pois) {
-      try {
-        await manager.create(mbx.PointAnnotationOptions(
-          geometry: mbx.Point(
-              coordinates: mbx.Position(poi.lng, poi.lat)),
-          textField: poi.category.emoji,
-          textSize: 18.0,
-          textColor: 0xFFFFFFFF,
-        ));
-      } catch (_) {}
     }
   }
 
