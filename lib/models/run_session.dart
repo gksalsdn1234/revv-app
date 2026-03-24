@@ -1,5 +1,18 @@
 import 'revv_route.dart';
 
+/// 급조작 순간 — G포스가 임계값을 초과한 지점
+class SharpCorner {
+  final LatLng position;
+  final double lateralG;   // 횡G (절댓값)
+  final DateTime time;
+
+  const SharpCorner({
+    required this.position,
+    required this.lateralG,
+    required this.time,
+  });
+}
+
 class RunSession {
   final DateTime startTime;
   final DateTime endTime;
@@ -19,6 +32,9 @@ class RunSession {
   /// DriveMode별 누적 초 {'cruise': 120, 'winding': 45, 'sport': 30}
   final Map<String, int> driveModeSeconds;
 
+  /// G포스 임계값(0.45G) 초과 급조작 지점 목록
+  final List<SharpCorner> sharpCorners;
+
   const RunSession({
     required this.startTime,
     required this.endTime,
@@ -33,6 +49,7 @@ class RunSession {
     this.maxLateralG = 0.0,
     this.maxLonG = 0.0,
     this.driveModeSeconds = const {},
+    this.sharpCorners = const [],
   });
 
   Duration get duration => endTime.difference(startTime);

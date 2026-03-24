@@ -12,6 +12,9 @@ class RunSummary {
   /// IMU 최대 횡G — 실기기에서만 유효, 에뮬레이터는 0.0
   final double? maxLateralG;
 
+  /// 급조작 횟수 (G > 0.45G 순간) — 실기기에서만 유효
+  final int sharpCornersCount;
+
   const RunSummary({
     required this.id,
     required this.date,
@@ -22,6 +25,7 @@ class RunSummary {
     required this.weatherEmoji,
     required this.tempDisplay,
     this.maxLateralG,
+    this.sharpCornersCount = 0,
   });
 
   String get durationDisplay {
@@ -43,6 +47,7 @@ class RunSummary {
         'weatherEmoji': weatherEmoji,
         'tempDisplay': tempDisplay,
         if (maxLateralG != null) 'maxLateralG': maxLateralG,
+        if (sharpCornersCount > 0) 'sharpCornersCount': sharpCornersCount,
       };
 
   factory RunSummary.fromJson(Map<String, dynamic> j) => RunSummary(
@@ -55,6 +60,7 @@ class RunSummary {
         weatherEmoji: j['weatherEmoji'] as String,
         tempDisplay: j['tempDisplay'] as String,
         maxLateralG: (j['maxLateralG'] as num?)?.toDouble(),
+        sharpCornersCount: (j['sharpCornersCount'] as int?) ?? 0,
       );
 
   static List<RunSummary> listFromJson(String raw) {

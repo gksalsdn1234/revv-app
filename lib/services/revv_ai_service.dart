@@ -86,7 +86,7 @@ class RevvAiService {
 
       final hasGData = session.maxLateralG > 0.01 || session.maxLonG > 0.01;
       final gStr = hasGData
-          ? '최대 횡G ${session.maxLateralG.toStringAsFixed(2)}G / 최대 종G ${session.maxLonG.toStringAsFixed(2)}G'
+          ? '최대 횡G ${session.maxLateralG.toStringAsFixed(2)}G / 최대 종G ${session.maxLonG.toStringAsFixed(2)}G / 급조작 ${session.sharpCorners.length}회'
           : 'G포스 데이터 없음 (실기기 필요)';
 
       final prompt = '''주행 데이터:
@@ -125,6 +125,110 @@ class RevvAiService {
       }
     } catch (_) {}
     return _buildFallbackAnalysis(session);
+  }
+
+  /// 상세 AI 코칭 리포트 — 런카드 "상세 분석" 버튼에서 호출
+  /// analyzeRun보다 더 길고 구체적인 섹션별 피드백 생성
+  Future<String> analyzeRunDetailed(RunSession session) async {
+    try {
+      final dur = session.duration;
+      final durStr = dur.inHours > 0
+          ? '${dur.inHours}시간 ${dur.inMinutes % 60}분'
+          : '${dur.inMinutes}분';
+
+      final totalSecs =
+          session.driveModeSeconds.values.fold(0, (a, b) => a + b);
+      String modeStr;
+      if (totalSecs > 0) {
+        final cruise = ((session.driveModeSeconds['cruise'] ?? 0) / totalSecs * 100).round();
+        final winding = ((session.driveModeSeconds['winding'] ?? 0) / totalSecs * 100).round();
+        final sport = ((session.driveModeSeconds['sport'] ?? 0) / totalSecs * 100).round();
+        modeStr = 'CRUISE ${cruise}% / WINDING ${winding}% / SPORT ${sport}%';
+      } else {
+        modeStr = '데이터 없음';
+      }
+
+      final hasG = session.maxLateralG > 0.01;
+      final sharpCount = session.sharpCorners.length;
+
+      // 드라이빙 스타일 분류
+      String styleLabel;
+      if (!hasG) {
+        styleLabel = '미측정';
+      } else if (session.maxLateralG < 0.25) {
+        styleLabel = 'CRUISER (0.25G 미만)';
+      } else if (session.maxLateralG < 0.45) {
+        styleLabel = 'SPORT (0.25~0.45G)';
+      } else {
+        styleLabel = 'RACER (0.45G 초과)';
+      }
+
+      final prompt = '''다음 주행 데이터를 바탕으로 드라이버에게 상세 코칭 리포트를 작성해줘.
+
+[주행 데이터]
+- 루트: ${session.routeName}
+- 거리: ${session.distanceKm.toStringAsFixed(2)} km / 시간: $durStr
+- 최고속도: ${session.maxSpeedKmh.toStringAsFixed(1)} km/h / 평균: ${session.avgSpeedKmh.toStringAsFixed(1)} km/h
+- 드라이빙 스타일: $styleLabel
+- 최대 횡G: ${hasG ? session.maxLateralG.toStringAsFixed(2) + 'G' : '미측정'}
+- 최대 종G: ${hasG ? session.maxLonG.toStringAsFixed(2) + 'G' : '미측정'}
+- 급조작 횟수: ${hasG ? '${sharpCount}회 (0.45G 초과)' : '미측정'}
+- 드라이빙 모드: $modeStr
+- 날씨: ${session.weatherEmoji} ${session.tempDisplay}
+
+[요청 형식]
+아래 3개 섹션으로 구성해줘. 각 섹션은 이모지 + 한 줄 제목 + 2~3문장 내용.
+1. 💪 오늘의 하이라이트 — 잘한 점
+2. 🎯 개선 포인트 — 구체적인 개선 제안
+3. 🗺️ 다음 목표 — 다음 드라이브에 도전할 것
+총 8~10문장, 한국어, 수치를 적극 활용. 앱스토어 규정상 과속·위험 표현 절대 금지.''';
+
+      final res = await http.post(
+        Uri.parse('https://api.anthropic.com/v1/messages'),
+        headers: {
+          'x-api-key': _apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        body: jsonEncode({
+          'model': 'claude-haiku-4-5-20251001',
+          'max_tokens': 500,
+          'system':
+              '너는 REVV, AI 드라이빙 코치야. 주행 데이터를 분석하여 드라이버 성장에 도움이 되는 구체적이고 따뜻한 피드백을 준다. '
+              '앱스토어 규정 준수: 과속·위험 운전 조장 표현 절대 금지.',
+          'messages': [
+            {'role': 'user', 'content': prompt},
+          ],
+        }),
+      ).timeout(const Duration(seconds: 20));
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        return (data['content'][0]['text'] as String).trim();
+      }
+    } catch (_) {}
+    return _buildDetailedFallback(session);
+  }
+
+  String _buildDetailedFallback(RunSession session) {
+    final km = session.distanceKm;
+    final sharpCount = session.sharpCorners.length;
+    final hasG = session.maxLateralG > 0.01;
+    final buf = StringBuffer();
+    buf.writeln('💪 오늘의 하이라이트');
+    buf.writeln('${km.toStringAsFixed(1)}km 완주, 수고했어요!');
+    if (hasG) buf.writeln('최대 횡G ${session.maxLateralG.toStringAsFixed(2)}G를 기록했네요.');
+    buf.writeln();
+    buf.writeln('🎯 개선 포인트');
+    if (sharpCount > 3) {
+      buf.writeln('급조작이 ${sharpCount}회 감지됐어요. 코너 진입 전 미리 속도를 조정해보세요.');
+    } else {
+      buf.writeln('코너링이 안정적이에요. 루트 변경으로 새로운 코너를 경험해보세요.');
+    }
+    buf.writeln();
+    buf.writeln('🗺️ 다음 목표');
+    buf.writeln('같은 루트를 다시 달리면 더 자연스러운 흐름을 느낄 수 있어요. 도전해보세요!');
+    return buf.toString();
   }
 
   /// API 실패 시 로컬 폴백 분석

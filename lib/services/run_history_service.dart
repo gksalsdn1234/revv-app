@@ -62,6 +62,7 @@ class RunHistoryService extends ChangeNotifier {
       weatherEmoji: session.weatherEmoji,
       tempDisplay: session.tempDisplay,
       maxLateralG: session.maxLateralG > 0 ? session.maxLateralG : null,
+      sharpCornersCount: session.sharpCorners.length,
     );
 
     // 로컬 즉시 저장

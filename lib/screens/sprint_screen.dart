@@ -211,7 +211,13 @@ class _SprintScreenState extends State<SprintScreen>
     }
     _lastFlashG = g;
 
-    // G미터 UI 제거됨 — 플래시만 사용
+    // 급조작 감지 — G 임계값(0.45G) 초과 시 현재 위치와 함께 기록
+    if (g >= 0.45) {
+      final loc = _locationService;
+      if (loc != null) {
+        _runSessionService?.recordSharpCorner(loc.lat, loc.lng, g);
+      }
+    }
   }
 
   void _endRun() {
@@ -508,6 +514,7 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
     final distStr = dist >= 1.0
         ? '${dist.toStringAsFixed(2)} km'
         : '${(dist * 1000).toStringAsFixed(0)} m';
+    final sharpCount = session.sharpCornerCount;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -523,9 +530,16 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _Pill(icon: Icons.timer_outlined, value: _fmt(dur)),
-          const SizedBox(width: 2),
           Container(width: 1, height: 22, color: Colors.white12, margin: const EdgeInsets.symmetric(horizontal: 8)),
           _Pill(icon: Icons.straighten, value: distStr),
+          if (sharpCount > 0) ...[
+            Container(width: 1, height: 22, color: Colors.white12, margin: const EdgeInsets.symmetric(horizontal: 8)),
+            _Pill(
+              icon: Icons.bolt_rounded,
+              value: '${sharpCount}',
+              color: const Color(0xFFF59E0B),
+            ),
+          ],
         ],
       ),
     );
@@ -535,21 +549,23 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
 class _Pill extends StatelessWidget {
   final IconData icon;
   final String value;
-  const _Pill({required this.icon, required this.value});
+  final Color? color;
+  const _Pill({required this.icon, required this.value, this.color});
 
   @override
   Widget build(BuildContext context) {
+    final c = color ?? AppColors.gray;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 10, color: AppColors.gray),
+        Icon(icon, size: 10, color: c),
         const SizedBox(width: 4),
         Text(
           value,
           style: GoogleFonts.orbitron(
             fontSize: 13,
             fontWeight: FontWeight.w700,
-            color: Colors.white,
+            color: color != null ? c : Colors.white,
           ),
         ),
       ],

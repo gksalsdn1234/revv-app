@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import '../models/run_session.dart';
 import '../models/revv_route.dart';
+// SharpCorner는 run_session.dart에 정의됨
 
 class RunSessionService extends ChangeNotifier {
   // ── post-frame 안전 notify ────────────────────────────────────
@@ -26,6 +27,12 @@ class RunSessionService extends ChangeNotifier {
   double _distanceKm = 0;
   final List<LatLng> _gpsPath = [];
   LatLng? _lastPosition;
+
+  // ── 급조작 감지 ──────────────────────────────────────────────
+  static const double _sharpCornerGThreshold = 0.45; // G 임계값
+  static const Duration _sharpCooldown = Duration(seconds: 3); // 연속 감지 방지
+  final List<SharpCorner> _sharpCorners = [];
+  DateTime? _lastSharpTime;
 
   RevvRoute? _route;
   String _weatherEmoji = '🌤';
@@ -63,6 +70,8 @@ class RunSessionService extends ChangeNotifier {
     _currentMode = 'cruise';
     _currentModeStart = DateTime.now();
     _driveModeSeconds.clear();
+    _sharpCorners.clear();
+    _lastSharpTime = null;
     _scheduleNotify();
   }
 
@@ -79,6 +88,24 @@ class RunSessionService extends ChangeNotifier {
     _speedSamples++;
     _scheduleNotify();
   }
+
+  /// 급조작 순간 기록 — ImuService에서 G > 임계값 감지 시 호출
+  void recordSharpCorner(double lat, double lng, double lateralG) {
+    if (!isRecording) return;
+    final now = DateTime.now();
+    // 쿨다운: 마지막 급조작 후 3초 이내 중복 감지 방지
+    if (_lastSharpTime != null && now.difference(_lastSharpTime!) < _sharpCooldown) return;
+    if (lateralG.abs() < _sharpCornerGThreshold) return;
+    _lastSharpTime = now;
+    _sharpCorners.add(SharpCorner(
+      position: LatLng(lat, lng),
+      lateralG: lateralG.abs(),
+      time: now,
+    ));
+  }
+
+  /// 급조작 개수 실시간 조회
+  int get sharpCornerCount => _sharpCorners.length;
 
   /// DriveMode 변경 시 호출 (mode.name 전달 → 'cruise' / 'winding' / 'sport')
   void recordDriveMode(String modeName) {
@@ -117,6 +144,7 @@ class RunSessionService extends ChangeNotifier {
       maxLateralG: maxLateralG,
       maxLonG: maxLonG,
       driveModeSeconds: Map.unmodifiable(Map.of(_driveModeSeconds)),
+      sharpCorners: List.unmodifiable(List.of(_sharpCorners)),
     );
     _scheduleNotify();
     return session;

@@ -31,6 +31,7 @@ class _RunCardScreenState extends State<RunCardScreen> {
   bool _sharing = false;
   String? _jarvisAnalysis;
   bool _jarvisLoading = false;
+  bool _detailSheetOpen = false;
 
   @override
   void initState() {
@@ -57,6 +58,21 @@ class _RunCardScreenState extends State<RunCardScreen> {
     if (mounted) setState(() {
       _jarvisAnalysis = result;
       _jarvisLoading = false;
+    });
+  }
+
+  void _openDetailedAnalysis() {
+    if (_detailSheetOpen) return;
+    final s = widget.session;
+    if (s == null) return;
+    setState(() => _detailSheetOpen = true);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _DetailedAnalysisSheet(session: s),
+    ).then((_) {
+      if (mounted) setState(() => _detailSheetOpen = false);
     });
   }
 
@@ -122,7 +138,11 @@ class _RunCardScreenState extends State<RunCardScreen> {
                 ),
               ),
               const Expanded(child: SizedBox()),
-              _BottomButtons(onShare: _shareCard, sharing: _sharing),
+              _BottomButtons(
+                onShare: _shareCard,
+                sharing: _sharing,
+                onDetail: widget.session != null ? _openDetailedAnalysis : null,
+              ),
               const SizedBox(height: 24),
             ],
           ),
@@ -301,6 +321,10 @@ class _RunCard extends StatelessWidget {
                     _InfoChip('$weatherEmoji $tempDisplay'),
                     _ChipDivider(),
                     _InfoChip('⏱ $durationDisplay'),
+                    if (s != null && s.sharpCorners.isNotEmpty) ...[
+                      _ChipDivider(),
+                      _InfoChip('⚡ ${s.sharpCorners.length}회', color: const Color(0xFFF59E0B)),
+                    ],
                   ],
                 ),
               ),
@@ -371,7 +395,8 @@ class _RunCard extends StatelessWidget {
 
 class _InfoChip extends StatelessWidget {
   final String text;
-  const _InfoChip(this.text);
+  final Color? color;
+  const _InfoChip(this.text, {this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -380,7 +405,7 @@ class _InfoChip extends StatelessWidget {
       style: GoogleFonts.rajdhani(
         fontSize: 13,
         fontWeight: FontWeight.w600,
-        color: Colors.white.withOpacity(0.6),
+        color: color ?? Colors.white.withOpacity(0.6),
       ),
     );
   }
@@ -524,7 +549,8 @@ class _StyleInfo {
 class _BottomButtons extends StatelessWidget {
   final VoidCallback onShare;
   final bool sharing;
-  const _BottomButtons({required this.onShare, required this.sharing});
+  final VoidCallback? onDetail;
+  const _BottomButtons({required this.onShare, required this.sharing, this.onDetail});
 
   @override
   Widget build(BuildContext context) {
@@ -537,7 +563,14 @@ class _BottomButtons extends StatelessWidget {
             filled: true,
             onTap: sharing ? null : onShare,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          if (onDetail != null)
+            RedGlowButton(
+              label: '🤖 상세 AI 분석',
+              filled: false,
+              onTap: onDetail,
+            ),
+          if (onDetail != null) const SizedBox(height: 10),
           RedGlowButton(
             label: '다시 달리기',
             filled: false,
@@ -547,6 +580,118 @@ class _BottomButtons extends StatelessWidget {
                 MaterialPageRoute(builder: (_) => const CruiseScreen()),
               );
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 상세 AI 코칭 리포트 바텀시트
+// ══════════════════════════════════════════════════════════════════
+class _DetailedAnalysisSheet extends StatefulWidget {
+  final RunSession session;
+  const _DetailedAnalysisSheet({required this.session});
+
+  @override
+  State<_DetailedAnalysisSheet> createState() => _DetailedAnalysisSheetState();
+}
+
+class _DetailedAnalysisSheetState extends State<_DetailedAnalysisSheet> {
+  String? _report;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadReport();
+  }
+
+  Future<void> _loadReport() async {
+    final result = await RevvAiService().analyzeRunDetailed(widget.session);
+    if (mounted) setState(() { _report = result; _loading = false; });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pad = MediaQuery.of(context).padding;
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.82,
+      ),
+      decoration: const BoxDecoration(
+        color: Color(0xFF131315),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 10),
+          Container(
+            width: 36, height: 4,
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 18),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 22),
+            child: Row(
+              children: [
+                Container(
+                  width: 32, height: 32,
+                  decoration: BoxDecoration(
+                    color: AppColors.red.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.auto_awesome_rounded, size: 16, color: AppColors.red),
+                ),
+                const SizedBox(width: 10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'AI 드라이빙 코치',
+                      style: GoogleFonts.orbitron(
+                        fontSize: 12, fontWeight: FontWeight.w800,
+                        color: Colors.white, letterSpacing: 1,
+                      ),
+                    ),
+                    Text(
+                      widget.session.routeName,
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 11, color: Colors.white38,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Divider(color: Colors.white.withOpacity(0.07), height: 1),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(22, 18, 22, pad.bottom + 24),
+              child: _loading
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(32),
+                        child: CircularProgressIndicator(color: AppColors.red, strokeWidth: 2),
+                      ),
+                    )
+                  : Text(
+                      _report ?? '분석 데이터를 불러올 수 없어요.',
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white.withOpacity(0.85),
+                        height: 1.65,
+                      ),
+                    ),
+            ),
           ),
         ],
       ),
