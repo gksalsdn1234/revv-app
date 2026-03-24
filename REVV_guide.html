@@ -1235,7 +1235,7 @@ ${ideaTexts || '(없음)'}
                 items: [
                     { id: 'd1', status: 'wip', title: '실시간 센서 로깅', intent: '0.1초 단위의 고정밀 데이터를 수집합니다.', prompt: 'sensors_plus를 활용해 백그라운드에서 가속도/자이로 데이터를 SQLite에 저장하는 로직 짜줘.', feature: '급조작 지점 자동 마킹 기능.' },
                     { id: 'd2', status: 'wip', title: 'Gemini 드라이빙 분석', intent: 'AI가 주행을 분석하여 코칭 리포트를 생성합니다.', prompt: '주행 로그를 Gemini API에 보내 전문 드라이빙 피드백을 생성하는 Dart 코드를 작성해줘.', feature: '오늘의 베스트 코너링 선정 기능.' },
-                    { id: 'd3', title: '드라이빙 DNA 프로파일', intent: '주행 스타일을 분석해 나만의 드라이버 유형을 찾아냅니다.', prompt: '누적 주행 데이터(G포스, 브레이킹 패턴, 평균 코너링 속도)를 분석해 드라이버 스타일을 5가지 유형으로 분류하는 알고리즘을 짜줘.', feature: '"레이서형 / 크루저형 / 탐험가형" 등 개성 있는 배지 시스템.' },
+                    { id: 'd3', status: 'wip', title: '드라이빙 DNA 프로파일', intent: '주행 스타일을 분석해 나만의 드라이버 유형을 찾아냅니다.', prompt: '누적 주행 데이터(G포스, 브레이킹 패턴, 평균 코너링 속도)를 분석해 드라이버 스타일을 5가지 유형으로 분류하는 알고리즘을 짜줘.', feature: '"레이서형 / 크루저형 / 탐험가형" 등 개성 있는 배지 시스템.' },
                     { id: 'd4', title: '날씨 기반 노면 예측 AI', intent: '현재 날씨와 기온으로 노면 상태를 예측해 드라이빙 전략을 제안합니다.', prompt: 'OpenWeather API 데이터(기온, 강수량, 습도)를 분석해 노면이 "건조/젖음/결빙 위험" 중 어느 상태인지 예측하고 JARVIS가 조언하는 로직을 만들어줘.', feature: '비 예보 시 "오늘은 와인딩 자제" 자동 알림.' }
                 ]
             },
@@ -1332,6 +1332,12 @@ ${ideaTexts || '(없음)'}
             { id: '18', text: '루트 UX 오버홀 (B안) — 난이도 색상 폴리라인(SCENIC~EXTREME), 지도 탭으로 루트 선택, 상단 말풍선 툴팁, 하단 미니 칩 바 + 반경 버튼', status: 'done' },
             { id: '19', text: '실기기 테스트 (루트 UX) — 난이도 폴리라인 색상 확인, 말풍선 GO 동작, 칩 바 터치 확인', status: 'pending' },
             { id: '20', text: 'TRIP 탭 완전 제거 — 와인딩 루트 핵심 집중. routes_screen/cruise_screen TRIP 코드 전부 삭제', status: 'done' },
+            { id: '21', text: 'compute() 아이솔레이트 마이그레이션 — JSON 파싱+방향 분석+스코어링을 별도 아이솔레이트로 분리. UI 프리즈(Skipped 320 frames) 해결', status: 'done' },
+            { id: '22', text: 'Overpass 안정화 — XML 에러 감지, HTTP 32s/Overpass 25s 타임아웃, ["name"] 필터로 데이터량 80% 감소, 5km 최소 거리 필터(Vimont급 단거리 제거)', status: 'done' },
+            { id: '23', text: '게임식 루트 선택 UI — 하단 칩바 제거, 좌/우 화살표 버튼 + N/M 카운터 필 추가 (게임 맵 선택 스타일)', status: 'done' },
+            { id: '24', text: '♥ 루트 북마크 버튼 — routes_screen _RouteTooltip에 SavedRouteService 연동 하트 버튼 추가', status: 'done' },
+            { id: '25', text: '드라이버 레벨 카드 — DriverLevelSheet 위젯 (뉴비→레전드 5단계, 경험치 바, 마일스톤 배지, 통계 그리드). MORE 메뉴에서 접근 가능', status: 'done' },
+            { id: '26', text: '드라이빙 스타일 분석 배지 — 런카드에 maxLateralG 기반 CRUISER/SPORT/RACER 배지 표시', status: 'done' },
         ];
     </script>
 </body>

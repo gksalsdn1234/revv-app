@@ -17,6 +17,7 @@ import 'routes_screen.dart';
 import 'obd_screen.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
+import '../widgets/driver_level_card.dart';
 
 class CruiseScreen extends StatefulWidget {
   const CruiseScreen({super.key});
@@ -139,6 +140,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
             builder: (_) => const JarvisPanel(),
           );
         },
+        onDriverLevel: () { Navigator.pop(context); DriverLevelSheet.show(context); },
         onSettings: () { Navigator.pop(context); SettingsScreen.show(context); },
         onMic: () { Navigator.pop(context); },
       ),
@@ -916,12 +918,14 @@ class _NavItem extends StatelessWidget {
 class _MoreSheet extends StatelessWidget {
   final VoidCallback onObd;
   final VoidCallback onAi;
+  final VoidCallback onDriverLevel;
   final VoidCallback onSettings;
   final VoidCallback onMic;
 
   const _MoreSheet({
     required this.onObd,
     required this.onAi,
+    required this.onDriverLevel,
     required this.onSettings,
     required this.onMic,
   });
@@ -956,6 +960,12 @@ class _MoreSheet extends StatelessWidget {
             label: 'Jarvis AI',
             sub: '드라이빙 브리핑',
             onTap: onAi,
+          ),
+          _MoreItem(
+            icon: Icons.emoji_events_rounded,
+            label: '드라이버 프로필',
+            sub: '레벨 · 마일스톤 · 통계',
+            onTap: onDriverLevel,
           ),
           _MoreItem(
             icon: Icons.mic_rounded,

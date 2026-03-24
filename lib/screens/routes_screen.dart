@@ -6,6 +6,7 @@ import '../theme/colors.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/mapbox_service.dart';
+import '../services/saved_route_service.dart';
 import '../models/revv_route.dart';
 import 'route_wizard_screen.dart';
 
@@ -506,6 +507,8 @@ class _RouteTooltip extends StatelessWidget {
   Widget build(BuildContext context) {
     final diffColor = _routeDiffColor(route.difficultyLevel);
     final hasChain = connectingCount > 0;
+    final savedSvc = context.watch<SavedRouteService>();
+    final isSaved = savedSvc.isSaved(route.id);
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xF0141416),
@@ -552,6 +555,18 @@ class _RouteTooltip extends StatelessWidget {
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
                           color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    // ♥ 북마크 버튼
+                    GestureDetector(
+                      onTap: () => context.read<SavedRouteService>().toggle(route),
+                      child: Padding(
+                        padding: const EdgeInsets.all(4),
+                        child: Icon(
+                          isSaved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                          size: 18,
+                          color: isSaved ? AppColors.red : Colors.white38,
                         ),
                       ),
                     ),

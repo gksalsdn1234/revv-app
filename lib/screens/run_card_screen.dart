@@ -78,11 +78,9 @@ class _RunCardScreenState extends State<RunCardScreen> {
       final file = File('${dir.path}/revv_run_card.png');
       await file.writeAsBytes(pngBytes);
 
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path, mimeType: 'image/png')],
-          text: 'REVV — ${widget.session?.routeName ?? "드라이브"} 완주 🚗',
-        ),
+      await Share.shareXFiles(
+        [XFile(file.path, mimeType: 'image/png')],
+        text: 'REVV — ${widget.session?.routeName ?? "드라이브"} 완주 🚗',
       );
     } catch (e) {
       if (mounted) {
@@ -306,6 +304,11 @@ class _RunCard extends StatelessWidget {
                   ],
                 ),
               ),
+              // ── 드라이빙 스타일 배지 ──
+              if (s != null) ...[
+                const SizedBox(height: 14),
+                _DrivingStyleBadge(maxLateralG: s.maxLateralG),
+              ],
               const SizedBox(height: 14),
               Divider(color: AppColors.red.withOpacity(0.2)),
               const SizedBox(height: 12),
@@ -393,6 +396,129 @@ class _ChipDivider extends StatelessWidget {
       color: Colors.white.withOpacity(0.15),
     );
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 드라이빙 스타일 분석 배지
+// ══════════════════════════════════════════════════════════════════
+class _DrivingStyleBadge extends StatelessWidget {
+  final double maxLateralG;
+  const _DrivingStyleBadge({required this.maxLateralG});
+
+  _StyleInfo _getStyle() {
+    if (maxLateralG <= 0.0) {
+      return _StyleInfo(
+        label: 'DATA PENDING',
+        emoji: '📡',
+        desc: 'IMU 데이터 없음',
+        color: const Color(0xFF6B7280),
+      );
+    } else if (maxLateralG < 0.25) {
+      return _StyleInfo(
+        label: 'CRUISER',
+        emoji: '🌊',
+        desc: '부드럽고 여유있는 드라이빙',
+        color: const Color(0xFF60A5FA),
+      );
+    } else if (maxLateralG < 0.45) {
+      return _StyleInfo(
+        label: 'SPORT',
+        emoji: '⚡',
+        desc: '활기차고 다이나믹한 드라이빙',
+        color: const Color(0xFFF59E0B),
+      );
+    } else {
+      return _StyleInfo(
+        label: 'RACER',
+        emoji: '🔥',
+        desc: '한계를 즐기는 퍼포먼스 드라이빙',
+        color: const Color(0xFFEF4444),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = _getStyle();
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: style.color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: style.color.withOpacity(0.4)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(style.emoji, style: const TextStyle(fontSize: 20)),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'DRIVING STYLE',
+                      style: GoogleFonts.orbitron(
+                        fontSize: 7,
+                        fontWeight: FontWeight.w600,
+                        color: style.color.withOpacity(0.7),
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    if (maxLateralG > 0) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        'MAX ${maxLateralG.toStringAsFixed(2)}G',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          color: style.color.withOpacity(0.6),
+                          letterSpacing: 1,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  style.label,
+                  style: GoogleFonts.orbitron(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    color: style.color,
+                    letterSpacing: 1,
+                  ),
+                ),
+                Text(
+                  style.desc,
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 10,
+                    color: Colors.white54,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StyleInfo {
+  final String label;
+  final String emoji;
+  final String desc;
+  final Color color;
+  const _StyleInfo({
+    required this.label,
+    required this.emoji,
+    required this.desc,
+    required this.color,
+  });
 }
 
 class _BottomButtons extends StatelessWidget {
