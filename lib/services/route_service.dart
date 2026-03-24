@@ -274,7 +274,7 @@ List<RevvRoute> _selectTopRoutes(
 
   for (final way in ways) {
     final dist = _totalDistance(way.nodes);
-    if (dist < 3.0) continue;
+    if (dist < 5.0) continue; // 5km 미만 도심 단편 루트 제거
 
     final curves = _analyzeCurves(way.nodes);
 

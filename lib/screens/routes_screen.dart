@@ -149,6 +149,21 @@ class _RoutesScreenState extends State<RoutesScreen> {
     }
   }
 
+  // ── 화살표 네비게이션 ────────────────────────────────────────────
+  void _prevRoute(RouteService svc) {
+    if (svc.routes.isEmpty) return;
+    final idx = svc.routes.indexWhere((r) => r.id == svc.selectedRoute?.id);
+    final newIdx = ((idx <= 0 ? svc.routes.length : idx) - 1);
+    svc.selectRoute(svc.routes[newIdx]);
+  }
+
+  void _nextRoute(RouteService svc) {
+    if (svc.routes.isEmpty) return;
+    final idx = svc.routes.indexWhere((r) => r.id == svc.selectedRoute?.id);
+    final newIdx = (idx + 1) % svc.routes.length;
+    svc.selectRoute(svc.routes[newIdx]);
+  }
+
   // ─────────────────────────────────────────────────────────────
 
   @override
@@ -343,26 +358,106 @@ class _RoutesScreenState extends State<RoutesScreen> {
             ),
           ),
 
-          // ── 하단 미니 칩 바 ──
+          // ── 왼쪽 이전 화살표 ──
           Positioned(
-            key: const ValueKey('bottom-panel'),
+            left: 0,
+            top: 0,
             bottom: 0,
+            child: Consumer<RouteService>(
+              builder: (_, svc, __) => _ArrowBtn(
+                icon: Icons.chevron_left_rounded,
+                onTap: svc.routes.isEmpty ? null : () => _prevRoute(svc),
+              ),
+            ),
+          ),
+
+          // ── 오른쪽 다음 화살표 ──
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: Consumer<RouteService>(
+              builder: (_, svc, __) => _ArrowBtn(
+                icon: Icons.chevron_right_rounded,
+                onTap: svc.routes.isEmpty ? null : () => _nextRoute(svc),
+              ),
+            ),
+          ),
+
+          // ── 하단 인디케이터 (N/M + 반경) ──
+          Positioned(
+            bottom: MediaQuery.of(context).padding.bottom + 16,
             left: 0,
             right: 0,
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppColors.panel,
-                border: Border(
-                    top: BorderSide(color: AppColors.divider, width: 1)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.4),
-                    blurRadius: 20,
-                    offset: const Offset(0, -4),
+            child: Consumer<RouteService>(
+              builder: (_, svc, __) {
+                if (svc.isLoading) {
+                  return Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: AppColors.red),
+                        ),
+                        const SizedBox(width: 8),
+                        Text('탐색 중...',
+                            style: GoogleFonts.rajdhani(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textHint)),
+                      ],
+                    ),
+                  );
+                }
+                final total = svc.routes.length;
+                final idx = total == 0
+                    ? 0
+                    : svc.routes
+                            .indexWhere((r) => r.id == svc.selectedRoute?.id) +
+                        1;
+                return Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.1)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // N / M 카운터
+                        Text(
+                          total == 0 ? '—' : '$idx / $total',
+                          style: GoogleFonts.orbitron(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            letterSpacing: 1,
+                          ),
+                        ),
+                        Container(
+                          width: 1,
+                          height: 14,
+                          margin:
+                              const EdgeInsets.symmetric(horizontal: 10),
+                          color: Colors.white24,
+                        ),
+                        // 반경 버튼
+                        _RadiusBtn(km: 30, active: svc.searchRadiusKm == 30),
+                        _RadiusBtn(km: 50, active: svc.searchRadiusKm == 50),
+                        _RadiusBtn(
+                            km: 100, active: svc.searchRadiusKm == 100),
+                      ],
+                    ),
                   ),
-                ],
-              ),
-              child: const _RouteChipBar(),
+                );
+              },
             ),
           ),
         ],
@@ -608,154 +703,40 @@ class _TooltipChip extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 미니 칩 바 — 루트 가로 스크롤 + 반경 버튼
+// 사이드 화살표 버튼 — 게임 맵 선택 스타일
 // ══════════════════════════════════════════════════════════════════
-class _RouteChipBar extends StatelessWidget {
-  const _RouteChipBar();
+class _ArrowBtn extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _ArrowBtn({required this.icon, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<RouteService>(
-      builder: (_, svc, __) {
-        if (svc.isLoading) {
-          return SizedBox(
-            height: 44,
-            child: Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: AppColors.red)),
-                  const SizedBox(width: 8),
-                  Text('탐색 중...',
-                      style: GoogleFonts.rajdhani(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textHint)),
-                ],
+    final enabled = onTap != null;
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.translucent,
+      child: SizedBox(
+        width: 52,
+        height: double.infinity,
+        child: Center(
+          child: AnimatedOpacity(
+            opacity: enabled ? 1.0 : 0.25,
+            duration: const Duration(milliseconds: 200),
+            child: Container(
+              width: 40,
+              height: 56,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(12),
+                border:
+                    Border.all(color: Colors.white.withValues(alpha: 0.15)),
               ),
+              child: Icon(icon, size: 28, color: Colors.white),
             ),
-          );
-        }
-        final routes = svc.routes;
-        if (routes.isEmpty) {
-          return SizedBox(
-            height: 44,
-            child: Center(
-              child: Text('주변 루트 없음',
-                  style: GoogleFonts.rajdhani(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textHint)),
-            ),
-          );
-        }
-        final selectedId = svc.selectedRoute?.id;
-        return SizedBox(
-          height: 44,
-          child: Row(
-            children: [
-              // 루트 수
-              Padding(
-                padding: const EdgeInsets.only(left: 12, right: 4),
-                child: Text(
-                  '${routes.length}',
-                  style: GoogleFonts.orbitron(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
-                      color: AppColors.red),
-                ),
-              ),
-              // 가로 스크롤 칩
-              Expanded(
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  itemCount: routes.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 6),
-                  itemBuilder: (_, i) {
-                    final route = routes[i];
-                    final isSel = route.id == selectedId;
-                    final diffColor =
-                        _routeDiffColor(route.difficultyLevel);
-                    return GestureDetector(
-                      onTap: () => svc.selectRoute(route),
-                      child: Center(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 180),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: isSel
-                                ? diffColor.withValues(alpha: 0.2)
-                                : Colors.white.withValues(alpha: 0.06),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: isSel
-                                  ? diffColor.withValues(alpha: 0.7)
-                                  : Colors.white12,
-                              width: isSel ? 1.5 : 1.0,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  color: diffColor,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                    maxWidth: 100),
-                                child: Text(
-                                  route.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: GoogleFonts.rajdhani(
-                                    fontSize: 11,
-                                    fontWeight: isSel
-                                        ? FontWeight.w800
-                                        : FontWeight.w600,
-                                    color: isSel
-                                        ? Colors.white
-                                        : AppColors.textSecondary,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                route.distanceDisplay,
-                                style: GoogleFonts.rajdhani(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textHint,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              // 반경 버튼
-              _RadiusBtn(km: 30, active: svc.searchRadiusKm == 30),
-              _RadiusBtn(km: 50, active: svc.searchRadiusKm == 50),
-              _RadiusBtn(km: 100, active: svc.searchRadiusKm == 100),
-              const SizedBox(width: 8),
-            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
