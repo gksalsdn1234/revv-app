@@ -15,6 +15,7 @@ import '../services/directions_service.dart';
 import '../services/imu_service.dart';
 import '../services/turn_by_turn_service.dart';
 import '../services/settings_service.dart';
+import '../services/corner_briefing_service.dart';
 import '../models/nav_step.dart';
 import '../models/run_session.dart';
 import 'run_card_screen.dart';
@@ -61,6 +62,10 @@ class _SprintScreenState extends State<SprintScreen>
   // 루트 진행률 (0.0 ~ 1.0)
   double _routeProgressPct = 0.0;
 
+  // 코너 브리핑
+  CornerBriefingService? _cornerBriefing;
+  int _closestNodeIdx = 0;
+
   @override
   void initState() {
     super.initState();
@@ -104,6 +109,12 @@ class _SprintScreenState extends State<SprintScreen>
       _drivingCtxService = context.read<DrivingContextService>();
       _drivingCtxService!.addListener(_onDriveMode);
       _isMuted = context.read<SettingsService>().ttsMuted;
+
+      // 코너 브리핑 서비스 초기화
+      _cornerBriefing = CornerBriefingService(
+        onUpdate: () { if (mounted) setState(() {}); },
+        initialMuted: context.read<SettingsService>().ttsMuted,
+      );
 
       if (widget.selectedRoute != null) _fetchNavRoute();
     }
@@ -179,6 +190,12 @@ class _SprintScreenState extends State<SprintScreen>
           }
         });
       }
+
+      // 코너 브리핑 — 루트 이탈 중에는 비활성
+      if (!nowOff) {
+        _closestNodeIdx = closestIdx;
+        _cornerBriefing?.updateLocation(loc.lat, loc.lng, nodes, closestIdx);
+      }
     }
 
     if (_tbtService != null) {
@@ -197,6 +214,7 @@ class _SprintScreenState extends State<SprintScreen>
   void _toggleMute() {
     setState(() => _isMuted = !_isMuted);
     _tbtService?.toggleMute();
+    _cornerBriefing?.toggleMute();
     context.read<SettingsService>().setTtsMuted(_isMuted);
   }
 
@@ -223,6 +241,7 @@ class _SprintScreenState extends State<SprintScreen>
   void _endRun() {
     _locationService?.removeListener(_onLocation);
     _tbtService?.stop();
+    _cornerBriefing?.stop();
     try { context.read<ImuService>().removeListener(_onImu); } catch (_) {}
     final imu = context.read<ImuService>();
     final session = _runSessionService?.stopSession(
@@ -246,6 +265,7 @@ class _SprintScreenState extends State<SprintScreen>
     _locationService?.removeListener(_onLocation);
     _drivingCtxService?.removeListener(_onDriveMode);
     _tbtService?.stop();
+    _cornerBriefing?.stop();
     _flashCtrl.dispose();
     super.dispose();
   }
@@ -363,7 +383,7 @@ class _SprintScreenState extends State<SprintScreen>
             child: const _OffRouteBanner(),
           ),
 
-        // ── 하단 좌측: 커브 예고 아이콘 ──
+        // ── 하단 좌측: 커브 예고 아이콘 (TBT 내비 중) ──
         if (_tbtService != null)
           Positioned(
             key: const ValueKey('curve-icon'),
@@ -373,6 +393,15 @@ class _SprintScreenState extends State<SprintScreen>
               step: _tbtService!.upcomingStep,
               distM: _tbtDistM,
             ),
+          ),
+
+        // ── 하단 좌측: 다음 코너 브리핑 HUD (루트 주행 중) ──
+        if (_onRoute && _cornerBriefing?.nextCorner != null)
+          Positioned(
+            key: const ValueKey('corner-hud'),
+            bottom: 84,
+            left: 14,
+            child: _CornerPreviewHUD(corner: _cornerBriefing!.nextCorner!),
           ),
 
         // ── 루트 진행률 바 (바텀바 바로 위, 3px) ──
@@ -976,6 +1005,73 @@ class _CurvePreviewIcon extends StatelessWidget {
                 )
               : const SizedBox.shrink(),
         ),
+      ),
+    );
+  }
+}
+
+// ── 다음 코너 브리핑 HUD ──────────────────────────────────────
+// 루트 주행 중 전방 코너 방향·강도·거리를 표시
+// CornerBriefingService.nextCorner 가 non-null 일 때만 Stack에 포함
+class _CornerPreviewHUD extends StatelessWidget {
+  final CornerInfo corner;
+  const _CornerPreviewHUD({required this.corner});
+
+  // 강도별 색상
+  static Color _intensityColor(CurveIntensity i) => switch (i) {
+    CurveIntensity.gentle  => Colors.lightBlueAccent,
+    CurveIntensity.medium  => Colors.orange,
+    CurveIntensity.sharp   => const Color(0xFFFF6B35),
+    CurveIntensity.hairpin => AppColors.red,
+  };
+
+  // 방향 화살표 아이콘
+  static IconData _dirIcon(bool isRight) =>
+      isRight ? Icons.turn_right_rounded : Icons.turn_left_rounded;
+
+  String get _distText {
+    final m = corner.distanceM;
+    if (m >= 1000) return '${(m / 1000).toStringAsFixed(1)}km';
+    return '${m.toInt()}m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = _intensityColor(corner.intensity);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.bg.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.55), width: 1),
+        boxShadow: [
+          BoxShadow(color: color.withValues(alpha: 0.25), blurRadius: 10),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(_dirIcon(corner.isRight), color: color, size: 28),
+          const SizedBox(height: 2),
+          Text(
+            corner.intensity.shortLabel,
+            style: GoogleFonts.rajdhani(
+              fontSize: 9,
+              fontWeight: FontWeight.w800,
+              color: color,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(height: 1),
+          Text(
+            _distText,
+            style: GoogleFonts.orbitron(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: Colors.white70,
+            ),
+          ),
+        ],
       ),
     );
   }
