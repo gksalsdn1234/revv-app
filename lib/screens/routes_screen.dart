@@ -361,11 +361,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
             ),
           ),
 
-          // ── 왼쪽 이전 화살표 ──
+          // ── 왼쪽 이전 화살표 — 하단 인디케이터와 같은 높이 ──
           Positioned(
-            left: 0,
-            top: MediaQuery.of(context).padding.top + 60,
-            bottom: MediaQuery.of(context).padding.bottom + 68,
+            left: 6,
+            bottom: MediaQuery.of(context).padding.bottom + 10,
             child: Consumer<RouteService>(
               builder: (_, svc, __) => _ArrowBtn(
                 icon: Icons.chevron_left_rounded,
@@ -374,11 +373,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
             ),
           ),
 
-          // ── 오른쪽 다음 화살표 ──
+          // ── 오른쪽 다음 화살표 — 하단 인디케이터와 같은 높이 ──
           Positioned(
-            right: 0,
-            top: MediaQuery.of(context).padding.top + 60,
-            bottom: MediaQuery.of(context).padding.bottom + 68,
+            right: 6,
+            bottom: MediaQuery.of(context).padding.bottom + 10,
             child: Consumer<RouteService>(
               builder: (_, svc, __) => _ArrowBtn(
                 icon: Icons.chevron_right_rounded,
@@ -738,25 +736,18 @@ class _ArrowBtn extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.translucent,
-      child: SizedBox(
-        width: 52,
-        height: double.infinity,
-        child: Center(
-          child: AnimatedOpacity(
-            opacity: enabled ? 1.0 : 0.25,
-            duration: const Duration(milliseconds: 200),
-            child: Container(
-              width: 40,
-              height: 56,
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(12),
-                border:
-                    Border.all(color: Colors.white.withValues(alpha: 0.15)),
-              ),
-              child: Icon(icon, size: 28, color: Colors.white),
-            ),
+      child: AnimatedOpacity(
+        opacity: enabled ? 1.0 : 0.25,
+        duration: const Duration(milliseconds: 200),
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
           ),
+          child: Icon(icon, size: 26, color: Colors.white),
         ),
       ),
     );
