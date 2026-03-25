@@ -151,13 +151,13 @@ bool _isLoop(List<LatLng> nodes) {
   return RevvRoute.haversineKm(nodes.first, nodes.last) < 3.0;
 }
 
-// 자기교차 감지: 같은 150m 반경 구역을 24+ 인덱스 간격으로 다시 방문하면 제외
-// → stitching으로 만들어진 꼬인/자기교차 루트 차단
+// 자기교차 감지: 실제 교차(50m 이내)를 80+ 노드(약 2km) 간격으로 체크
+// → 스위치백/헤어핀은 허용, stitching으로 생긴 진짜 꼬임만 차단
 bool _selfIntersects(List<LatLng> nodes) {
-  const radius = 0.15; // 150m
-  const minGap = 24;
-  for (int i = 0; i < nodes.length - minGap; i += 4) {
-    for (int j = i + minGap; j < nodes.length; j += 4) {
+  const radius = 0.05; // 50m — 실제 교차점만 감지 (150m는 스위치백 오탈락)
+  const minGap = 80;   // 80노드 ≈ 2km — 스위치백 반경 확보
+  for (int i = 0; i < nodes.length - minGap; i += 6) {
+    for (int j = i + minGap; j < nodes.length; j += 6) {
       if (RevvRoute.haversineKm(nodes[i], nodes[j]) < radius) return true;
     }
   }
@@ -364,8 +364,8 @@ List<RevvRoute> _selectTopRoutes(
     // 60 ≈ roadcurvature.com "Lightly Curvy" 300 에 해당
     if (curves.totalCurvature < 60) continue;
     if (curves.maxContinuousKm < 0.6) continue;
-    if (curves.maxStraightRunKm > 1.5) continue; // 직선 1.5km 초과 구간 있으면 제외
-    if (curves.curvyFraction < 0.18) continue;   // 커브 비율 18% 미만 제외
+    if (curves.maxStraightRunKm > 3.0) continue; // 직선 3km 초과 구간 있으면 제외 (1.5→3.0: 캐나다 시골길 커브간 직선 허용)
+    if (curves.curvyFraction < 0.12) continue;   // 커브 비율 12% 미만 제외 (18→12: 완만한 와인딩도 포함)
     if (_selfIntersects(way.nodes)) continue;     // 자기교차 루트 제외
 
     // curvature density (deg/km): 전체 루트의 커브 밀도
