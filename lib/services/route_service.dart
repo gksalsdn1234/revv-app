@@ -350,34 +350,33 @@ List<RevvRoute> _selectTopRoutes(
     {int seed = 0}) {
   final scored = <_ScoredWay>[];
 
+  int cDist = 0, cResidential = 0, cSignal = 0, cCurvature = 0,
+      cContKm = 0, cStraight = 0, cCurvyFrac = 0, cSelfInt = 0,
+      cDensity = 0, cSpread = 0;
+
   for (final way in ways) {
     final dist = _totalDistance(way.nodes);
     final isLoopRoute = _isLoop(way.nodes);
-    if (isLoopRoute && dist < 8.0) continue;  // 루프: 8km 미만 → 블록 루트
-    if (!isLoopRoute && dist < 3.0) continue; // 일반: 3km 미만 제거
+    if (isLoopRoute && dist < 8.0) { cDist++; continue; }
+    if (!isLoopRoute && dist < 3.0) { cDist++; continue; }
 
-    // residential 도로 완전 제외
-    if (way.highwayType == 'residential') continue;
+    if (way.highwayType == 'residential') { cResidential++; continue; }
 
-    // 신호등/스탑사인 3개 이상 → 도심 루트, 제외
     final signalCount = _countSignalsNearRoute(way.nodes, signalNodes);
-    if (signalCount >= 3) continue;
+    if (signalCount >= 3) { cSignal++; continue; }
 
     final curves = _analyzeCurves(way.nodes);
 
-    if (curves.totalCurvature < 80) continue;       // 60 → 80
-    if (curves.maxContinuousKm < 0.8) continue;     // 0.6 → 0.8
-    if (curves.maxStraightRunKm > 1.5) continue;    // 2.5 → 1.5 (직선 1.5km 초과 차단)
-    if (curves.curvyFraction < 0.25) continue;      // 0.15 → 0.25 (25% 이상이 커브여야 통과)
-    if (_selfIntersects(way.nodes)) continue;
+    if (curves.totalCurvature < 70) { cCurvature++; continue; }
+    if (curves.maxContinuousKm < 0.6) { cContKm++; continue; }
+    if (curves.maxStraightRunKm > 2.0) { cStraight++; continue; }
+    if (curves.curvyFraction < 0.20) { cCurvyFrac++; continue; }
+    if (_selfIntersects(way.nodes)) { cSelfInt++; continue; }
 
-    // curvature density (deg/km): 전체 루트의 커브 밀도
     final curvatureDensity = curves.totalCurvature / dist;
-    if (curvatureDensity < 8.0) continue;            // 5.0 → 8.0
+    if (curvatureDensity < 6.0) { cDensity++; continue; }
 
-    // Spread Ratio: 루트 길이 대비 지리적 범위
-    // 주거지 골목 루프 = 작은 박스에 긴 루트 → ratio 낮음
-    // 진짜 와인딩 = 넓은 지역을 커버 → ratio 높음
+    // Spread Ratio
     {
       double minLat = way.nodes[0].lat, maxLat = way.nodes[0].lat;
       double minLng = way.nodes[0].lng, maxLng = way.nodes[0].lng;
@@ -392,7 +391,7 @@ List<RevvRoute> _selectTopRoutes(
       final lngKm = (maxLng - minLng) * 111.0 * math.cos(_rad(avgLat));
       final bbDiagonal = math.sqrt(latKm * latKm + lngKm * lngKm);
       final spreadRatio = dist > 0 ? bbDiagonal / dist : 0;
-      if (spreadRatio < 0.25) continue; // 주거지 순환 루트 제거 (0.20 → 0.25)
+      if (spreadRatio < 0.25) { cSpread++; continue; }
     }
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
     final intersectCount = _countNearbyIntersections(way.nodes, intersections);
@@ -419,6 +418,11 @@ List<RevvRoute> _selectTopRoutes(
       isLoop: isLoopRoute,
     ));
   }
+
+  debugPrint('[Filter] 탈락: 거리=$cDist 주거지=$cResidential 신호=$cSignal '
+      '커브량=$cCurvature 연속커브=$cContKm 직선=$cStraight '
+      '커브비율=$cCurvyFrac 자기교차=$cSelfInt 밀도=$cDensity 스프레드=$cSpread '
+      '→ 통과: ${scored.length}개 / 총 ${ways.length}개');
 
   scored.sort((a, b) => b.score.compareTo(a.score));
 
@@ -524,7 +528,7 @@ class RouteService extends ChangeNotifier {
 
   bool isExcluded(RevvRoute route) {
     return _excludedCenters.any(
-      (p) => RevvRoute.haversineKm(p, route.centerPoint) < 2.0,
+      (p) => RevvRoute.haversineKm(p, route.centerPoint) < 0.8, // 2.0 → 0.8km
     );
   }
 
