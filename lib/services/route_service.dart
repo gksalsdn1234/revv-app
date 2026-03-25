@@ -741,15 +741,18 @@ out geom qt;
     notifyListeners();
 
     final seed = math.Random().nextInt(0x7FFFFFFF);
-    final result = await compute(
-      _processRoutes,
-      _IsolateParams(_lastJsonBody!, _lastJsonLat!, _lastJsonLng!, seed: seed),
-    );
-    routes = result.where((r) => !isExcluded(r)).toList();
-    selectedRoute = routes.isNotEmpty ? routes.first : null;
-    connectingRoutes = [];
-    isLoading = false;
-    notifyListeners();
+    try {
+      final result = await compute(
+        _processRoutes,
+        _IsolateParams(_lastJsonBody!, _lastJsonLat!, _lastJsonLng!, seed: seed),
+      );
+      routes = result.where((r) => !isExcluded(r)).toList();
+      selectedRoute = routes.isNotEmpty ? routes.first : null;
+      connectingRoutes = [];
+    } finally {
+      isLoading = false;
+      notifyListeners();
+    }
   }
 
   void selectRoute(RevvRoute route) {

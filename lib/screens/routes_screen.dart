@@ -266,30 +266,32 @@ class _RoutesScreenState extends State<RoutesScreen> {
             ),
           ),
 
-          // 로딩 오버레이
+          // 로딩 오버레이 — IgnorePointer로 버튼 터치 통과
           Consumer<RouteService>(
             builder: (context, svc, _) {
               if (!svc.isLoading) return const SizedBox.shrink();
               return Positioned.fill(
-                child: Container(
-                  color: Colors.black.withOpacity(0.5),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        'REVV가 주변 루트를 분석하고 있어요',
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 14, color: Colors.white),
-                      ),
-                      const SizedBox(height: 16),
-                      const SizedBox(
-                        width: 200,
-                        child: LinearProgressIndicator(
-                          color: AppColors.red,
-                          backgroundColor: AppColors.panel,
+                child: IgnorePointer(
+                  child: Container(
+                    color: Colors.black.withOpacity(0.45),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'REVV가 주변 루트를 분석하고 있어요',
+                          style: GoogleFonts.rajdhani(
+                              fontSize: 14, color: Colors.white),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 16),
+                        const SizedBox(
+                          width: 200,
+                          child: LinearProgressIndicator(
+                            color: AppColors.red,
+                            backgroundColor: AppColors.panel,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               );
