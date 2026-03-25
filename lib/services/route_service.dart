@@ -12,7 +12,8 @@ class _IsolateParams {
   final String jsonBody;
   final double lat;
   final double lng;
-  const _IsolateParams(this.jsonBody, this.lat, this.lng);
+  final int seed;
+  const _IsolateParams(this.jsonBody, this.lat, this.lng, {this.seed = 0});
 }
 
 // ─── Top-level 처리 함수 (isolate에서 실행) ────────────────────────
@@ -56,7 +57,7 @@ List<RevvRoute> _processRoutes(_IsolateParams p) {
   // Way Stitching — 인접 도로 조각을 하나의 연속 루트로 이어붙임
   final stitched = _stitchWays(rawWays);
   debugPrint('[RouteService] 신호/정지 노드: ${signalNodes.length}개');
-  return _selectTopRoutes(stitched, userPos, intersectionNodes, signalNodes);
+  return _selectTopRoutes(stitched, userPos, intersectionNodes, signalNodes, seed: p.seed);
 }
 
 // ─── Top-level 헬퍼 함수들 ───────────────────────────────────────
@@ -325,7 +326,8 @@ double _bearingDegTo(LatLng from, LatLng to) {
 }
 
 List<RevvRoute> _selectTopRoutes(
-    List<_RawWay> ways, LatLng userPos, List<LatLng> intersections, List<LatLng> signalNodes) {
+    List<_RawWay> ways, LatLng userPos, List<LatLng> intersections, List<LatLng> signalNodes,
+    {int seed = 0}) {
   final scored = <_ScoredWay>[];
 
   for (final way in ways) {
@@ -388,9 +390,12 @@ List<RevvRoute> _selectTopRoutes(
   bool isTooClose(_ScoredWay candidate) => selected.any(
       (sel) => RevvRoute.haversineKm(candidate.center, sel.center) < 6);
 
-  // 1라운드: 각 섹터 1등 (6km 간격 유지)
+  // 1라운드: 각 섹터 상위 5개 풀에서 랜덤 선택 (seed로 다양성 보장)
+  final rng = math.Random(seed == 0 ? null : seed);
   for (final sector in sectors) {
-    for (final candidate in sector) {
+    final pool = sector.take(5).toList();
+    if (seed != 0) pool.shuffle(rng);
+    for (final candidate in pool) {
       if (!isTooClose(candidate)) { selected.add(candidate); break; }
     }
   }
@@ -439,6 +444,11 @@ class RouteService extends ChangeNotifier {
 
   LatLng? _lastFetchLocation;
   int? _lastFetchRadius;
+
+  // 마지막 응답 JSON 캐시 — shuffleRoutes()에서 재사용
+  String? _lastJsonBody;
+  double? _lastJsonLat;
+  double? _lastJsonLng;
 
   // ── 루트 배제 ────────────────────────────────────────────────
   final List<LatLng> _excludedCenters = [];
@@ -680,12 +690,35 @@ out geom qt;
       return [];
     }
 
+    // JSON 캐시 저장 (shuffleRoutes에서 재사용)
+    _lastJsonBody = resBody;
+    _lastJsonLat = lat;
+    _lastJsonLng = lng;
+
     // ── compute() isolate: JSON 파싱 + Way Stitching + 스코어링 ──
     // 메인 스레드에서 실행하면 320프레임+ 스킵 발생 → 별도 isolate로 분리
     debugPrint('[RouteService] compute() isolate 시작');
     final result = await compute(_processRoutes, _IsolateParams(resBody, lat, lng));
     debugPrint('[RouteService] compute() 완료: ${result.length}개');
     return result;
+  }
+
+  /// 새 랜덤 시드로 캐시된 JSON 재처리 — 네트워크 호출 없이 다른 루트 조합 반환
+  Future<void> shuffleRoutes() async {
+    if (_lastJsonBody == null) return;
+    isLoading = true;
+    notifyListeners();
+
+    final seed = math.Random().nextInt(0x7FFFFFFF);
+    final result = await compute(
+      _processRoutes,
+      _IsolateParams(_lastJsonBody!, _lastJsonLat!, _lastJsonLng!, seed: seed),
+    );
+    routes = result.where((r) => !isExcluded(r)).toList();
+    selectedRoute = routes.isNotEmpty ? routes.first : null;
+    connectingRoutes = [];
+    isLoading = false;
+    notifyListeners();
   }
 
   void selectRoute(RevvRoute route) {
