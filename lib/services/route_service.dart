@@ -393,11 +393,12 @@ List<RevvRoute> _selectTopRoutes(
       final spreadRatio = dist > 0 ? bbDiagonal / dist : 0;
       if (spreadRatio < 0.25) { cSpread++; continue; }
 
-      // 종횡비 필터: 너무 가늘고 긴 루트 = rang 직선 도로 / 평행 rang 루프
-      // 진짜 와인딩은 BB가 어느 정도 정사각형에 가까움
+      // 종횡비 필터:
+      // elongated(가늘고 길다) + 커브 적음 = rang 직선 도로 → 제거
+      // elongated + 커브 많음 = 강/계곡 따르는 와인딩 도로 → 유지
       if (latKm > 0.1 && lngKm > 0.1) {
         final bbAspect = math.min(latKm, lngKm) / math.max(latKm, lngKm);
-        if (bbAspect < 0.15) { cAspect++; continue; }
+        if (bbAspect < 0.15 && curves.curvyFraction < 0.30) { cAspect++; continue; }
       }
     }
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
