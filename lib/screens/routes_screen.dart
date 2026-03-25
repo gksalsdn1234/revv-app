@@ -10,6 +10,7 @@ import '../services/mapbox_service.dart';
 import '../services/saved_route_service.dart';
 import '../models/revv_route.dart';
 import 'route_wizard_screen.dart';
+import 'route_edit_screen.dart';
 
 class RoutesScreen extends StatefulWidget {
   const RoutesScreen({super.key});
@@ -306,6 +307,23 @@ class _RoutesScreenState extends State<RoutesScreen> {
     } finally {
       _isDrawing = false;
     }
+  }
+
+  // ── 루트 편집 화면 진입 ───────────────────────────────────────────
+  Future<void> _openRouteEdit(RevvRoute route, RouteService svc) async {
+    final result = await Navigator.push<({RevvRoute trimmed, RevvRoute branch})>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RouteEditScreen(
+          route: route,
+          otherRoutes: svc.routes.where((r) => r.id != route.id).toList(),
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    // 트리밍된 루트 선택 + 분기 루트를 체인에 추가
+    svc.selectRoute(result.trimmed);
+    svc.addManualChain(result.branch);
   }
 
   // ── E. 루트 방향 반전 ────────────────────────────────────────────
@@ -725,6 +743,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                               onChain: () => _showChainPicker(selected),
                               onHeatmap: () => _toggleHeatmap(selected),
                               heatmapActive: _heatmapMode,
+                              onEdit: () => _openRouteEdit(selected, svc),
                             )
                           : const SizedBox.shrink(),
                     ),
@@ -878,6 +897,7 @@ class _RouteTooltip extends StatelessWidget {
   final VoidCallback onChain;
   final VoidCallback onHeatmap;
   final bool heatmapActive;
+  final VoidCallback onEdit;
 
   const _RouteTooltip({
     required this.route,
@@ -891,6 +911,7 @@ class _RouteTooltip extends StatelessWidget {
     required this.onChain,
     required this.onHeatmap,
     required this.heatmapActive,
+    required this.onEdit,
   });
 
   @override
@@ -1046,6 +1067,12 @@ class _RouteTooltip extends StatelessWidget {
                       label: '히트맵',
                       onTap: onHeatmap,
                       active: heatmapActive,
+                    ),
+                    const SizedBox(width: 6),
+                    _IconAction(
+                      icon: Icons.edit_road_rounded,
+                      label: '편집',
+                      onTap: onEdit,
                     ),
                   ],
                 ),
