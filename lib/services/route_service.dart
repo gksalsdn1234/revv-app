@@ -791,6 +791,18 @@ out geom qt;
     notifyListeners();
   }
 
+  /// G. 수동 체인 — 사용자가 직접 연결할 루트 추가/제거
+  void addManualChain(RevvRoute route) {
+    if (connectingRoutes.any((r) => r.id == route.id)) return;
+    connectingRoutes = [...connectingRoutes, route];
+    notifyListeners();
+  }
+
+  void removeFromChain(String routeId) {
+    connectingRoutes = connectingRoutes.where((r) => r.id != routeId).toList();
+    notifyListeners();
+  }
+
   // ── 경유지 최적화 ──────────────────────────────────────────────
 
   bool isOptimizing = false;

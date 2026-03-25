@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
@@ -37,6 +38,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
   double _trimStart = 0.0;
   double _trimEnd = 1.0;
   RevvRoute? _trimBase;
+
+  // ── I. 히트맵 오버레이 ────────────────────────────────────────
+  bool _heatmapMode = false;
 
   @override
   void initState() {
@@ -131,6 +135,13 @@ class _RoutesScreenState extends State<RoutesScreen> {
         final coords =
             route.nodes.map((n) => mbx.Position(n.lng, n.lat)).toList();
         final diffColor = _routeDiffColorInt(route.difficultyLevel);
+
+        // I. 히트맵 모드: 선택 루트는 세그먼트별 컬러로 그림
+        if (isSel && _heatmapMode) {
+          await _drawHeatmapSegments(route);
+          continue;
+        }
+
         final poly = await _polyManager!.create(
           mbx.PolylineAnnotationOptions(
             geometry: mbx.LineString(coordinates: coords),
@@ -295,6 +306,113 @@ class _RoutesScreenState extends State<RoutesScreen> {
     } finally {
       _isDrawing = false;
     }
+  }
+
+  // ── E. 루트 방향 반전 ────────────────────────────────────────────
+  void _reverseRoute(RevvRoute route) {
+    final reversed = route.copyWith(
+      id: '${route.id}_rev',
+      nodes: route.nodes.reversed.toList(),
+    );
+    _routeSvc?.selectRoute(reversed);
+  }
+
+  // ── F. 유사 루트 탐색 ────────────────────────────────────────────
+  void _findSimilar(RevvRoute route) {
+    setState(() {
+      _customStart = route.centerPoint;
+      _lastFlownRouteId = null;
+    });
+    _routeSvc?.fetchRoutes(route.centerPoint.lat, route.centerPoint.lng);
+  }
+
+  // ── G. 수동 체인 연결 ────────────────────────────────────────────
+  void _showChainPicker(RevvRoute selected) {
+    final svc = _routeSvc;
+    if (svc == null) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _ChainPickerSheet(
+        selected: selected,
+        allRoutes: svc.routes.where((r) => r.id != selected.id).toList(),
+        chained: svc.connectingRoutes,
+        onAdd: svc.addManualChain,
+        onRemove: svc.removeFromChain,
+      ),
+    );
+  }
+
+  // ── I. 히트맵 오버레이 ────────────────────────────────────────────
+  void _toggleHeatmap(RevvRoute route) {
+    setState(() => _heatmapMode = !_heatmapMode);
+    _drawRoutes(_routeSvc!.routes, route);
+  }
+
+  Future<void> _drawHeatmapSegments(RevvRoute route) async {
+    final nodes = route.nodes;
+    if (nodes.length < 3 || _polyManager == null) return;
+
+    // bearing diff rate 계산
+    double bear(LatLng a, LatLng b) {
+      final lat1 = a.lat * math.pi / 180;
+      final lat2 = b.lat * math.pi / 180;
+      final dLng = (b.lng - a.lng) * math.pi / 180;
+      final y = math.sin(dLng) * math.cos(lat2);
+      final x = math.cos(lat1) * math.sin(lat2) -
+          math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+      return math.atan2(y, x) * 180 / math.pi;
+    }
+
+    double diff(double b1, double b2) {
+      double d = (b2 - b1).abs();
+      return d > 180 ? 360 - d : d;
+    }
+
+    int _color(double rate) {
+      if (rate < 30) return 0xFF3B82F6;
+      if (rate < 100) return 0xFF22C55E;
+      if (rate < 200) return 0xFFF59E0B;
+      if (rate < 350) return 0xFFF97316;
+      return 0xFFEF4444;
+    }
+
+    // 연속 같은 색 구간 묶어서 그리기
+    int? curColor;
+    var curGroup = <mbx.Position>[];
+
+    Future<void> flush() async {
+      if (curGroup.length >= 2 && curColor != null) {
+        await _polyManager!.create(mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: curGroup),
+          lineColor: curColor!,
+          lineWidth: 5.5,
+          lineOpacity: 1.0,
+        ));
+      }
+    }
+
+    for (int i = 0; i < nodes.length - 2; i++) {
+      final d = RevvRoute.haversineKm(nodes[i], nodes[i + 1]);
+      final rate = d > 0.0001
+          ? diff(bear(nodes[i], nodes[i + 1]),
+                  bear(nodes[i + 1], nodes[i + 2])) /
+              d
+          : 0.0;
+      final c = _color(rate);
+      if (curColor == null) {
+        curColor = c;
+        curGroup = [mbx.Position(nodes[i].lng, nodes[i].lat)];
+      } else if (c != curColor) {
+        curGroup.add(mbx.Position(nodes[i].lng, nodes[i].lat));
+        await flush();
+        curColor = c;
+        curGroup = [mbx.Position(nodes[i].lng, nodes[i].lat)];
+      }
+      curGroup.add(mbx.Position(nodes[i + 1].lng, nodes[i + 1].lat));
+    }
+    await flush();
   }
 
   // ── 화살표 네비게이션 ────────────────────────────────────────────
@@ -595,14 +713,18 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       child: selected != null
                           ? _RouteTooltip(
                               route: selected,
-                              connectingCount:
-                                  svc.connectingRoutes.length,
+                              connectingCount: svc.connectingRoutes.length,
                               totalChainKm: selected.distanceKm +
                                   svc.connectingRoutes.fold<double>(
                                       0, (s, r) => s + r.distanceKm),
                               onGo: () => svc.requestSprint(),
                               onClose: () => svc.deselectRoute(),
                               onTrim: () => _startTrim(selected),
+                              onReverse: () => _reverseRoute(selected),
+                              onFindSimilar: () => _findSimilar(selected),
+                              onChain: () => _showChainPicker(selected),
+                              onHeatmap: () => _toggleHeatmap(selected),
+                              heatmapActive: _heatmapMode,
                             )
                           : const SizedBox.shrink(),
                     ),
@@ -751,6 +873,11 @@ class _RouteTooltip extends StatelessWidget {
   final VoidCallback onGo;
   final VoidCallback onClose;
   final VoidCallback onTrim;
+  final VoidCallback onReverse;
+  final VoidCallback onFindSimilar;
+  final VoidCallback onChain;
+  final VoidCallback onHeatmap;
+  final bool heatmapActive;
 
   const _RouteTooltip({
     required this.route,
@@ -759,6 +886,11 @@ class _RouteTooltip extends StatelessWidget {
     required this.onGo,
     required this.onClose,
     required this.onTrim,
+    required this.onReverse,
+    required this.onFindSimilar,
+    required this.onChain,
+    required this.onHeatmap,
+    required this.heatmapActive,
   });
 
   @override
@@ -888,6 +1020,36 @@ class _RouteTooltip extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
+                // E/F/G/I 액션 버튼 행
+                Row(
+                  children: [
+                    _IconAction(
+                      icon: Icons.swap_horiz_rounded,
+                      label: '반전',
+                      onTap: onReverse,
+                    ),
+                    const SizedBox(width: 6),
+                    _IconAction(
+                      icon: Icons.travel_explore_rounded,
+                      label: '유사탐색',
+                      onTap: onFindSimilar,
+                    ),
+                    const SizedBox(width: 6),
+                    _IconAction(
+                      icon: Icons.add_link_rounded,
+                      label: '체인',
+                      onTap: onChain,
+                    ),
+                    const SizedBox(width: 6),
+                    _IconAction(
+                      icon: Icons.thermostat_rounded,
+                      label: '히트맵',
+                      onTap: onHeatmap,
+                      active: heatmapActive,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
                 // CHAIN + GO
                 Row(
                   children: [
@@ -954,6 +1116,185 @@ class _RouteTooltip extends StatelessWidget {
                   ],
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── E/F/G/I 액션 아이콘 버튼 ─────────────────────────────────────
+class _IconAction extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool active;
+  const _IconAction({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.active = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: active
+              ? AppColors.red.withValues(alpha: 0.2)
+              : Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: active
+                ? AppColors.red.withValues(alpha: 0.6)
+                : Colors.white12,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12,
+                color: active ? AppColors.red : Colors.white54),
+            const SizedBox(width: 4),
+            Text(label,
+                style: GoogleFonts.rajdhani(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: active ? AppColors.red : Colors.white54,
+                    letterSpacing: 0.5)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// G. 수동 체인 연결 피커 시트
+// ══════════════════════════════════════════════════════════════════
+class _ChainPickerSheet extends StatelessWidget {
+  final RevvRoute selected;
+  final List<RevvRoute> allRoutes;
+  final List<RevvRoute> chained;
+  final void Function(RevvRoute) onAdd;
+  final void Function(String) onRemove;
+
+  const _ChainPickerSheet({
+    required this.selected,
+    required this.allRoutes,
+    required this.chained,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.55),
+      decoration: const BoxDecoration(
+        color: Color(0xFF141416),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        border: Border(top: BorderSide(color: AppColors.divider)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 핸들
+          Container(
+            width: 36, height: 4,
+            margin: const EdgeInsets.only(top: 10, bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.white24,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: Row(
+              children: [
+                const Icon(Icons.add_link_rounded,
+                    size: 14, color: AppColors.red),
+                const SizedBox(width: 8),
+                Text('체인 연결',
+                    style: GoogleFonts.rajdhani(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        letterSpacing: 1)),
+                const Spacer(),
+                if (chained.isNotEmpty)
+                  Text(
+                    '총 ${(selected.distanceKm + chained.fold<double>(0, (s, r) => s + r.distanceKm)).toStringAsFixed(0)}km',
+                    style: GoogleFonts.orbitron(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.red),
+                  ),
+              ],
+            ),
+          ),
+          const Divider(color: AppColors.divider, height: 1),
+          Flexible(
+            child: ListView.builder(
+              padding: EdgeInsets.only(
+                  bottom: MediaQuery.of(context).padding.bottom + 8),
+              itemCount: allRoutes.length,
+              itemBuilder: (_, i) {
+                final r = allRoutes[i];
+                final isChained = chained.any((c) => c.id == r.id);
+                final diffColor = routeDiffColor(r.difficultyLevel);
+                return ListTile(
+                  dense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                  leading: Container(
+                    width: 4, height: 36,
+                    decoration: BoxDecoration(
+                      color: diffColor,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  title: Text(r.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.rajdhani(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white)),
+                  subtitle: Text(
+                      '${r.distanceDisplay}  ·  ${r.difficultyLabel}',
+                      style: GoogleFonts.rajdhani(
+                          fontSize: 10, color: AppColors.textHint)),
+                  trailing: GestureDetector(
+                    onTap: () =>
+                        isChained ? onRemove(r.id) : onAdd(r),
+                    child: Container(
+                      width: 32, height: 32,
+                      decoration: BoxDecoration(
+                        color: isChained
+                            ? AppColors.red.withValues(alpha: 0.15)
+                            : AppColors.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isChained
+                              ? AppColors.red.withValues(alpha: 0.5)
+                              : AppColors.divider,
+                        ),
+                      ),
+                      child: Icon(
+                        isChained ? Icons.remove_rounded : Icons.add_rounded,
+                        size: 16,
+                        color: isChained ? AppColors.red : Colors.white54,
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ],
