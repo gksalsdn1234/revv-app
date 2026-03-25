@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../widgets/corner_brackets.dart';
 import '../services/location_service.dart';
 import '../services/weather_service.dart';
 import '../services/jarvis_service.dart';
 import 'cruise_screen.dart';
+import 'calibration_screen.dart';
 
 class LoadingScreen extends StatefulWidget {
   const LoadingScreen({super.key});
@@ -74,9 +76,16 @@ class _LoadingScreenState extends State<LoadingScreen>
 
       await Future.delayed(const Duration(milliseconds: 1200));
       if (mounted) {
+        final prefs = await SharedPreferences.getInstance();
+        final calibDone = prefs.getBool(kCalibrationDoneKey) ?? false;
+        if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const CruiseScreen()),
+          MaterialPageRoute(
+            builder: (_) => calibDone
+                ? const CruiseScreen()
+                : const CalibrationScreen(),
+          ),
         );
       }
     });

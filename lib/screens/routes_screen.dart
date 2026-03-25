@@ -452,8 +452,13 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         // 반경 버튼
                         _RadiusBtn(km: 30, active: svc.searchRadiusKm == 30),
                         _RadiusBtn(km: 50, active: svc.searchRadiusKm == 50),
-                        _RadiusBtn(
-                            km: 100, active: svc.searchRadiusKm == 100),
+                        _RadiusBtn(km: 100, active: svc.searchRadiusKm == 100),
+                        const SizedBox(width: 6),
+                        GestureDetector(
+                          onTap: () => context.read<RouteService>().shuffleRoutes(),
+                          child: Icon(Icons.shuffle_rounded,
+                              size: 16, color: AppColors.textHint),
+                        ),
                       ],
                     ),
                   ),
