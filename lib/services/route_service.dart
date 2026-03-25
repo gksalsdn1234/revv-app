@@ -352,7 +352,7 @@ List<RevvRoute> _selectTopRoutes(
 
   int cDist = 0, cResidential = 0, cSignal = 0, cCurvature = 0,
       cContKm = 0, cStraight = 0, cCurvyFrac = 0, cSelfInt = 0,
-      cDensity = 0, cSpread = 0;
+      cDensity = 0, cSpread = 0, cAspect = 0;
 
   for (final way in ways) {
     final dist = _totalDistance(way.nodes);
@@ -392,6 +392,13 @@ List<RevvRoute> _selectTopRoutes(
       final bbDiagonal = math.sqrt(latKm * latKm + lngKm * lngKm);
       final spreadRatio = dist > 0 ? bbDiagonal / dist : 0;
       if (spreadRatio < 0.25) { cSpread++; continue; }
+
+      // 종횡비 필터: 너무 가늘고 긴 루트 = rang 직선 도로 / 평행 rang 루프
+      // 진짜 와인딩은 BB가 어느 정도 정사각형에 가까움
+      if (latKm > 0.1 && lngKm > 0.1) {
+        final bbAspect = math.min(latKm, lngKm) / math.max(latKm, lngKm);
+        if (bbAspect < 0.15) { cAspect++; continue; }
+      }
     }
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
     final intersectCount = _countNearbyIntersections(way.nodes, intersections);
@@ -421,7 +428,8 @@ List<RevvRoute> _selectTopRoutes(
 
   debugPrint('[Filter] 탈락: 거리=$cDist 주거지=$cResidential 신호=$cSignal '
       '커브량=$cCurvature 연속커브=$cContKm 직선=$cStraight '
-      '커브비율=$cCurvyFrac 자기교차=$cSelfInt 밀도=$cDensity 스프레드=$cSpread '
+      '커브비율=$cCurvyFrac 자기교차=$cSelfInt 밀도=$cDensity '
+      '스프레드=$cSpread 종횡비=$cAspect '
       '→ 통과: ${scored.length}개 / 총 ${ways.length}개');
 
   scored.sort((a, b) => b.score.compareTo(a.score));
@@ -704,7 +712,7 @@ class RouteService extends ChangeNotifier {
     // ["name"] 필터: 이름 없는 도로 제거 → 데이터량 80% 감소
     // primary 포함: 캐나다 일부 primary가 와인딩 명소
     final query = '''
-[out:json][timeout:25];
+[out:json][timeout:55];
 (
   way["highway"="primary"]["name"](around:$radiusM,$lat,$lng);
   way["highway"="secondary"]["name"](around:$radiusM,$lat,$lng);
@@ -733,7 +741,7 @@ out geom qt;
         final r = await http.post(
           Uri.parse(url),
           body: {'data': query},
-        ).timeout(const Duration(seconds: 28)); // Overpass timeout(25s)보다 여유
+        ).timeout(const Duration(seconds: 60));
         if (r.statusCode == 200) {
           final body = utf8.decode(r.bodyBytes);
           // Overpass가 XML 에러 페이지를 200으로 반환하는 경우 방어
