@@ -364,8 +364,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
           // ── 왼쪽 이전 화살표 ──
           Positioned(
             left: 0,
-            top: 0,
-            bottom: 0,
+            top: MediaQuery.of(context).padding.top + 60,
+            bottom: MediaQuery.of(context).padding.bottom + 68,
             child: Consumer<RouteService>(
               builder: (_, svc, __) => _ArrowBtn(
                 icon: Icons.chevron_left_rounded,
@@ -377,8 +377,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
           // ── 오른쪽 다음 화살표 ──
           Positioned(
             right: 0,
-            top: 0,
-            bottom: 0,
+            top: MediaQuery.of(context).padding.top + 60,
+            bottom: MediaQuery.of(context).padding.bottom + 68,
             child: Consumer<RouteService>(
               builder: (_, svc, __) => _ArrowBtn(
                 icon: Icons.chevron_right_rounded,
