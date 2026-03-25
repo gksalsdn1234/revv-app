@@ -367,7 +367,7 @@ List<RevvRoute> _selectTopRoutes(
 
     final curves = _analyzeCurves(way.nodes);
 
-    if (curves.totalCurvature < 70) { cCurvature++; continue; }
+    if (curves.totalCurvature < 60) { cCurvature++; continue; }
     if (curves.maxContinuousKm < 0.6) { cContKm++; continue; }
     if (curves.maxStraightRunKm > 2.0) { cStraight++; continue; }
     if (curves.curvyFraction < 0.20) { cCurvyFrac++; continue; }
@@ -528,7 +528,7 @@ class RouteService extends ChangeNotifier {
 
   bool isExcluded(RevvRoute route) {
     return _excludedCenters.any(
-      (p) => RevvRoute.haversineKm(p, route.centerPoint) < 0.8, // 2.0 → 0.8km
+      (p) => RevvRoute.haversineKm(p, route.centerPoint) < 0.5,
     );
   }
 
@@ -604,8 +604,16 @@ class RouteService extends ChangeNotifier {
 
     try {
       await loadExclusions();
-      final result = await _fetchAndScore(lat, lng, searchRadiusKm * 1000);
+      var result = await _fetchAndScore(lat, lng, searchRadiusKm * 1000);
       routes = result.where((r) => !isExcluded(r)).toList();
+
+      // 결과가 너무 적으면 자동으로 100km 재시도
+      if (routes.length < 3 && searchRadiusKm < 100) {
+        debugPrint('[RouteService] 루트 부족 (${routes.length}개) → 100km 자동 확장');
+        result = await _fetchAndScore(lat, lng, 100000);
+        routes = result.where((r) => !isExcluded(r)).toList();
+      }
+
       selectedRoute = routes.isNotEmpty ? routes.first : null;
       _lastFetchLocation = LatLng(lat, lng);
       _lastFetchRadius = searchRadiusKm;
