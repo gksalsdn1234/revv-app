@@ -553,28 +553,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                // 📍 출발점 핀 버튼
-                GestureDetector(
-                  onTap: () => setState(() => _pinStartMode = !_pinStartMode),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: _pinStartMode
-                          ? AppColors.red.withValues(alpha: 0.9)
-                          : Colors.black.withValues(alpha: 0.62),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: _pinStartMode
-                            ? AppColors.red
-                            : Colors.white.withValues(alpha: 0.1),
-                      ),
-                    ),
-                    child: const Icon(Icons.place_rounded,
-                        size: 18, color: Colors.white),
-                  ),
-                ),
-                const SizedBox(width: 8),
                 // 루트 wizard
                 GestureDetector(
                   onTap: () => RouteWizardSheet.show(context),
@@ -708,19 +686,19 @@ class _RoutesScreenState extends State<RoutesScreen> {
             },
           ),
 
-          // ── 말풍선 툴팁 (루트 선택 시) ──
+          // ── 말풍선 툴팁 (루트 선택 시) — 하단 배치 ──
           Positioned(
             key: const ValueKey('route-tooltip'),
-            top: MediaQuery.of(context).padding.top + 70,
-            left: 20,
-            right: 20,
+            bottom: MediaQuery.of(context).padding.bottom + 16,
+            left: 12,
+            right: 12,
             child: Consumer<RouteService>(
               builder: (_, svc, __) {
                 final selected = svc.selectedRoute;
                 return AnimatedSlide(
                   offset: selected != null
                       ? Offset.zero
-                      : const Offset(0, -0.3),
+                      : const Offset(0, 0.3),
                   duration: const Duration(milliseconds: 200),
                   curve: Curves.easeOut,
                   child: AnimatedOpacity(
@@ -744,6 +722,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                               onHeatmap: () => _toggleHeatmap(selected),
                               heatmapActive: _heatmapMode,
                               onEdit: () => _openRouteEdit(selected, svc),
+                              onExclude: () => svc.excludeRoute(selected),
                             )
                           : const SizedBox.shrink(),
                     ),
@@ -753,37 +732,44 @@ class _RoutesScreenState extends State<RoutesScreen> {
             ),
           ),
 
-          // ── 왼쪽 이전 화살표 — 하단 인디케이터와 같은 높이 ──
-          Positioned(
-            left: 6,
-            bottom: MediaQuery.of(context).padding.bottom + 10,
-            child: Consumer<RouteService>(
-              builder: (_, svc, __) => _ArrowBtn(
-                icon: Icons.chevron_left_rounded,
-                onTap: svc.routes.isEmpty ? null : () => _prevRoute(svc),
-              ),
-            ),
+          // ── 왼쪽 이전 화살표 — 루트 미선택 시만 표시 ──
+          Consumer<RouteService>(
+            builder: (_, svc, __) {
+              if (svc.selectedRoute != null) return const SizedBox.shrink();
+              return Positioned(
+                left: 6,
+                bottom: MediaQuery.of(context).padding.bottom + 10,
+                child: _ArrowBtn(
+                  icon: Icons.chevron_left_rounded,
+                  onTap: svc.routes.isEmpty ? null : () => _prevRoute(svc),
+                ),
+              );
+            },
           ),
 
-          // ── 오른쪽 다음 화살표 — 하단 인디케이터와 같은 높이 ──
-          Positioned(
-            right: 6,
-            bottom: MediaQuery.of(context).padding.bottom + 10,
-            child: Consumer<RouteService>(
-              builder: (_, svc, __) => _ArrowBtn(
-                icon: Icons.chevron_right_rounded,
-                onTap: svc.routes.isEmpty ? null : () => _nextRoute(svc),
-              ),
-            ),
+          // ── 오른쪽 다음 화살표 — 루트 미선택 시만 표시 ──
+          Consumer<RouteService>(
+            builder: (_, svc, __) {
+              if (svc.selectedRoute != null) return const SizedBox.shrink();
+              return Positioned(
+                right: 6,
+                bottom: MediaQuery.of(context).padding.bottom + 10,
+                child: _ArrowBtn(
+                  icon: Icons.chevron_right_rounded,
+                  onTap: svc.routes.isEmpty ? null : () => _nextRoute(svc),
+                ),
+              );
+            },
           ),
 
-          // ── 하단 인디케이터 (N/M + 반경) ──
+          // ── 하단 인디케이터 (N/M + 반경) — 루트 미선택 시만 표시 ──
           Positioned(
             bottom: MediaQuery.of(context).padding.bottom + 16,
             left: 0,
             right: 0,
             child: Consumer<RouteService>(
               builder: (_, svc, __) {
+                if (svc.selectedRoute != null) return const SizedBox.shrink();
                 if (svc.isLoading) {
                   return Center(
                     child: Row(
@@ -851,6 +837,13 @@ class _RoutesScreenState extends State<RoutesScreen> {
                           child: Icon(Icons.shuffle_rounded,
                               size: 16, color: AppColors.textHint),
                         ),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: () => setState(() => _pinStartMode = !_pinStartMode),
+                          child: Icon(Icons.place_rounded,
+                              size: 16,
+                              color: _pinStartMode ? AppColors.red : AppColors.textHint),
+                        ),
                       ],
                     ),
                   ),
@@ -898,6 +891,7 @@ class _RouteTooltip extends StatelessWidget {
   final VoidCallback onHeatmap;
   final bool heatmapActive;
   final VoidCallback onEdit;
+  final VoidCallback onExclude;
 
   const _RouteTooltip({
     required this.route,
@@ -912,6 +906,7 @@ class _RouteTooltip extends StatelessWidget {
     required this.onHeatmap,
     required this.heatmapActive,
     required this.onEdit,
+    required this.onExclude,
   });
 
   @override
@@ -1041,40 +1036,20 @@ class _RouteTooltip extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                // E/F/G/I 액션 버튼 행
-                Row(
-                  children: [
-                    _IconAction(
-                      icon: Icons.swap_horiz_rounded,
-                      label: '반전',
-                      onTap: onReverse,
-                    ),
-                    const SizedBox(width: 6),
-                    _IconAction(
-                      icon: Icons.travel_explore_rounded,
-                      label: '유사탐색',
-                      onTap: onFindSimilar,
-                    ),
-                    const SizedBox(width: 6),
-                    _IconAction(
-                      icon: Icons.add_link_rounded,
-                      label: '체인',
-                      onTap: onChain,
-                    ),
-                    const SizedBox(width: 6),
-                    _IconAction(
-                      icon: Icons.thermostat_rounded,
-                      label: '히트맵',
-                      onTap: onHeatmap,
-                      active: heatmapActive,
-                    ),
-                    const SizedBox(width: 6),
-                    _IconAction(
-                      icon: Icons.edit_road_rounded,
-                      label: '편집',
-                      onTap: onEdit,
-                    ),
-                  ],
+                // 액션 아이콘 행 (아이콘만, 라벨 없음)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _IconBtn(icon: Icons.swap_horiz_rounded, onTap: onReverse, tooltip: '방향 반전'),
+                      _IconBtn(icon: Icons.travel_explore_rounded, onTap: onFindSimilar, tooltip: '유사 탐색'),
+                      _IconBtn(icon: Icons.add_link_rounded, onTap: onChain, tooltip: '체인 연결'),
+                      _IconBtn(icon: Icons.thermostat_rounded, onTap: onHeatmap, tooltip: '히트맵', active: heatmapActive),
+                      _IconBtn(icon: Icons.edit_road_rounded, onTap: onEdit, tooltip: '루트 편집'),
+                      _IconBtn(icon: Icons.content_cut_rounded, onTap: onTrim, tooltip: '구간 트림'),
+                      _IconBtn(icon: Icons.block_rounded, onTap: onExclude, tooltip: '이 루트 제외', isDestructive: true),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 8),
                 // CHAIN + GO
@@ -1098,22 +1073,6 @@ class _RouteTooltip extends StatelessWidget {
                         ),
                       ),
                     const Spacer(),
-                    // ✂️ 구간 트리밍 버튼
-                    GestureDetector(
-                      onTap: onTrim,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 7),
-                        margin: const EdgeInsets.only(right: 6),
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.white12),
-                        ),
-                        child: const Icon(Icons.content_cut_rounded,
-                            size: 14, color: Colors.white60),
-                      ),
-                    ),
                     GestureDetector(
                       onTap: onGo,
                       child: Container(
@@ -1151,50 +1110,46 @@ class _RouteTooltip extends StatelessWidget {
   }
 }
 
-// ── E/F/G/I 액션 아이콘 버튼 ─────────────────────────────────────
-class _IconAction extends StatelessWidget {
+// 콤팩트 아이콘 버튼 (라벨 없음)
+class _IconBtn extends StatelessWidget {
   final IconData icon;
-  final String label;
   final VoidCallback onTap;
+  final String tooltip;
   final bool active;
-  const _IconAction({
+  final bool isDestructive;
+  const _IconBtn({
     required this.icon,
-    required this.label,
     required this.onTap,
+    required this.tooltip,
     this.active = false,
+    this.isDestructive = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final color = isDestructive
+        ? AppColors.red
+        : active
+            ? AppColors.red
+            : Colors.white54;
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        width: 36,
+        height: 32,
+        margin: const EdgeInsets.only(right: 6),
         decoration: BoxDecoration(
-          color: active
-              ? AppColors.red.withValues(alpha: 0.2)
+          color: (active || isDestructive)
+              ? color.withValues(alpha: 0.15)
               : Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: active
-                ? AppColors.red.withValues(alpha: 0.6)
+            color: (active || isDestructive)
+                ? color.withValues(alpha: 0.5)
                 : Colors.white12,
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 12,
-                color: active ? AppColors.red : Colors.white54),
-            const SizedBox(width: 4),
-            Text(label,
-                style: GoogleFonts.rajdhani(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: active ? AppColors.red : Colors.white54,
-                    letterSpacing: 0.5)),
-          ],
-        ),
+        child: Icon(icon, size: 15, color: color),
       ),
     );
   }
