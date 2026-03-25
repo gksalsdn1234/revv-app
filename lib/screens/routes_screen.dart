@@ -1274,7 +1274,7 @@ class _ChainPickerSheet extends StatelessWidget {
               itemBuilder: (_, i) {
                 final r = allRoutes[i];
                 final isChained = chained.any((c) => c.id == r.id);
-                final diffColor = routeDiffColor(r.difficultyLevel);
+                final diffColor = _routeDiffColor(r.difficultyLevel);
                 return ListTile(
                   dense: true,
                   contentPadding:
