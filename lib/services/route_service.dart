@@ -46,11 +46,18 @@ List<RevvRoute> _processRoutes(_IsolateParams p) {
               (g['lat'] as num).toDouble(), (g['lon'] as num).toDouble()))
           .toList();
       final sampled = nodes.length > 400 ? _sampleNodes(nodes, 400) : nodes;
-      final name = el['tags']?['name'] as String? ?? '';
-      if (_isUrbanName(name)) continue; // 교외 boulevard/avenue/rue 제외
-      final highway = el['tags']?['highway'] as String? ?? 'secondary';
+      final tags = el['tags'] as Map<String, dynamic>? ?? {};
+      final name = tags['name'] as String? ?? '';
+      if (_isUrbanName(name)) continue;
+      final highway = tags['highway'] as String? ?? 'secondary';
+      final surface = tags['surface'] as String? ?? '';
+      final maxspeed = _parseMaxspeed(tags['maxspeed'] as String?);
+      final lanes = int.tryParse(tags['lanes'] as String? ?? '') ?? 2;
       final id = el['id'].toString();
-      rawWays.add(_RawWay(id: id, name: name, nodes: sampled, highwayType: highway));
+      rawWays.add(_RawWay(
+        id: id, name: name, nodes: sampled, highwayType: highway,
+        surface: surface, maxspeedKmh: maxspeed, lanes: lanes,
+      ));
     }
   }
 
@@ -63,7 +70,7 @@ List<RevvRoute> _processRoutes(_IsolateParams p) {
 // ─── Top-level 헬퍼 함수들 ───────────────────────────────────────
 // (compute isolate에서 호출되므로 클래스 외부에 위치해야 함)
 
-const _stitchThresholdKm = 0.15; // 150m
+const _stitchThresholdKm = 0.25; // 250m (단편화 방지)
 
 // 도심/교외 도로 이름 필터 — Boulevard, Avenue, Rue 등은 시가지 특징
 bool _isUrbanName(String name) {
@@ -95,6 +102,9 @@ List<_RawWay> _stitchWays(List<_RawWay> ways) {
     final chainId = seed.id;
     var chainName = seed.name;
     var chainHighway = seed.highwayType;
+    var chainSurface = seed.surface;
+    var chainMaxspeed = seed.maxspeedKmh;
+    var chainLanes = seed.lanes;
 
     // 앞뒤로 연결 가능한 way를 반복 탐색
     bool extended = true;
@@ -106,30 +116,25 @@ List<_RawWay> _stitchWays(List<_RawWay> ways) {
         final chainEnd = chain.last;
         final chainStart = chain.first;
 
+        void _mergeMetadata() {
+          if (chainName.isEmpty) chainName = other.name;
+          if (chainSurface.isEmpty) chainSurface = other.surface;
+          chainMaxspeed ??= other.maxspeedKmh;
+          if (chainLanes < other.lanes) chainLanes = other.lanes;
+        }
+
         if (RevvRoute.haversineKm(chainEnd, other.nodes.first) < _stitchThresholdKm) {
           chain.addAll(other.nodes.skip(1));
-          used.add(other.id);
-          if (chainName.isEmpty) chainName = other.name;
-          extended = true;
-          break;
+          used.add(other.id); _mergeMetadata(); extended = true; break;
         } else if (RevvRoute.haversineKm(chainEnd, other.nodes.last) < _stitchThresholdKm) {
           chain.addAll(other.nodes.reversed.skip(1));
-          used.add(other.id);
-          if (chainName.isEmpty) chainName = other.name;
-          extended = true;
-          break;
+          used.add(other.id); _mergeMetadata(); extended = true; break;
         } else if (RevvRoute.haversineKm(chainStart, other.nodes.last) < _stitchThresholdKm) {
           chain = [...other.nodes, ...chain.skip(1)];
-          used.add(other.id);
-          if (chainName.isEmpty) chainName = other.name;
-          extended = true;
-          break;
+          used.add(other.id); _mergeMetadata(); extended = true; break;
         } else if (RevvRoute.haversineKm(chainStart, other.nodes.first) < _stitchThresholdKm) {
           chain = [...other.nodes.reversed.toList(), ...chain.skip(1)];
-          used.add(other.id);
-          if (chainName.isEmpty) chainName = other.name;
-          extended = true;
-          break;
+          used.add(other.id); _mergeMetadata(); extended = true; break;
         }
       }
     }
@@ -140,6 +145,9 @@ List<_RawWay> _stitchWays(List<_RawWay> ways) {
       name: chainName,
       nodes: sampled,
       highwayType: chainHighway,
+      surface: chainSurface,
+      maxspeedKmh: chainMaxspeed,
+      lanes: chainLanes,
     ));
   }
 
@@ -323,6 +331,53 @@ double _intersectionPenalty(int count, double distKm) {
   return 1.0;
 }
 
+// maxspeed 태그 파싱: "70", "50 km/h", "30 mph" 등
+int? _parseMaxspeed(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  final digits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+  final n = int.tryParse(digits);
+  if (n == null) return null;
+  if (raw.toLowerCase().contains('mph')) return (n * 1.609).round();
+  return n;
+}
+
+// 도로 표면 배수 (asphalt > paved > gravel > dirt)
+double _surfaceMultiplier(String surface) {
+  switch (surface.toLowerCase()) {
+    case 'asphalt':
+    case 'paved':
+    case 'concrete':       return 1.0;
+    case 'compacted':
+    case 'fine_gravel':    return 0.85;
+    case 'gravel':
+    case 'unpaved':
+    case 'cobblestone':    return 0.5;
+    case 'dirt':
+    case 'grass':
+    case 'sand':
+    case 'mud':            return 0.2;
+    default:               return 1.0; // 태그 없으면 중립
+  }
+}
+
+// 제한속도 배수: 60-80 km/h = 지방 와인딩 도로 최적
+double _maxspeedMultiplier(int? kmh) {
+  if (kmh == null) return 1.0;
+  if (kmh <= 30)  return 0.6;  // 주거지/보행 구역
+  if (kmh <= 50)  return 0.85; // 도심
+  if (kmh <= 80)  return 1.15; // 지방 도로 ★ 최적
+  if (kmh <= 90)  return 1.0;
+  return 0.65;                  // 100km/h+ = 고속도로형
+}
+
+// 차선 수 배수: 1차선 좁은 시골길 > 2차선 > 넓은 다차선
+double _lanesMultiplier(int lanes) {
+  if (lanes == 1) return 1.2;
+  if (lanes == 2) return 1.0;
+  if (lanes == 3) return 0.75;
+  return 0.55; // 4차선+
+}
+
 double _roadMultiplier(String highway) {
   switch (highway) {
     case 'secondary':    return 1.3;
@@ -358,7 +413,7 @@ List<RevvRoute> _selectTopRoutes(
     final dist = _totalDistance(way.nodes);
     final isLoopRoute = _isLoop(way.nodes);
     if (isLoopRoute && dist < 8.0) { cDist++; continue; }
-    if (!isLoopRoute && dist < 3.0) { cDist++; continue; }
+    if (!isLoopRoute && dist < 5.0) { cDist++; continue; } // 3→5km: 너무 짧은 단편 제거
 
     if (way.highwayType == 'residential') { cResidential++; continue; }
 
@@ -404,16 +459,19 @@ List<RevvRoute> _selectTopRoutes(
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
     final intersectCount = _countNearbyIntersections(way.nodes, intersections);
     final intersectPenalty = _intersectionPenalty(intersectCount, dist);
-    // 신호 패널티: 0개=1.0, 1개=0.55, 2개=0.25
     final signalPenalty = signalCount == 0 ? 1.0 : signalCount == 1 ? 0.55 : 0.25;
     final roadMultiplier = _roadMultiplier(way.highwayType);
+    final surfaceMult   = _surfaceMultiplier(way.surface);
+    final speedMult     = _maxspeedMultiplier(way.maxspeedKmh);
+    final lanesMult     = _lanesMultiplier(way.lanes);
     final loopBonus = isLoopRoute ? 1.25 : 1.0;
     final distPenalty = _distancePenalty(
         RevvRoute.haversineKm(userPos, way.nodes.first));
 
-    // roadcurvature.com 방식: density × sqrt(dist)로 밀도+길이 균형
+    // roadcurvature.com 방식 + 지리 데이터 배수
     final score = curvatureDensity * math.sqrt(dist) *
         continuityBonus * intersectPenalty * signalPenalty * roadMultiplier *
+        surfaceMult * speedMult * lanesMult *
         loopBonus * distPenalty;
 
     scored.add(_ScoredWay(
@@ -949,7 +1007,18 @@ class _RawWay {
   final String name;
   final List<LatLng> nodes;
   final String highwayType;
-  _RawWay({required this.id, required this.name, required this.nodes, required this.highwayType});
+  final String surface;    // asphalt/paved/gravel/dirt/unknown
+  final int? maxspeedKmh;  // 속도 제한 (km/h)
+  final int lanes;         // 차선 수
+  _RawWay({
+    required this.id,
+    required this.name,
+    required this.nodes,
+    required this.highwayType,
+    this.surface = '',
+    this.maxspeedKmh,
+    this.lanes = 2,
+  });
 }
 
 class _ScoredWay {
