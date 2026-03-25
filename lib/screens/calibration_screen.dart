@@ -27,6 +27,8 @@ class _CalibrationScreenState extends State<CalibrationScreen>
   late AnimationController _flyCtrl;
   late Animation<double> _flyAnim;
   bool _flyLeft = false;
+  // fetch가 완료되기 전까지는 로딩 상태로 표시
+  bool _fetchDone = false;
 
   @override
   void initState() {
@@ -50,10 +52,13 @@ class _CalibrationScreenState extends State<CalibrationScreen>
       }
     });
 
-    // 루트 탐색 시작
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // 루트 탐색 시작 — resetCache()로 10km 스킵 조건 우회
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final svc = context.read<RouteService>();
       final loc = context.read<LocationService>();
-      context.read<RouteService>().fetchRoutes(loc.lat, loc.lng);
+      svc.resetCache(); // 캘리브레이션은 항상 새로 탐색
+      await svc.fetchRoutes(loc.lat, loc.lng);
+      if (mounted) setState(() => _fetchDone = true);
     });
   }
 
@@ -94,7 +99,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
       backgroundColor: AppColors.bg,
       body: Consumer<RouteService>(
         builder: (ctx, svc, _) {
-          if (svc.isLoading) return _buildLoading();
+          if (svc.isLoading || !_fetchDone) return _buildLoading();
           final routes = svc.routes;
           if (routes.isEmpty) return _buildEmpty();
           if (_index >= routes.length) return _buildDone();
