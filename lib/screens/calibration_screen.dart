@@ -410,7 +410,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
   }
 }
 
-// ── 루트 카드 ────────────────────────────────────────────────────────
+// ── 루트 카드 (게임 맵 스타일) ────────────────────────────────────────
 class _RouteCard extends StatelessWidget {
   final RevvRoute route;
   final double opacity;
@@ -433,19 +433,19 @@ class _RouteCard extends StatelessWidget {
       opacity: opacity,
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF141416),
+          color: const Color(0xFF0E0E10),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: diff.withOpacity(0.4), width: 1.5),
+          border: Border.all(color: diff.withValues(alpha: 0.5), width: 1.5),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.6),
-              blurRadius: 24,
-              offset: const Offset(0, 10),
+              color: Colors.black.withValues(alpha: 0.7),
+              blurRadius: 28,
+              offset: const Offset(0, 12),
             ),
             BoxShadow(
-              color: diff.withOpacity(0.08),
-              blurRadius: 32,
-              spreadRadius: 4,
+              color: diff.withValues(alpha: 0.15),
+              blurRadius: 36,
+              spreadRadius: 2,
             ),
           ],
         ),
@@ -454,88 +454,172 @@ class _RouteCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 상단 컬러 스트립
-              Container(height: 4, color: diff),
-              // 곡률 시각화 (미니 파형)
-              _CurvatureViz(route: route, accentColor: diff),
-              // 루트 정보
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 난이도 + 이름
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              // ── 미니맵 영역 ──────────────────────────────────────
+              Stack(
+                children: [
+                  // 미니맵 CustomPainter
+                  SizedBox(
+                    height: 200,
+                    child: CustomPaint(
+                      painter: _RouteMapPainter(
+                        nodes: route.nodes,
+                        routeColor: diff,
+                      ),
+                      size: Size.infinite,
+                    ),
+                  ),
+                  // 좌상단 — 난이도 배지
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: diff.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(5),
+                        color: diff.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
                         route.difficultyLabel,
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 10,
+                        style: GoogleFonts.orbitron(
+                          fontSize: 9,
                           fontWeight: FontWeight.w800,
-                          color: diff,
-                          letterSpacing: 2,
+                          color: Colors.white,
+                          letterSpacing: 1.5,
                         ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      route.name,
-                      style: GoogleFonts.orbitron(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                  ),
+                  // 우상단 — 집 거리
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 14),
-                    // 스탯 행
-                    Row(
-                      children: [
-                        _StatItem(icon: Icons.straighten, value: route.distanceDisplay),
-                        const SizedBox(width: 20),
-                        _StatItem(icon: Icons.schedule, value: route.durationDisplay),
-                        const SizedBox(width: 20),
-                        _StatItem(
-                          icon: Icons.near_me,
-                          value: route.distanceFromUserDisplay,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    // 커브 분포 바
-                    _CurveBar(route: route, accentColor: diff),
-                    if (route.isLoop) ...[
-                      const SizedBox(height: 10),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.cyan.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(5),
-                          border: Border.all(color: AppColors.cyan.withOpacity(0.3)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.loop, size: 10, color: AppColors.cyan),
-                            const SizedBox(width: 4),
-                            Text(
-                              'LOOP',
-                              style: GoogleFonts.rajdhani(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.cyan,
-                                letterSpacing: 1,
-                              ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.home_rounded, size: 10,
+                              color: Colors.white.withValues(alpha: 0.7)),
+                          const SizedBox(width: 4),
+                          Text(
+                            route.distanceFromUserDisplay,
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white.withValues(alpha: 0.9),
                             ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // 하단 — 거리 + 시간 오버레이
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.8),
                           ],
                         ),
                       ),
-                    ],
+                      child: Row(
+                        children: [
+                          _MapStatChip(
+                            icon: Icons.straighten,
+                            value: route.distanceDisplay,
+                            color: diff,
+                          ),
+                          const SizedBox(width: 10),
+                          _MapStatChip(
+                            icon: Icons.schedule,
+                            value: route.durationDisplay,
+                          ),
+                          if (route.isLoop) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.cyan.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                    color: AppColors.cyan.withValues(alpha: 0.5)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.loop,
+                                      size: 9, color: AppColors.cyan),
+                                  const SizedBox(width: 3),
+                                  Text('LOOP',
+                                      style: GoogleFonts.rajdhani(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.cyan,
+                                        letterSpacing: 1,
+                                      )),
+                                ],
+                              ),
+                            ),
+                          ],
+                          const Spacer(),
+                          // 와인딩 밀도 %
+                          if (route.windingDensityPct > 0)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.turn_right,
+                                    size: 10,
+                                    color: diff.withValues(alpha: 0.9)),
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${route.windingDensityPct.toStringAsFixed(0)}%',
+                                  style: GoogleFonts.rajdhani(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: diff,
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              // ── 하단 정보 패널 ─────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      route.name,
+                      style: GoogleFonts.orbitron(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 10),
+                    _CurveBar(route: route, accentColor: diff),
                   ],
                 ),
               ),
@@ -547,101 +631,141 @@ class _RouteCard extends StatelessWidget {
   }
 }
 
-// ── 곡률 시각화 (미니 파형) ─────────────────────────────────────────
-class _CurvatureViz extends StatelessWidget {
-  final RevvRoute route;
-  final Color accentColor;
-  const _CurvatureViz({required this.route, required this.accentColor});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 80,
-      child: CustomPaint(
-        painter: _WaveformPainter(
-          nodes: route.nodes,
-          color: accentColor,
-        ),
-      ),
-    );
-  }
-}
-
-class _WaveformPainter extends CustomPainter {
+// ── 게임 맵 스타일 루트 미니맵 ──────────────────────────────────────────
+class _RouteMapPainter extends CustomPainter {
   final List<LatLng> nodes;
-  final Color color;
-  const _WaveformPainter({required this.nodes, required this.color});
+  final Color routeColor;
+  const _RouteMapPainter({required this.nodes, required this.routeColor});
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (nodes.length < 3) return;
-    final paint = Paint()
+    if (nodes.length < 2) return;
+    final pad = size.width * 0.1;
+
+    // ── 좌표 정규화 ───────────────────────────────────────────────
+    double minLat = nodes[0].lat, maxLat = nodes[0].lat;
+    double minLng = nodes[0].lng, maxLng = nodes[0].lng;
+    for (final n in nodes) {
+      if (n.lat < minLat) minLat = n.lat;
+      if (n.lat > maxLat) maxLat = n.lat;
+      if (n.lng < minLng) minLng = n.lng;
+      if (n.lng > maxLng) maxLng = n.lng;
+    }
+    final latRange = (maxLat - minLat).abs();
+    final lngRange = (maxLng - minLng).abs();
+    final range = math.max(latRange, lngRange);
+    if (range < 1e-7) return;
+
+    // 종횡비 보정
+    final latScale = (size.height - pad * 2) / (latRange < 1e-7 ? range : latRange);
+    final lngScale = (size.width - pad * 2) / (lngRange < 1e-7 ? range : lngRange);
+    final scale = math.min(latScale, lngScale);
+
+    final latOffset = (size.height - pad * 2 - latRange * scale) / 2;
+    final lngOffset = (size.width - pad * 2 - lngRange * scale) / 2;
+
+    Offset toCanvas(LatLng n) => Offset(
+      pad + lngOffset + (n.lng - minLng) * scale,
+      size.height - pad - latOffset - (n.lat - minLat) * scale,
+    );
+
+    // ── 배경 ─────────────────────────────────────────────────────
+    canvas.drawRect(Offset.zero & size,
+        Paint()..color = const Color(0xFF0A0A0D));
+
+    // ── 격자 (게임 맵 느낌) ────────────────────────────────────────
+    final gridPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.04)
+      ..strokeWidth = 0.5;
+    const gridCount = 8;
+    for (int i = 0; i <= gridCount; i++) {
+      final x = i / gridCount * size.width;
+      final y = i / gridCount * size.height;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    }
+
+    // ── 루트 글로우 (외곽선) ──────────────────────────────────────
+    final glowPaint = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..color = color.withOpacity(0.6);
-    final fillPaint = Paint()
-      ..style = PaintingStyle.fill
-      ..color = color.withOpacity(0.08);
+      ..strokeWidth = 7
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = routeColor.withValues(alpha: 0.18)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
 
-    // 방위각 변화로 "파형" 생성
-    final angles = <double>[];
-    for (int i = 1; i < nodes.length; i++) {
-      final dlat = nodes[i].lat - nodes[i - 1].lat;
-      final dlng = nodes[i].lng - nodes[i - 1].lng;
-      angles.add(math.atan2(dlng, dlat));
-    }
-
-    // 샘플링
-    const steps = 60;
-    final step = math.max(1, angles.length ~/ steps);
-    final sampled = <double>[];
-    for (int i = 0; i < angles.length; i += step) sampled.add(angles[i]);
-
-    if (sampled.isEmpty) return;
-
-    // 스무딩
-    final smoothed = <double>[];
-    for (int i = 0; i < sampled.length; i++) {
-      double sum = 0;
-      int cnt = 0;
-      for (int j = math.max(0, i - 2); j <= math.min(sampled.length - 1, i + 2); j++) {
-        sum += sampled[j]; cnt++;
-      }
-      smoothed.add(sum / cnt);
-    }
-
-    // 정규화
-    final minV = smoothed.reduce(math.min);
-    final maxV = smoothed.reduce(math.max);
-    final range = (maxV - minV).abs();
-    if (range < 0.001) return;
-
-    final path = Path();
-    final fillPath = Path();
-    final baseline = size.height * 0.5;
-
-    for (int i = 0; i < smoothed.length; i++) {
-      final x = i / (smoothed.length - 1) * size.width;
-      final norm = (smoothed[i] - minV) / range; // 0..1
-      final y = baseline + (norm - 0.5) * size.height * 0.6;
+    final routePath = Path();
+    for (int i = 0; i < nodes.length; i++) {
+      final pt = toCanvas(nodes[i]);
       if (i == 0) {
-        path.moveTo(x, y);
-        fillPath.moveTo(x, baseline);
-        fillPath.lineTo(x, y);
+        routePath.moveTo(pt.dx, pt.dy);
       } else {
-        path.lineTo(x, y);
-        fillPath.lineTo(x, y);
+        routePath.lineTo(pt.dx, pt.dy);
       }
     }
-    fillPath.lineTo(size.width, baseline);
-    fillPath.close();
+    canvas.drawPath(routePath, glowPaint);
 
-    canvas.drawPath(fillPath, fillPaint);
-    canvas.drawPath(path, paint);
+    // ── 루트 본선 ─────────────────────────────────────────────────
+    canvas.drawPath(
+      routePath,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.5
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = routeColor,
+    );
+
+    // ── 시작점 (녹색 원) ──────────────────────────────────────────
+    final start = toCanvas(nodes.first);
+    canvas.drawCircle(start, 5,
+        Paint()..color = const Color(0xFF22C55E));
+    canvas.drawCircle(start, 5,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = Colors.white.withValues(alpha: 0.8));
+
+    // ── 끝점 (체크 깃발 느낌 — 흰 원) ────────────────────────────
+    final end = toCanvas(nodes.last);
+    canvas.drawCircle(end, 5,
+        Paint()..color = Colors.white.withValues(alpha: 0.9));
+    canvas.drawCircle(end, 5,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5
+          ..color = routeColor);
   }
 
   @override
-  bool shouldRepaint(_WaveformPainter old) => false;
+  bool shouldRepaint(_RouteMapPainter old) =>
+      old.nodes != nodes || old.routeColor != routeColor;
+}
+
+// ── 맵 오버레이 스탯 칩 ──────────────────────────────────────────────
+class _MapStatChip extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final Color? color;
+  const _MapStatChip({required this.icon, required this.value, this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? Colors.white.withValues(alpha: 0.7);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 10, color: c),
+        const SizedBox(width: 3),
+        Text(value,
+            style: GoogleFonts.rajdhani(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: c,
+            )),
+      ],
+    );
+  }
 }
 
 // ── 커브 분포 바 ─────────────────────────────────────────────────────
@@ -724,32 +848,6 @@ class _CurveChip extends StatelessWidget {
             fontSize: 10,
             color: AppColors.textHint,
             letterSpacing: 0.5,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ── 스탯 아이템 ───────────────────────────────────────────────────────
-class _StatItem extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  const _StatItem({required this.icon, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 11, color: AppColors.textSecondary),
-        const SizedBox(width: 4),
-        Text(
-          value,
-          style: GoogleFonts.rajdhani(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textSecondary,
           ),
         ),
       ],
