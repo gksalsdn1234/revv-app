@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../services/settings_service.dart';
+import '../services/route_service.dart';
+import 'calibration_screen.dart';
 import '../services/route_service.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -108,9 +111,46 @@ class SettingsScreen extends StatelessWidget {
               ),
 
               const SizedBox(height: 32),
+              // ── 루트 캘리브레이션 ─────────────────────────────────
+              _SectionHeader(label: '루트 캘리브레이션'),
+              _ActionTile(
+                label: '캘리브레이션 다시하기',
+                subtitle: '싫어하는 루트 취향을 다시 설정합니다',
+                icon: Icons.tune_rounded,
+                onTap: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.remove(kCalibrationDoneKey);
+                  if (!context.mounted) return;
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => const CalibrationScreen()),
+                  );
+                },
+              ),
+              _ActionTile(
+                label: '배제 루트 초기화',
+                subtitle: '싫어요한 루트를 모두 복원합니다',
+                icon: Icons.restore_rounded,
+                color: AppColors.orange,
+                onTap: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.remove('revv_excluded_centers');
+                  if (!context.mounted) return;
+                  context.read<RouteService>().resetExclusions();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('배제 루트가 초기화됐어요',
+                          style: GoogleFonts.rajdhani(fontSize: 13)),
+                      backgroundColor: AppColors.panel,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 32),
               // ── 앱 정보 ──────────────────────────────────────────
               _SectionHeader(label: '앱 정보'),
-              _InfoTile(label: '버전', value: 'v1.33'),
+              _InfoTile(label: '버전', value: 'v1.38'),
               _InfoTile(label: '지도', value: 'Mapbox'),
               _InfoTile(label: '루트 데이터', value: 'Overpass API (OSM)'),
               const SizedBox(height: 24),
@@ -309,6 +349,61 @@ class _RadioTile<T> extends StatelessWidget {
             }).toList(),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── 액션 타일 ─────────────────────────────────────────────────
+class _ActionTile extends StatelessWidget {
+  final String label;
+  final String subtitle;
+  final IconData icon;
+  final Color? color;
+  final VoidCallback onTap;
+  const _ActionTile({
+    required this.label,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = color ?? AppColors.red;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.panel,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: c),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: GoogleFonts.rajdhani(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary)),
+                  Text(subtitle,
+                      style: GoogleFonts.rajdhani(
+                          fontSize: 11, color: AppColors.textHint)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 16, color: AppColors.textHint),
+          ],
+        ),
       ),
     );
   }

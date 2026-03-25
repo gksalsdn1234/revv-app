@@ -84,8 +84,12 @@ class _CalibrationScreenState extends State<CalibrationScreen>
   }
 
   Future<void> _finish() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(kCalibrationDoneKey, true);
+    // 루트를 최소 1장 이상 봤을 때만 캘리브레이션 완료로 표시
+    // → 루트 0개 상태에서 건너뛰면 다음 실행에서 다시 캘리브레이션 진행
+    if (_index > 0 || (_fetchDone && _routes().isNotEmpty)) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(kCalibrationDoneKey, true);
+    }
     if (!mounted) return;
     Navigator.pushReplacement(
       context,

@@ -45,7 +45,7 @@ List<RevvRoute> _processRoutes(_IsolateParams p) {
           .map((g) => LatLng(
               (g['lat'] as num).toDouble(), (g['lon'] as num).toDouble()))
           .toList();
-      final sampled = nodes.length > 200 ? _sampleNodes(nodes, 200) : nodes;
+      final sampled = nodes.length > 400 ? _sampleNodes(nodes, 400) : nodes;
       final name = el['tags']?['name'] as String? ?? '';
       if (_isUrbanName(name)) continue; // 교외 boulevard/avenue/rue 제외
       final highway = el['tags']?['highway'] as String? ?? 'secondary';
@@ -134,7 +134,7 @@ List<_RawWay> _stitchWays(List<_RawWay> ways) {
       }
     }
 
-    final sampled = chain.length > 300 ? _sampleNodes(chain, 300) : chain;
+    final sampled = chain.length > 600 ? _sampleNodes(chain, 600) : chain;
     result.add(_RawWay(
       id: chainId,
       name: chainName,
@@ -340,9 +340,9 @@ List<RevvRoute> _selectTopRoutes(
 
     final curves = _analyzeCurves(way.nodes);
 
-    // roadcurvature.com 기준: 300 미만은 지루한 도로
-    // 300=Lightly, 1000=Moderately, 2000=Very, 3000=Extremely Curvy
-    if (curves.totalCurvature < 300) continue;
+    // 샘플링(400노드) 기준 스케일 다운된 임계값 — roadcurvature.com 풀해상도의 약 1/5
+    // 60 ≈ roadcurvature.com "Lightly Curvy" 300 에 해당
+    if (curves.totalCurvature < 60) continue;
     if (curves.maxContinuousKm < 0.6) continue;
 
     // curvature density (deg/km): 전체 루트의 커브 밀도
@@ -490,6 +490,13 @@ class RouteService extends ChangeNotifier {
     }
     notifyListeners();
     _saveExclusions();
+  }
+
+  /// 배제 목록 전체 초기화 (설정 화면에서 호출)
+  void resetExclusions() {
+    _excludedCenters.clear();
+    _exclusionsLoaded = true;
+    notifyListeners();
   }
 
   Future<void> _saveExclusions() async {
