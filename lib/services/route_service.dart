@@ -352,7 +352,9 @@ List<RevvRoute> _selectTopRoutes(
 
   for (final way in ways) {
     final dist = _totalDistance(way.nodes);
-    if (dist < 5.0) continue; // 5km 미만 도심 단편 루트 제거
+    final isLoopRoute = _isLoop(way.nodes);
+    if (isLoopRoute && dist < 8.0) continue;  // 루프: 8km 미만 → 블록 루트
+    if (!isLoopRoute && dist < 3.0) continue; // 일반: 3km 미만 제거
 
     // 신호등/스탑사인 3개 이상 → 도심 루트, 제외
     final signalCount = _countSignalsNearRoute(way.nodes, signalNodes);
@@ -360,24 +362,42 @@ List<RevvRoute> _selectTopRoutes(
 
     final curves = _analyzeCurves(way.nodes);
 
-    // 샘플링(400노드) 기준 스케일 다운된 임계값 — roadcurvature.com 풀해상도의 약 1/5
-    // 60 ≈ roadcurvature.com "Lightly Curvy" 300 에 해당
     if (curves.totalCurvature < 60) continue;
     if (curves.maxContinuousKm < 0.6) continue;
-    if (curves.maxStraightRunKm > 3.0) continue; // 직선 3km 초과 구간 있으면 제외 (1.5→3.0: 캐나다 시골길 커브간 직선 허용)
-    if (curves.curvyFraction < 0.12) continue;   // 커브 비율 12% 미만 제외 (18→12: 완만한 와인딩도 포함)
-    if (_selfIntersects(way.nodes)) continue;     // 자기교차 루트 제외
+    if (curves.maxStraightRunKm > 3.0) continue;
+    if (curves.curvyFraction < 0.12) continue;
+    if (_selfIntersects(way.nodes)) continue;
 
     // curvature density (deg/km): 전체 루트의 커브 밀도
     final curvatureDensity = curves.totalCurvature / dist;
-    if (curvatureDensity < 5.0) continue; // 밀도 너무 낮으면 제외
+    if (curvatureDensity < 5.0) continue;
+
+    // Spread Ratio: 루트 길이 대비 지리적 범위
+    // 주거지 골목 루프 = 작은 박스에 긴 루트 → ratio 낮음
+    // 진짜 와인딩 = 넓은 지역을 커버 → ratio 높음
+    {
+      double minLat = way.nodes[0].lat, maxLat = way.nodes[0].lat;
+      double minLng = way.nodes[0].lng, maxLng = way.nodes[0].lng;
+      for (final n in way.nodes) {
+        if (n.lat < minLat) minLat = n.lat;
+        if (n.lat > maxLat) maxLat = n.lat;
+        if (n.lng < minLng) minLng = n.lng;
+        if (n.lng > maxLng) maxLng = n.lng;
+      }
+      final avgLat = (minLat + maxLat) / 2;
+      final latKm = (maxLat - minLat) * 111.0;
+      final lngKm = (maxLng - minLng) * 111.0 * math.cos(_rad(avgLat));
+      final bbDiagonal = math.sqrt(latKm * latKm + lngKm * lngKm);
+      final spreadRatio = dist > 0 ? bbDiagonal / dist : 0;
+      if (spreadRatio < 0.20) continue; // 주거지 순환 루트 제거
+    }
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
     final intersectCount = _countNearbyIntersections(way.nodes, intersections);
     final intersectPenalty = _intersectionPenalty(intersectCount, dist);
     // 신호 패널티: 0개=1.0, 1개=0.55, 2개=0.25
     final signalPenalty = signalCount == 0 ? 1.0 : signalCount == 1 ? 0.55 : 0.25;
     final roadMultiplier = _roadMultiplier(way.highwayType);
-    final loopBonus = _isLoop(way.nodes) ? 1.25 : 1.0;
+    final loopBonus = isLoopRoute ? 1.25 : 1.0;
     final distPenalty = _distancePenalty(
         RevvRoute.haversineKm(userPos, way.nodes.first));
 
@@ -393,7 +413,7 @@ List<RevvRoute> _selectTopRoutes(
       center: _centerPoint(way.nodes),
       distFromUser: RevvRoute.haversineKm(userPos, way.nodes.first),
       curves: curves,
-      isLoop: _isLoop(way.nodes),
+      isLoop: isLoopRoute,
     ));
   }
 
