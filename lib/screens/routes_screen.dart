@@ -28,6 +28,16 @@ class _RoutesScreenState extends State<RoutesScreen> {
   String? _lastFlownRouteId;
   RouteService? _routeSvc;
 
+  // ── A. 출발점 핀 모드 ─────────────────────────────────────────
+  bool _pinStartMode = false;
+  LatLng? _customStart;
+
+  // ── D. 구간 트리밍 ────────────────────────────────────────────
+  bool _trimMode = false;
+  double _trimStart = 0.0;
+  double _trimEnd = 1.0;
+  RevvRoute? _trimBase;
+
   @override
   void initState() {
     super.initState();
@@ -150,6 +160,143 @@ class _RoutesScreenState extends State<RoutesScreen> {
     }
   }
 
+  // ── A. 출발점 핀 설정 ────────────────────────────────────────────
+  Future<void> _onPinTap(TapUpDetails details) async {
+    if (!_pinStartMode) return;
+    final map = _mapController;
+    if (map == null) return;
+    final point = await map.coordinateForPixel(
+      mbx.ScreenCoordinate(
+        x: details.localPosition.dx,
+        y: details.localPosition.dy,
+      ),
+    );
+    if (!mounted) return;
+    final lat = point.coordinates.lat.toDouble();
+    final lng = point.coordinates.lng.toDouble();
+    setState(() {
+      _customStart = LatLng(lat, lng);
+      _pinStartMode = false;
+      _lastFlownRouteId = null;
+    });
+    _routeSvc?.fetchRoutes(lat, lng);
+  }
+
+  void _resetCustomStart() {
+    final loc = context.read<LocationService>();
+    setState(() {
+      _customStart = null;
+      _lastFlownRouteId = null;
+    });
+    _routeSvc?.fetchRoutes(loc.lat, loc.lng);
+  }
+
+  // ── D. 구간 트리밍 ────────────────────────────────────────────────
+  void _startTrim(RevvRoute route) {
+    setState(() {
+      _trimMode = true;
+      _trimBase = route;
+      _trimStart = 0.0;
+      _trimEnd = 1.0;
+    });
+  }
+
+  void _cancelTrim() {
+    setState(() {
+      _trimMode = false;
+      _trimBase = null;
+    });
+    // 원본 루트로 지도 복원
+    final svc = _routeSvc;
+    if (svc != null) _drawRoutes(svc.routes, svc.selectedRoute);
+  }
+
+  void _applyTrim() {
+    final base = _trimBase;
+    if (base == null) return;
+    final nodes = base.nodes;
+    final s = (_trimStart * nodes.length).round().clamp(0, nodes.length - 2);
+    final e = (_trimEnd * nodes.length).round().clamp(s + 2, nodes.length);
+    final trimmed = nodes.sublist(s, e);
+    double dist = 0;
+    for (int i = 0; i < trimmed.length - 1; i++) {
+      dist += RevvRoute.haversineKm(trimmed[i], trimmed[i + 1]);
+    }
+    final newRoute = base.copyWith(
+      id: '${base.id}_trim',
+      nodes: trimmed,
+      distanceKm: dist,
+    );
+    _routeSvc?.selectRoute(newRoute);
+    setState(() {
+      _trimMode = false;
+      _trimBase = null;
+    });
+  }
+
+  void _onTrimChanged(double start, double end) {
+    setState(() {
+      _trimStart = start;
+      _trimEnd = end;
+    });
+    // 실시간 미리보기
+    final base = _trimBase;
+    if (base == null || _routeSvc == null) return;
+    final nodes = base.nodes;
+    final s = (start * nodes.length).round().clamp(0, nodes.length - 2);
+    final e = (end * nodes.length).round().clamp(s + 2, nodes.length);
+    _drawTrimPreview(base, s, e);
+  }
+
+  Future<void> _drawTrimPreview(RevvRoute base, int s, int e) async {
+    if (!_styleLoaded || _polyManager == null || _isDrawing) return;
+    _isDrawing = true;
+    try {
+      await _polyManager!.deleteAll();
+      _polylines.clear();
+      _annotationToRoute.clear();
+      final svc = _routeSvc;
+      if (svc == null) return;
+      // 비선택 루트
+      for (final route in svc.routes.where((r) => r.id != base.id)) {
+        final coords = route.nodes.map((n) => mbx.Position(n.lng, n.lat)).toList();
+        await _polyManager!.create(mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: coords),
+          lineColor: _routeDiffColorInt(route.difficultyLevel),
+          lineWidth: 4.5, lineOpacity: 0.4,
+        ));
+      }
+      final allCoords = base.nodes.map((n) => mbx.Position(n.lng, n.lat)).toList();
+      // 잘려나갈 앞 부분 (회색)
+      if (s > 1) {
+        await _polyManager!.create(mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: allCoords.sublist(0, s + 1)),
+          lineColor: 0xFF444444, lineWidth: 4.0, lineOpacity: 0.5,
+        ));
+      }
+      // 살아남는 구간 (흰색+컬러)
+      final kept = allCoords.sublist(s, e);
+      final diffColor = _routeDiffColorInt(base.difficultyLevel);
+      await _polyManager!.create(mbx.PolylineAnnotationOptions(
+        geometry: mbx.LineString(coordinates: kept),
+        lineColor: 0xFFFFFFFF, lineWidth: 7.0, lineOpacity: 1.0,
+      ));
+      await _polyManager!.create(mbx.PolylineAnnotationOptions(
+        geometry: mbx.LineString(coordinates: kept),
+        lineColor: diffColor, lineWidth: 4.5, lineOpacity: 1.0,
+      ));
+      // 잘려나갈 뒷 부분 (회색)
+      if (e < allCoords.length - 1) {
+        await _polyManager!.create(mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: allCoords.sublist(e)),
+          lineColor: 0xFF444444, lineWidth: 4.0, lineOpacity: 0.5,
+        ));
+      }
+    } finally {
+      _isDrawing = false;
+    }
+  }
+
   // ── 화살표 네비게이션 ────────────────────────────────────────────
   void _prevRoute(RouteService svc) {
     if (svc.routes.isEmpty) return;
@@ -222,30 +369,76 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                // 타이틀
+                // 타이틀 / 커스텀 출발지 상태
                 Expanded(
-                  child: Container(
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.08)),
-                    ),
-                    child: Center(
-                      child: Text(
-                        'ROUTES',
-                        style: GoogleFonts.orbitron(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: 3,
+                  child: GestureDetector(
+                    onTap: _customStart != null ? _resetCustomStart : null,
+                    child: Container(
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: _customStart != null
+                              ? AppColors.red.withValues(alpha: 0.6)
+                              : Colors.white.withValues(alpha: 0.08),
                         ),
+                      ),
+                      child: Center(
+                        child: _customStart != null
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.place_rounded,
+                                      size: 13, color: AppColors.red),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    '커스텀 출발지  ✕',
+                                    style: GoogleFonts.rajdhani(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.red,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : Text(
+                                'ROUTES',
+                                style: GoogleFonts.orbitron(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                  letterSpacing: 3,
+                                ),
+                              ),
                       ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 10),
+                // 📍 출발점 핀 버튼
+                GestureDetector(
+                  onTap: () => setState(() => _pinStartMode = !_pinStartMode),
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: _pinStartMode
+                          ? AppColors.red.withValues(alpha: 0.9)
+                          : Colors.black.withValues(alpha: 0.62),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: _pinStartMode
+                            ? AppColors.red
+                            : Colors.white.withValues(alpha: 0.1),
+                      ),
+                    ),
+                    child: const Icon(Icons.place_rounded,
+                        size: 18, color: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 // 루트 wizard
                 GestureDetector(
                   onTap: () => RouteWizardSheet.show(context),
@@ -265,6 +458,63 @@ class _RoutesScreenState extends State<RoutesScreen> {
               ],
             ),
           ),
+
+          // ── A. 핀 모드 오버레이 ──
+          if (_pinStartMode)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapUp: _onPinTap,
+                child: Stack(
+                  children: [
+                    Container(color: Colors.black.withValues(alpha: 0.15)),
+                    Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.place_rounded,
+                              size: 40, color: AppColors.red),
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.75),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
+                            ),
+                            child: Text(
+                              '탭하여 출발지 설정',
+                              style: GoogleFonts.rajdhani(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                  letterSpacing: 1),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // ── D. 구간 트리밍 패널 ──
+          if (_trimMode && _trimBase != null)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _TrimPanel(
+                route: _trimBase!,
+                trimStart: _trimStart,
+                trimEnd: _trimEnd,
+                onChanged: _onTrimChanged,
+                onApply: _applyTrim,
+                onCancel: _cancelTrim,
+              ),
+            ),
 
           // 로딩 오버레이 — IgnorePointer로 버튼 터치 통과
           Consumer<RouteService>(
@@ -352,6 +602,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                                       0, (s, r) => s + r.distanceKm),
                               onGo: () => svc.requestSprint(),
                               onClose: () => svc.deselectRoute(),
+                              onTrim: () => _startTrim(selected),
                             )
                           : const SizedBox.shrink(),
                     ),
@@ -499,6 +750,7 @@ class _RouteTooltip extends StatelessWidget {
   final double totalChainKm;
   final VoidCallback onGo;
   final VoidCallback onClose;
+  final VoidCallback onTrim;
 
   const _RouteTooltip({
     required this.route,
@@ -506,6 +758,7 @@ class _RouteTooltip extends StatelessWidget {
     required this.totalChainKm,
     required this.onGo,
     required this.onClose,
+    required this.onTrim,
   });
 
   @override
@@ -656,6 +909,22 @@ class _RouteTooltip extends StatelessWidget {
                         ),
                       ),
                     const Spacer(),
+                    // ✂️ 구간 트리밍 버튼
+                    GestureDetector(
+                      onTap: onTrim,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 7),
+                        margin: const EdgeInsets.only(right: 6),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: const Icon(Icons.content_cut_rounded,
+                            size: 14, color: Colors.white60),
+                      ),
+                    ),
                     GestureDetector(
                       onTap: onGo,
                       child: Container(
@@ -716,6 +985,186 @@ class _TooltipChip extends StatelessWidget {
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textSecondary)),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// D. 구간 트리밍 패널
+// ══════════════════════════════════════════════════════════════════
+class _TrimPanel extends StatelessWidget {
+  final RevvRoute route;
+  final double trimStart;
+  final double trimEnd;
+  final void Function(double start, double end) onChanged;
+  final VoidCallback onApply;
+  final VoidCallback onCancel;
+
+  const _TrimPanel({
+    required this.route,
+    required this.trimStart,
+    required this.trimEnd,
+    required this.onChanged,
+    required this.onApply,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final kept = (trimEnd - trimStart) * route.distanceKm;
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+          16, 14, 16, MediaQuery.of(context).padding.bottom + 14),
+      decoration: BoxDecoration(
+        color: const Color(0xF2141416),
+        border: const Border(
+            top: BorderSide(color: AppColors.divider)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 헤더
+          Row(
+            children: [
+              const Icon(Icons.content_cut_rounded,
+                  size: 14, color: AppColors.red),
+              const SizedBox(width: 8),
+              Text(
+                '구간 조절',
+                style: GoogleFonts.rajdhani(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 1),
+              ),
+              const Spacer(),
+              Text(
+                '${kept.toStringAsFixed(1)} km',
+                style: GoogleFonts.orbitron(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.red),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // 슬라이더
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: AppColors.red,
+              inactiveTrackColor: AppColors.surface,
+              thumbColor: Colors.white,
+              overlayColor: AppColors.red.withValues(alpha: 0.2),
+              trackHeight: 3,
+              thumbShape:
+                  const RoundSliderThumbShape(enabledThumbRadius: 8),
+            ),
+            child: Column(
+              children: [
+                // 시작 슬라이더
+                Row(
+                  children: [
+                    Text('시작',
+                        style: GoogleFonts.rajdhani(
+                            fontSize: 10,
+                            color: AppColors.textHint,
+                            letterSpacing: 1)),
+                    Expanded(
+                      child: Slider(
+                        value: trimStart,
+                        min: 0.0,
+                        max: (trimEnd - 0.1).clamp(0.0, 0.9),
+                        onChanged: (v) => onChanged(v, trimEnd),
+                      ),
+                    ),
+                    Text(
+                      '${(trimStart * route.distanceKm).toStringAsFixed(1)}km',
+                      style: GoogleFonts.rajdhani(
+                          fontSize: 10, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+                // 끝 슬라이더
+                Row(
+                  children: [
+                    Text('  끝',
+                        style: GoogleFonts.rajdhani(
+                            fontSize: 10,
+                            color: AppColors.textHint,
+                            letterSpacing: 1)),
+                    Expanded(
+                      child: Slider(
+                        value: trimEnd,
+                        min: (trimStart + 0.1).clamp(0.1, 1.0),
+                        max: 1.0,
+                        onChanged: (v) => onChanged(trimStart, v),
+                      ),
+                    ),
+                    Text(
+                      '${(trimEnd * route.distanceKm).toStringAsFixed(1)}km',
+                      style: GoogleFonts.rajdhani(
+                          fontSize: 10, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          // 적용/취소 버튼
+          Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  onTap: onCancel,
+                  child: Container(
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.divider),
+                    ),
+                    child: Center(
+                      child: Text('취소',
+                          style: GoogleFonts.rajdhani(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textSecondary)),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: GestureDetector(
+                  onTap: onApply,
+                  child: Container(
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: AppColors.red,
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                            color: AppColors.red.withValues(alpha: 0.4),
+                            blurRadius: 8)
+                      ],
+                    ),
+                    child: Center(
+                      child: Text('이 구간으로 설정',
+                          style: GoogleFonts.rajdhani(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              letterSpacing: 0.5)),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
