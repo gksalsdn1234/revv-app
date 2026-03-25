@@ -151,6 +151,19 @@ bool _isLoop(List<LatLng> nodes) {
   return RevvRoute.haversineKm(nodes.first, nodes.last) < 3.0;
 }
 
+// 자기교차 감지: 같은 150m 반경 구역을 24+ 인덱스 간격으로 다시 방문하면 제외
+// → stitching으로 만들어진 꼬인/자기교차 루트 차단
+bool _selfIntersects(List<LatLng> nodes) {
+  const radius = 0.15; // 150m
+  const minGap = 24;
+  for (int i = 0; i < nodes.length - minGap; i += 4) {
+    for (int j = i + minGap; j < nodes.length; j += 4) {
+      if (RevvRoute.haversineKm(nodes[i], nodes[j]) < radius) return true;
+    }
+  }
+  return false;
+}
+
 // 거리 패널티: 15km 이내 패널티 없음 / 15~60km 선형 감소 / 60km+ 0.55배
 double _distancePenalty(double distFromUserKm) {
   if (distFromUserKm <= 15) return 1.0;
@@ -207,13 +220,16 @@ _CurveResult _analyzeCurves(List<LatLng> nodes) {
   double totalCurvature = 0;
   double tightKm = 0;
   double mediumKm = 0;
+  double totalDist = 0;
   double currentContinuousKm = 0;
   double maxContinuousKm = 0;
   double straightAccum = 0;
+  double maxStraightRunKm = 0;
 
   for (int i = 0; i < nodes.length - 2; i++) {
     final angle = _bearingDiff(nodes[i], nodes[i + 1], nodes[i + 2]);
     final segLen = RevvRoute.haversineKm(nodes[i], nodes[i + 1]);
+    totalDist += segLen;
 
     // roadcurvature.com 핵심 공식
     totalCurvature += angle * segLen;
@@ -222,27 +238,31 @@ _CurveResult _analyzeCurves(List<LatLng> nodes) {
     if (rate >= 200) {
       tightKm += segLen;
       currentContinuousKm += segLen;
+      if (straightAccum > maxStraightRunKm) maxStraightRunKm = straightAccum;
       straightAccum = 0;
     } else if (rate >= 20) {
       mediumKm += segLen;
       currentContinuousKm += segLen;
+      if (straightAccum > maxStraightRunKm) maxStraightRunKm = straightAccum;
       straightAccum = 0;
     } else {
       straightAccum += segLen;
-      if (straightAccum >= 0.3) {
-        if (currentContinuousKm > maxContinuousKm) maxContinuousKm = currentContinuousKm;
-        currentContinuousKm = 0;
-        straightAccum = 0;
-      }
+      if (currentContinuousKm > maxContinuousKm) maxContinuousKm = currentContinuousKm;
+      currentContinuousKm = 0;
     }
   }
   if (currentContinuousKm > maxContinuousKm) maxContinuousKm = currentContinuousKm;
+  if (straightAccum > maxStraightRunKm) maxStraightRunKm = straightAccum;
+
+  final curvyFraction = totalDist > 0 ? (tightKm + mediumKm) / totalDist : 0.0;
 
   return _CurveResult(
     totalCurvature: totalCurvature,
     tightKm: tightKm,
     mediumKm: mediumKm,
     maxContinuousKm: maxContinuousKm,
+    maxStraightRunKm: maxStraightRunKm,
+    curvyFraction: curvyFraction,
   );
 }
 
@@ -344,9 +364,13 @@ List<RevvRoute> _selectTopRoutes(
     // 60 ≈ roadcurvature.com "Lightly Curvy" 300 에 해당
     if (curves.totalCurvature < 60) continue;
     if (curves.maxContinuousKm < 0.6) continue;
+    if (curves.maxStraightRunKm > 1.5) continue; // 직선 1.5km 초과 구간 있으면 제외
+    if (curves.curvyFraction < 0.18) continue;   // 커브 비율 18% 미만 제외
+    if (_selfIntersects(way.nodes)) continue;     // 자기교차 루트 제외
 
     // curvature density (deg/km): 전체 루트의 커브 밀도
     final curvatureDensity = curves.totalCurvature / dist;
+    if (curvatureDensity < 5.0) continue; // 밀도 너무 낮으면 제외
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
     final intersectCount = _countNearbyIntersections(way.nodes, intersections);
     final intersectPenalty = _intersectionPenalty(intersectCount, dist);
@@ -785,11 +809,15 @@ class _CurveResult {
   final double tightKm;
   final double mediumKm;
   final double maxContinuousKm;
+  final double maxStraightRunKm; // 최장 직선 구간
+  final double curvyFraction;    // 전체 거리 중 커브 비율 (0..1)
   const _CurveResult({
     required this.totalCurvature,
     required this.tightKm,
     required this.mediumKm,
     required this.maxContinuousKm,
+    required this.maxStraightRunKm,
+    required this.curvyFraction,
   });
 }
 
