@@ -356,6 +356,9 @@ List<RevvRoute> _selectTopRoutes(
     if (isLoopRoute && dist < 8.0) continue;  // 루프: 8km 미만 → 블록 루트
     if (!isLoopRoute && dist < 3.0) continue; // 일반: 3km 미만 제거
 
+    // residential 도로 완전 제외
+    if (way.highwayType == 'residential') continue;
+
     // 신호등/스탑사인 3개 이상 → 도심 루트, 제외
     final signalCount = _countSignalsNearRoute(way.nodes, signalNodes);
     if (signalCount >= 3) continue;
@@ -364,8 +367,8 @@ List<RevvRoute> _selectTopRoutes(
 
     if (curves.totalCurvature < 60) continue;
     if (curves.maxContinuousKm < 0.6) continue;
-    if (curves.maxStraightRunKm > 3.0) continue;
-    if (curves.curvyFraction < 0.12) continue;
+    if (curves.maxStraightRunKm > 2.5) continue;  // 3.0 → 2.5
+    if (curves.curvyFraction < 0.15) continue;    // 0.12 → 0.15
     if (_selfIntersects(way.nodes)) continue;
 
     // curvature density (deg/km): 전체 루트의 커브 밀도
@@ -389,7 +392,7 @@ List<RevvRoute> _selectTopRoutes(
       final lngKm = (maxLng - minLng) * 111.0 * math.cos(_rad(avgLat));
       final bbDiagonal = math.sqrt(latKm * latKm + lngKm * lngKm);
       final spreadRatio = dist > 0 ? bbDiagonal / dist : 0;
-      if (spreadRatio < 0.20) continue; // 주거지 순환 루트 제거
+      if (spreadRatio < 0.25) continue; // 주거지 순환 루트 제거 (0.20 → 0.25)
     }
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
     final intersectCount = _countNearbyIntersections(way.nodes, intersections);

@@ -30,10 +30,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
   String? _lastFlownRouteId;
   RouteService? _routeSvc;
 
-  // ── A. 출발점 핀 모드 ─────────────────────────────────────────
-  bool _pinStartMode = false;
-  LatLng? _customStart;
-
   // ── D. 구간 트리밍 ────────────────────────────────────────────
   bool _trimMode = false;
   double _trimStart = 0.0;
@@ -172,37 +168,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
     }
   }
 
-  // ── A. 출발점 핀 설정 ────────────────────────────────────────────
-  Future<void> _onPinTap(TapUpDetails details) async {
-    if (!_pinStartMode) return;
-    final map = _mapController;
-    if (map == null) return;
-    final point = await map.coordinateForPixel(
-      mbx.ScreenCoordinate(
-        x: details.localPosition.dx,
-        y: details.localPosition.dy,
-      ),
-    );
-    if (!mounted) return;
-    final lat = point.coordinates.lat.toDouble();
-    final lng = point.coordinates.lng.toDouble();
-    setState(() {
-      _customStart = LatLng(lat, lng);
-      _pinStartMode = false;
-      _lastFlownRouteId = null;
-    });
-    _routeSvc?.fetchRoutes(lat, lng);
-  }
-
-  void _resetCustomStart() {
-    final loc = context.read<LocationService>();
-    setState(() {
-      _customStart = null;
-      _lastFlownRouteId = null;
-    });
-    _routeSvc?.fetchRoutes(loc.lat, loc.lng);
-  }
-
   // ── D. 구간 트리밍 ────────────────────────────────────────────────
   void _startTrim(RevvRoute route) {
     setState(() {
@@ -337,10 +302,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
 
   // ── F. 유사 루트 탐색 ────────────────────────────────────────────
   void _findSimilar(RevvRoute route) {
-    setState(() {
-      _customStart = route.centerPoint;
-      _lastFlownRouteId = null;
-    });
+    setState(() => _lastFlownRouteId = null);
     _routeSvc?.fetchRoutes(route.centerPoint.lat, route.centerPoint.lng);
   }
 
@@ -505,49 +467,26 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                // 타이틀 / 커스텀 출발지 상태
+                // 타이틀
                 Expanded(
-                  child: GestureDetector(
-                    onTap: _customStart != null ? _resetCustomStart : null,
-                    child: Container(
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.65),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: _customStart != null
-                              ? AppColors.red.withValues(alpha: 0.6)
-                              : Colors.white.withValues(alpha: 0.08),
-                        ),
+                  child: Container(
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.08),
                       ),
-                      child: Center(
-                        child: _customStart != null
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.place_rounded,
-                                      size: 13, color: AppColors.red),
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    '커스텀 출발지  ✕',
-                                    style: GoogleFonts.rajdhani(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.red,
-                                      letterSpacing: 1,
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : Text(
-                                'ROUTES',
-                                style: GoogleFonts.orbitron(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                  letterSpacing: 3,
-                                ),
-                              ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        'ROUTES',
+                        style: GoogleFonts.orbitron(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 3,
+                        ),
                       ),
                     ),
                   ),
@@ -572,47 +511,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
               ],
             ),
           ),
-
-          // ── A. 핀 모드 오버레이 ──
-          if (_pinStartMode)
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTapUp: _onPinTap,
-                child: Stack(
-                  children: [
-                    Container(color: Colors.black.withValues(alpha: 0.15)),
-                    Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.place_rounded,
-                              size: 40, color: AppColors.red),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.75),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
-                            ),
-                            child: Text(
-                              '탭하여 출발지 설정',
-                              style: GoogleFonts.rajdhani(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                  letterSpacing: 1),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
 
           // ── D. 구간 트리밍 패널 ──
           if (_trimMode && _trimBase != null)
@@ -686,10 +584,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
             },
           ),
 
-          // ── 말풍선 툴팁 (루트 선택 시) — 하단 배치 ──
+          // ── 말풍선 툴팁 (루트 선택 시) — 화살표 위 배치 ──
           Positioned(
             key: const ValueKey('route-tooltip'),
-            bottom: MediaQuery.of(context).padding.bottom + 16,
+            bottom: MediaQuery.of(context).padding.bottom + 68,
             left: 12,
             right: 12,
             child: Consumer<RouteService>(
@@ -732,34 +630,28 @@ class _RoutesScreenState extends State<RoutesScreen> {
             ),
           ),
 
-          // ── 왼쪽 이전 화살표 — 루트 미선택 시만 표시 ──
-          Consumer<RouteService>(
-            builder: (_, svc, __) {
-              if (svc.selectedRoute != null) return const SizedBox.shrink();
-              return Positioned(
-                left: 6,
-                bottom: MediaQuery.of(context).padding.bottom + 10,
-                child: _ArrowBtn(
-                  icon: Icons.chevron_left_rounded,
-                  onTap: svc.routes.isEmpty ? null : () => _prevRoute(svc),
-                ),
-              );
-            },
+          // ── 왼쪽 이전 화살표 ──
+          Positioned(
+            left: 6,
+            bottom: MediaQuery.of(context).padding.bottom + 10,
+            child: Consumer<RouteService>(
+              builder: (_, svc, __) => _ArrowBtn(
+                icon: Icons.chevron_left_rounded,
+                onTap: svc.routes.isEmpty ? null : () => _prevRoute(svc),
+              ),
+            ),
           ),
 
-          // ── 오른쪽 다음 화살표 — 루트 미선택 시만 표시 ──
-          Consumer<RouteService>(
-            builder: (_, svc, __) {
-              if (svc.selectedRoute != null) return const SizedBox.shrink();
-              return Positioned(
-                right: 6,
-                bottom: MediaQuery.of(context).padding.bottom + 10,
-                child: _ArrowBtn(
-                  icon: Icons.chevron_right_rounded,
-                  onTap: svc.routes.isEmpty ? null : () => _nextRoute(svc),
-                ),
-              );
-            },
+          // ── 오른쪽 다음 화살표 ──
+          Positioned(
+            right: 6,
+            bottom: MediaQuery.of(context).padding.bottom + 10,
+            child: Consumer<RouteService>(
+              builder: (_, svc, __) => _ArrowBtn(
+                icon: Icons.chevron_right_rounded,
+                onTap: svc.routes.isEmpty ? null : () => _nextRoute(svc),
+              ),
+            ),
           ),
 
           // ── 하단 인디케이터 (N/M + 반경) — 루트 미선택 시만 표시 ──
@@ -836,13 +728,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
                           onTap: () => context.read<RouteService>().shuffleRoutes(),
                           child: Icon(Icons.shuffle_rounded,
                               size: 16, color: AppColors.textHint),
-                        ),
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: () => setState(() => _pinStartMode = !_pinStartMode),
-                          child: Icon(Icons.place_rounded,
-                              size: 16,
-                              color: _pinStartMode ? AppColors.red : AppColors.textHint),
                         ),
                       ],
                     ),
