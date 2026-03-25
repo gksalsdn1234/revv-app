@@ -584,10 +584,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
             },
           ),
 
-          // ── 말풍선 툴팁 (루트 선택 시) — 화살표 위 배치 ──
+          // ── 말풍선 툴팁 (루트 선택 시) — 인디케이터 위 배치 ──
           Positioned(
             key: const ValueKey('route-tooltip'),
-            bottom: MediaQuery.of(context).padding.bottom + 68,
+            bottom: MediaQuery.of(context).padding.bottom + 60,
             left: 12,
             right: 12,
             child: Consumer<RouteService>(
@@ -630,46 +630,20 @@ class _RoutesScreenState extends State<RoutesScreen> {
             ),
           ),
 
-          // ── 왼쪽 이전 화살표 ──
+          // ── 하단 스와이프 인디케이터 (항상 표시) ──
           Positioned(
-            left: 6,
-            bottom: MediaQuery.of(context).padding.bottom + 10,
-            child: Consumer<RouteService>(
-              builder: (_, svc, __) => _ArrowBtn(
-                icon: Icons.chevron_left_rounded,
-                onTap: svc.routes.isEmpty ? null : () => _prevRoute(svc),
-              ),
-            ),
-          ),
-
-          // ── 오른쪽 다음 화살표 ──
-          Positioned(
-            right: 6,
-            bottom: MediaQuery.of(context).padding.bottom + 10,
-            child: Consumer<RouteService>(
-              builder: (_, svc, __) => _ArrowBtn(
-                icon: Icons.chevron_right_rounded,
-                onTap: svc.routes.isEmpty ? null : () => _nextRoute(svc),
-              ),
-            ),
-          ),
-
-          // ── 하단 인디케이터 (N/M + 반경) — 루트 미선택 시만 표시 ──
-          Positioned(
-            bottom: MediaQuery.of(context).padding.bottom + 16,
+            bottom: MediaQuery.of(context).padding.bottom + 8,
             left: 0,
             right: 0,
             child: Consumer<RouteService>(
               builder: (_, svc, __) {
-                if (svc.selectedRoute != null) return const SizedBox.shrink();
                 if (svc.isLoading) {
                   return Center(
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const SizedBox(
-                          width: 14,
-                          height: 14,
+                          width: 14, height: 14,
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: AppColors.red),
                         ),
@@ -684,52 +658,61 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   );
                 }
                 final total = svc.routes.length;
-                final idx = total == 0
-                    ? 0
-                    : svc.routes
-                            .indexWhere((r) => r.id == svc.selectedRoute?.id) +
-                        1;
-                return Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.1)),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // N / M 카운터
-                        Text(
-                          total == 0 ? '—' : '$idx / $total',
-                          style: GoogleFonts.orbitron(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                            letterSpacing: 1,
+                final rawIdx = total == 0
+                    ? -1
+                    : svc.routes.indexWhere((r) => r.id == svc.selectedRoute?.id);
+                final displayIdx = rawIdx < 0 ? 0 : rawIdx;
+                return GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onHorizontalDragEnd: (details) {
+                    final v = details.primaryVelocity ?? 0;
+                    if (v < -200) _nextRoute(svc);
+                    else if (v > 200) _prevRoute(svc);
+                  },
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.1)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.chevron_left_rounded,
+                              size: 14, color: Colors.white38),
+                          const SizedBox(width: 2),
+                          Text(
+                            total == 0 ? '—' : '${displayIdx + 1} / $total',
+                            style: GoogleFonts.orbitron(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                              letterSpacing: 1,
+                            ),
                           ),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 14,
-                          margin:
-                              const EdgeInsets.symmetric(horizontal: 10),
-                          color: Colors.white24,
-                        ),
-                        // 반경 버튼
-                        _RadiusBtn(km: 30, active: svc.searchRadiusKm == 30),
-                        _RadiusBtn(km: 50, active: svc.searchRadiusKm == 50),
-                        _RadiusBtn(km: 100, active: svc.searchRadiusKm == 100),
-                        const SizedBox(width: 6),
-                        GestureDetector(
-                          onTap: () => context.read<RouteService>().shuffleRoutes(),
-                          child: Icon(Icons.shuffle_rounded,
-                              size: 16, color: AppColors.textHint),
-                        ),
-                      ],
+                          const SizedBox(width: 2),
+                          const Icon(Icons.chevron_right_rounded,
+                              size: 14, color: Colors.white38),
+                          Container(
+                            width: 1, height: 14,
+                            margin: const EdgeInsets.symmetric(horizontal: 10),
+                            color: Colors.white24,
+                          ),
+                          _RadiusBtn(km: 30, active: svc.searchRadiusKm == 30),
+                          _RadiusBtn(km: 50, active: svc.searchRadiusKm == 50),
+                          _RadiusBtn(km: 100, active: svc.searchRadiusKm == 100),
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: () => context.read<RouteService>().shuffleRoutes(),
+                            child: Icon(Icons.shuffle_rounded,
+                                size: 16, color: AppColors.textHint),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 );
@@ -1374,38 +1357,6 @@ class _TrimPanel extends StatelessWidget {
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// 사이드 화살표 버튼 — 게임 맵 선택 스타일
-// ══════════════════════════════════════════════════════════════════
-class _ArrowBtn extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback? onTap;
-  const _ArrowBtn({required this.icon, this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onTap != null;
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.translucent,
-      child: AnimatedOpacity(
-        opacity: enabled ? 1.0 : 0.25,
-        duration: const Duration(milliseconds: 200),
-        child: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
-          ),
-          child: Icon(icon, size: 26, color: Colors.white),
-        ),
       ),
     );
   }

@@ -365,15 +365,15 @@ List<RevvRoute> _selectTopRoutes(
 
     final curves = _analyzeCurves(way.nodes);
 
-    if (curves.totalCurvature < 60) continue;
-    if (curves.maxContinuousKm < 0.6) continue;
-    if (curves.maxStraightRunKm > 2.5) continue;  // 3.0 → 2.5
-    if (curves.curvyFraction < 0.15) continue;    // 0.12 → 0.15
+    if (curves.totalCurvature < 80) continue;       // 60 → 80
+    if (curves.maxContinuousKm < 0.8) continue;     // 0.6 → 0.8
+    if (curves.maxStraightRunKm > 1.5) continue;    // 2.5 → 1.5 (직선 1.5km 초과 차단)
+    if (curves.curvyFraction < 0.25) continue;      // 0.15 → 0.25 (25% 이상이 커브여야 통과)
     if (_selfIntersects(way.nodes)) continue;
 
     // curvature density (deg/km): 전체 루트의 커브 밀도
     final curvatureDensity = curves.totalCurvature / dist;
-    if (curvatureDensity < 5.0) continue;
+    if (curvatureDensity < 8.0) continue;            // 5.0 → 8.0
 
     // Spread Ratio: 루트 길이 대비 지리적 범위
     // 주거지 골목 루프 = 작은 박스에 긴 루트 → ratio 낮음
