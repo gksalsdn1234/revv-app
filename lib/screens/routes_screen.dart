@@ -780,7 +780,7 @@ class _RadiusBtn extends StatelessWidget {
               color: active ? AppColors.red : Colors.white24, width: 1),
         ),
         child: Text(
-          '${km}k',
+          km == 30 ? 'NEAR' : km == 50 ? 'MID' : 'FAR',
           style: GoogleFonts.rajdhani(
             fontSize: 10,
             fontWeight: FontWeight.w800,

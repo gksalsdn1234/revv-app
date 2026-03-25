@@ -37,15 +37,15 @@ List<RevvRoute> _processRoutes(_IsolateParams p) {
           .map((g) => LatLng(
               (g['lat'] as num).toDouble(), (g['lon'] as num).toDouble()))
           .toList();
-      final sampled = nodes.length > 200 ? _sampleNodes(nodes, 200) : nodes;
+      final sampled = nodes.length > 400 ? _sampleNodes(nodes, 400) : nodes;
       final name = el['tags']?['name'] as String? ?? '';
       final highway = el['tags']?['highway'] as String? ?? 'secondary';
+      if (highway == 'residential' || highway == 'living_street') continue;
       final id = el['id'].toString();
       rawWays.add(_RawWay(id: id, name: name, nodes: sampled, highwayType: highway));
     }
   }
 
-  // Way Stitching — 인접 도로 조각을 하나의 연속 루트로 이어붙임
   final stitched = _stitchWays(rawWays);
   return _selectTopRoutes(stitched, userPos, intersectionNodes);
 }
@@ -54,6 +54,8 @@ List<RevvRoute> _processRoutes(_IsolateParams p) {
 // (compute isolate에서 호출되므로 클래스 외부에 위치해야 함)
 
 const _stitchThresholdKm = 0.15; // 150m
+
+// 도심/교외 도로 이름 필터 — Boulevard, Avenue, Rue 등은 시가지 특징
 
 List<LatLng> _sampleNodes(List<LatLng> nodes, int target) {
   final step = nodes.length / target;
@@ -73,9 +75,10 @@ List<_RawWay> _stitchWays(List<_RawWay> ways) {
     var chainName = seed.name;
     var chainHighway = seed.highwayType;
 
-    // 앞뒤로 연결 가능한 way를 반복 탐색
+    // 앞뒤로 연결 가능한 way를 반복 탐색 (최대 3개까지만 — 과합산 방지)
+    int stitchCount = 0;
     bool extended = true;
-    while (extended) {
+    while (extended && stitchCount < 3) {
       extended = false;
       for (final other in ways) {
         if (used.contains(other.id)) continue;
@@ -87,31 +90,31 @@ List<_RawWay> _stitchWays(List<_RawWay> ways) {
           chain.addAll(other.nodes.skip(1));
           used.add(other.id);
           if (chainName.isEmpty) chainName = other.name;
-          extended = true;
+          extended = true; stitchCount++;
           break;
         } else if (RevvRoute.haversineKm(chainEnd, other.nodes.last) < _stitchThresholdKm) {
           chain.addAll(other.nodes.reversed.skip(1));
           used.add(other.id);
           if (chainName.isEmpty) chainName = other.name;
-          extended = true;
+          extended = true; stitchCount++;
           break;
         } else if (RevvRoute.haversineKm(chainStart, other.nodes.last) < _stitchThresholdKm) {
           chain = [...other.nodes, ...chain.skip(1)];
           used.add(other.id);
           if (chainName.isEmpty) chainName = other.name;
-          extended = true;
+          extended = true; stitchCount++;
           break;
         } else if (RevvRoute.haversineKm(chainStart, other.nodes.first) < _stitchThresholdKm) {
           chain = [...other.nodes.reversed.toList(), ...chain.skip(1)];
           used.add(other.id);
           if (chainName.isEmpty) chainName = other.name;
-          extended = true;
+          extended = true; stitchCount++;
           break;
         }
       }
     }
 
-    final sampled = chain.length > 300 ? _sampleNodes(chain, 300) : chain;
+    final sampled = chain.length > 600 ? _sampleNodes(chain, 600) : chain;
     result.add(_RawWay(
       id: chainId,
       name: chainName,
@@ -177,43 +180,56 @@ double _curvatureRateDegPerKm(LatLng a, LatLng b, LatLng c) {
   return _bearingDiff(a, b, c) / pathLen;
 }
 
+// roadcurvature.com 방식:
+//   totalCurvature = Σ (각도변화_deg × 구간거리_km) → 절댓값 누적합산
+//   300+ = Lightly Curvy, 1000+ = Moderately, 2000+ = Very, 3000+ = Extremely
 _CurveResult _analyzeCurves(List<LatLng> nodes) {
+  double totalCurvature = 0;
   double tightKm = 0;
   double mediumKm = 0;
   double currentContinuousKm = 0;
   double maxContinuousKm = 0;
-  double straightAccum = 0;
+  double currentStraightKm = 0;
+  double maxStraightRunKm = 0;
+  int curvySegments = 0;
+  int totalSegments = 0;
 
   for (int i = 0; i < nodes.length - 2; i++) {
-    final segLen = RevvRoute.haversineKm(nodes[i + 1], nodes[i + 2]);
-    // deg/km: 200+ = 타이트, 30~200 = 미디엄, <30 = 직선
-    final rate = _curvatureRateDegPerKm(nodes[i], nodes[i + 1], nodes[i + 2]);
+    final angle = _bearingDiff(nodes[i], nodes[i + 1], nodes[i + 2]);
+    final segLen = RevvRoute.haversineKm(nodes[i], nodes[i + 1]);
 
-    if (rate >= 200) {
-      tightKm += segLen;
-      currentContinuousKm += segLen;
-      straightAccum = 0;
-    } else if (rate >= 30) {
-      // 30 기준: 캐나다 시골 OSM 노드 희소 → 실제보다 낮게 계산됨
-      mediumKm += segLen;
-      currentContinuousKm += segLen;
-      straightAccum = 0;
-    } else {
-      straightAccum += segLen;
-      if (straightAccum >= 0.3) {
-        // 300m 직선 → 연속성 리셋
-        if (currentContinuousKm > maxContinuousKm) maxContinuousKm = currentContinuousKm;
-        currentContinuousKm = 0;
-        straightAccum = 0;
+    totalCurvature += angle * segLen;
+    totalSegments++;
+
+    final rate = segLen > 0.0001 ? angle / segLen : 0;
+    if (rate >= 20) {
+      // 커브 구간
+      if (angle >= 10) curvySegments++;
+      if (currentStraightKm > maxStraightRunKm) maxStraightRunKm = currentStraightKm;
+      currentStraightKm = 0;
+      if (rate >= 200) {
+        tightKm += segLen;
+      } else {
+        mediumKm += segLen;
       }
+      currentContinuousKm += segLen;
+    } else {
+      // 직선 구간
+      currentStraightKm += segLen;
+      if (currentContinuousKm > maxContinuousKm) maxContinuousKm = currentContinuousKm;
+      currentContinuousKm = 0;
     }
   }
   if (currentContinuousKm > maxContinuousKm) maxContinuousKm = currentContinuousKm;
+  if (currentStraightKm > maxStraightRunKm) maxStraightRunKm = currentStraightKm;
 
   return _CurveResult(
+    totalCurvature: totalCurvature,
     tightKm: tightKm,
     mediumKm: mediumKm,
     maxContinuousKm: maxContinuousKm,
+    curvyFraction: totalSegments > 0 ? curvySegments / totalSegments : 0,
+    maxStraightRunKm: maxStraightRunKm,
   );
 }
 
@@ -238,6 +254,7 @@ int _countNearbyIntersections(List<LatLng> wayNodes, List<LatLng> intersections)
   return count;
 }
 
+
 double _intersectionPenalty(int count, double distKm) {
   if (distKm <= 0) return 1.0;
   final perKm = count / distKm;
@@ -257,6 +274,25 @@ double _roadMultiplier(String highway) {
   }
 }
 
+// 자기교차 감지: 루트 인덱스상 멀리 떨어진 두 점이 지리적으로 가까우면 꼬인 것
+// 루프 루트(start≈end)는 양 끝 buffer로 제외
+bool _selfIntersects(List<LatLng> nodes) {
+  if (nodes.length < 20) return false;
+  const step = 8;
+  const minIndexGap = 24; // 최소 24스텝 떨어진 점끼리만 비교
+  const proximityKm = 0.15; // 150m 이내면 교차로 판정
+  final endBuf = minIndexGap; // 루프 종점 오탐 방지
+
+  for (int i = 0; i < nodes.length - endBuf; i += step) {
+    for (int j = i + minIndexGap; j < nodes.length - endBuf; j += step) {
+      if (RevvRoute.haversineKm(nodes[i], nodes[j]) < proximityKm) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 /// from → to 방위각 (0~360°, 북=0)
 double _bearingDegTo(LatLng from, LatLng to) {
   final lat1 = _rad(from.lat);
@@ -272,29 +308,58 @@ List<RevvRoute> _selectTopRoutes(
     List<_RawWay> ways, LatLng userPos, List<LatLng> intersections) {
   final scored = <_ScoredWay>[];
 
+  // 샘플링 보정 디버그: totalCurvature 실제값 확인용 (상위 5개)
+  final debugAll = <Map<String, dynamic>>[];
+
   for (final way in ways) {
     final dist = _totalDistance(way.nodes);
-    if (dist < 5.0) continue; // 5km 미만 도심 단편 루트 제거
+    final isLoopRoute = _isLoop(way.nodes);
+    if (isLoopRoute && dist < 8.0) continue; // 루프: 8km 미만 → 블록 루트
+    if (!isLoopRoute && dist < 3.0) continue; // 일반: 3km 미만 제거
 
     final curves = _analyzeCurves(way.nodes);
 
-    // 최소 연속 와인딩 0.8km 미달 탈락
-    if (curves.maxContinuousKm < 0.8) continue;
+    // 디버그: 필터 전 상위값 수집
+    debugAll.add({'name': way.name, 'tc': curves.totalCurvature, 'dist': dist, 'frac': curves.curvyFraction, 'str': curves.maxStraightRunKm});
 
-    // 커브 밀도 0.2 미만 탈락
-    final curveScore = curves.tightKm * 2 + curves.mediumKm;
-    final curveRatio = curveScore / dist;
-    if (curveRatio < 0.2) continue;
+    if (curves.totalCurvature < 60) continue;
+    final curvatureDensity = curves.totalCurvature / dist;
+    if (curvatureDensity < 5.0) continue;
+    if (curves.maxStraightRunKm > 1.5) continue;
+    if (curves.curvyFraction < 0.18) continue;
+    if (curves.maxContinuousKm < 0.6) continue;
+    if (_selfIntersects(way.nodes)) continue; // 꼬인 루트 제거
 
+    // Spread Ratio: 루트 길이 대비 지리적 범위
+    // 주거지 골목 루프 = 작은 박스에 긴 루트 → ratio 낮음
+    // 진짜 와인딩 = 넓은 지역을 커버 → ratio 높음
+    {
+      double minLat = way.nodes[0].lat, maxLat = way.nodes[0].lat;
+      double minLng = way.nodes[0].lng, maxLng = way.nodes[0].lng;
+      for (final n in way.nodes) {
+        if (n.lat < minLat) minLat = n.lat;
+        if (n.lat > maxLat) maxLat = n.lat;
+        if (n.lng < minLng) minLng = n.lng;
+        if (n.lng > maxLng) maxLng = n.lng;
+      }
+      final avgLat = (minLat + maxLat) / 2;
+      final latKm = (maxLat - minLat) * 111.0;
+      final lngKm = (maxLng - minLng) * 111.0 * math.cos(_rad(avgLat));
+      final bbDiagonal = math.sqrt(latKm * latKm + lngKm * lngKm);
+      final spreadRatio = dist > 0 ? bbDiagonal / dist : 0;
+      if (spreadRatio < 0.20) continue; // 주거지 순환 루트 제거
+    }
+
+    // curvature density는 위에서 이미 계산됨
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
     final intersectCount = _countNearbyIntersections(way.nodes, intersections);
     final intersectPenalty = _intersectionPenalty(intersectCount, dist);
     final roadMultiplier = _roadMultiplier(way.highwayType);
-    final loopBonus = _isLoop(way.nodes) ? 1.25 : 1.0;
+    final loopBonus = isLoopRoute ? 1.25 : 1.0;
     final distPenalty = _distancePenalty(
         RevvRoute.haversineKm(userPos, way.nodes.first));
 
-    final score = curveRatio * math.sqrt(dist) *
+    final score = curvatureDensity * math.sqrt(dist) *
         continuityBonus * intersectPenalty * roadMultiplier *
         loopBonus * distPenalty;
 
@@ -305,9 +370,16 @@ List<RevvRoute> _selectTopRoutes(
       center: _centerPoint(way.nodes),
       distFromUser: RevvRoute.haversineKm(userPos, way.nodes.first),
       curves: curves,
-      isLoop: _isLoop(way.nodes),
+      isLoop: isLoopRoute,
     ));
   }
+
+  // 디버그 출력: 실제 totalCurvature 분포 확인
+  debugAll.sort((a, b) => (b['tc'] as double).compareTo(a['tc'] as double));
+  for (final d in debugAll.take(8)) {
+    debugPrint('[Curvature] ${d['name']} → tc=${d['tc'].toStringAsFixed(0)} frac=${d['frac'].toStringAsFixed(2)} str=${d['str'].toStringAsFixed(1)}km');
+  }
+  debugPrint('[Curvature] 통과: ${scored.length}개 / 전체: ${debugAll.length}개');
 
   scored.sort((a, b) => b.score.compareTo(a.score));
 
@@ -324,7 +396,7 @@ List<RevvRoute> _selectTopRoutes(
   final selected = <_ScoredWay>[];
 
   bool isTooClose(_ScoredWay candidate) => selected.any(
-      (sel) => RevvRoute.haversineKm(candidate.center, sel.center) < 6);
+      (sel) => RevvRoute.haversineKm(candidate.center, sel.center) < 3);
 
   // 1라운드: 각 섹터 1등 (6km 간격 유지)
   for (final sector in sectors) {
@@ -419,7 +491,14 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await _fetchAndScore(lat, lng, searchRadiusKm * 1000);
+      // Progressive radius: 결과 부족하면 자동 확장
+      List<RevvRoute> result = [];
+      final radii = [30, 50, searchRadiusKm].where((r) => r <= searchRadiusKm).toSet().toList()..sort();
+      for (final r in radii) {
+        result = await _fetchAndScore(lat, lng, r * 1000);
+        debugPrint('[RouteService] 반경 ${r}km → ${result.length}개');
+        if (result.length >= 5) break;
+      }
       routes = result;
       selectedRoute = routes.isNotEmpty ? routes.first : null;
       _lastFetchLocation = LatLng(lat, lng);
@@ -511,12 +590,12 @@ class RouteService extends ChangeNotifier {
     // ["name"] 필터: 이름 없는 도로 제거 → 데이터량 80% 감소
     // primary 포함: 캐나다 일부 primary가 와인딩 명소
     final query = '''
-[out:json][timeout:25];
+[out:json][timeout:20];
 (
-  way["highway"="primary"]["name"](around:$radiusM,$lat,$lng);
   way["highway"="secondary"]["name"](around:$radiusM,$lat,$lng);
   way["highway"="tertiary"]["name"](around:$radiusM,$lat,$lng);
   way["highway"="unclassified"]["name"](around:$radiusM,$lat,$lng);
+  way["highway"="primary"]["name"](around:$radiusM,$lat,$lng);
 );
 out geom qt;
 ''';
@@ -525,7 +604,10 @@ out geom qt;
 
     final endpoints = [
       'https://overpass-api.de/api/interpreter',
+      'https://z.overpass-api.de/api/interpreter',
+      'https://lz4.overpass-api.de/api/interpreter',
       'https://overpass.kumi.systems/api/interpreter',
+      'https://overpass.osm.ch/api/interpreter',
       'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
     ];
 
@@ -535,7 +617,7 @@ out geom qt;
         final r = await http.post(
           Uri.parse(url),
           body: {'data': query},
-        ).timeout(const Duration(seconds: 32)); // Overpass timeout(25s)보다 여유
+        ).timeout(const Duration(seconds: 22)); // Overpass timeout(20s)보다 여유
         if (r.statusCode == 200) {
           final body = utf8.decode(r.bodyBytes);
           // Overpass가 XML 에러 페이지를 200으로 반환하는 경우 방어
@@ -619,13 +701,19 @@ out geom qt;
 // ─── 내부 클래스 ──────────────────────────────────────────────────
 
 class _CurveResult {
+  final double totalCurvature;
   final double tightKm;
   final double mediumKm;
   final double maxContinuousKm;
+  final double curvyFraction;
+  final double maxStraightRunKm; // 최장 직선 구간 (ㄷ/ㄱ 핵심 탐지)
   const _CurveResult({
+    required this.totalCurvature,
     required this.tightKm,
     required this.mediumKm,
     required this.maxContinuousKm,
+    required this.curvyFraction,
+    required this.maxStraightRunKm,
   });
 }
 
