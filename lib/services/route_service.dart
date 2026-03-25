@@ -623,6 +623,10 @@ class RouteService extends ChangeNotifier {
         routes = result.where((r) => !isExcluded(r)).toList();
       }
 
+      // 고도 분석: 지형 기반 점수 보정
+      routes = await _enrichWithElevation(routes);
+      routes.sort((a, b) => b.windingScore.compareTo(a.windingScore));
+
       selectedRoute = routes.isNotEmpty ? routes.first : null;
       _lastFetchLocation = LatLng(lat, lng);
       _lastFetchRadius = searchRadiusKm;
@@ -709,6 +713,66 @@ class RouteService extends ChangeNotifier {
   }
 
   /// Overpass 조회 → compute() isolate에서 파싱+스코어링
+  // ─── 고도 분석: 지형 기반 점수 보정 ────────────────────────────────
+  // Open Topo Data SRTM30m (무료, 키 불필요) — 루트당 8개 샘플 포인트
+  // 고도 변화가 클수록 산악/언덕 지형 = 와인딩 도로 품질 ↑
+  // 평지(퀘벡 rang 지역) = 약한 패널티
+  Future<List<RevvRoute>> _enrichWithElevation(List<RevvRoute> routes) async {
+    if (routes.isEmpty) return routes;
+    const samplePer = 8;
+    final points = <LatLng>[];
+    final startIdx = <int>[];
+
+    for (final r in routes) {
+      startIdx.add(points.length);
+      final nodes = r.nodes;
+      for (int i = 0; i < samplePer; i++) {
+        final idx = ((i / (samplePer - 1)) * (nodes.length - 1)).round()
+            .clamp(0, nodes.length - 1);
+        points.add(nodes[idx]);
+      }
+    }
+
+    final locs = points.map((p) => '${p.lat.toStringAsFixed(5)},${p.lng.toStringAsFixed(5)}').join('|');
+    try {
+      final resp = await http.get(
+        Uri.parse('https://api.opentopodata.org/v1/srtm30m?locations=$locs'),
+      ).timeout(const Duration(seconds: 6));
+
+      if (resp.statusCode != 200) return routes;
+      final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final results = data['results'] as List;
+
+      return List.generate(routes.length, (ri) {
+        final s = startIdx[ri];
+        final elevs = List.generate(
+          samplePer,
+          (j) => (results[s + j]['elevation'] as num?)?.toDouble() ?? 0.0,
+        );
+        final minE = elevs.reduce(math.min);
+        final maxE = elevs.reduce(math.max);
+        final elevRange = maxE - minE;
+
+        // 고도 변화 → 배수 보정
+        double mult;
+        if (elevRange >= 120)      mult = 1.6;  // 산악 (로렌시안, 아팔래치안)
+        else if (elevRange >= 60)  mult = 1.35; // 언덕
+        else if (elevRange >= 30)  mult = 1.1;  // 완만한 언덕
+        else if (elevRange >= 15)  mult = 1.0;  // 중간
+        else                       mult = 0.75; // 평지 (퀘벡 rang 지역)
+
+        debugPrint('[Elev] ${routes[ri].name}: ${elevRange.toStringAsFixed(0)}m → ×${mult}');
+        return routes[ri].copyWith(
+          windingScore: routes[ri].windingScore * mult,
+          elevationDelta: elevRange,
+        );
+      });
+    } catch (e) {
+      debugPrint('[Elev] 조회 실패 (무시): $e');
+      return routes; // 실패해도 원본 그대로
+    }
+  }
+
   Future<List<RevvRoute>> _fetchAndScore(double lat, double lng, int radiusM) async {
     // ["name"] 필터: 이름 없는 도로 제거 → 데이터량 80% 감소
     // primary 포함: 캐나다 일부 primary가 와인딩 명소
