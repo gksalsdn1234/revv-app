@@ -1209,11 +1209,13 @@ ${ideaTexts || '(없음)'}
                 title: 'Driving Engine',
                 icon: 'fa-gears',
                 items: [
-                    { id: 'e1', status: 'done', title: '와인딩 곡률 분석 로직', intent: '도로의 굴곡을 분석하여 드라이빙의 재미를 수치화합니다.', prompt: 'Flutter에서 LatLng 배열을 받아 곡률(Curvature)을 분석하고 Winding Score를 산출하는 클래스를 짜줘.', feature: '고도 변화를 반영한 점수 산출.' },
+                    { id: 'e1', status: 'done', title: '와인딩 곡률 분석 엔진 (roadcurvature.com)', intent: '도로의 굴곡을 분석하여 드라이빙의 재미를 수치화합니다.', prompt: 'Flutter에서 LatLng 배열을 받아 곡률(Curvature)을 분석하고 Winding Score를 산출하는 클래스를 짜줘.', feature: 'roadcurvature.com 알고리즘: totalCurvature = Σ(bearing_diff × segment_km). Way Stitching으로 연속 와인딩 루트 생성. maxStraightRunKm / curvyFraction / selfIntersects 다중 필터.' },
                     { id: 'e2', status: 'done', title: '스마트 경유지 앵커링', intent: '일상지 사이에 와인딩 코스를 강제로 삽입합니다.', prompt: 'Google Maps Flutter에서 특정 좌표(와인딩 코스)를 반드시 통과하는 경로 최적화 로직을 짜줘.', feature: '와인딩 경유 모드 토글 기능.' },
                     { id: 'e3', title: 'Snap-to-Road 보정', intent: 'GPS 오차를 잡아 도로 위에 궤적을 안착시킵니다.', prompt: 'Flutter Geolocator 원시 데이터를 Mapbox Map Matching API를 이용해 도로에 스냅하는 서비스 만들어줘.', feature: '음영 지역 위치 추측(DR) 알고리즘.' },
                     { id: 'e4', title: '드래그 0-100 타이머', intent: '직선 구간에서 정밀한 가속 성능을 측정합니다.', prompt: 'GPS 속도 데이터로 0→100km/h 구간을 감지하고 정밀 타이머를 기록하는 Flutter 서비스를 만들어줘.', feature: '개인 기록 갱신 시 진동+사운드 축하 이펙트.' },
-                    { id: 'e5', status: 'done', title: 'OBD2 딥 인테그레이션', intent: '차량 내부 데이터를 실시간으로 끌어와 분석합니다.', prompt: 'flutter_blue_plus로 ELM327 OBD2 동글과 연결해 RPM, 냉각수 온도, 스로틀 개도를 파싱하는 서비스를 만들어줘.', feature: '엔진 과열 감지 시 JARVIS 자동 경고 음성.' }
+                    { id: 'e5', status: 'done', title: 'OBD2 딥 인테그레이션', intent: '차량 내부 데이터를 실시간으로 끌어와 분석합니다.', prompt: 'flutter_blue_plus로 ELM327 OBD2 동글과 연결해 RPM, 냉각수 온도, 스로틀 개도를 파싱하는 서비스를 만들어줘.', feature: '엔진 과열 감지 시 JARVIS 자동 경고 음성.' },
+                    { id: 'e6', status: 'done', title: 'NEAR/MID/FAR 누적 반경 탐색', intent: '반경을 넓혀도 기존 루트는 유지하고 새 루트만 추가합니다.', prompt: '30/50/100km 누적 탐색 — 상위 탭 누르면 기존 캐시 유지 + 신규 반경만 Overpass 재조회, centerPoint 5km 중복 제거.', feature: '셔플 버튼: 캐시 JSON을 새 random seed로 재처리 → 네트워크 없이 다른 루트 조합 즉시 반환.' },
+                    { id: 'e7', status: 'done', title: '루트 영구 배제 + 캘리브레이션', intent: '싫은 루트는 다시 뜨지 않게 영구 제거하고 첫 실행 선호도를 학습합니다.', prompt: 'SharedPreferences에 배제 centerPoint 목록 저장. 첫 실행 시 Tinder 스타일 스와이프 캘리브레이션 화면 표시.', feature: '곡률 파형 시각화 카드, 좌 스와이프=배제 / 우 스와이프=유지, 🚫 배제 버튼 상시 노출.' }
                 ]
             },
             {
@@ -1233,9 +1235,9 @@ ${ideaTexts || '(없음)'}
                 title: 'Data & AI Coach',
                 icon: 'fa-robot',
                 items: [
-                    { id: 'd1', status: 'wip', title: '실시간 센서 로깅', intent: '0.1초 단위의 고정밀 데이터를 수집합니다.', prompt: 'sensors_plus를 활용해 백그라운드에서 가속도/자이로 데이터를 SQLite에 저장하는 로직 짜줘.', feature: '급조작 지점 자동 마킹 기능.' },
-                    { id: 'd2', status: 'wip', title: 'Gemini 드라이빙 분석', intent: 'AI가 주행을 분석하여 코칭 리포트를 생성합니다.', prompt: '주행 로그를 Gemini API에 보내 전문 드라이빙 피드백을 생성하는 Dart 코드를 작성해줘.', feature: '오늘의 베스트 코너링 선정 기능.' },
-                    { id: 'd3', status: 'wip', title: '드라이빙 DNA 프로파일', intent: '주행 스타일을 분석해 나만의 드라이버 유형을 찾아냅니다.', prompt: '누적 주행 데이터(G포스, 브레이킹 패턴, 평균 코너링 속도)를 분석해 드라이버 스타일을 5가지 유형으로 분류하는 알고리즘을 짜줘.', feature: '"레이서형 / 크루저형 / 탐험가형" 등 개성 있는 배지 시스템.' },
+                    { id: 'd1', status: 'done', title: '급조작 감지 로깅', intent: '스프린트 중 G > 0.45G 순간을 자동 마킹합니다.', prompt: 'sensors_plus를 활용해 백그라운드에서 가속도/자이로 데이터를 SQLite에 저장하는 로직 짜줘.', feature: '스프린트 HUD ⚡N회 실시간 카운터, GPS 좌표+타임스탬프 SharpCorner 모델 저장.' },
+                    { id: 'd2', status: 'done', title: 'Claude AI 코칭 리포트', intent: 'AI가 주행을 분석하여 상세 코칭 리포트를 생성합니다.', prompt: '주행 로그를 Claude API에 보내 3섹션(하이라이트/개선/목표) 전문 드라이빙 피드백을 생성하는 Dart 코드를 작성해줘.', feature: '런카드 "🤖 상세 AI 분석" 버튼 → 바텀시트, analyzeRunDetailed() 상세 분석.' },
+                    { id: 'd3', status: 'done', title: '드라이버 레벨 + 스타일 프로파일', intent: '주행 스타일을 분석해 나만의 드라이버 프로필을 찾아냅니다.', prompt: '누적 주행 데이터(G포스, 브레이킹 패턴, 평균 코너링 속도)를 분석해 드라이버 스타일을 5가지 유형으로 분류하는 알고리즘을 짜줘.', feature: '뉴비→레전드 5단계 레벨 카드, maxLateralG 기반 CRUISER/SPORT/RACER 배지, 경험치 바.' },
                     { id: 'd4', title: '날씨 기반 노면 예측 AI', intent: '현재 날씨와 기온으로 노면 상태를 예측해 드라이빙 전략을 제안합니다.', prompt: 'OpenWeather API 데이터(기온, 강수량, 습도)를 분석해 노면이 "건조/젖음/결빙 위험" 중 어느 상태인지 예측하고 JARVIS가 조언하는 로직을 만들어줘.', feature: '비 예보 시 "오늘은 와인딩 자제" 자동 알림.' }
                 ]
             },
@@ -1297,7 +1299,7 @@ ${ideaTexts || '(없음)'}
                 title: 'UX & Onboarding',
                 icon: 'fa-wand-magic-sparkles',
                 items: [
-                    { id: 'u1', title: '첫 실행 온보딩 투어', intent: '처음 쓰는 유저가 5분 안에 REVV의 모든 기능을 파악합니다.', prompt: 'Flutter로 앱 첫 실행 시 나타나는 인터랙티브 온보딩 화면(슬라이드 + 실제 UI 하이라이트)을 구현해줘.', feature: 'JARVIS가 직접 각 기능을 음성으로 소개하는 투어.' },
+                    { id: 'u1', status: 'done', title: '첫 실행 캘리브레이션 온보딩', intent: '처음 쓰는 유저의 루트 선호도를 Tinder 스와이프로 즉시 학습합니다.', prompt: 'Flutter로 앱 첫 실행 시 Tinder 스타일 루트 카드 스와이프 화면을 구현해줘. 좌=배제 / 우=유지, 완료 후 CruiseScreen 진입.', feature: '곡률 파형 카드, 드래그 기울기 애니메이션, 진행 바, 건너뛰기 버튼.' },
                     { id: 'u2', title: '드라이빙 준비 체크리스트', intent: '출발 전 타이어 압력, 오일, 날씨를 한 화면에서 점검합니다.', prompt: '주행 전 체크리스트 화면을 만들어줘. 날씨 API, OBD 경고등, 목적지 노면 정보를 한 눈에 보여주는 Flutter 위젯으로 구현해줘.', feature: 'JARVIS가 "오늘 노면 젖음, 타이어 점검 권장" 자동 브리핑.' },
                     { id: 'u3', title: 'HUD 레이아웃 커스터마이징', intent: '드라이버마다 다른 주행 화면을 직접 디자인합니다.', prompt: 'Flutter Drag & Drop으로 주행 중 HUD(속도계, G포스, RPM, 지도)의 위치와 크기를 사용자가 자유롭게 배치하는 레이아웃 에디터를 만들어줘.', feature: '프리셋 저장 및 클라우드 백업 기능.' }
                 ]
@@ -1342,6 +1344,9 @@ ${ideaTexts || '(없음)'}
             { id: '28', text: 'd2: 상세 AI 코칭 리포트 — analyzeRunDetailed() 3섹션(하이라이트/개선/목표). 런카드 "🤖 상세 AI 분석" 버튼 → 바텀시트', status: 'done' },
             { id: '29', text: 'RunSession/RunSummary sharpCornersCount 필드 추가 — 런카드 ⚡ 급코너 칩, history 저장 포함', status: 'done' },
             { id: '30', text: '다음 코너 브리핑 시스템 — CornerBriefingService: 전방 600m 노드 베어링 분석, 강도 4단계(gentle/medium/sharp/hairpin), 400m·120m TTS 2단계 예고. _CornerPreviewHUD: 방향화살표+강도라벨+거리 HUD (sprint_screen 루트 주행 중 좌하단)', status: 'done' },
+            { id: '31', text: 'roadcurvature.com 알고리즘 전면 교체 — totalCurvature = Σ(bearing_diff_deg × segment_km), Way Stitching(최대 3연결), 다중 필터 파이프라인: maxStraightRunKm/curvyFraction/selfIntersects/spreadRatio/loop최소거리. 8-sector 방향 다양성 선택. compute() isolate로 UI 프리즈 방지', status: 'done' },
+            { id: '32', text: 'NEAR/MID/FAR 누적 반경 시스템 — 30/50/100km 레이블, 기존 반경 캐시 유지+신규만 Overpass 재조회, centerPoint 5km 중복 제거. JSON 응답 캐시(_lastJsonBody) + seed 기반 셔플(네트워크 없이 즉시 재처리)', status: 'done' },
+            { id: '33', text: 'Tinder 캘리브레이션 + 루트 영구 배제 시스템 — CalibrationScreen: 첫 실행 스와이프 카드(곡률 파형 시각화, 드래그 기울기, 힌트 배지). ExcludeRoute: SharedPreferences centerPoint 영구 저장, fetchRoutes 자동 필터링, RouteInfoOverlay 🚫 배제 버튼', status: 'done' },
         ];
     </script>
 </body>
