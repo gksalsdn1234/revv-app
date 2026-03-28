@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/run_summary.dart';
 import '../models/run_session.dart';
+import '../models/revv_route.dart';
+import '../core/storage_keys.dart';
 import 'cloud_sync_service.dart';
 
 class RunHistoryService extends ChangeNotifier {
-  static const _key = 'run_history';
 
   List<RunSummary> _history = [];
   List<RunSummary> get history => List.unmodifiable(_history);
@@ -13,7 +14,7 @@ class RunHistoryService extends ChangeNotifier {
   // ── 로컬 로드 ──────────────────────────────────────────────
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
+    final raw = prefs.getString(StorageKeys.runs);
     if (raw != null) {
       _history = RunSummary.listFromJson(raw);
       notifyListeners();
@@ -52,6 +53,10 @@ class RunHistoryService extends ChangeNotifier {
 
   // ── 런 저장 ────────────────────────────────────────────────
   Future<RunSummary> save(RunSession session) async {
+    final path = session.gpsPath;
+    final LatLng? startPt = path.isNotEmpty ? path.first : null;
+    final LatLng? endPt   = path.length > 1  ? path.last  : null;
+
     final summary = RunSummary(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       date: session.startTime,
@@ -63,6 +68,8 @@ class RunHistoryService extends ChangeNotifier {
       tempDisplay: session.tempDisplay,
       maxLateralG: session.maxLateralG > 0 ? session.maxLateralG : null,
       sharpCornersCount: session.sharpCorners.length,
+      startPoint: startPt,
+      endPoint: endPt,
     );
 
     // 로컬 즉시 저장
@@ -71,14 +78,19 @@ class RunHistoryService extends ChangeNotifier {
     notifyListeners();
 
     // 클라우드 백그라운드 업로드 (실패해도 로컬엔 영향 없음)
-    CloudSyncService().uploadRun(summary);
+    final sync = CloudSyncService();
+    sync.uploadRun(summary);
+    // 루트 주행 횟수 +1 (전역 커뮤니티 통계)
+    if (session.route?.id != null) {
+      sync.recordRouteRun(session.route!.id);
+    }
 
     return summary;
   }
 
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, RunSummary.listToJson(_history));
+    await prefs.setString(StorageKeys.runs, RunSummary.listToJson(_history));
   }
 
   // ── 조회 헬퍼 ──────────────────────────────────────────────

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/revv_route.dart';
+import '../core/storage_keys.dart';
 import 'cloud_sync_service.dart';
 import 'waypoint_optimizer.dart';
 
@@ -620,7 +621,7 @@ class RouteService extends ChangeNotifier {
   // ── 루트 배제 ────────────────────────────────────────────────
   final List<LatLng> _excludedCenters = [];
   bool _exclusionsLoaded = false;
-  static const _excludeKey = 'revv_excluded_centers';
+  static const _excludeKey = StorageKeys.excludedCenters;
 
   Future<void> loadExclusions() async {
     if (_exclusionsLoaded) return;
@@ -730,16 +731,36 @@ class RouteService extends ChangeNotifier {
     try {
       await loadExclusions();
 
-      // ③ 랜덤 seed — 매번 다른 조합 탐색
-      final seed = math.Random().nextInt(0x7FFFFFFF);
-      var fresh = await _fetchAndScore(lat, lng, searchRadiusKm * 1000, seed: seed);
-      fresh = fresh.where((r) => !isExcluded(r)).toList();
+      // ③-a 전역 DB 먼저 조회 (커뮤니티 루트)
+      final globalRoutes = await CloudSyncService().fetchNearbyRoutes(
+        lat, lng, searchRadiusKm.toDouble(),
+      );
+      final globalFiltered =
+          globalRoutes.where((r) => !isExcluded(r)).toList();
 
-      // 결과가 너무 적으면 자동으로 100km 재시도
-      if (fresh.length < 3 && searchRadiusKm < 100) {
-        debugPrint('[RouteService] 루트 부족 (${fresh.length}개) → 100km 자동 확장');
-        fresh = await _fetchAndScore(lat, lng, 100000, seed: seed);
-        fresh = fresh.where((r) => !isExcluded(r)).toList();
+      List<RevvRoute> fresh;
+      if (globalFiltered.length >= 5) {
+        // ③-b-skip 전역 DB에 충분 → Overpass 스킵 (네트워크 절약)
+        fresh = globalFiltered;
+        debugPrint('[RouteService] Global DB ${globalFiltered.length}개 — Overpass 스킵');
+      } else {
+        // ③-b-overpass Overpass fallback
+        final seed = math.Random().nextInt(0x7FFFFFFF);
+        var overpass =
+            await _fetchAndScore(lat, lng, searchRadiusKm * 1000, seed: seed);
+        overpass = overpass.where((r) => !isExcluded(r)).toList();
+
+        if (overpass.length < 3 && searchRadiusKm < 100) {
+          debugPrint('[RouteService] 루트 부족 (${overpass.length}개) → 100km 자동 확장');
+          overpass = await _fetchAndScore(lat, lng, 100000, seed: seed);
+          overpass = overpass.where((r) => !isExcluded(r)).toList();
+        }
+
+        // Overpass 신규 루트 → 전역 DB 게시 (fire-and-forget)
+        _publishNewRoutes(overpass, globalFiltered);
+
+        // 전역 + Overpass 병합
+        fresh = _mergeRoutePools(globalFiltered, overpass);
       }
 
       // 고도 분석: 지형 기반 점수 보정
@@ -789,11 +810,24 @@ class RouteService extends ChangeNotifier {
     return pool;
   }
 
-  /// Firestore에 루트 풀 저장 (fire-and-forget)
+  /// 개인 Firestore 캐시 저장 (preloadFromFirestore용)
   void _saveRoutesToFirestore(List<RevvRoute> rs) {
     CloudSyncService().saveDiscoveredRoutes(rs).catchError((e) {
       debugPrint('[RouteService] Firestore 루트 저장 실패: $e');
     });
+  }
+
+  /// Overpass 결과 중 전역 DB에 없는 신규 루트 게시 (fire-and-forget)
+  void _publishNewRoutes(
+      List<RevvRoute> overpassRoutes, List<RevvRoute> globalRoutes) {
+    final globalIds = globalRoutes.map((r) => r.id).toSet();
+    for (final r in overpassRoutes) {
+      if (!globalIds.contains(r.id)) {
+        CloudSyncService().publishRoute(r).catchError((e) {
+          debugPrint('[RouteService] 루트 게시 실패: $e');
+        });
+      }
+    }
   }
 
   /// Firestore에서 루트 풀 사전 로드 (앱 시작 시)
@@ -813,8 +847,8 @@ class RouteService extends ChangeNotifier {
   }
 
   // ─── 오프라인 캐시 ─────────────────────────────────────────────
-  static const _cacheKey = 'revv_route_cache';
-  static const _cachePosKey = 'revv_route_cache_pos';
+  static const _cacheKey = StorageKeys.routeCache;
+  static const _cachePosKey = StorageKeys.routeCachePos;
 
   Future<void> _saveToCache(List<RevvRoute> rs, double lat, double lng) async {
     try {

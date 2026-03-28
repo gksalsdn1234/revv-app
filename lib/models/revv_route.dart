@@ -25,6 +25,15 @@ class RevvRoute {
   // 루프 루트 여부 (시작점~끝점 3km 이내)
   final bool isLoop;
 
+  // ElevationService로 채워지는 고도 프로파일 (선택적)
+  final List<double>? elevationProfile;
+
+  // ── 커뮤니티 필드 ─────────────────────────────────────────
+  /// 이 루트를 완주한 유저 수 (global Firestore에서 읽어옴)
+  final int runCount;
+  /// 최초 발견자 uid
+  final String? publishedBy;
+
   const RevvRoute({
     required this.id,
     required this.name,
@@ -40,6 +49,9 @@ class RevvRoute {
     this.mediumCurveKm = 0,
     this.maxContinuousKm = 0,
     this.isLoop = false,
+    this.elevationProfile,
+    this.runCount = 0,
+    this.publishedBy,
   });
 
   String get starDisplay => '★' * starRating + '☆' * (5 - starRating);
@@ -85,6 +97,36 @@ class RevvRoute {
     return density.clamp(0.0, 1.0);
   }
 
+  /// 총 상승고도 (m)
+  double get elevationGainM {
+    final p = elevationProfile;
+    if (p == null || p.length < 2) return 0;
+    double gain = 0;
+    for (int i = 1; i < p.length; i++) {
+      final d = p[i] - p[i - 1];
+      if (d > 0) gain += d;
+    }
+    return gain;
+  }
+
+  /// 총 하강고도 (m, 절댓값)
+  double get elevationLossM {
+    final p = elevationProfile;
+    if (p == null || p.length < 2) return 0;
+    double loss = 0;
+    for (int i = 1; i < p.length; i++) {
+      final d = p[i] - p[i - 1];
+      if (d < 0) loss += d.abs();
+    }
+    return loss;
+  }
+
+  double get maxElevationM =>
+      elevationProfile?.reduce(math.max) ?? 0;
+
+  double get minElevationM =>
+      elevationProfile?.reduce(math.min) ?? 0;
+
   static String autoName(double windingScore) {
     if (windingScore >= 8.0) return '언노운 와인딩 루트';
     if (windingScore >= 4.0) return '근교 드라이빙 루트';
@@ -128,6 +170,9 @@ class RevvRoute {
     double? mediumCurveKm,
     double? maxContinuousKm,
     bool? isLoop,
+    List<double>? elevationProfile,
+    int? runCount,
+    String? publishedBy,
   }) {
     return RevvRoute(
       id: id ?? this.id,
@@ -144,6 +189,9 @@ class RevvRoute {
       mediumCurveKm: mediumCurveKm ?? this.mediumCurveKm,
       maxContinuousKm: maxContinuousKm ?? this.maxContinuousKm,
       isLoop: isLoop ?? this.isLoop,
+      elevationProfile: elevationProfile ?? this.elevationProfile,
+      runCount: runCount ?? this.runCount,
+      publishedBy: publishedBy ?? this.publishedBy,
     );
   }
 
@@ -157,11 +205,17 @@ class RevvRoute {
         'sharpCurveCount': sharpCurveCount,
         'elevationDelta': elevationDelta,
         'centerPoint': {'lat': centerPoint.lat, 'lng': centerPoint.lng},
+        // 쿼리용 flat 필드 (Firestore 범위 쿼리)
+        'centerLat': centerPoint.lat,
+        'centerLng': centerPoint.lng,
         'distanceFromUser': distanceFromUser,
         'tightCurveKm': tightCurveKm,
         'mediumCurveKm': mediumCurveKm,
         'maxContinuousKm': maxContinuousKm,
         'isLoop': isLoop,
+        if (elevationProfile != null) 'elevationProfile': elevationProfile,
+        if (runCount > 0) 'runCount': runCount,
+        if (publishedBy != null) 'publishedBy': publishedBy,
       };
 
   factory RevvRoute.fromJson(Map<String, dynamic> j) => RevvRoute(
@@ -187,6 +241,11 @@ class RevvRoute {
         mediumCurveKm: (j['mediumCurveKm'] as num?)?.toDouble() ?? 0,
         maxContinuousKm: (j['maxContinuousKm'] as num?)?.toDouble() ?? 0,
         isLoop: j['isLoop'] as bool? ?? false,
+        elevationProfile: (j['elevationProfile'] as List?)
+            ?.map((e) => (e as num).toDouble())
+            .toList(),
+        runCount: (j['runCount'] as int?) ?? 0,
+        publishedBy: j['publishedBy'] as String?,
       );
 
   static List<RevvRoute> listFromJson(String raw) {
