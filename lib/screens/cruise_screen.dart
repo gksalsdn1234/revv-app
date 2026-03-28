@@ -18,6 +18,7 @@ import 'obd_screen.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
 import 'analysis_screen.dart';
+import 'ranking_screen.dart';
 import '../widgets/driver_level_card.dart';
 
 PageRouteBuilder<T> _slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
@@ -156,6 +157,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
         onDriverLevel: () { Navigator.pop(context); DriverLevelSheet.show(context); },
         onAnalysis: () { Navigator.pop(context); AnalysisScreen.show(context); },
         onSettings: () { Navigator.pop(context); SettingsScreen.show(context); },
+        onRanking: () { Navigator.pop(context); RankingScreen.show(context); },
         onMic: () { Navigator.pop(context); },
       ),
     );
@@ -982,6 +984,7 @@ class _MoreSheet extends StatelessWidget {
   final VoidCallback onDriverLevel;
   final VoidCallback onAnalysis;
   final VoidCallback onSettings;
+  final VoidCallback onRanking;
   final VoidCallback onMic;
 
   const _MoreSheet({
@@ -990,6 +993,7 @@ class _MoreSheet extends StatelessWidget {
     required this.onDriverLevel,
     required this.onAnalysis,
     required this.onSettings,
+    required this.onRanking,
     required this.onMic,
   });
 
@@ -1041,6 +1045,12 @@ class _MoreSheet extends StatelessWidget {
             label: '마이크',
             sub: '음성 명령',
             onTap: onMic,
+          ),
+          _MoreItem(
+            icon: Icons.emoji_events_rounded,
+            label: '랭킹',
+            sub: '인기 루트 · 챌린지 · 내 기록',
+            onTap: onRanking,
           ),
           _MoreItem(
             icon: Icons.settings_rounded,
