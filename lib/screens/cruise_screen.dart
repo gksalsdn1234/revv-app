@@ -17,7 +17,19 @@ import 'routes_screen.dart';
 import 'obd_screen.dart';
 import 'history_screen.dart';
 import 'settings_screen.dart';
+import 'analysis_screen.dart';
 import '../widgets/driver_level_card.dart';
+
+PageRouteBuilder<T> _slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
+  pageBuilder: (_, __, ___) => page,
+  transitionDuration: const Duration(milliseconds: 320),
+  reverseTransitionDuration: const Duration(milliseconds: 280),
+  transitionsBuilder: (_, anim, __, child) => SlideTransition(
+    position: Tween(begin: const Offset(0, 1), end: Offset.zero)
+        .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+    child: child,
+  ),
+);
 
 class CruiseScreen extends StatefulWidget {
   const CruiseScreen({super.key});
@@ -35,6 +47,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
 
   // ── Sprint 오버레이 상태 ──
   bool _isSprinting = false;
+  bool _showCurveHeatmap = false;
   RevvRoute? _sprintRoute;
   List<LatLng>? _sprintNavPolyline;
 
@@ -141,6 +154,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
           );
         },
         onDriverLevel: () { Navigator.pop(context); DriverLevelSheet.show(context); },
+        onAnalysis: () { Navigator.pop(context); AnalysisScreen.show(context); },
         onSettings: () { Navigator.pop(context); SettingsScreen.show(context); },
         onMic: () { Navigator.pop(context); },
       ),
@@ -189,6 +203,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
                       routePolyline: _isSprinting
                           ? _sprintRoute?.nodes
                           : selectedRoute?.nodes,
+                      showCurveHeatmap: !_isSprinting && _showCurveHeatmap && selectedRoute != null,
                     ),
                   ),
                 ),
@@ -254,6 +269,37 @@ class _CruiseScreenState extends State<CruiseScreen> {
                 ),
               ),
 
+            // ── 커브 히트맵 토글 버튼 ──
+            if (!_isSprinting && selectedRoute != null)
+              Positioned(
+                key: const ValueKey('heatmap-btn'),
+                right: 14,
+                bottom: 84 + MediaQuery.of(context).padding.bottom,
+                child: GestureDetector(
+                  onTap: () => setState(() => _showCurveHeatmap = !_showCurveHeatmap),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: _showCurveHeatmap
+                          ? AppColors.red.withValues(alpha: 0.9)
+                          : Colors.black.withValues(alpha: 0.65),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: _showCurveHeatmap
+                            ? AppColors.red
+                            : Colors.white.withValues(alpha: 0.15),
+                      ),
+                      boxShadow: _showCurveHeatmap
+                          ? [BoxShadow(color: AppColors.red.withValues(alpha: 0.4), blurRadius: 12)]
+                          : [],
+                    ),
+                    child: const Icon(Icons.thermostat_rounded, size: 20, color: Colors.white),
+                  ),
+                ),
+              ),
+
             // ── 하단 탭바 ──
             if (!_isSprinting)
               Positioned(
@@ -265,13 +311,12 @@ class _CruiseScreenState extends State<CruiseScreen> {
                   activeTab: _activeTab,
                   onRoutes: () {
                     setState(() => _activeTab = 0);
-                    Navigator.push(context,
-                        MaterialPageRoute(builder: (_) => const RoutesScreen()));
+                    Navigator.push(context, _slideUpRoute(const RoutesScreen()));
                   },
                   onGo: _goSprint,
                   onLog: () {
                     setState(() => _activeTab = 3);
-                    HistoryScreen.show(context);
+                    Navigator.push(context, _slideUpRoute(const HistoryScreen()));
                   },
                   onMore: () {
                     setState(() => _activeTab = 4);
@@ -296,36 +341,6 @@ class _TopFloatingHud extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        // REVV 로고 필
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.6),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: AppColors.red.withValues(alpha: 0.55), width: 1),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 7, height: 7,
-                decoration: BoxDecoration(
-                  color: AppColors.red,
-                  shape: BoxShape.circle,
-                  boxShadow: [BoxShadow(color: AppColors.red, blurRadius: 5)],
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'REVV',
-                style: GoogleFonts.orbitron(
-                  fontSize: 12, fontWeight: FontWeight.w900,
-                  color: Colors.white, letterSpacing: 2.5,
-                ),
-              ),
-            ],
-          ),
-        ),
         const Spacer(),
         // 날씨 + 시간 필
         Consumer<WeatherService>(
@@ -431,11 +446,40 @@ class _SpeedGauge extends StatelessWidget {
 // ══════════════════════════════════════════════════════════════════
 // 루트 선택 카드 — 하단 탭바 위 플로팅
 // ══════════════════════════════════════════════════════════════════
-class _RouteSelectedCard extends StatelessWidget {
+class _RouteSelectedCard extends StatefulWidget {
   final RevvRoute route;
   final VoidCallback onGo;
   final VoidCallback onDismiss;
   const _RouteSelectedCard({required this.route, required this.onGo, required this.onDismiss});
+
+  @override
+  State<_RouteSelectedCard> createState() => _RouteSelectedCardState();
+}
+
+class _RouteSelectedCardState extends State<_RouteSelectedCard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<Offset> _slide;
+  late final Animation<double> _fade;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      duration: const Duration(milliseconds: 260),
+      vsync: this,
+    );
+    _slide = Tween(begin: const Offset(0, 0.3), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _ctrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   Color _diffColor(int level) {
     switch (level) {
@@ -450,11 +494,27 @@ class _RouteSelectedCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final connectingRoutes = context.select<RouteService, List<RevvRoute>>((r) => r.connectingRoutes);
-    final diffColor = _diffColor(route.difficultyLevel);
+    final diffColor = _diffColor(widget.route.difficultyLevel);
     final hasChain = connectingRoutes.isNotEmpty;
-    final totalChainKm = route.distanceKm +
+    final totalChainKm = widget.route.distanceKm +
         connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm);
 
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(
+        position: _slide,
+        child: Dismissible(
+          key: ValueKey('route-card-${widget.route.id}'),
+          direction: DismissDirection.down,
+          onDismissed: (_) => widget.onDismiss(),
+          child: _buildCard(context, diffColor, hasChain, totalChainKm, connectingRoutes),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCard(BuildContext context, Color diffColor, bool hasChain,
+      double totalChainKm, List<RevvRoute> connectingRoutes) {
     return Container(
       margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
       decoration: BoxDecoration(
@@ -490,7 +550,7 @@ class _RouteSelectedCard extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
-                                route.difficultyLabel,
+                                widget.route.difficultyLabel,
                                 style: GoogleFonts.rajdhani(
                                   fontSize: 9, fontWeight: FontWeight.w800,
                                   color: diffColor, letterSpacing: 1,
@@ -500,7 +560,7 @@ class _RouteSelectedCard extends StatelessWidget {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                route.name,
+                                widget.route.name,
                                 style: GoogleFonts.orbitron(
                                   fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white,
                                 ),
@@ -513,14 +573,14 @@ class _RouteSelectedCard extends StatelessWidget {
                         const SizedBox(height: 7),
                         Row(
                           children: [
-                            _StatChip(icon: Icons.straighten, value: route.distanceDisplay),
+                            _StatChip(icon: Icons.straighten, value: widget.route.distanceDisplay),
                             const SizedBox(width: 12),
-                            _StatChip(icon: Icons.schedule, value: route.durationDisplay),
-                            if (route.windingDensityPct > 0) ...[
+                            _StatChip(icon: Icons.schedule, value: widget.route.durationDisplay),
+                            if (widget.route.windingDensityPct > 0) ...[
                               const SizedBox(width: 12),
                               _StatChip(
                                 icon: Icons.turn_right,
-                                value: '${route.windingDensityPct.toStringAsFixed(0)}%',
+                                value: '${widget.route.windingDensityPct.toStringAsFixed(0)}%',
                                 color: diffColor,
                               ),
                             ],
@@ -534,7 +594,7 @@ class _RouteSelectedCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       GestureDetector(
-                        onTap: onGo,
+                        onTap: widget.onGo,
                         child: Container(
                           width: 76,
                           height: 44,
@@ -565,11 +625,11 @@ class _RouteSelectedCard extends StatelessWidget {
                         GestureDetector(
                           onTap: () {
                             final rs = context.read<RouteService>();
-                            final allNodes = <LatLng>[...route.nodes, ...rs.connectingRoutes.expand((r) => r.nodes)];
+                            final allNodes = <LatLng>[...widget.route.nodes, ...rs.connectingRoutes.expand((r) => r.nodes)];
                             rs.requestSprint(
-                              route: route.copyWith(
-                                id: '${route.id}_chain',
-                                name: '${route.name} +${rs.connectingRoutes.length}',
+                              route: widget.route.copyWith(
+                                id: '${widget.route.id}_chain',
+                                name: '${widget.route.name} +${rs.connectingRoutes.length}',
                                 nodes: allNodes,
                                 distanceKm: totalChainKm,
                               ),
@@ -603,14 +663,15 @@ class _RouteSelectedCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 6),
                   GestureDetector(
-                    onTap: onDismiss,
+                    onTap: widget.onDismiss,
                     child: Container(
-                      width: 28, height: 28,
+                      width: 36, height: 36,
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.06),
+                        color: Colors.white.withValues(alpha: 0.18),
                         shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
                       ),
-                      child: const Icon(Icons.close, size: 14, color: Colors.white54),
+                      child: const Icon(Icons.close, size: 16, color: Colors.white70),
                     ),
                   ),
                 ],
@@ -919,6 +980,7 @@ class _MoreSheet extends StatelessWidget {
   final VoidCallback onObd;
   final VoidCallback onAi;
   final VoidCallback onDriverLevel;
+  final VoidCallback onAnalysis;
   final VoidCallback onSettings;
   final VoidCallback onMic;
 
@@ -926,6 +988,7 @@ class _MoreSheet extends StatelessWidget {
     required this.onObd,
     required this.onAi,
     required this.onDriverLevel,
+    required this.onAnalysis,
     required this.onSettings,
     required this.onMic,
   });
@@ -966,6 +1029,12 @@ class _MoreSheet extends StatelessWidget {
             label: '드라이버 프로필',
             sub: '레벨 · 마일스톤 · 통계',
             onTap: onDriverLevel,
+          ),
+          _MoreItem(
+            icon: Icons.analytics_rounded,
+            label: '드라이버 분석',
+            sub: 'AI 주행 데이터 분석',
+            onTap: onAnalysis,
           ),
           _MoreItem(
             icon: Icons.mic_rounded,
