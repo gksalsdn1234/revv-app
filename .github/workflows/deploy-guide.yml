@@ -18,6 +18,7 @@ jobs:
         run: |
           mkdir -p .guide-hosting/public
           cp REVV_guide.html .guide-hosting/public/index.html
+          echo '{"hosting":{"public":"public","ignore":["firebase.json","**/.*"],"site":"revv-eb7c9"}}' > .guide-hosting/firebase.json
 
       - name: firebase-tools 설치
         run: npm install -g firebase-tools
