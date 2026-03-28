@@ -473,7 +473,9 @@ ${ideaTexts || '(없음)'}
             <div class="memo-tabs">
                 <button class="memo-tab active" onclick="window.switchMemoTab(0)">📊 현재 현황</button>
                 <button class="memo-tab" onclick="window.switchMemoTab(1)">📜 패치노트</button>
-                <button class="memo-tab" onclick="window.switchMemoTab(2)">💡 아이디어</button>
+                <button class="memo-tab" onclick="window.switchMemoTab(2)">🧠 루트 인텔리전스</button>
+                <button class="memo-tab" onclick="window.switchMemoTab(3)">📈 투자자 평가</button>
+                <button class="memo-tab" onclick="window.switchMemoTab(4)">💡 아이디어</button>
             </div>
 
             <!-- 탭 0: 현재 현황 -->
@@ -1241,7 +1243,187 @@ ${ideaTexts || '(없음)'}
 
             </div><!-- end tab-1 -->
 
-            <!-- 탭 2: 아이디어 노트 -->
+            <!-- 탭 2: 루트 인텔리전스 플랜 -->
+            <div class="memo-tab-content">
+                <div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.2);border-radius:10px;padding:14px 18px;margin-bottom:1.8rem;font-size:0.78rem;color:#94a3b8;line-height:1.7;">
+                    <span style="color:#10B981;font-weight:700;font-size:0.82rem">🧠 루트 인텔리전스 로드맵</span><br>
+                    지금 REVV의 루트 추천은 <strong style="color:#e2e8f0">지도 데이터로 예측</strong>하는 수준. 목표는 <strong style="color:#10B981">실주행 G포스 데이터로 검증·학습</strong>하는 시스템. Scenic·Kurviger가 절대 못 따라오는 영역.
+                </div>
+
+                <!-- 초기: 지금 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version" style="color:#10B981">초기 — 지금 (v1.38)</span>
+                        <span class="patch-date">완료 · 지도 기반 예측</span>
+                        <span class="patch-tag" style="background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.3)">LIVE</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#e2e8f0">현재 스코어링 파이프라인</strong></div>
+                    <div class="patch-line">Overpass API → bearing rate 분석 → curveRatio×√dist 밀도 점수</div>
+                    <div class="patch-line">Way Stitching (250m 이내 도로 자동 연결) → 연속 와인딩 구간</div>
+                    <div class="patch-line">OpenTopoData 고도 분석 → 산악/언덕 지형 보너스 (×1.6~0.75)</div>
+                    <div class="patch-line">randoom seed + 6km 중복 제거 → 풀 누적 최대 25개</div>
+                    <div class="patch-line" style="border-left-color:#FBBF24;color:#fcd34d">⚠️ 한계: 노면 상태·실제 시야·교통량·도로 품질을 전혀 모름. 지도가 와인딩이라고 해도 실제로 재미없는 루트 존재</div>
+                </div>
+
+                <!-- 단기 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version" style="color:#6366f1">단기 — v1.4~v1.5</span>
+                        <span class="patch-date">실주행 데이터 피드백 루프</span>
+                        <span class="patch-tag" style="background:rgba(99,102,241,0.15);color:#818CF8;border:1px solid rgba(99,102,241,0.3)">NEXT</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#e2e8f0">핵심: 예측 점수 vs 실제 G포스 비교 → 자동 보정</strong></div>
+                    <div class="patch-line">RunSession 종료 시 <code style="background:#0f172a;padding:1px 5px;border-radius:3px;font-size:0.78rem">routeId + maxLateralG</code> 쌍을 Firestore 저장</div>
+                    <div class="patch-line">windingScore 6.5 예측 → 실측 lateralG 0.8G : 점수 자동 상향 보정</div>
+                    <div class="patch-line">windingScore 8.0 예측 → 실측 lateralG 0.25G : "지도는 와인딩인데 실제로는 노잼" 강등</div>
+                    <div class="patch-line">배제 버튼 패턴 분석 → 유저가 자주 배제하는 루트 특성(거리/고도/루프 여부) 학습</div>
+                    <div class="patch-line"><strong style="color:#e2e8f0">구현 방법</strong></div>
+                    <div class="patch-line">1. <code style="background:#0f172a;padding:1px 5px;border-radius:3px;font-size:0.78rem">RevvRoute</code>에 <code style="background:#0f172a;padding:1px 5px;border-radius:3px;font-size:0.78rem">verifiedScore</code> 필드 추가 (null = 미검증)</div>
+                    <div class="patch-line">2. sprint 종료 후 <code style="background:#0f172a;padding:1px 5px;border-radius:3px;font-size:0.78rem">_updateRouteVerification(routeId, maxLateralG)</code> 호출</div>
+                    <div class="patch-line">3. <code style="background:#0f172a;padding:1px 5px;border-radius:3px;font-size:0.78rem">verifiedScore = 0.4×windingScore + 0.6×(lateralG × normalizer)</code> 가중평균</div>
+                    <div class="patch-line">4. Firestore <code style="background:#0f172a;padding:1px 5px;border-radius:3px;font-size:0.78rem">users/{uid}/verified_routes/{routeId}</code> 저장</div>
+                    <div class="patch-line" style="border-left-color:#10B981;color:#6ee7b7">✅ 효과: 5회 주행 후 개인 검증 점수가 누적 → 내가 달려본 루트는 점점 정확해짐</div>
+                </div>
+
+                <!-- 중기 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version" style="color:#f59e0b">중기 — v1.6~v2.0</span>
+                        <span class="patch-date">개인화 학습 엔진</span>
+                        <span class="patch-tag" style="background:rgba(245,158,11,0.15);color:#FCD34D;border:1px solid rgba(245,158,11,0.3)">PLANNED</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#e2e8f0">내 주행 패턴으로 추천 개인화</strong></div>
+                    <div class="patch-line">유저 선호 프로파일 추출: 타이트한 루트 vs 흐르는 루트 / 짧고 강렬 vs 길고 여유</div>
+                    <div class="patch-line">날씨×루트 상관관계: "비 오는 날엔 EASY 루트를 고르는 패턴" 자동 감지</div>
+                    <div class="patch-line">시간대 패턴: 주말 아침(산악 루트 선호) vs 평일 저녁(가까운 루트 선호)</div>
+                    <div class="patch-line">Claude API에 누적 주행 데이터 전달 → "민우가 이번 주말 좋아할 루트 3개" AI 직접 계산</div>
+                    <div class="patch-line"><strong style="color:#e2e8f0">루트 학습 사이클</strong></div>
+                    <div class="patch-line">발굴(Overpass) → 예측(bearing+고도) → 달리기 → 검증(G포스) → 학습(가중치 조정) → 재추천</div>
+                    <div class="patch-line" style="border-left-color:#f59e0b;color:#fcd34d">🎯 이 단계부터 경쟁사 대비 진짜 차별점 시작. 지도 데이터만 보는 앱과 "달려본 앱"의 격차</div>
+                </div>
+
+                <!-- 장기 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version" style="color:#E11D48">장기 — v2.0+</span>
+                        <span class="patch-date">커뮤니티 집단지성 루트 DB</span>
+                        <span class="patch-tag" style="background:rgba(225,29,72,0.15);color:#fb7185;border:1px solid rgba(225,29,72,0.3)">VISION</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#e2e8f0">여러 유저의 실주행 데이터 익명 집계</strong></div>
+                    <div class="patch-line">"이 루트에서 REVV 유저들의 평균 최대 횡G: 0.72G" — 커뮤니티 검증 점수</div>
+                    <div class="patch-line">"10명이 달렸는데 7명이 배제한 루트" → 자동 하향 조정</div>
+                    <div class="patch-line">"처음 보고하는 유저가 maxLateralG 0.9G 기록" → 숨겨진 명루트 발굴</div>
+                    <div class="patch-line">계절별 루트 품질 데이터: "이 루트는 봄/가을에 특히 좋음" (눈 녹은 후 노면, 단풍 시즌)</div>
+                    <div class="patch-line"><strong style="color:#e2e8f0">경쟁 해자 (Moat)</strong></div>
+                    <div class="patch-line">Scenic·Kurviger: 지도 데이터만 → 영원히 예측 단계</div>
+                    <div class="patch-line">REVV: 실주행 G포스 DB → 달리면 달릴수록 데이터 강화 → 후발주자가 따라올 수 없는 구조</div>
+                    <div class="patch-line" style="border-left-color:#E11D48;color:#fb7185">🏁 이 단계에서 REVV는 "드라이버 데이터 플라이휠"을 가진 유일한 앱이 됨</div>
+                </div>
+
+                <!-- 핵심 지표 -->
+                <div style="background:#0f172a;border:1px solid #1e293b;border-radius:12px;padding:16px;margin-top:1rem">
+                    <div style="font-size:0.72rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px">단계별 성공 지표</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:0.78rem">
+                        <div style="background:#1e293b;border-radius:8px;padding:10px;border-left:3px solid #10B981">
+                            <div style="color:#10B981;font-weight:700;margin-bottom:4px">단기 완료 기준</div>
+                            <div style="color:#64748b;line-height:1.5">달려본 루트 10개의<br>예측 vs 실측 비교<br>오차율 30% 이하</div>
+                        </div>
+                        <div style="background:#1e293b;border-radius:8px;padding:10px;border-left:3px solid #f59e0b">
+                            <div style="color:#f59e0b;font-weight:700;margin-bottom:4px">중기 완료 기준</div>
+                            <div style="color:#64748b;line-height:1.5">개인화 추천 루트가<br>무작위 추천 대비<br>배제율 50% 이하</div>
+                        </div>
+                        <div style="background:#1e293b;border-radius:8px;padding:10px;border-left:3px solid #E11D48">
+                            <div style="color:#E11D48;font-weight:700;margin-bottom:4px">장기 완료 기준</div>
+                            <div style="color:#64748b;line-height:1.5">커뮤니티 검증 루트<br>100개 이상 축적<br>신규 유저 즉시 혜택</div>
+                        </div>
+                    </div>
+                </div>
+            </div><!-- end tab-2 -->
+
+            <!-- 탭 3: 투자자 관점 앱 평가 -->
+            <div class="memo-tab-content">
+                <div style="background:rgba(225,29,72,0.05);border:1px solid rgba(225,29,72,0.25);border-radius:10px;padding:14px 18px;margin-bottom:1.8rem;font-size:0.78rem;color:#94a3b8;line-height:1.7;">
+                    <span style="color:#fb7185;font-weight:700;font-size:0.82rem">📈 투자자 관점 — 솔직하고 가차없는 평가</span><br>
+                    만약 내가 이 앱에 투자를 결정해야 한다면. 감정 없이 본다.
+                </div>
+
+                <!-- 진짜 강점 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version" style="color:#10B981">✅ 진짜 강점 (투자 근거가 될 수 있는 것)</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#10B981">1. 기술 조합이 유니크하다</strong></div>
+                    <div class="patch-line">OBD2 + IMU(50Hz) + 루트 발굴 + 주행 기록 일체형 — 이 조합을 하나의 앱에 담은 건 없다</div>
+                    <div class="patch-line">Scenic = 지도만 / Rever = 커뮤니티만 / OBD 앱 = 차 데이터만. REVV는 세 개를 연결하는 유일한 앱</div>
+                    <div class="patch-line"><strong style="color:#10B981">2. 데이터 flywheel의 씨앗이 이미 있다</strong></div>
+                    <div class="patch-line">RunSession에 maxLateralG가 저장됨. routeId와 연결만 하면 실주행 검증 루프가 완성</div>
+                    <div class="patch-line">이게 쌓이면 "달려본 앱"이 되는 구조. 경쟁사가 뒤따라오기 어려운 데이터 해자</div>
+                    <div class="patch-line"><strong style="color:#10B981">3. 캐나다 로컬 최적화 깊이가 있다</strong></div>
+                    <div class="patch-line">퀘벡 rang 직선 도로 패널티 / 로렌시안·아팔래치안 고도 보너스 — 글로벌 앱이 신경 안 쓰는 niche</div>
+                    <div class="patch-line">로컬에서 먼저 "이건 REVV가 제일 잘 안다"는 신뢰를 얻을 수 있는 영역</div>
+                </div>
+
+                <!-- 솔직한 약점 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version" style="color:#E11D48">❌ 솔직한 약점 (지금 당장 투자 못 하는 이유)</span>
+                    </div>
+                    <div class="patch-line hard"><strong>1. 유저가 1명이다. 그것도 만든 사람 본인</strong></div>
+                    <div class="patch-line">Product-Market Fit 검증이 전혀 없음. "내가 쓰고 싶어서 만들었다"는 아직 취미 프로젝트 단계</div>
+                    <div class="patch-line hard"><strong>2. 핵심 기능이 실기기 테스트도 안 됐다</strong></div>
+                    <div class="patch-line">G포스, TBT, 코너 브리핑, 레드 플래시 — 이 앱의 정체성인 기능들이 검증 0. 빌드는 되지만 작동한다는 보장 없음</div>
+                    <div class="patch-line hard"><strong>3. 루트 로직이 아직 경쟁사를 따라가는 중</strong></div>
+                    <div class="patch-line">Bearing rate + elevation = Kurviger가 3년 전에 한 것. 지금은 "따라잡기" 단계이지 앞서가는 단계가 아님</div>
+                    <div class="patch-line hard"><strong>4. OBD 동글 없으면 앱의 절반이 안 된다</strong></div>
+                    <div class="patch-line">VEEPEAK 동글 필요 → 일반 사용자 진입 장벽 높음. "나 OBD 있어?" 라는 질문에 대부분 "없어"</div>
+                    <div class="patch-line hard"><strong>5. 수익 모델 없다</strong></div>
+                    <div class="patch-line">Pro 구독 설계는 됐지만 구현 0. API 비용(Mapbox, Claude, Overpass)은 실사용자 늘어나면 바로 돈 나감</div>
+                </div>
+
+                <!-- 기회 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version" style="color:#6366f1">🎯 기회 (잘 되면 이래서 된다)</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#818cf8">캐나다 드라이빙 커뮤니티 niche 선점</strong></div>
+                    <div class="patch-line">퀘벡/BC 드라이빙 클럽, 카 미팅 커뮤니티 — 로컬에서 "REVV가 최고" 입소문 먼저 장악 가능</div>
+                    <div class="patch-line"><strong style="color:#818cf8">CarPlay/Android Auto 진입 전 데이터 쌓기</strong></div>
+                    <div class="patch-line">애플이 CarPlay를 써드파티에 더 열면 드라이빙 데이터 앱 수요 폭발. 그때 "실주행 DB 3년치" 가진 앱이 이김</div>
+                    <div class="patch-line"><strong style="color:#818cf8">OBD 없어도 되는 단계로 확장</strong></div>
+                    <div class="patch-line">IMU(가속도계)만으로 G포스는 됨. OBD는 "있으면 더 좋은 것"으로 포지셔닝하면 진입 장벽 해소</div>
+                </div>
+
+                <!-- 위협 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version" style="color:#FBBF24">⚡ 위협 (이러면 끝난다)</span>
+                    </div>
+                    <div class="patch-line" style="border-left-color:#FBBF24;color:#fcd34d">Google Maps가 "드라이빙 모드" 같은 걸 넣으면 — 지도+루트는 한방에 밀림. 차별점은 데이터 레이어뿐</div>
+                    <div class="patch-line" style="border-left-color:#FBBF24;color:#fcd34d">Scenic이 OBD 연동 추가하면 — 지금 차별점의 절반이 사라짐. 속도가 관건</div>
+                    <div class="patch-line" style="border-left-color:#FBBF24;color:#fcd34d">API 비용 폭탄 — Mapbox 무료 한도 초과 시 월 수십만원. 수익 모델 없이 유저 늘면 역으로 부담</div>
+                </div>
+
+                <!-- 투자 판단 -->
+                <div style="background:linear-gradient(135deg,rgba(225,29,72,0.08),rgba(99,102,241,0.08));border:1px solid rgba(225,29,72,0.3);border-radius:14px;padding:20px;margin-top:1rem">
+                    <div style="font-size:0.72rem;font-weight:700;color:#E11D48;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px">⚖️ 투자자 최종 판단</div>
+                    <div style="font-size:0.88rem;color:#e2e8f0;line-height:1.8;font-weight:500">
+                        "지금은 <span style="color:#E11D48;font-weight:700">투자 안 한다.</span> 실기기 테스트도 안 됐고 유저가 1명이다."
+                    </div>
+                    <div style="font-size:0.82rem;color:#94a3b8;line-height:1.8;margin-top:10px">
+                        그러나 방향은 맞다. <strong style="color:#e2e8f0">실주행 G포스 데이터를 루트 스코어에 피드백하는 루프</strong>를 완성하고, 앱스토어에 올려서 50명의 실사용자가 데이터를 쌓기 시작하면 이야기가 완전히 달라진다.
+                    </div>
+                    <div style="height:1px;background:rgba(225,29,72,0.2);margin:14px 0"></div>
+                    <div style="font-size:0.75rem;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:10px">다음 투자 검토 Milestone</div>
+                    <div style="display:flex;flex-direction:column;gap:8px;font-size:0.8rem">
+                        <div style="display:flex;align-items:center;gap:10px"><span style="width:22px;height:22px;border-radius:50%;background:rgba(225,29,72,0.15);border:1px solid rgba(225,29,72,0.4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;color:#E11D48;flex-shrink:0">1</span><span style="color:#94a3b8">실기기 end-to-end 테스트 완료 → G포스 / TBT / 코너 브리핑 실제 작동 확인</span></div>
+                        <div style="display:flex;align-items:center;gap:10px"><span style="width:22px;height:22px;border-radius:50%;background:rgba(225,29,72,0.15);border:1px solid rgba(225,29,72,0.4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;color:#E11D48;flex-shrink:0">2</span><span style="color:#94a3b8">앱스토어 출시 + 50명 실사용자 확보</span></div>
+                        <div style="display:flex;align-items:center;gap:10px"><span style="width:22px;height:22px;border-radius:50%;background:rgba(225,29,72,0.15);border:1px solid rgba(225,29,72,0.4);display:flex;align-items:center;justify-content:center;font-size:0.65rem;font-weight:700;color:#E11D48;flex-shrink:0">3</span><span style="color:#94a3b8">실주행 G포스 데이터 50개 루트 축적 → 예측 점수 vs 실측 비교 데이터 제시</span></div>
+                    </div>
+                    <div style="font-size:0.78rem;color:#6366f1;margin-top:14px;font-style:italic">이 세 가지가 있으면 "드라이버 데이터 flywheel"의 단서가 생긴다. 그때 다시 보자.</div>
+                </div>
+            </div><!-- end tab-3 -->
+
+            <!-- 탭 4: 아이디어 노트 -->
             <div class="memo-tab-content">
                 <div style="background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.2);border-radius:10px;padding:12px 16px;margin-bottom:1.5rem;font-size:0.78rem;color:#94a3b8;line-height:1.6;">
                     <span style="color:#818CF8;font-weight:700">💡 아이디어 노트패드</span><br>
@@ -1254,7 +1436,7 @@ ${ideaTexts || '(없음)'}
                 <div id="ideas-list">
                     <p style="color:#475569;font-size:0.82rem;text-align:center;padding:2rem 0">아직 아이디어가 없어요.<br>위에 입력하고 추가 버튼을 눌러주세요.</p>
                 </div>
-            </div><!-- end tab-2 -->
+            </div><!-- end tab-4 -->
 
         </div>
     </div>

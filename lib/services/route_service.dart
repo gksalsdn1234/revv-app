@@ -4,9 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/revv_route.dart';
+import 'cloud_sync_service.dart';
 import 'waypoint_optimizer.dart';
 
-// ─── compute() isolate 파라미터 ───────────────────────────────────
+// ─── compute() isolate 파라미터 / 결과 ────────────────────────────
 // 메인 스레드 → isolate 전달 데이터 (모두 primitive)
 class _IsolateParams {
   final String jsonBody;
@@ -16,9 +17,16 @@ class _IsolateParams {
   const _IsolateParams(this.jsonBody, this.lat, this.lng, {this.seed = 0});
 }
 
+// isolate → 메인 스레드 반환 (routes + 로그)
+class _IsolateResult {
+  final List<RevvRoute> routes;
+  final String log;
+  const _IsolateResult(this.routes, this.log);
+}
+
 // ─── Top-level 처리 함수 (isolate에서 실행) ────────────────────────
 // compute()는 top-level 함수만 받음 — 인스턴스 메서드 불가
-List<RevvRoute> _processRoutes(_IsolateParams p) {
+_IsolateResult _processRoutes(_IsolateParams p) {
   final data = jsonDecode(p.jsonBody) as Map<String, dynamic>;
   final elements = data['elements'] as List;
   final userPos = LatLng(p.lat, p.lng);
@@ -63,14 +71,24 @@ List<RevvRoute> _processRoutes(_IsolateParams p) {
 
   // Way Stitching — 인접 도로 조각을 하나의 연속 루트로 이어붙임
   final stitched = _stitchWays(rawWays);
-  debugPrint('[RouteService] 신호/정지 노드: ${signalNodes.length}개');
-  return _selectTopRoutes(stitched, userPos, intersectionNodes, signalNodes, seed: p.seed);
+  final result = _selectTopRoutes(stitched, userPos, intersectionNodes, signalNodes, seed: p.seed);
+  return _IsolateResult(result.routes, result.log);
 }
 
 // ─── Top-level 헬퍼 함수들 ───────────────────────────────────────
 // (compute isolate에서 호출되므로 클래스 외부에 위치해야 함)
 
-const _stitchThresholdKm = 0.25; // 250m (단편화 방지)
+const _stitchThresholdKm = 0.25;   // 250m (단편화 방지)
+const _stitchMaxAngleDeg = 130.0; // U턴 방지: 방향 차이 130° 이상이면 연결 거부
+
+// chain 끝 진행 방향과 entry 시작 방향의 각도 차이 (0~180°)
+double _stitchAngle(List<LatLng> chainNodes, List<LatLng> entryNodes) {
+  if (chainNodes.length < 2 || entryNodes.length < 2) return 0;
+  final exitB = _bearingDegTo(chainNodes[chainNodes.length - 2], chainNodes.last);
+  final entryB = _bearingDegTo(entryNodes[0], entryNodes[1]);
+  double d = (exitB - entryB).abs() % 360;
+  return d > 180 ? 360 - d : d;
+}
 
 // 도심/교외 도로 이름 필터 — Boulevard, Avenue, Rue 등은 시가지 특징
 bool _isUrbanName(String name) {
@@ -123,16 +141,20 @@ List<_RawWay> _stitchWays(List<_RawWay> ways) {
           if (chainLanes < other.lanes) chainLanes = other.lanes;
         }
 
-        if (RevvRoute.haversineKm(chainEnd, other.nodes.first) < _stitchThresholdKm) {
+        if (RevvRoute.haversineKm(chainEnd, other.nodes.first) < _stitchThresholdKm &&
+            _stitchAngle(chain, other.nodes) < _stitchMaxAngleDeg) {
           chain.addAll(other.nodes.skip(1));
           used.add(other.id); _mergeMetadata(); extended = true; break;
-        } else if (RevvRoute.haversineKm(chainEnd, other.nodes.last) < _stitchThresholdKm) {
+        } else if (RevvRoute.haversineKm(chainEnd, other.nodes.last) < _stitchThresholdKm &&
+            _stitchAngle(chain, other.nodes.reversed.toList()) < _stitchMaxAngleDeg) {
           chain.addAll(other.nodes.reversed.skip(1));
           used.add(other.id); _mergeMetadata(); extended = true; break;
-        } else if (RevvRoute.haversineKm(chainStart, other.nodes.last) < _stitchThresholdKm) {
+        } else if (RevvRoute.haversineKm(chainStart, other.nodes.last) < _stitchThresholdKm &&
+            _stitchAngle(other.nodes, chain) < _stitchMaxAngleDeg) {
           chain = [...other.nodes, ...chain.skip(1)];
           used.add(other.id); _mergeMetadata(); extended = true; break;
-        } else if (RevvRoute.haversineKm(chainStart, other.nodes.first) < _stitchThresholdKm) {
+        } else if (RevvRoute.haversineKm(chainStart, other.nodes.first) < _stitchThresholdKm &&
+            _stitchAngle(other.nodes.reversed.toList(), chain) < _stitchMaxAngleDeg) {
           chain = [...other.nodes.reversed.toList(), ...chain.skip(1)];
           used.add(other.id); _mergeMetadata(); extended = true; break;
         }
@@ -400,7 +422,7 @@ double _bearingDegTo(LatLng from, LatLng to) {
   return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
 }
 
-List<RevvRoute> _selectTopRoutes(
+_IsolateResult _selectTopRoutes(
     List<_RawWay> ways, LatLng userPos, List<LatLng> intersections, List<LatLng> signalNodes,
     {int seed = 0}) {
   final scored = <_ScoredWay>[];
@@ -422,14 +444,14 @@ List<RevvRoute> _selectTopRoutes(
 
     final curves = _analyzeCurves(way.nodes);
 
-    if (curves.totalCurvature < 60) { cCurvature++; continue; }
-    if (curves.maxContinuousKm < 0.6) { cContKm++; continue; }
-    if (curves.maxStraightRunKm > 2.0) { cStraight++; continue; }
-    if (curves.curvyFraction < 0.20) { cCurvyFrac++; continue; }
+    if (curves.totalCurvature < 75) { cCurvature++; continue; }
+    if (curves.maxContinuousKm < 0.8) { cContKm++; continue; }
+    if (curves.maxStraightRunKm > 1.5) { cStraight++; continue; }
+    if (curves.curvyFraction < 0.25) { cCurvyFrac++; continue; }
     if (_selfIntersects(way.nodes)) { cSelfInt++; continue; }
 
     final curvatureDensity = curves.totalCurvature / dist;
-    if (curvatureDensity < 6.0) { cDensity++; continue; }
+    if (curvatureDensity < 7.5) { cDensity++; continue; }
 
     // Spread Ratio
     {
@@ -525,7 +547,33 @@ List<RevvRoute> _selectTopRoutes(
   // 점수순 재정렬
   selected.sort((a, b) => b.score.compareTo(a.score));
 
-  return selected.map((s) {
+  // ── 로그 문자열 빌드 (isolate → 메인에서 출력) ──────────────────
+  final logBuf = StringBuffer();
+  logBuf.writeln('\n==== REVV ROUTES (${selected.length}개) ====');
+  for (int i = 0; i < selected.length; i++) {
+    final s = selected[i];
+    final density = s.distKm > 0 ? s.curves.totalCurvature / s.distKm : 0.0;
+    final label = s.score >= 8.0
+        ? 'EXTREME'
+        : s.score >= 5.5
+            ? 'HARD'
+            : s.score >= 3.5
+                ? 'MEDIUM'
+                : s.score >= 2.0
+                    ? 'EASY'
+                    : 'SCENIC';
+    logBuf.writeln('[#${i + 1}] '
+        '${(s.way.name.isEmpty ? "(이름없음)" : s.way.name).padRight(22)} | '
+        '${s.distKm.toStringAsFixed(1).padLeft(5)}km | '
+        '${label.padRight(7)} | '
+        'density=${density.toStringAsFixed(1).padLeft(4)} '
+        'curvy=${(s.curves.curvyFraction * 100).toStringAsFixed(0).padLeft(2)}% '
+        'straight=${s.curves.maxStraightRunKm.toStringAsFixed(2)}km '
+        'score=${s.score.toStringAsFixed(2)}');
+  }
+  logBuf.write('==============================');
+
+  final routes = selected.map((s) {
     final name = s.way.name.isNotEmpty
         ? s.way.name
         : RevvRoute.autoName(s.score);
@@ -545,6 +593,7 @@ List<RevvRoute> _selectTopRoutes(
       isLoop: s.isLoop,
     );
   }).toList();
+  return _IsolateResult(routes, logBuf.toString());
 }
 
 // ─── RouteService ─────────────────────────────────────────────────
@@ -660,6 +709,15 @@ class RouteService extends ChangeNotifier {
   }
 
   Future<void> fetchRoutes(double lat, double lng) async {
+    // ① 캐시 즉시 표시 (stale-while-revalidate)
+    final cached = await _loadFromCache();
+    if (cached != null && cached.isNotEmpty && routes.isEmpty) {
+      routes = cached;
+      selectedRoute = routes.first;
+      notifyListeners();
+    }
+
+    // ② 같은 위치 + 같은 반경이면 스킵 (캐시로 충분)
     if (_lastFetchLocation != null && _lastFetchRadius == searchRadiusKm) {
       final dist = RevvRoute.haversineKm(_lastFetchLocation!, LatLng(lat, lng));
       if (dist < 10) return;
@@ -671,40 +729,87 @@ class RouteService extends ChangeNotifier {
 
     try {
       await loadExclusions();
-      var result = await _fetchAndScore(lat, lng, searchRadiusKm * 1000);
-      routes = result.where((r) => !isExcluded(r)).toList();
+
+      // ③ 랜덤 seed — 매번 다른 조합 탐색
+      final seed = math.Random().nextInt(0x7FFFFFFF);
+      var fresh = await _fetchAndScore(lat, lng, searchRadiusKm * 1000, seed: seed);
+      fresh = fresh.where((r) => !isExcluded(r)).toList();
 
       // 결과가 너무 적으면 자동으로 100km 재시도
-      if (routes.length < 3 && searchRadiusKm < 100) {
-        debugPrint('[RouteService] 루트 부족 (${routes.length}개) → 100km 자동 확장');
-        result = await _fetchAndScore(lat, lng, 100000);
-        routes = result.where((r) => !isExcluded(r)).toList();
+      if (fresh.length < 3 && searchRadiusKm < 100) {
+        debugPrint('[RouteService] 루트 부족 (${fresh.length}개) → 100km 자동 확장');
+        fresh = await _fetchAndScore(lat, lng, 100000, seed: seed);
+        fresh = fresh.where((r) => !isExcluded(r)).toList();
       }
 
       // 고도 분석: 지형 기반 점수 보정
-      routes = await _enrichWithElevation(routes);
-      routes.sort((a, b) => b.windingScore.compareTo(a.windingScore));
+      fresh = await _enrichWithElevation(fresh);
+
+      // ④ 누적: 기존 풀 + 새 루트 병합 (중복 6km 기준 제거), 상위 25개 유지
+      final merged = _mergeRoutePools(routes, fresh);
+      merged.sort((a, b) => b.windingScore.compareTo(a.windingScore));
+      routes = merged.take(25).toList();
 
       selectedRoute = routes.isNotEmpty ? routes.first : null;
       _lastFetchLocation = LatLng(lat, lng);
       _lastFetchRadius = searchRadiusKm;
-      debugPrint('[RouteService] 선택된 루트: ${routes.length}개');
-      _saveToCache(result, lat, lng);
+      debugPrint('[RouteService] 풀 누적 후 루트: ${routes.length}개 (신규 ${fresh.length}개)');
+
+      // ⑤ 캐시 저장 (SharedPreferences + Firestore 비동기)
+      _saveToCache(routes, lat, lng);
+      _saveRoutesToFirestore(routes);
     } catch (e, st) {
       debugPrint('[RouteService] 예외: $e\n$st');
-      final cached = await _loadFromCache();
-      if (cached != null && cached.isNotEmpty) {
-        routes = cached;
-        selectedRoute = routes.first;
-        errorMessage = '오프라인 모드 — 마지막 검색 결과를 표시합니다';
-        debugPrint('[RouteService] 오프라인 캐시 복원: ${routes.length}개');
-      } else {
-        errorMessage = '네트워크 오류가 발생했어요. 인터넷 연결을 확인하세요.';
+      if (routes.isEmpty) {
+        final fallback = await _loadFromCache();
+        if (fallback != null && fallback.isNotEmpty) {
+          routes = fallback;
+          selectedRoute = routes.first;
+          errorMessage = '오프라인 모드 — 마지막 검색 결과를 표시합니다';
+          debugPrint('[RouteService] 오프라인 캐시 복원: ${routes.length}개');
+        } else {
+          errorMessage = '네트워크 오류가 발생했어요. 인터넷 연결을 확인하세요.';
+        }
       }
     }
 
     isLoading = false;
     notifyListeners();
+  }
+
+  /// 기존 풀 + 새 루트 병합 — centerPoint 6km 이내 중복 제거
+  List<RevvRoute> _mergeRoutePools(List<RevvRoute> existing, List<RevvRoute> fresh) {
+    final pool = List<RevvRoute>.from(existing);
+    for (final r in fresh) {
+      final isDup = pool.any(
+        (e) => RevvRoute.haversineKm(e.centerPoint, r.centerPoint) < 6,
+      );
+      if (!isDup) pool.add(r);
+    }
+    return pool;
+  }
+
+  /// Firestore에 루트 풀 저장 (fire-and-forget)
+  void _saveRoutesToFirestore(List<RevvRoute> rs) {
+    CloudSyncService().saveDiscoveredRoutes(rs).catchError((e) {
+      debugPrint('[RouteService] Firestore 루트 저장 실패: $e');
+    });
+  }
+
+  /// Firestore에서 루트 풀 사전 로드 (앱 시작 시)
+  Future<void> preloadFromFirestore() async {
+    if (routes.isNotEmpty) return; // 이미 캐시가 있으면 스킵
+    try {
+      final firestoreRoutes = await CloudSyncService().loadDiscoveredRoutes();
+      if (firestoreRoutes.isNotEmpty && routes.isEmpty) {
+        routes = firestoreRoutes;
+        selectedRoute = routes.first;
+        notifyListeners();
+        debugPrint('[RouteService] Firestore 사전 로드: ${routes.length}개');
+      }
+    } catch (e) {
+      debugPrint('[RouteService] Firestore 사전 로드 실패: $e');
+    }
   }
 
   // ─── 오프라인 캐시 ─────────────────────────────────────────────
@@ -831,7 +936,7 @@ class RouteService extends ChangeNotifier {
     }
   }
 
-  Future<List<RevvRoute>> _fetchAndScore(double lat, double lng, int radiusM) async {
+  Future<List<RevvRoute>> _fetchAndScore(double lat, double lng, int radiusM, {int seed = 0}) async {
     // ["name"] 필터: 이름 없는 도로 제거 → 데이터량 80% 감소
     // primary 포함: 캐나다 일부 primary가 와인딩 명소
     final query = '''
@@ -894,10 +999,11 @@ out geom qt;
 
     // ── compute() isolate: JSON 파싱 + Way Stitching + 스코어링 ──
     // 메인 스레드에서 실행하면 320프레임+ 스킵 발생 → 별도 isolate로 분리
-    debugPrint('[RouteService] compute() isolate 시작');
-    final result = await compute(_processRoutes, _IsolateParams(resBody, lat, lng));
-    debugPrint('[RouteService] compute() 완료: ${result.length}개');
-    return result;
+    debugPrint('[RouteService] compute() isolate 시작 (seed=$seed)');
+    final result = await compute(_processRoutes, _IsolateParams(resBody, lat, lng, seed: seed));
+    debugPrint(result.log); // ← 메인 스레드에서 번호 로그 출력
+    debugPrint('[RouteService] compute() 완료: ${result.routes.length}개');
+    return result.routes;
   }
 
   /// 새 랜덤 시드로 캐시된 JSON 재처리 — 네트워크 호출 없이 다른 루트 조합 반환
@@ -912,7 +1018,8 @@ out geom qt;
         _processRoutes,
         _IsolateParams(_lastJsonBody!, _lastJsonLat!, _lastJsonLng!, seed: seed),
       );
-      routes = result.where((r) => !isExcluded(r)).toList();
+      debugPrint(result.log);
+      routes = result.routes.where((r) => !isExcluded(r)).toList();
       selectedRoute = routes.isNotEmpty ? routes.first : null;
       connectingRoutes = [];
     } finally {

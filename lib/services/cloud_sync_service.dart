@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import '../models/run_summary.dart';
+import '../models/revv_route.dart';
 
 enum SyncStatus { idle, syncing, done, error }
 
@@ -129,6 +130,64 @@ class CloudSyncService extends ChangeNotifier {
     } catch (e) {
       debugPrint('[CloudSync] 일괄 업로드 실패: $e');
       _setStatus(SyncStatus.error);
+    }
+  }
+
+  // ── 발견 루트 Firestore 저장/로드 ─────────────────────────────
+  CollectionReference<Map<String, dynamic>>? get _discoveredRef {
+    final id = uid;
+    if (id == null) return null;
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(id)
+        .collection('discovered_routes');
+  }
+
+  /// 루트 풀 배치 저장 (최대 25개)
+  Future<void> saveDiscoveredRoutes(List<RevvRoute> routes) async {
+    if (!_ready) return;
+    final ref = _discoveredRef;
+    if (ref == null) return;
+    try {
+      final batch = FirebaseFirestore.instance.batch();
+      for (final r in routes) {
+        batch.set(ref.doc(r.id), {
+          ...r.toJson(),
+          '_savedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      debugPrint('[CloudSync] 루트 풀 저장 완료 — ${routes.length}개');
+    } catch (e) {
+      debugPrint('[CloudSync] 루트 풀 저장 실패: $e');
+    }
+  }
+
+  /// 저장된 루트 풀 로드 (앱 시작 시 사전 표시용)
+  Future<List<RevvRoute>> loadDiscoveredRoutes() async {
+    if (!_ready) return [];
+    final ref = _discoveredRef;
+    if (ref == null) return [];
+    try {
+      final snap = await ref
+          .orderBy('windingScore', descending: true)
+          .limit(25)
+          .get();
+      return snap.docs
+          .map((d) {
+            try {
+              return RevvRoute.fromJson(
+                Map<String, dynamic>.from(d.data())..remove('_savedAt'),
+              );
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<RevvRoute>()
+          .toList();
+    } catch (e) {
+      debugPrint('[CloudSync] 루트 풀 로드 실패: $e');
+      return [];
     }
   }
 
