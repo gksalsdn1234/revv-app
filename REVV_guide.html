@@ -465,7 +465,7 @@ ${ideaTexts || '(없음)'}
                 <div class="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-500"><i class="fas fa-clipboard-list text-lg"></i></div>
                 <div style="flex:1">
                     <h2 class="title-font text-2xl font-bold text-white tracking-tight">REVV 개발 현황</h2>
-                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.36 · Flutter + Mapbox + Claude API + Firebase</p>
+                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.38 · Flutter + Mapbox + Claude API + Firebase</p>
                 </div>
                 <button id="briefing-btn" class="briefing-btn" onclick="window.copyBriefing()">🌳 세션 브리핑 복사</button>
             </div>
@@ -577,6 +577,31 @@ ${ideaTexts || '(없음)'}
                     <div><div class="memo-title">OBD G-FORCE 전용 탭 (4번째 탭)</div><div class="memo-desc">obd_screen.dart 3탭→4탭. _GForceTab 신규 생성: LayoutBuilder로 풀사이즈 _CarGforceMeter (차체 비율 유지). 합성G 대형 수치, 횡G/종G/요레이트 3열, SESSION MAX 배지, MAX 리셋 버튼.</div></div>
                     <span class="memo-tag ml-auto">obd_screen.dart</span>
                 </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">스프린트 화면 풀스크린 + G포스 미터 대형 리디자인 (v1.38)</div><div class="memo-desc">Column(HudBar+지도) → Stack(지도+오버레이) 풀스크린 전환. G포스 원형 미터 164×186px: 동심원 3단계(0.3G/0.6G/1.0G), 자동차 실루엣, trail 30개 페이드, LAT/LON 분리 표시.</div></div>
+                    <span class="memo-tag ml-auto">sprint_screen.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">UI 전면 리디자인 — Calimoto/Rever 스타일 (v1.37)</div><div class="memo-desc">cruise_screen 투명 플로팅 오버레이. 하단 탭바: ROUTES|TRIP|GO(돌출)|LOG|MORE. SprintScreen _SpeedDisplay 46px Orbitron. HistoryScreen 월별 타임라인 + 4칸 스탯그리드 + G배지.</div></div>
+                    <span class="memo-tag ml-auto">cruise/sprint/history_screen</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">G-Force 레드 플래시 효과 + 다음 코너 브리핑 HUD</div><div class="memo-desc">lateralG ≥ 0.65G 시 화면 상단 AnimationController 400ms 레드 그라디언트 플래시. CornerBriefingService: 전방 600m 코너 강도 4단계 분류, 400m·120m TTS 2단계 예고. _CornerPreviewHUD 좌하단.</div></div>
+                    <span class="memo-tag ml-auto">sprint_screen / corner_briefing</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">고도 분석 + 지형 기반 루트 점수 보정</div><div class="memo-desc">elevation_service.dart 신규 생성. OpenTopoData API로 루트 폴리라인 고도 배치 조회, 오르막/내리막 경사도 계산, 루트 스코어에 지형 보너스 적용.</div></div>
+                    <span class="memo-tag ml-auto">elevation_service.dart</span>
+                </div>
+                <div class="memo-item done">
+                    <div class="memo-dot done"></div>
+                    <div><div class="memo-title">OSM 지리 데이터 3종 통합 + 종횡비 필터</div><div class="memo-desc">natural=water/landuse=reservoir/waterway=river 필터로 강·계곡 인근 와인딩 도로 보호. spreadRatio 종횡비 필터로 직선 도로·평행 루프 차단. 루트 부족 시 자동 100km 확장.</div></div>
+                    <span class="memo-tag ml-auto">route_service.dart</span>
+                </div>
             </div>
 
             <!-- 개발 중인 것 -->
@@ -595,9 +620,9 @@ ${ideaTexts || '(없음)'}
                 <div class="memo-item hot">
                     <div class="memo-dot hot"></div>
                     <div>
-                        <div class="memo-title">① 실기기 테스트 (필수)</div>
-                        <div class="memo-desc">G포스(ImuService 50Hz) / TBT 음성 안내 / DrivingContext / NavPolyline 파란 선 / G-FORCE 탭 — 에뮬레이터 미검증. Mapbox+GFXSTREAM 충돌로 에뮬레이터 불가. 실기기 연결 필요.</div>
-                        <div class="text-xs text-rose-400 mt-1 font-medium">→ flutter run으로 실기기에 빌드 후 직접 주행 테스트</div>
+                        <div class="memo-title">① 실기기 end-to-end 주행 테스트 (필수)</div>
+                        <div class="memo-desc">G포스(ImuService 50Hz) / TBT 음성 / DrivingContext / NavPolyline / G-FORCE 탭 / 레드 플래시 / 코너 브리핑 HUD — 에뮬레이터 미검증. Mapbox+GFXSTREAM 충돌로 실기기 필수.</div>
+                        <div class="text-xs text-rose-400 mt-1 font-medium">→ flutter run으로 실기기 빌드 후 실제 와인딩 도로 주행 테스트</div>
                     </div>
                 </div>
                 <div class="memo-item hot">
@@ -611,9 +636,25 @@ ${ideaTexts || '(없음)'}
                 <div class="memo-item hot">
                     <div class="memo-dot hot"></div>
                     <div>
-                        <div class="memo-title">③ 런카드 공유 — 실기기 테스트</div>
-                        <div class="memo-desc">share_plus v10 + SharePlus.instance.share(ShareParams) 구현 완료. 안드로이드 에뮬레이터에서 정상 확인. 실기기에서 실제 공유 시트 동작 검증 필요.</div>
-                        <div class="text-xs text-rose-400 mt-1 font-medium">→ 실기기에서 런 종료 후 공유 버튼 탭하여 시스템 공유 시트 확인</div>
+                        <div class="memo-title">③ 차량 프로필 카드 (Garage Pro 첫 번째)</div>
+                        <div class="memo-desc">차종/마력/타이어 규격 입력 → 맞춤 G포스 임계치 자동 계산. 차쟁이 핵심 기능의 첫 단계. VehicleProfileService + Garage 화면 신규 생성.</div>
+                        <div class="text-xs text-rose-400 mt-1 font-medium">→ roadmap Garage Pro 브랜치 ga1 항목</div>
+                    </div>
+                </div>
+                <div class="memo-item hot">
+                    <div class="memo-dot hot"></div>
+                    <div>
+                        <div class="memo-title">④ 랩 타임 시스템 (Track Mode 첫 번째)</div>
+                        <div class="memo-desc">지도에서 출발선 지정 + GPS 통과 감지로 정밀 랩 타임 자동 측정. 개인 최고 기록 갱신 시 축하 이펙트. LapTimerService 신규 생성.</div>
+                        <div class="text-xs text-rose-400 mt-1 font-medium">→ roadmap Track Mode 브랜치 tr1 항목</div>
+                    </div>
+                </div>
+                <div class="memo-item hot">
+                    <div class="memo-dot hot"></div>
+                    <div>
+                        <div class="memo-title">⑤ 고도 프로파일 미니 차트 — 루트 카드 통합</div>
+                        <div class="memo-desc">elevation_service.dart 완성 → 루트 카드 하단에 고도 프로파일 미니 SVG 차트 표시. 오르막 구간 빨강/내리막 파랑으로 시각화.</div>
+                        <div class="text-xs text-rose-400 mt-1 font-medium">→ routes_bottom_sheet.dart 루트 카드에 ElevationMiniChart 위젯 추가</div>
                     </div>
                 </div>
             </div>
@@ -627,7 +668,7 @@ ${ideaTexts || '(없음)'}
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">센서</div><div class="text-slate-500">sensors_plus 50Hz IMU<br>flutter_blue_plus OBD2 BLE</div></div>
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">저장</div><div class="text-slate-500">shared_preferences (런 기록/집 위치)<br>Firebase Firestore (클라우드 런 동기화) ✅</div></div>
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">루트 탐색</div><div class="text-slate-500">Overpass API (커브 분석)<br>Google Maps (내비 연결)</div></div>
-                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (12개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.36 · GitHub Private</div></div>
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (12개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.38 · GitHub Private</div></div>
                 </div>
             </div>
 
@@ -1158,18 +1199,44 @@ ${ideaTexts || '(없음)'}
                     <div class="patch-line">• fetchConnectingRoutes: Overpass API 재호출 → 인메모리 haversine 즉시 탐색</div>
                 </div>
 
+                <!-- v1.38 루트 엔진 강화 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.38 루트 엔진 강화</span>
+                        <span class="patch-date">2026-03-19 · 루트 품질 대대적 개선</span>
+                        <span class="patch-tag feat">FEAT</span>
+                        <span class="patch-tag fix">FIX</span>
+                    </div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">고도 분석 + 지형 기반 루트 점수 보정</strong></div>
+                    <div class="patch-line">elevation_service.dart 신규 생성 — OpenTopoData API 배치 조회</div>
+                    <div class="patch-line">루트 폴리라인 고도 데이터로 오르막/내리막 경사도 계산 → 루트 스코어에 지형 보너스 적용</div>
+                    <div class="patch-line">route_preview_screen.dart 신규 — 루트 선택 전 고도 프로파일 미리보기</div>
+                    <div class="patch-line">analysis_screen.dart 신규 — 런 종료 후 상세 주행 데이터 분석 화면</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">OSM 지리 데이터 3종 통합 + Stitching 강화</strong></div>
+                    <div class="patch-line">natural=water / landuse=reservoir / waterway=river 필터 — 강·계곡 인근 와인딩 도로 보호</div>
+                    <div class="patch-line">Way Stitching 로직 강화 — 더 긴 연속 구간 생성</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">종횡비 필터 (spreadRatio)</strong></div>
+                    <div class="patch-line">직선 도로 차단: spreadRatio &lt; 임계치 → 단순 직선 루트 필터링</div>
+                    <div class="patch-line">평행 루프 차단: 강·계곡 방향과 평행한 루프 구조 제거</div>
+                    <div class="patch-line"><strong style="color:#F2F2F2">루트 부족 자동 확장</strong></div>
+                    <div class="patch-line">30km 탐색 결과 3개 미만 시 자동으로 100km로 확장 재탐색</div>
+                    <div class="patch-line">배제/필터 기준 완화로 캐나다 교외 루트 포착력 향상</div>
+                    <div class="patch-line block-note">💬 캐나다 특성상 루트 밀도가 낮아 자동 확장이 필수였음. OSM 필터로 직선 강변 도로가 와인딩으로 오분류되던 문제 해결</div>
+                </div>
+
                 <!-- 다음 할 일 -->
                 <div class="patch-entry">
                     <div class="patch-header">
-                        <span class="patch-version">v1.38+ 예정</span>
+                        <span class="patch-version">v1.39 예정</span>
                         <span class="patch-date">다음 세션</span>
                         <span class="patch-tag feat">NEXT</span>
                     </div>
-                    <div class="patch-line">① 실기기 테스트 — G포스/TBT/NavPolyline/CloudSync/플래시/타임라인</div>
+                    <div class="patch-line">① 실기기 end-to-end 주행 테스트 — G포스/TBT/NavPolyline/플래시/코너브리핑/타임라인</div>
                     <div class="patch-line">② Firebase 보안 규칙 — users/{uid}/runs 오너 전용 read/write (Firebase Console)</div>
-                    <div class="patch-line">③ d1: 실시간 센서 로깅 — sensors_plus SQLite 0.1초 고정밀 저장</div>
-                    <div class="patch-line">④ d2: Gemini 드라이빙 분석 — 주행 로그 AI 코칭 리포트</div>
-                    <div class="patch-line block-note">💬 실기기 end-to-end 주행 테스트가 최우선</div>
+                    <div class="patch-line">③ 고도 프로파일 미니 차트 → 루트 카드 통합 표시</div>
+                    <div class="patch-line">④ 차량 프로필 카드 — VehicleProfileService (Garage Pro 1단계)</div>
+                    <div class="patch-line">⑤ 랩 타임 시스템 — LapTimerService (Track Mode 1단계)</div>
+                    <div class="patch-line block-note">💬 실기기 테스트가 여전히 최우선 — 실기기 없이는 절반의 기능이 검증 불가</div>
                 </div>
 
             </div><!-- end tab-1 -->
@@ -1215,7 +1282,9 @@ ${ideaTexts || '(없음)'}
                     { id: 'e4', title: '드래그 0-100 타이머', intent: '직선 구간에서 정밀한 가속 성능을 측정합니다.', prompt: 'GPS 속도 데이터로 0→100km/h 구간을 감지하고 정밀 타이머를 기록하는 Flutter 서비스를 만들어줘.', feature: '개인 기록 갱신 시 진동+사운드 축하 이펙트.' },
                     { id: 'e5', status: 'done', title: 'OBD2 딥 인테그레이션', intent: '차량 내부 데이터를 실시간으로 끌어와 분석합니다.', prompt: 'flutter_blue_plus로 ELM327 OBD2 동글과 연결해 RPM, 냉각수 온도, 스로틀 개도를 파싱하는 서비스를 만들어줘.', feature: '엔진 과열 감지 시 JARVIS 자동 경고 음성.' },
                     { id: 'e6', status: 'done', title: 'NEAR/MID/FAR 누적 반경 탐색', intent: '반경을 넓혀도 기존 루트는 유지하고 새 루트만 추가합니다.', prompt: '30/50/100km 누적 탐색 — 상위 탭 누르면 기존 캐시 유지 + 신규 반경만 Overpass 재조회, centerPoint 5km 중복 제거.', feature: '셔플 버튼: 캐시 JSON을 새 random seed로 재처리 → 네트워크 없이 다른 루트 조합 즉시 반환.' },
-                    { id: 'e7', status: 'done', title: '루트 영구 배제 + 캘리브레이션', intent: '싫은 루트는 다시 뜨지 않게 영구 제거하고 첫 실행 선호도를 학습합니다.', prompt: 'SharedPreferences에 배제 centerPoint 목록 저장. 첫 실행 시 Tinder 스타일 스와이프 캘리브레이션 화면 표시.', feature: '곡률 파형 시각화 카드, 좌 스와이프=배제 / 우 스와이프=유지, 🚫 배제 버튼 상시 노출.' }
+                    { id: 'e7', status: 'done', title: '루트 영구 배제 + 캘리브레이션', intent: '싫은 루트는 다시 뜨지 않게 영구 제거하고 첫 실행 선호도를 학습합니다.', prompt: 'SharedPreferences에 배제 centerPoint 목록 저장. 첫 실행 시 Tinder 스타일 스와이프 캘리브레이션 화면 표시.', feature: '곡률 파형 시각화 카드, 좌 스와이프=배제 / 우 스와이프=유지, 🚫 배제 버튼 상시 노출.' },
+                    { id: 'e8', status: 'done', title: '고도 분석 & 지형 기반 루트 점수 보정', intent: '언덕길 코너는 평지 코너보다 더 짜릿합니다 — 고도 변화를 루트 점수에 반영합니다.', prompt: 'OpenTopoData API를 활용해 루트 폴리라인의 고도 데이터를 배치 조회하고, 오르막/내리막 경사도를 계산해 route score에 지형 보너스를 적용하는 elevation_service.dart를 만들어줘.', feature: '고도 프로파일 미니 차트를 루트 카드에 표시 — 오르막 빨강/내리막 파랑.' },
+                    { id: 'e9', title: '드리프트 / 오버스티어 실시간 감지', intent: 'IMU 요레이트와 횡G 비교로 과스티어·언더스티어 구간을 자동 마킹하고 JARVIS가 코너 피드백을 줍니다.', prompt: 'ImuService의 yawRate와 lateralG 비율을 분석해 오버스티어(yawRate 과다)/언더스티어(yawRate 부족) 구간을 감지하고 GPS 좌표를 마킹하는 로직을 구현해줘. 코너 종료 후 TTS로 "이번 코너 약한 언더스티어" 피드백.', feature: '세션 종료 후 코너별 오버/언더스티어 지도 핀 표시.' }
                 ]
             },
             {
@@ -1238,7 +1307,9 @@ ${ideaTexts || '(없음)'}
                     { id: 'd1', status: 'done', title: '급조작 감지 로깅', intent: '스프린트 중 G > 0.45G 순간을 자동 마킹합니다.', prompt: 'sensors_plus를 활용해 백그라운드에서 가속도/자이로 데이터를 SQLite에 저장하는 로직 짜줘.', feature: '스프린트 HUD ⚡N회 실시간 카운터, GPS 좌표+타임스탬프 SharpCorner 모델 저장.' },
                     { id: 'd2', status: 'done', title: 'Claude AI 코칭 리포트', intent: 'AI가 주행을 분석하여 상세 코칭 리포트를 생성합니다.', prompt: '주행 로그를 Claude API에 보내 3섹션(하이라이트/개선/목표) 전문 드라이빙 피드백을 생성하는 Dart 코드를 작성해줘.', feature: '런카드 "🤖 상세 AI 분석" 버튼 → 바텀시트, analyzeRunDetailed() 상세 분석.' },
                     { id: 'd3', status: 'done', title: '드라이버 레벨 + 스타일 프로파일', intent: '주행 스타일을 분석해 나만의 드라이버 프로필을 찾아냅니다.', prompt: '누적 주행 데이터(G포스, 브레이킹 패턴, 평균 코너링 속도)를 분석해 드라이버 스타일을 5가지 유형으로 분류하는 알고리즘을 짜줘.', feature: '뉴비→레전드 5단계 레벨 카드, maxLateralG 기반 CRUISER/SPORT/RACER 배지, 경험치 바.' },
-                    { id: 'd4', title: '날씨 기반 노면 예측 AI', intent: '현재 날씨와 기온으로 노면 상태를 예측해 드라이빙 전략을 제안합니다.', prompt: 'OpenWeather API 데이터(기온, 강수량, 습도)를 분석해 노면이 "건조/젖음/결빙 위험" 중 어느 상태인지 예측하고 JARVIS가 조언하는 로직을 만들어줘.', feature: '비 예보 시 "오늘은 와인딩 자제" 자동 알림.' }
+                    { id: 'd4', title: '날씨 기반 노면 예측 AI', intent: '현재 날씨와 기온으로 노면 상태를 예측해 드라이빙 전략을 제안합니다.', prompt: 'OpenWeather API 데이터(기온, 강수량, 습도)를 분석해 노면이 "건조/젖음/결빙 위험" 중 어느 상태인지 예측하고 JARVIS가 조언하는 로직을 만들어줘.', feature: '비 예보 시 "오늘은 와인딩 자제" 자동 알림.' },
+                    { id: 'd5', title: '날씨·컨디션별 퍼포먼스 비교', intent: '같은 루트를 맑은 날 vs 비 오는 날 달린 결과를 나란히 비교합니다.', prompt: 'RunSummary에 날씨 조건(맑음/비/흐림/눈)을 저장하고, 같은 루트의 기록을 날씨별로 그룹핑해 G포스·시간·스타일 배지를 비교하는 history_screen 필터 UI를 구현해줘.', feature: '"비 오는 날 코너링이 10% 더 조심스러웠어요" AI 자동 인사이트.' },
+                    { id: 'd6', title: '연비 AI 분석 코치', intent: 'OBD MAF/연료 데이터로 실제 연비를 계산하고 드라이빙 스타일이 연비에 미치는 영향을 AI가 분석합니다.', prompt: 'OBDService MAF/RPM/스로틀 데이터를 기반으로 실시간 L/100km를 계산하고, 주행 스타일(와인딩 vs 고속도로)에 따른 연비 차이를 Claude API가 분석해 에코 드라이빙 조언을 생성하는 코드를 작성해줘.', feature: '"오늘 와인딩 구간에서 연료 소비가 고속 주행의 2배였어요" 인사이트 카드.' }
                 ]
             },
             {
@@ -1249,7 +1320,9 @@ ${ideaTexts || '(없음)'}
                     { id: 's1', title: '와인딩 가드 알림', intent: '전방의 위험 구간을 미리 경고합니다.', prompt: '경로상 500m 이내 급커브나 사고 다발 지점이 있을 때 음성 안내를 하는 로직을 짜줘.', feature: '노면 결빙 가능성 실시간 알림.' },
                     { id: 's2', title: '사고 감지 및 긴급 호출', intent: '사고 시 자동으로 구조를 요청합니다.', prompt: '충격 감지 시 일정 시간 반응이 없으면 연락처로 위치를 전송하는 긴급 시스템을 구현해줘.', feature: '사고 직전 30초 데이터 별도 백업.' },
                     { id: 's3', title: '과속 단속 카메라 DB', intent: '전국 단속 카메라 위치를 사전 경고하여 과태료를 방지합니다.', prompt: '공공 API 또는 크라우드소싱으로 과속 단속 카메라 좌표를 받아 경로상 300m 이내 접근 시 음성 경고하는 서비스를 만들어줘.', feature: '유저 신고 기반 실시간 이동 단속 업데이트.' },
-                    { id: 's4', title: '피로 감지 알림', intent: '장거리 주행 중 운전자의 집중력 저하를 감지합니다.', prompt: '핸들 조작 패턴(방향 변화 빈도, IMU 데이터)을 분석해 피로 징후 감지 시 JARVIS가 휴식을 권유하는 로직을 짜줘.', feature: '근처 드라이브 스루/휴게소 자동 추천.' }
+                    { id: 's4', title: '피로 감지 알림', intent: '장거리 주행 중 운전자의 집중력 저하를 감지합니다.', prompt: '핸들 조작 패턴(방향 변화 빈도, IMU 데이터)을 분석해 피로 징후 감지 시 JARVIS가 휴식을 권유하는 로직을 짜줘.', feature: '근처 드라이브 스루/휴게소 자동 추천.' },
+                    { id: 's5', title: '엔진 웜업 가드 시스템', intent: 'OBD 냉각수 온도를 실시간 모니터링하고 엔진이 덜 워밍업된 상태의 과격한 주행을 방지합니다.', prompt: 'OBDService coolantTemp가 70°C 미만일 때 스프린트 시작 시 JARVIS가 "엔진 아직 차가워요, 조금만 워밍업 후 달리세요" 음성 + HUD 경고를 띄우는 로직을 구현해줘. 온도 도달 시 자동 해제.', feature: 'cruise 화면에 냉각수 온도 실시간 원형 게이지 표시 (블루→정상 그린→과열 레드).' },
+                    { id: 's6', title: '타이어 열화 추적기', intent: '세션별 코너링 G 누적으로 타이어 마모를 간접 추정하고 교체 시점을 알립니다.', prompt: 'RunSummary의 maxLateralG와 총 코너링 거리를 누적해 타이어 열화 지수(%)를 계산하는 TireWearService를 만들어줘. 80% 이상 시 JARVIS 교체 권고 + Garage 화면에 타이어 상태 표시.', feature: '타이어 교체 후 "리셋" 버튼으로 열화 카운터 초기화. 트레드 마모 시각화 그래픽.' }
                 ]
             },
             {
@@ -1292,6 +1365,39 @@ ${ideaTexts || '(없음)'}
                     { id: 'g1', title: '다국어 지원 (i18n)', intent: '일본, 독일, 미국 드라이버도 REVV를 사용할 수 있게 합니다.', prompt: 'Flutter intl 패키지로 한국어/영어/일본어/독일어 다국어 지원 구조를 만들고 JARVIS 음성도 해당 언어로 전환하는 로직을 짜줘.', feature: '지역별 단위 자동 전환 (mph ↔ km/h).' },
                     { id: 'g2', title: '글로벌 와인딩 명소 DB', intent: '뉘르부르크링, 하코네, 로키산맥 등 전 세계 성지를 앱에 담습니다.', prompt: '전 세계 유명 드라이빙 명소 좌표와 정보를 Firestore에 저장하고 지도에서 탐색 가능한 "버킷리스트 코스" 피처를 만들어줘.', feature: '방문 인증 시 한정판 국가별 뱃지 지급.' },
                     { id: 'g3', title: '브랜드 파트너십 플랫폼', intent: '타이어/오일 브랜드와 연계해 수익과 신뢰를 동시에 잡습니다.', prompt: 'REVV 앱 내 파트너 브랜드 스폰서 배너와 드라이빙 챌린지를 연동하는 데이터 구조와 어드민 관리 페이지를 설계해줘.', feature: '미슐랭, 피렐리 등과의 공식 챌린지 이벤트.' }
+                ]
+            },
+            {
+                id: 'garage',
+                title: 'Garage Pro',
+                icon: 'fa-car-side',
+                items: [
+                    { id: 'ga1', title: '내 차 프로필 카드', intent: '차종·파워·타이어 정보를 입력하면 맞춤 G포스 임계치와 추천 루트 난이도가 자동 설정됩니다.', prompt: '차량 프로필 입력 화면(차종명/배기량/마력/토크/타이어규격/구동방식 2WD·AWD·RWD)을 만들고, 입력값에 따라 G포스 경고 임계치를 자동 계산하는 VehicleProfileService를 구현해줘. 프로필은 SharedPreferences 저장.', feature: 'Garage 화면 상단에 F1 팩 스타일 차량 스펙 카드 — 차량 이미지 + 주요 제원 한눈에 표시.' },
+                    { id: 'ga2', title: '유지보수 트래커', intent: '오일 교환, 타이어 교체, 브레이크 패드 등 정기 점검 일정을 주행 거리 기반으로 자동 알림합니다.', prompt: 'SharedPreferences에 마지막 오일 교환 거리/날짜를 저장하고, 누적 주행거리가 설정치(5000km 등) 초과 시 다음 앱 실행 때 JARVIS가 알려주는 MaintenanceTrackerService를 구현해줘. 항목별 설정 간격 커스터마이징 가능.', feature: 'OBD 엔진 경고등(DTC) 감지 시 자동으로 해당 정비 항목 플래그.' },
+                    { id: 'ga3', title: '주유 기록 & 연비 다이어리', intent: '직접 입력한 주유 기록으로 만탱 연비를 계산하고 월별 연료비 추이를 시각화합니다.', prompt: '주유 일자/금액/리터 입력 화면과 직전 주유 이후 주행거리를 자동 계산해 L/100km 연비를 산출하는 FuelLogService를 구현해줘. 월별 연료비 바 차트 + 와인딩 주행 비중별 연비 차이 분석.', feature: '"이번 달 와인딩 루트 비중 40% — 연비 12% 하락" AI 분석 인사이트.' },
+                    { id: 'ga4', title: 'OBD 에러코드 해석기 (DTC)', intent: '엔진 경고등이 켜지면 OBD P코드를 즉시 한국어로 해설하고 심각도를 알려줍니다.', prompt: 'OBDService에서 P/B/C/U DTC 코드를 읽어 내장 DB에서 한국어 설명을 조회하고 심각도(주의/경고/즉시정비) 3단계로 분류해 표시하는 DTCService를 만들어줘. Claude API로 "이 코드가 와인딩 주행에 미치는 영향" 맞춤 해설도 제공.', feature: '경고등 이력 타임라인 — 언제/어느 루트에서 켜졌는지 GPS 좌표 포함 기록.' }
+                ]
+            },
+            {
+                id: 'track',
+                title: 'Track Mode',
+                icon: 'fa-stopwatch',
+                items: [
+                    { id: 'tr1', title: '랩 타임 시스템', intent: '지도에서 출발선을 직접 지정하고 GPS 통과 감지로 정밀 랩 타임을 자동 측정합니다.', prompt: 'Mapbox 지도에서 사용자가 탭해 출발선(핀 2개로 라인 설정)을 지정하고, GPS가 그 라인 반경 30m 이내를 재통과할 때마다 랩 타임을 자동 기록하는 LapTimerService를 구현해줘. 개인 최고기록 갱신 시 진동+사운드 이펙트.', feature: '현재 랩 vs 최고 랩 델타 타이머 실시간 표시 (분홍=느림/초록=빠름).' },
+                    { id: 'tr2', title: '섹터 분석 & 구간 비교', intent: '루트를 3개 섹터로 나눠 세션마다 구간 타임을 자동 비교합니다.', prompt: '루트를 균등 3분할해 섹터 시작/끝 GPS 통과 감지 → 섹터별 타임 자동 기록. 이전 최고 섹터 타임과 실시간 델타 비교. 세션 종료 후 섹터별 색상 폴리라인 표시.', feature: '섹터별 개선/악화 비교 리포트 — "S2에서 1.3초 잃었어요. 진입 속도 낮춰보세요" AI 조언.' },
+                    { id: 'tr3', title: '오버/언더스티어 감지 & 코칭', intent: '코너마다 오버/언더스티어 발생 여부를 실시간 감지하고 JARVIS가 즉각 피드백을 줍니다.', prompt: 'IMU yawRate와 lateralG 비율로 오버스티어(yawRate/lateralG 비율 높음)/언더스티어(낮음) 구간을 감지하고 GPS 좌표를 마킹하는 로직. 코너 종료 후 1초 안에 TTS로 "이번 코너 언더스티어 감지" 피드백.', feature: '세션 종료 화면에 코너별 오버/언더스티어 지도 핀 표시 + 빈도 통계.' },
+                    { id: 'tr4', title: '유명 서킷 트랙 내비', intent: '캐나다·북미 서킷 레이아웃을 지도에 오버레이하고 트랙 내 위치 감지 시 자동으로 Track Mode로 전환합니다.', prompt: 'GeoJSON으로 서킷 트랙 라인을 저장하고 Mapbox에 오버레이. 서킷 반경 500m 진입 감지 시 자동 Track Mode 전환 + 피트레인/헤어핀/고속 코너 레이블 표시.', feature: '글로벌 50개 명장면 서킷 내장 (뉘르부르크링 북코스, 스파 포함).' }
+                ]
+            },
+            {
+                id: 'media',
+                title: 'Media Studio',
+                icon: 'fa-video',
+                items: [
+                    { id: 'm1', title: '주행 영상 + HUD 오버레이 녹화', intent: '폰 카메라로 주행 영상을 촬영하면서 속도/G포스/RPM을 실시간 합성해 저장합니다.', prompt: 'Flutter camera 패키지로 백그라운드 녹화를 시작하고 CustomPainter로 속도/lateralG/엔진RPM을 화면에 오버레이한 뒤 screen_recorder로 합성 영상을 저장하는 MediaOverlayService를 구현해줘.', feature: '녹화 중 HUD 레이아웃 선택: 미니멀(속도만) / 레이싱(풀 텔레메트리) / 레트로(아날로그 게이지).' },
+                    { id: 'm2', title: '베스트 모먼트 자동 하이라이트 클립', intent: 'G포스 피크 구간 전후 15초를 자동으로 잘라 하이라이트 릴을 만들어줍니다.', prompt: 'RunSession의 sharpCorners GPS 좌표+타임스탬프를 기반으로 녹화 영상에서 해당 구간 ±15초를 자동 추출해 클립 리스트를 생성하는 VideoHighlightService를 구현해줘. 상위 3개 클립 자동 연결.', feature: '"오늘의 드라이브" 1분 자동 릴 생성 → SNS 바로 공유.' },
+                    { id: 'm3', title: '드라이브 사진 지오태깅', intent: '주행 중 찍은 사진이 루트 지도 위에 핀으로 자동 표시됩니다.', prompt: 'image_picker로 갤러리 EXIF GPS 좌표를 읽어 Mapbox 지도에 사진 썸네일 어노테이션으로 표시하는 PhotoGeotagService를 구현해줘. 루트 선택 시 해당 루트 반경 5km 사진만 자동 필터링.', feature: '"이 루트에서 찍은 사진 12장" 포토 갤러리 카드 — 루트 선택 패널에 표시.' },
+                    { id: 'm4', title: 'SNS 런카드 공유 템플릿', intent: '인스타그램/X에 바로 올릴 수 있는 고급 런카드 이미지를 여러 포맷으로 생성합니다.', prompt: 'RepaintBoundary + toImage(pixelRatio:3)로 런카드를 고해상도 렌더링. REVV 로고/루트명/거리/G포스/날씨 포함한 인스타 9:16 세로형, 트위터 16:9 가로형 2종 + 월간 드라이빙 리포트 카드(총 거리/최고G/방문 루트 수) 3종 템플릿 선택 내보내기.', feature: '"이번 달 드라이빙 리포트" 자동 생성 — 매월 1일 알림.' }
                 ]
             },
             {
@@ -1347,6 +1453,18 @@ ${ideaTexts || '(없음)'}
             { id: '31', text: 'roadcurvature.com 알고리즘 전면 교체 — totalCurvature = Σ(bearing_diff_deg × segment_km), Way Stitching(최대 3연결), 다중 필터 파이프라인: maxStraightRunKm/curvyFraction/selfIntersects/spreadRatio/loop최소거리. 8-sector 방향 다양성 선택. compute() isolate로 UI 프리즈 방지', status: 'done' },
             { id: '32', text: 'NEAR/MID/FAR 누적 반경 시스템 — 30/50/100km 레이블, 기존 반경 캐시 유지+신규만 Overpass 재조회, centerPoint 5km 중복 제거. JSON 응답 캐시(_lastJsonBody) + seed 기반 셔플(네트워크 없이 즉시 재처리)', status: 'done' },
             { id: '33', text: 'Tinder 캘리브레이션 + 루트 영구 배제 시스템 — CalibrationScreen: 첫 실행 스와이프 카드(곡률 파형 시각화, 드래그 기울기, 힌트 배지). ExcludeRoute: SharedPreferences centerPoint 영구 저장, fetchRoutes 자동 필터링, RouteInfoOverlay 🚫 배제 버튼', status: 'done' },
+            { id: '34', text: '고도 분석 + 지형 기반 루트 점수 보정 — elevation_service.dart 신규, OpenTopoData API 배치 조회, 오르막/내리막 경사도 계산, 루트 스코어 지형 보너스 적용', status: 'done' },
+            { id: '35', text: 'OSM 지리 데이터 3종 통합 + Stitching 강화 — natural=water/landuse=reservoir/waterway=river 필터, Way Stitching 로직 개선, 루트 부족 시 자동 100km 확장', status: 'done' },
+            { id: '36', text: '종횡비 필터(spreadRatio) — 직선 도로/평행 루프 차단. 강·계곡 방향 도로 보호 필터 추가', status: 'done' },
+            { id: '37', text: 'route_preview_screen.dart 신규 — 루트 선택 전 고도 프로파일 + 상세 통계 미리보기 화면', status: 'done' },
+            { id: '38', text: 'analysis_screen.dart 신규 — 런 종료 후 상세 주행 데이터 분석 (G포스 타임라인, 속도 구간 분석, AI 코칭 리포트)', status: 'done' },
+            { id: '39', text: '고도 프로파일 미니 차트 → 루트 카드 통합 — routes_bottom_sheet.dart _RouteCard에 ElevationMiniChart 위젯 추가. 오르막 빨강/내리막 파랑 시각화', status: 'pending' },
+            { id: '40', text: '차량 프로필 카드 (Garage Pro ga1) — VehicleProfileService: 차종/마력/타이어규격/구동방식 입력 → G포스 임계치 자동 계산. Garage 화면 신규 생성', status: 'pending' },
+            { id: '41', text: '유지보수 트래커 (Garage Pro ga2) — MaintenanceTrackerService: 오일/타이어/브레이크 교환 거리 기반 자동 알림. OBD DTC 연동', status: 'pending' },
+            { id: '42', text: '랩 타임 시스템 (Track Mode tr1) — LapTimerService: Mapbox에서 출발선 지정 + GPS 통과 감지 + 랩 기록. 최고기록 갱신 시 이펙트', status: 'pending' },
+            { id: '43', text: '엔진 웜업 가드 (Safety s5) — OBD coolantTemp < 70°C 시 스프린트 시작 JARVIS 경고 + 냉각수 온도 원형 게이지', status: 'pending' },
+            { id: '44', text: '타이어 열화 추적기 (Safety s6) — TireWearService: 누적 G×거리 → 열화 지수%. 80% 도달 시 JARVIS 교체 권고', status: 'pending' },
+            { id: '45', text: '주행 영상 HUD 오버레이 녹화 (Media m1) — camera 패키지 + screen_recorder + 속도/G포스/RPM 실시간 합성 저장', status: 'pending' },
         ];
     </script>
 </body>
