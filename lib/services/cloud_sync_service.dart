@@ -191,28 +191,60 @@ class CloudSyncService extends ChangeNotifier {
   CollectionReference<Map<String, dynamic>> get _globalRef =>
       FirebaseFirestore.instance.collection(FirestorePaths.globalRoutes());
 
-  /// 루트를 전역 커뮤니티 풀에 게시 (최초 발견 시만 publishedBy 기록)
+  /// 반경 내 bounding box를 덮는 geohash4 셀 집합 (최대 9개)
+  Set<String> _geohash4Cells(double lat, double lng, double radiusKm) {
+    final latDelta = radiusKm / 111.0;
+    final lngDelta = radiusKm / (111.0 * math.cos(lat * math.pi / 180));
+    final cells = <String>{};
+    for (final f in [-1.0, 0.0, 1.0]) {
+      for (final g in [-1.0, 0.0, 1.0]) {
+        final sLat = (lat + f * latDelta).clamp(-90.0, 90.0);
+        final sLng = ((lng + g * lngDelta + 180) % 360) - 180;
+        cells.add(RevvRoute.encodeGeohash(sLat, sLng, 4));
+      }
+    }
+    return cells;
+  }
+
+  /// 루트를 전역 커뮤니티 풀에 게시 (메타/노드 분리 저장)
+  ///
+  /// routes/{id}         = 메타 (nodes 제외) — 리스팅용 경량 문서
+  /// routes/{id}/detail/nodes = 노드 배열 — 선택 시 lazy 로드
   Future<void> publishRoute(RevvRoute route) async {
     if (!_ready) return;
     final id = uid;
     if (id == null) return;
     try {
-      final docRef = _globalRef.doc(route.id);
+      final metaRef = _globalRef.doc(route.id);
+      final nodesRef = FirebaseFirestore.instance
+          .doc(FirestorePaths.globalRouteDetailDoc(route.id));
+
       await FirebaseFirestore.instance.runTransaction((tx) async {
-        final snap = await tx.get(docRef);
-        final data = {
-          ...route.toJson(),
-          '_updatedAt': FieldValue.serverTimestamp(),
-        };
+        final snap = await tx.get(metaRef);
         if (!snap.exists) {
-          // 최초 게시 — publishedBy + runCount 초기화
-          tx.set(docRef, {
-            ...data,
+          // 메타 문서 — nodes·distanceFromUser·elevationProfile 제외
+          final meta = {
+            ...route.toJson()
+              ..remove('nodes')
+              ..remove('distanceFromUser')   // 사용자별 값, 저장 불필요
+              ..remove('elevationProfile'),  // 대용량, 별도 저장 고려
             'publishedBy': id,
             'publishedAt': FieldValue.serverTimestamp(),
             'runCount': 0,
+            '_updatedAt': FieldValue.serverTimestamp(),
+          };
+          tx.set(metaRef, meta);
+
+          // 노드 문서
+          final nodesList = route.nodes
+              .map((n) => {'lat': n.lat, 'lng': n.lng})
+              .toList();
+          tx.set(nodesRef, {
+            'nodes': nodesList,
+            '_updatedAt': FieldValue.serverTimestamp(),
           });
-          debugPrint('[CloudSync] 루트 최초 게시 — ${route.id}');
+
+          debugPrint('[CloudSync] 루트 최초 게시 (메타+노드) — ${route.id}');
         }
         // 이미 존재하면 스킵 (canonical score 보호)
       });
@@ -221,50 +253,71 @@ class CloudSyncService extends ChangeNotifier {
     }
   }
 
-  /// 반경 내 전역 루트 조회 (lat 범위 쿼리 + 클라이언트 lng 필터)
+  /// 반경 내 전역 루트 조회 (geohash4 셀 whereIn 쿼리, 메타만 반환)
   ///
-  /// Firestore 제한: 단일 필드 inequality 쿼리만 가능
-  /// → centerLat 범위 쿼리 후 클라이언트에서 centerLng 필터링
+  /// 반환 루트는 nodes=[] — 사용자가 루트 선택 시 fetchRouteNodes()로 lazy 로드
   Future<List<RevvRoute>> fetchNearbyRoutes(
       double lat, double lng, double radiusKm) async {
     if (!_ready) return [];
     try {
-      final latDelta = radiusKm / 111.0;
-      final lngDelta =
-          radiusKm / (111.0 * math.cos(lat * math.pi / 180));
+      final cells = _geohash4Cells(lat, lng, radiusKm).toList();
 
       final snap = await _globalRef
-          .where('centerLat', isGreaterThan: lat - latDelta)
-          .where('centerLat', isLessThan: lat + latDelta)
-          .orderBy('centerLat')
-          .orderBy('windingScore', descending: true)
+          .where('geohash4', whereIn: cells)
           .limit(50)
           .get();
 
       final routes = snap.docs
-          .where((d) {
-            final cLng = (d.data()['centerLng'] as num?)?.toDouble();
-            if (cLng == null) return false;
-            return (cLng - lng).abs() <= lngDelta;
-          })
           .map((d) {
             try {
-              return RevvRoute.fromJson(
-                Map<String, dynamic>.from(d.data())
-                  ..remove('_updatedAt')
-                  ..remove('publishedAt'),
+              final data = Map<String, dynamic>.from(d.data())
+                ..remove('_updatedAt')
+                ..remove('publishedAt');
+              final r = RevvRoute.fromJson(data); // nodes=[] (메타 문서에 없음)
+              // distanceFromUser를 현재 사용자 위치 기준으로 재계산
+              return r.copyWith(
+                distanceFromUser:
+                    RevvRoute.haversineKm(LatLng(lat, lng), r.centerPoint),
               );
             } catch (_) {
               return null;
             }
           })
           .whereType<RevvRoute>()
-          .toList();
+          // geohash4 셀이 bounding box보다 약간 크므로 클라이언트에서 거리 재확인
+          .where((r) =>
+              RevvRoute.haversineKm(LatLng(lat, lng), r.centerPoint) <=
+              radiusKm)
+          .toList()
+        ..sort((a, b) => b.windingScore.compareTo(a.windingScore));
 
-      debugPrint('[CloudSync] 전역 루트 조회: ${routes.length}개 (반경 ${radiusKm}km)');
+      debugPrint(
+          '[CloudSync] 전역 루트 조회: ${routes.length}개 (geohash4 ${cells.length}셀)');
       return routes;
     } catch (e) {
       debugPrint('[CloudSync] 전역 루트 조회 실패: $e');
+      return [];
+    }
+  }
+
+  /// 루트 선택 시 노드 배열 lazy 로드
+  Future<List<LatLng>> fetchRouteNodes(String routeId) async {
+    if (!_ready) return [];
+    try {
+      final snap = await FirebaseFirestore.instance
+          .doc(FirestorePaths.globalRouteDetailDoc(routeId))
+          .get();
+      if (!snap.exists) return [];
+      final nodesList = snap.data()?['nodes'] as List?;
+      if (nodesList == null) return [];
+      return nodesList
+          .map((n) => LatLng(
+                (n['lat'] as num).toDouble(),
+                (n['lng'] as num).toDouble(),
+              ))
+          .toList();
+    } catch (e) {
+      debugPrint('[CloudSync] 노드 로드 실패 ($routeId): $e');
       return [];
     }
   }

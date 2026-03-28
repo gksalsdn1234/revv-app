@@ -155,6 +155,35 @@ class RevvRoute {
 
   static double _rad(double deg) => deg * math.pi / 180;
 
+  // ── Geohash 인코더 (패키지 없이 인라인) ───────────────────────────
+  static const _ghChars = '0123456789bcdefghjkmnpqrstuvwxyz';
+
+  /// lat/lng → geohash 문자열 (precision 4 = ~26km×20km 셀)
+  static String encodeGeohash(double lat, double lng, int precision) {
+    double minLat = -90, maxLat = 90;
+    double minLng = -180, maxLng = 180;
+    int bits = 0, val = 0;
+    bool isLng = true;
+    final buf = StringBuffer();
+    while (buf.length < precision) {
+      if (isLng) {
+        final mid = (minLng + maxLng) / 2;
+        if (lng >= mid) { val = (val << 1) | 1; minLng = mid; }
+        else             { val <<= 1;            maxLng = mid; }
+      } else {
+        final mid = (minLat + maxLat) / 2;
+        if (lat >= mid) { val = (val << 1) | 1; minLat = mid; }
+        else             { val <<= 1;            maxLat = mid; }
+      }
+      isLng = !isLng;
+      if (++bits == 5) { buf.write(_ghChars[val]); bits = 0; val = 0; }
+    }
+    return buf.toString();
+  }
+
+  /// 이 루트 중심점의 precision-4 geohash (Firestore whereIn 쿼리용)
+  String get geohash4 => encodeGeohash(centerPoint.lat, centerPoint.lng, 4);
+
   RevvRoute copyWith({
     String? id,
     String? name,
@@ -208,6 +237,7 @@ class RevvRoute {
         // 쿼리용 flat 필드 (Firestore 범위 쿼리)
         'centerLat': centerPoint.lat,
         'centerLng': centerPoint.lng,
+        'geohash4': geohash4,
         'distanceFromUser': distanceFromUser,
         'tightCurveKm': tightCurveKm,
         'mediumCurveKm': mediumCurveKm,
@@ -221,7 +251,7 @@ class RevvRoute {
   factory RevvRoute.fromJson(Map<String, dynamic> j) => RevvRoute(
         id: j['id'] as String,
         name: j['name'] as String,
-        nodes: (j['nodes'] as List)
+        nodes: ((j['nodes'] as List?) ?? [])
             .map((n) => LatLng(
                   (n['lat'] as num).toDouble(),
                   (n['lng'] as num).toDouble(),

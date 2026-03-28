@@ -17,16 +17,28 @@ service cloud.firestore {
                          && request.auth.uid == uid;
     }
 
-    // routes/{routeId} — 전역 커뮤니티 루트 풀
+    // routes/{routeId} — 전역 커뮤니티 루트 메타 (nodes 제외 경량 문서)
     //   read:   모든 로그인 유저 가능
     //   create: 모든 로그인 유저 가능 (최초 발견자 게시)
-    //   update: runCount 필드만 허용 (주행 완료 시 +1)
+    //   update: runCount +1만 허용 (주행 완료 시 atomic increment)
     match /routes/{routeId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null;
       allow update: if request.auth != null
                     && request.resource.data.diff(resource.data)
-                       .affectedKeys().hasOnly(['runCount', '_updatedAt']);
+                       .affectedKeys().hasOnly(['runCount', '_updatedAt'])
+                    && request.resource.data.runCount
+                       == resource.data.runCount + 1;
+    }
+
+    // routes/{routeId}/detail/{doc} — 노드 배열 (대용량, 선택 시 lazy 로드)
+    //   read:   모든 로그인 유저 가능
+    //   create: 모든 로그인 유저 가능 (최초 게시 시 메타와 동시 작성)
+    //   update: 금지 (nodes는 canonical — 덮어쓰기 불가)
+    match /routes/{routeId}/detail/{doc} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if false;
     }
 
     // routes/{routeId}/runs/{uid} — 유저별 주행 기록 서브컬렉션

@@ -772,6 +772,10 @@ class RouteService extends ChangeNotifier {
       routes = merged.take(25).toList();
 
       selectedRoute = routes.isNotEmpty ? routes.first : null;
+      // 전역 DB에서 온 루트는 nodes=[] — 첫 번째 루트 노드 미리 로드 (지도 폴리라인용)
+      if (selectedRoute != null && selectedRoute!.nodes.isEmpty) {
+        _ensureRouteNodes(selectedRoute!); // fire-and-forget
+      }
       _lastFetchLocation = LatLng(lat, lng);
       _lastFetchRadius = searchRadiusKm;
       debugPrint('[RouteService] 풀 누적 후 루트: ${routes.length}개 (신규 ${fresh.length}개)');
@@ -1069,7 +1073,32 @@ out geom qt;
     selectedRoute = route;
     connectingRoutes = [];
     notifyListeners();
-    fetchConnectingRoutes(route);
+    // 전역 DB에서 온 루트는 nodes=[] — 반드시 노드 로드 후 체인 탐색
+    if (route.nodes.isEmpty) {
+      _ensureNodesThenConnect(route);
+    } else {
+      fetchConnectingRoutes(route);
+    }
+  }
+
+  /// 노드 lazy 로드 → 지도 폴리라인 + 체인 탐색 순서 보장
+  Future<void> _ensureNodesThenConnect(RevvRoute route) async {
+    await _ensureRouteNodes(route);
+    if (selectedRoute?.id == route.id && selectedRoute!.nodes.isNotEmpty) {
+      fetchConnectingRoutes(selectedRoute!);
+    }
+  }
+
+  /// 전역 DB 루트의 노드를 lazy 로드해 routes 리스트와 selectedRoute를 갱신
+  Future<void> _ensureRouteNodes(RevvRoute route) async {
+    final nodes = await CloudSyncService().fetchRouteNodes(route.id);
+    if (nodes.isEmpty) return;
+    final full = route.copyWith(nodes: nodes);
+    routes = routes.map((r) => r.id == route.id ? full : r).toList();
+    if (selectedRoute?.id == route.id) {
+      selectedRoute = full;
+      notifyListeners();
+    }
   }
 
   void deselectRoute() {

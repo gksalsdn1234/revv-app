@@ -31,4 +31,8 @@ class FirestorePaths {
   static String globalRouteRuns(String routeId) => 'routes/$routeId/runs';
   static String globalRouteRun(String routeId, String uid) =>
       'routes/$routeId/runs/$uid';
+
+  // routes/{routeId}/detail/nodes — 노드 배열 별도 저장 (메타/상세 분리)
+  static String globalRouteDetailDoc(String routeId) =>
+      'routes/$routeId/detail/nodes';
 }
