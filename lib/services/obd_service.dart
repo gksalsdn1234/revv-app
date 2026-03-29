@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../models/obd_data.dart';
+export '../models/obd_data.dart' show OBDRunSummary;
 
 enum OBDState { disconnected, scanning, connecting, ready, error }
 
@@ -147,46 +148,105 @@ class OBDService extends ChangeNotifier {
   StreamSubscription<List<int>>? _notifySub;
   Timer? _pollTimer;
 
-  static const _svcUuid = 'ffe0';
-  static const _charUuid = 'ffe1';
+  // 스캔 중 발견된 기기 목록 (UI에 실시간 표시용)
+  final List<ScanResult> _scanResults = [];
+  List<ScanResult> get scanResults => List.unmodifiable(_scanResults);
+
+  // FFE0/FFE1 UUID — short form, full 128bit, 또는 포함 여부로 매칭
+  static bool _matchUuid(String uuid, String shortId) {
+    final u = uuid.toLowerCase().replaceAll('-', '').replaceAll('{', '').replaceAll('}', '');
+    return u == shortId ||
+        u == '0000${shortId}00001000800000805f9b34fb' ||
+        u.contains(shortId); // 비표준 포맷 fallback
+  }
 
   int _pidIdx = 0;
   final StringBuffer _buf = StringBuffer();
   Completer<String>? _responseCompleter;
 
+  // 자동 재연결
+  int _consecutiveFailures = 0;
+  static const _maxConsecutiveFailures = 5;
+
+  // 런 트래킹 (주행 중 OBD 집계)
+  bool _trackingRun = false;
+  int? _maxRpm;
+  double _fuelRateSum = 0;
+  int _fuelRateSamples = 0;
+  double? _startFuelLevel;
+  int? _maxCoolantTemp;
+
   // ── Public API ────────────────────────────────────────────
+
+  // OBD 동글로 알려진 이름 패턴 (대소문자 무시)
+  static const _obdNamePatterns = [
+    'veepeak', 'obd', 'elm', 'obdii', 'vgate', 'icar',
+    'kiwi', 'v-link', 'vlink', 'bafx', 'obdlink', 'carista',
+    'scan', 'diag', 'torque', 'odb', 'eobd', 'bluetooth obd',
+  ];
+
+  static bool isObdDeviceName(String name) {
+    final lower = name.toLowerCase();
+    return _obdNamePatterns.any((p) => lower.contains(p));
+  }
 
   Future<void> connect() async {
     if (_state == OBDState.scanning || _state == OBDState.connecting) return;
     _setState(OBDState.scanning);
     _errorMsg = null;
     _data = null;
+    _scanResults.clear();
 
     try {
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 12));
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 30));
       _scanSub = FlutterBluePlus.scanResults.listen((results) {
+        bool changed = false;
         for (final r in results) {
-          final name = r.device.platformName.toLowerCase();
-          if (name.contains('veepeak') ||
-              name.contains('obd') ||
-              name.contains('elm') ||
-              name.contains('obdii')) {
+          final name = r.device.platformName;
+          // 이름 없는 기기는 무시 (노이즈 방지)
+          if (name.isEmpty) continue;
+          // 목록에 없으면 추가
+          final alreadyIn = _scanResults.any(
+            (s) => s.device.remoteId == r.device.remoteId,
+          );
+          if (!alreadyIn) {
+            _scanResults.add(r);
+            changed = true;
+            debugPrint('[OBD SCAN] 발견: "$name" rssi=${r.rssi}');
+          }
+          // 자동 매칭 — 패턴에 걸리는 기기 즉시 연결
+          if (_state == OBDState.scanning && isObdDeviceName(name)) {
+            debugPrint('[OBD SCAN] 자동 매칭! → 연결: "$name"');
             FlutterBluePlus.stopScan();
             _scanSub?.cancel();
             _connectDevice(r.device);
             return;
           }
         }
+        if (changed) notifyListeners();
       });
 
       FlutterBluePlus.isScanning.where((s) => !s).first.then((_) {
         if (_state == OBDState.scanning) {
-          _setError('OBD 장치를 찾지 못했어요.\n동글이 차에 꽂혀있는지 확인해주세요.');
+          if (_scanResults.isEmpty) {
+            _setError('주변에서 블루투스 기기를 찾지 못했어요.\n동글이 차에 꽂혀있는지, 블루투스가 켜져있는지 확인해주세요.');
+          } else {
+            _setError('OBD 기기를 자동으로 찾지 못했어요.\n아래 목록에서 직접 선택해주세요.');
+          }
         }
       });
     } catch (e) {
       _setError('블루투스 스캔 실패: $e');
     }
+  }
+
+  /// 수동 기기 선택 후 연결 (스캔 결과 목록에서 탭 시 호출)
+  Future<void> connectToDevice(BluetoothDevice device) async {
+    if (_state == OBDState.connecting || _state == OBDState.ready) return;
+    FlutterBluePlus.stopScan();
+    _scanSub?.cancel();
+    _errorMsg = null;
+    await _connectDevice(device);
   }
 
   Future<void> disconnect() async {
@@ -208,12 +268,22 @@ class OBDService extends ChangeNotifier {
 
     try {
       await device.connect(timeout: const Duration(seconds: 10));
+      debugPrint('[OBD] 연결됨 → 서비스 탐색 중...');
       final services = await device.discoverServices();
+      debugPrint('[OBD] 발견된 서비스 ${services.length}개:');
+      for (final svc in services) {
+        debugPrint('[OBD]   SVC: ${svc.uuid}');
+        for (final c in svc.characteristics) {
+          debugPrint('[OBD]     CHAR: ${c.uuid}');
+        }
+      }
 
       for (final svc in services) {
-        if (svc.uuid.toString().toLowerCase().contains(_svcUuid)) {
+        if (_matchUuid(svc.uuid.toString(), 'ffe0')) {
+          debugPrint('[OBD] FFE0 서비스 매칭!');
           for (final c in svc.characteristics) {
-            if (c.uuid.toString().toLowerCase().contains(_charUuid)) {
+            if (_matchUuid(c.uuid.toString(), 'ffe1')) {
+              debugPrint('[OBD] FFE1 특성 매칭!');
               _char = c;
               break;
             }
@@ -223,6 +293,7 @@ class OBDService extends ChangeNotifier {
       }
 
       if (_char == null) {
+        debugPrint('[OBD] ❌ FFE0/FFE1 매칭 실패 — 위 UUID 목록 확인 필요');
         _setError('OBD 특성을 찾지 못했어요.');
         return;
       }
@@ -247,11 +318,19 @@ class OBDService extends ChangeNotifier {
   void _onBytes(List<int> bytes) {
     final str = utf8.decode(bytes, allowMalformed: true);
     _buf.write(str);
-    if (_buf.toString().contains('>')) {
-      final response = _buf.toString().replaceAll('>', '').trim();
+    final current = _buf.toString();
+    final promptIdx = current.indexOf('>');
+    if (promptIdx >= 0) {
+      final response = current.substring(0, promptIdx).trim();
+      // '>' 이후 남은 데이터는 버퍼에 유지 (다음 응답의 시작일 수 있음)
+      final remaining = current.substring(promptIdx + 1);
       _buf.clear();
-      _responseCompleter?.complete(response);
-      _responseCompleter = null;
+      if (remaining.isNotEmpty) _buf.write(remaining);
+      final completer = _responseCompleter;
+      if (completer != null && !completer.isCompleted) {
+        _responseCompleter = null;
+        completer.complete(response);
+      }
     }
   }
 
@@ -279,13 +358,35 @@ class OBDService extends ChangeNotifier {
 
   void _startPolling() {
     _pidIdx = 0;
+    _consecutiveFailures = 0;
     _pollTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
       if (_state != OBDState.ready) return;
       final pid = _pollOrder[_pidIdx];
       _pidIdx = (_pidIdx + 1) % _pollOrder.length;
       final resp = await _cmd(pid);
-      if (resp.isNotEmpty) _parse(pid, resp);
+      if (resp.isNotEmpty) {
+        _consecutiveFailures = 0;
+        _parse(pid, resp);
+      } else {
+        _consecutiveFailures++;
+        if (_consecutiveFailures >= _maxConsecutiveFailures) {
+          _consecutiveFailures = 0;
+          debugPrint('[OBD] 연속 ${_maxConsecutiveFailures}회 응답 없음 → 자동 재연결');
+          _autoReconnect();
+        }
+      }
     });
+  }
+
+  Future<void> _autoReconnect() async {
+    _pollTimer?.cancel();
+    _notifySub?.cancel();
+    try { await _device?.disconnect(); } catch (_) {}
+    _device = null;
+    _char = null;
+    _setError('응답 없음. 재연결 중...');
+    await Future.delayed(const Duration(seconds: 2));
+    connect();
   }
 
   // ── PID 파싱 ─────────────────────────────────────────────
@@ -363,11 +464,51 @@ class OBDService extends ChangeNotifier {
 
       if (upd != null) {
         _data = upd;
+        // 런 트래킹 집계
+        if (_trackingRun) {
+          if (upd.rpm != null && (upd.rpm! > (_maxRpm ?? 0))) _maxRpm = upd.rpm;
+          if (upd.fuelRateLph != null && upd.fuelRateLph! > 0) {
+            _fuelRateSum += upd.fuelRateLph!;
+            _fuelRateSamples++;
+          }
+          if (upd.coolantTempC != null &&
+              (upd.coolantTempC! > (_maxCoolantTemp ?? -999))) {
+            _maxCoolantTemp = upd.coolantTempC;
+          }
+        }
         WidgetsBinding.instance.addPostFrameCallback((_) {
           notifyListeners();
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[OBD] Parse error [$pid]: $e');
+    }
+  }
+
+  // ── 런 트래킹 ────────────────────────────────────────────
+
+  /// 주행 시작 시 호출 — OBD 집계 초기화
+  void startRunTracking() {
+    _trackingRun = true;
+    _maxRpm = null;
+    _fuelRateSum = 0;
+    _fuelRateSamples = 0;
+    _startFuelLevel = _data?.fuelLevelPct;
+    _maxCoolantTemp = null;
+  }
+
+  /// 주행 종료 시 호출 — OBDRunSummary 반환 (OBD 미연결 시 null)
+  OBDRunSummary? stopRunTracking() {
+    if (!_trackingRun) return null;
+    _trackingRun = false;
+    final summary = OBDRunSummary(
+      maxRpm: _maxRpm,
+      avgFuelRateLph: _fuelRateSamples > 0 ? _fuelRateSum / _fuelRateSamples : null,
+      startFuelLevelPct: _startFuelLevel,
+      endFuelLevelPct: _data?.fuelLevelPct,
+      maxCoolantTempC: _maxCoolantTemp,
+    );
+    return summary.hasData ? summary : null;
   }
 
   // ── 유틸 ─────────────────────────────────────────────────

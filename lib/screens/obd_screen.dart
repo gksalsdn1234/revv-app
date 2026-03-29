@@ -1317,11 +1317,14 @@ class _ConnectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isConnected = obd.isConnected;
-    final isBusy = obd.state == OBDState.scanning ||
-        obd.state == OBDState.connecting;
+    final isScanning = obd.state == OBDState.scanning;
+    final isConnecting = obd.state == OBDState.connecting;
+    final isBusy = isScanning || isConnecting;
+    final hasResults = obd.scanResults.isNotEmpty;
+    final hasError = obd.state == OBDState.error;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.panel,
         borderRadius: BorderRadius.circular(8),
@@ -1332,61 +1335,170 @@ class _ConnectionCard extends StatelessWidget {
         ),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            isConnected ? Icons.bluetooth_connected : Icons.bluetooth_searching,
-            size: 40,
-            color: isConnected
-                ? const Color(0xFF00FF88)
-                : isBusy
-                    ? Colors.orange
-                    : Colors.white38,
+          // 상태 헤더
+          Row(
+            children: [
+              Icon(
+                isConnected
+                    ? Icons.bluetooth_connected
+                    : isScanning
+                        ? Icons.bluetooth_searching
+                        : Icons.bluetooth_disabled,
+                size: 22,
+                color: isConnected
+                    ? const Color(0xFF00FF88)
+                    : isBusy
+                        ? Colors.orange
+                        : Colors.white38,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  isConnected
+                      ? '${obd.scanResults.isNotEmpty ? obd.scanResults.first.device.platformName : "OBD2"} 연결됨'
+                      : isConnecting
+                          ? '연결 중...'
+                          : isScanning
+                              ? '기기 탐색 중... (30초)'
+                              : 'OBD 미연결',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: isConnected
+                        ? const Color(0xFF00FF88)
+                        : isBusy
+                            ? Colors.orange
+                            : Colors.white54,
+                  ),
+                ),
+              ),
+              if (isBusy)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.orange),
+                ),
+            ],
           ),
-          const SizedBox(height: 12),
-          Text(
-            isConnected
-                ? 'VEEPEAK OBD2 BLE+'
-                : isBusy
-                    ? obd.state == OBDState.scanning
-                        ? '기기 탐색 중...'
-                        : '연결 중...'
-                    : 'OBD 기기 없음',
-            style: GoogleFonts.orbitron(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-            ),
-          ),
-          if (obd.state == OBDState.error && obd.errorMsg != null) ...[
-            const SizedBox(height: 6),
-            Text(
-              obd.errorMsg!,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.rajdhani(
-                  fontSize: 11, color: AppColors.red),
+
+          // 에러 메시지
+          if (hasError && obd.errorMsg != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.red.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: AppColors.red.withValues(alpha: 0.3)),
+              ),
+              child: Text(
+                obd.errorMsg!,
+                style: GoogleFonts.rajdhani(fontSize: 11, color: AppColors.red),
+              ),
             ),
           ],
-          const SizedBox(height: 16),
+
+          // 스캔 결과 기기 목록
+          if ((isScanning || hasError) && hasResults) ...[
+            const SizedBox(height: 12),
+            Text(
+              '발견된 기기 ${obd.scanResults.length}개 — 탭하면 연결',
+              style: GoogleFonts.rajdhani(
+                  fontSize: 10,
+                  color: Colors.white38,
+                  letterSpacing: 1),
+            ),
+            const SizedBox(height: 6),
+            ...obd.scanResults.map((r) {
+              final name = r.device.platformName;
+              final isObd = OBDService.isObdDeviceName(name);
+              return GestureDetector(
+                onTap: () => obd.connectToDevice(r.device),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isObd
+                        ? AppColors.red.withValues(alpha: 0.1)
+                        : AppColors.bg,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: isObd
+                          ? AppColors.red.withValues(alpha: 0.4)
+                          : Colors.white12,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.bluetooth,
+                        size: 14,
+                        color: isObd ? AppColors.red : Colors.white24,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          name,
+                          style: GoogleFonts.rajdhani(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: isObd ? Colors.white : Colors.white54,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${r.rssi} dBm',
+                        style: GoogleFonts.rajdhani(
+                            fontSize: 10, color: Colors.white24),
+                      ),
+                      if (isObd) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppColors.red,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'OBD',
+                            style: GoogleFonts.rajdhani(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+
+          const SizedBox(height: 14),
+
+          // 메인 버튼
           if (!isBusy)
             GestureDetector(
               onTap: isConnected ? obd.disconnect : obd.connect,
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 13),
                 decoration: BoxDecoration(
-                  color: isConnected
-                      ? Colors.transparent
-                      : AppColors.red,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: isConnected ? AppColors.red : AppColors.red,
-                  ),
+                  color: isConnected ? Colors.transparent : AppColors.red,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: AppColors.red),
                 ),
                 child: Center(
                   child: Text(
                     isConnected ? '연결 해제' : 'OBD 연결하기',
                     style: GoogleFonts.rajdhani(
-                      fontSize: 13,
+                      fontSize: 14,
                       fontWeight: FontWeight.w700,
                       color: isConnected ? AppColors.red : Colors.white,
                       letterSpacing: 2,
@@ -1395,12 +1507,29 @@ class _ConnectionCard extends StatelessWidget {
                 ),
               ),
             )
-          else
-            const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: AppColors.red),
+          else if (isScanning)
+            GestureDetector(
+              onTap: obd.disconnect,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                decoration: BoxDecoration(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Center(
+                  child: Text(
+                    '탐색 취소',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white38,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ),
+              ),
             ),
         ],
       ),
