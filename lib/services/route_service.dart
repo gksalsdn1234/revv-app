@@ -802,6 +802,17 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// AI가 생성한 이름으로 루트를 업데이트 (routes_screen에서 호출)
+  void renameRoute(String id, String newName) {
+    routes = routes
+        .map((r) => r.id == id ? r.copyWith(name: newName) : r)
+        .toList();
+    if (selectedRoute?.id == id) {
+      selectedRoute = selectedRoute!.copyWith(name: newName);
+    }
+    notifyListeners();
+  }
+
   /// 기존 풀 + 새 루트 병합 — centerPoint 6km 이내 중복 제거
   List<RevvRoute> _mergeRoutePools(List<RevvRoute> existing, List<RevvRoute> fresh) {
     final pool = List<RevvRoute>.from(existing);

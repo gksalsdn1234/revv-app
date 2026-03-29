@@ -1,6 +1,8 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
+import '../models/revv_route.dart';
+import '../models/loop_route.dart';
 
 class RevvAiService {
   static final RevvAiService _instance = RevvAiService._internal();
@@ -291,6 +293,92 @@ $recent
     buf.writeln('🗺️ 다음 도전');
     buf.writeln('새로운 루트를 탐색하며 드라이빙 반경을 넓혀보세요. REVV가 좋은 길을 찾아드릴게요!');
     return buf.toString();
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // AI 루트 네이밍 — autoName() 제네릭 이름을 가진 루트에만 호출
+  // ──────────────────────────────────────────────────────────────
+  static const _genericNames = {'언노운 와인딩 루트', '근교 드라이빙 루트', '경치 좋은 루트'};
+  static final Map<String, String> _nameCache = {};
+
+  /// 루트 이름 생성. 이미 고유 이름이면 null 반환.
+  Future<String?> nameRoute(RevvRoute route) async {
+    if (!_genericNames.contains(route.name)) return null;
+    if (_nameCache.containsKey(route.id)) return _nameCache[route.id];
+    try {
+      final result = await _callClaude(
+        model: 'claude-haiku-4-5-20251001',
+        system: '너는 드라이빙 루트 네이머야. 루트 특성을 보고 한국어로 5~8글자의 멋진 이름을 짓는다. 이름만 반환. 설명이나 부연 절대 금지.',
+        messages: [
+          {
+            'role': 'user',
+            'content': '거리: ${route.distanceKm.toStringAsFixed(0)}km / 커브타입: ${route.curveStyle} / 와인딩점수: ${route.windingScore.toStringAsFixed(1)} / 난이도: ${route.difficultyLabel}',
+          }
+        ],
+        maxTokens: 20,
+      );
+      if (result.isNotEmpty) {
+        _nameCache[route.id] = result;
+        return result;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // LOOP 루트 AI 소개 (Haiku, 120 tokens)
+  // ──────────────────────────────────────────────────────────────
+
+  Future<String> describeLoop(
+    LoopRoute loop, {
+    String weatherDesc = '맑음',
+    String roadCondition = 'DRY',
+    double tempCelsius = 20,
+  }) async {
+    try {
+      final segs = loop.segments
+          .take(3)
+          .map((s) => '${s.name} ${s.distanceKm.toStringAsFixed(0)}km')
+          .join(', ');
+      return await _callClaude(
+        model: 'claude-haiku-4-5-20251001',
+        system: '너는 REVV 앱의 AI 코파일럿이야. 순환 드라이빙 루트를 2~3문장으로 임팩트 있게 소개해. 날씨/노면 반영. 한국어. 짧게.',
+        messages: [
+          {
+            'role': 'user',
+            'content':
+                '총거리: ${loop.totalKm.toStringAsFixed(0)}km / 구간: ${loop.segments.length}개 ($segs) / 평균점수: ${loop.windingScore.toStringAsFixed(1)} / 날씨: $weatherDesc ${tempCelsius.toStringAsFixed(0)}°C 노면: $roadCondition',
+          }
+        ],
+        maxTokens: 120,
+      );
+    } catch (_) {}
+    return '총 ${loop.totalDisplay} 순환 루트예요. ${loop.segments.length}개 와인딩 구간을 연결했어요. 오늘 노면 $roadCondition — 즐거운 드라이브 되세요.';
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // 런카드 SNS 공유 캡션 생성 (Haiku, 80 tokens)
+  // ──────────────────────────────────────────────────────────────
+
+  Future<String> generateShareCaption(RunSession session) async {
+    try {
+      final dur = session.duration.inMinutes;
+      final hasG = session.maxLateralG > 0.01;
+      final gStr = hasG ? '최대G ${session.maxLateralG.toStringAsFixed(2)}G' : '';
+      return await _callClaude(
+        model: 'claude-haiku-4-5-20251001',
+        system: '너는 REVV 앱의 AI야. SNS 공유용 드라이빙 후기를 2문장으로 작성해. 한국어. 이모지 1~2개. 수치 활용. 과속 조장 표현 금지.',
+        messages: [
+          {
+            'role': 'user',
+            'content':
+                '루트: ${session.routeName} / 거리: ${session.distanceKm.toStringAsFixed(1)}km / 시간: ${dur}분 ${hasG ? gStr : ""}',
+          }
+        ],
+        maxTokens: 80,
+      );
+    } catch (_) {}
+    return 'REVV — ${session.routeName} ${session.distanceKm.toStringAsFixed(1)}km 완주 🏁';
   }
 
   String _buildFallbackAnalysis(RunSession session) {

@@ -13,6 +13,7 @@ import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/obd_data.dart';
 import '../services/run_history_service.dart';
+import '../services/revv_ai_service.dart';
 import '../services/saved_route_service.dart';
 import '../services/revv_ai_service.dart';
 import '../widgets/corner_brackets.dart';
@@ -145,6 +146,12 @@ class _RunCardScreenState extends State<RunCardScreen> {
     if (_sharing) return;
     setState(() => _sharing = true);
     try {
+      final session = widget.session;
+      // AI 캡션 + 이미지 캡처 병렬 실행
+      final captionFuture = session != null
+          ? RevvAiService().generateShareCaption(session)
+          : Future.value('REVV — 드라이브 완주 🏁');
+
       // 지도 이미지 캐시 보장 후 캡처
       if (_mapUrl != null) {
         await precacheImage(NetworkImage(_mapUrl!), context);
@@ -163,9 +170,10 @@ class _RunCardScreenState extends State<RunCardScreen> {
       final file = File('${dir.path}/revv_run_card.png');
       await file.writeAsBytes(pngBytes);
 
+      final caption = await captionFuture;
       await Share.shareXFiles(
         [XFile(file.path, mimeType: 'image/png')],
-        text: 'REVV — ${widget.session?.routeName ?? "드라이브"} 완주 🚗',
+        text: caption,
       );
     } catch (e) {
       if (mounted) {

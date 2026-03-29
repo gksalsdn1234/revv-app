@@ -11,6 +11,9 @@ import '../services/mapbox_service.dart';
 import '../services/saved_route_service.dart';
 import '../services/home_location_service.dart';
 import '../services/loop_route_service.dart';
+import '../services/route_brief_service.dart';
+import '../services/weather_service.dart';
+import '../services/revv_ai_service.dart';
 import '../models/revv_route.dart';
 import '../models/loop_route.dart';
 import 'route_wizard_screen.dart';
@@ -49,6 +52,14 @@ class _RoutesScreenState extends State<RoutesScreen> {
   final LoopRouteService _loopSvc = LoopRouteService();
   bool _loopFromHome = false;
   int _loopIdx = 0;
+  String? _loopBrief;
+  bool _loopBriefLoading = false;
+
+  // ── AI 루트 브리핑 ────────────────────────────────────────────
+  final RouteBriefService _briefSvc = RouteBriefService();
+  final Map<String, String> _briefCache = {};
+  String? _currentBrief;
+  bool _briefLoading = false;
 
   @override
   void initState() {
@@ -77,6 +88,42 @@ class _RoutesScreenState extends State<RoutesScreen> {
     if (_activeTab == 1 && _styleLoaded && _loopSvc.loops.isNotEmpty) {
       _loopIdx = _loopIdx.clamp(0, _loopSvc.loops.length - 1);
       _drawLoopRoutes(_loopSvc.loops[_loopIdx]);
+      // 루프 빌드 완료 → AI 설명 fetch
+      if (!_loopSvc.isBuilding) _fetchLoopBrief(_loopSvc.loops[_loopIdx]);
+    }
+  }
+
+  Future<void> _fetchLoopBrief(LoopRoute loop) async {
+    if (!mounted) return;
+    setState(() { _loopBrief = null; _loopBriefLoading = true; });
+    final weather = context.read<WeatherService>();
+    final brief = await RevvAiService().describeLoop(
+      loop,
+      weatherDesc: weather.weatherDesc,
+      roadCondition: weather.roadCondition,
+      tempCelsius: weather.tempCelsius,
+    );
+    if (mounted) setState(() { _loopBrief = brief; _loopBriefLoading = false; });
+  }
+
+  Future<void> _fetchBrief(RevvRoute route) async {
+    if (_briefCache.containsKey(route.id)) {
+      if (mounted) setState(() { _currentBrief = _briefCache[route.id]; _briefLoading = false; });
+      return;
+    }
+    if (mounted) setState(() { _briefLoading = true; _currentBrief = null; });
+    final weather = context.read<WeatherService>();
+    final brief = await _briefSvc.getBriefing(route: route, weather: weather);
+    _briefCache[route.id] = brief;
+    if (mounted) setState(() { _currentBrief = brief; _briefLoading = false; });
+  }
+
+  Future<void> _nameTopRoutes(List<RevvRoute> routes) async {
+    final svc = _routeSvc;
+    if (svc == null) return;
+    for (final r in routes.take(5)) {
+      final name = await RevvAiService().nameRoute(r);
+      if (name != null && mounted) svc.renameRoute(r.id, name);
     }
   }
 
@@ -137,8 +184,12 @@ class _RoutesScreenState extends State<RoutesScreen> {
     if (_activeTab != 0) return; // LOOP 탭에서는 무시
     if (_styleLoaded && !_routeSvc!.isLoading) {
       final sel = _routeSvc!.selectedRoute;
+      // AI 루트 네이밍 (최초 로드 시)
+      _nameTopRoutes(_routeSvc!.routes);
       if (sel != null && sel.id != _lastFlownRouteId) {
         _lastFlownRouteId = sel.id;
+        // AI 브리핑 fetch
+        _fetchBrief(sel);
         _mapController?.flyTo(
           mbx.CameraOptions(
             center: mbx.Point(
@@ -779,8 +830,13 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       totalChainKm: (selected?.distanceKm ?? 0) +
                           svc.connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm),
                       heatmapActive: _heatmapMode,
+                      brief: _currentBrief,
+                      briefLoading: _briefLoading,
                       onGo: () => svc.requestSprint(),
-                      onClose: () => svc.deselectRoute(),
+                      onClose: () {
+                        svc.deselectRoute();
+                        setState(() { _currentBrief = null; _briefLoading = false; });
+                      },
                       onTrim: selected != null ? () => _startTrim(selected) : null,
                       onReverse: selected != null ? () => _reverseRoute(selected) : null,
                       onFindSimilar: selected != null ? () => _findSimilar(selected) : null,
@@ -812,6 +868,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
                 loopSvc: _loopSvc,
                 loopIdx: _loopIdx,
                 loopFromHome: _loopFromHome,
+                loopBrief: _loopBrief,
+                loopBriefLoading: _loopBriefLoading,
                 onLoopSelected: (idx) {
                   setState(() => _loopIdx = idx);
                   if (_loopSvc.loops.isNotEmpty) {
@@ -879,6 +937,8 @@ class _SwipeRouteCard extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onExclude;
   final VoidCallback? onPreview;
+  final String? brief;
+  final bool briefLoading;
 
   const _SwipeRouteCard({
     required this.selected,
@@ -898,6 +958,8 @@ class _SwipeRouteCard extends StatelessWidget {
     this.onEdit,
     this.onExclude,
     this.onPreview,
+    this.brief,
+    this.briefLoading = false,
   });
 
   @override
@@ -1087,6 +1149,34 @@ class _SwipeRouteCard extends StatelessWidget {
                           ],
                         ),
                       ),
+                      // AI 루트 브리핑
+                      if (briefLoading || brief != null) ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+                          ),
+                          child: briefLoading
+                              ? Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 9, height: 9,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 1.2, color: AppColors.red),
+                                    ),
+                                    const SizedBox(width: 7),
+                                    Text('AI 브리핑 중...',
+                                        style: GoogleFonts.rajdhani(
+                                            fontSize: 10, color: Colors.white38)),
+                                  ],
+                                )
+                              : _BriefingText(brief!),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       // CHAIN + GO
                       Row(
@@ -1592,6 +1682,63 @@ class _RadiusBtn extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// AI 브리핑 텍스트 — 타이핑 애니메이션
+// ══════════════════════════════════════════════════════════════════
+class _BriefingText extends StatefulWidget {
+  final String text;
+  const _BriefingText(this.text);
+  @override
+  State<_BriefingText> createState() => _BriefingTextState();
+}
+
+class _BriefingTextState extends State<_BriefingText> {
+  String _displayed = '';
+  int _charIdx = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTyping();
+  }
+
+  @override
+  void didUpdateWidget(_BriefingText old) {
+    super.didUpdateWidget(old);
+    if (old.text != widget.text) {
+      _charIdx = 0;
+      _displayed = '';
+      _startTyping();
+    }
+  }
+
+  void _startTyping() {
+    Future.doWhile(() async {
+      if (!mounted) return false;
+      if (_charIdx >= widget.text.length) return false;
+      await Future.delayed(const Duration(milliseconds: 22));
+      if (!mounted) return false;
+      setState(() {
+        _charIdx++;
+        _displayed = widget.text.substring(0, _charIdx);
+      });
+      return true;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      _displayed,
+      style: GoogleFonts.rajdhani(
+        fontSize: 11.5,
+        color: Colors.white70,
+        height: 1.45,
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // 탭 버튼 (ROUTES | LOOP)
 // ══════════════════════════════════════════════════════════════════
 class _TabBtn extends StatelessWidget {
@@ -1637,6 +1784,8 @@ class _LoopTabPanel extends StatelessWidget {
   final LoopRouteService loopSvc;
   final int loopIdx;
   final bool loopFromHome;
+  final String? loopBrief;
+  final bool loopBriefLoading;
   final void Function(int) onLoopSelected;
   final void Function(bool) onHomeToggled;
   final VoidCallback onGo;
@@ -1645,6 +1794,8 @@ class _LoopTabPanel extends StatelessWidget {
     required this.loopSvc,
     required this.loopIdx,
     required this.loopFromHome,
+    this.loopBrief,
+    this.loopBriefLoading = false,
     required this.onLoopSelected,
     required this.onHomeToggled,
     required this.onGo,
@@ -1887,6 +2038,32 @@ class _LoopTabPanel extends StatelessWidget {
                           style: GoogleFonts.rajdhani(
                               fontSize: 10, color: AppColors.textHint),
                         ),
+                      // AI 루프 설명
+                      if (loopBriefLoading || loopBrief != null) ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+                          ),
+                          child: loopBriefLoading
+                              ? Row(children: [
+                                  SizedBox(
+                                    width: 9, height: 9,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 1.2, color: AppColors.red),
+                                  ),
+                                  const SizedBox(width: 7),
+                                  Text('AI 소개 생성 중...',
+                                      style: GoogleFonts.rajdhani(
+                                          fontSize: 10, color: Colors.white38)),
+                                ])
+                              : _BriefingText(loopBrief!),
+                        ),
+                      ],
                       const SizedBox(height: 8),
                       // GO 버튼
                       Row(
