@@ -9,7 +9,10 @@ import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/mapbox_service.dart';
 import '../services/saved_route_service.dart';
+import '../services/home_location_service.dart';
+import '../services/loop_route_service.dart';
 import '../models/revv_route.dart';
+import '../models/loop_route.dart';
 import 'route_wizard_screen.dart';
 import 'route_edit_screen.dart';
 import 'route_preview_screen.dart';
@@ -41,6 +44,12 @@ class _RoutesScreenState extends State<RoutesScreen> {
   // ── I. 히트맵 오버레이 ────────────────────────────────────────
   bool _heatmapMode = false;
 
+  // ── LOOP 탭 ───────────────────────────────────────────────────
+  int _activeTab = 0; // 0=ROUTES, 1=LOOP
+  final LoopRouteService _loopSvc = LoopRouteService();
+  bool _loopFromHome = false;
+  int _loopIdx = 0;
+
   @override
   void initState() {
     super.initState();
@@ -57,12 +66,75 @@ class _RoutesScreenState extends State<RoutesScreen> {
   @override
   void dispose() {
     _routeSvc?.removeListener(_onRouteServiceChanged);
+    _loopSvc.removeListener(_onLoopServiceChanged);
+    _loopSvc.dispose();
     super.dispose();
+  }
+
+  void _onLoopServiceChanged() {
+    if (!mounted) return;
+    setState(() {});
+    if (_activeTab == 1 && _styleLoaded && _loopSvc.loops.isNotEmpty) {
+      _loopIdx = _loopIdx.clamp(0, _loopSvc.loops.length - 1);
+      _drawLoopRoutes(_loopSvc.loops[_loopIdx]);
+    }
+  }
+
+  void _activateLoopTab() {
+    final routes = _routeSvc?.routes ?? [];
+    final loc = context.read<LocationService>();
+    final home = context.read<HomeLocationService>().home;
+    final origin = (_loopFromHome && home != null)
+        ? home
+        : LatLng(loc.lat, loc.lng);
+    _loopSvc.addListener(_onLoopServiceChanged);
+    _loopSvc.reset();
+    _loopSvc.buildLoops(routes, origin);
+  }
+
+  Future<void> _drawLoopRoutes(LoopRoute loop) async {
+    if (!_styleLoaded || _polyManager == null || _isDrawing) return;
+    _isDrawing = true;
+    try {
+      await _polyManager!.deleteAll();
+      _polylines.clear();
+      _annotationToRoute.clear();
+      for (int i = 0; i < loop.segments.length; i++) {
+        final seg = loop.segments[i];
+        final coords =
+            seg.nodes.map((n) => mbx.Position(n.lng, n.lat)).toList();
+        final diffColor = _routeDiffColorInt(seg.difficultyLevel);
+        final poly = await _polyManager!.create(
+          mbx.PolylineAnnotationOptions(
+            geometry: mbx.LineString(coordinates: coords),
+            lineColor: i == 0 ? 0xFFFFFFFF : diffColor,
+            lineWidth: i == 0 ? 6.5 : 4.5,
+            lineOpacity: 1.0,
+          ),
+        );
+        _polylines.add(poly);
+      }
+    } finally {
+      _isDrawing = false;
+    }
+    // 전체 루프가 보이도록 첫 세그먼트 중심으로 flyTo
+    if (loop.segments.isNotEmpty) {
+      final c = loop.segments.first.centerPoint;
+      _mapController?.flyTo(
+        mbx.CameraOptions(
+          center: mbx.Point(coordinates: mbx.Position(c.lng, c.lat)),
+          zoom: 9.5,
+          pitch: 0,
+        ),
+        mbx.MapAnimationOptions(duration: 900),
+      );
+    }
   }
 
   // ── 루트 서비스 리스너 ──────────────────────────────────────────
   void _onRouteServiceChanged() {
     if (!mounted || _routeSvc == null) return;
+    if (_activeTab != 0) return; // LOOP 탭에서는 무시
     if (_styleLoaded && !_routeSvc!.isLoading) {
       final sel = _routeSvc!.selectedRoute;
       if (sel != null && sel.id != _lastFlownRouteId) {
@@ -316,6 +388,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
     final lat = center.coordinates.lat.toDouble();
     final lng = center.coordinates.lng.toDouble();
     setState(() => _lastFlownRouteId = null);
+    _routeSvc?.resetCache();
     _routeSvc?.fetchRoutes(lat, lng);
   }
 
@@ -485,7 +558,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                // 타이틀
+                // 탭 토글: ROUTES | LOOP
                 Expanded(
                   child: Container(
                     height: 40,
@@ -496,16 +569,33 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         color: Colors.white.withValues(alpha: 0.08),
                       ),
                     ),
-                    child: Center(
-                      child: Text(
-                        'ROUTES',
-                        style: GoogleFonts.orbitron(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: 3,
+                    child: Row(
+                      children: [
+                        _TabBtn(
+                          label: 'ROUTES',
+                          active: _activeTab == 0,
+                          onTap: () {
+                            if (_activeTab == 0) return;
+                            setState(() => _activeTab = 0);
+                            final svc = _routeSvc;
+                            if (svc != null && _styleLoaded) {
+                              _drawRoutes(svc.routes, svc.selectedRoute);
+                            }
+                          },
                         ),
-                      ),
+                        _TabBtn(
+                          label: 'LOOP',
+                          active: _activeTab == 1,
+                          onTap: () {
+                            if (_activeTab == 1) return;
+                            setState(() {
+                              _activeTab = 1;
+                              _loopIdx = 0;
+                            });
+                            _activateLoopTab();
+                          },
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -652,64 +742,97 @@ class _RoutesScreenState extends State<RoutesScreen> {
             },
           ),
 
-          // ── 통합 스와이프 루트 카드 ──
-          Positioned(
-            bottom: MediaQuery.of(context).padding.bottom + 8,
-            left: 12,
-            right: 12,
-            child: Consumer<RouteService>(
-              builder: (_, svc, __) {
-                if (svc.isLoading) {
-                  return const Center(
-                    child: SizedBox(
-                      width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.red),
+          // ── 하단 카드 (ROUTES 탭) ──
+          if (_activeTab == 0)
+            Positioned(
+              bottom: MediaQuery.of(context).padding.bottom + 8,
+              left: 12,
+              right: 12,
+              child: Consumer<RouteService>(
+                builder: (_, svc, __) {
+                  if (svc.isLoading) {
+                    return const Center(
+                      child: SizedBox(
+                        width: 16, height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.red),
+                      ),
+                    );
+                  }
+                  final total = svc.routes.length;
+                  final idx = total == 0
+                      ? 0
+                      : svc.routes.indexWhere((r) => r.id == svc.selectedRoute?.id).clamp(0, total - 1);
+                  final selected = svc.selectedRoute;
+                  return GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onHorizontalDragEnd: (details) {
+                      final v = details.primaryVelocity ?? 0;
+                      if (v < -200) _nextRoute(svc);
+                      else if (v > 200) _prevRoute(svc);
+                    },
+                    child: _SwipeRouteCard(
+                      selected: selected,
+                      displayIdx: idx,
+                      total: total,
+                      searchRadiusKm: svc.searchRadiusKm,
+                      connectingCount: svc.connectingRoutes.length,
+                      totalChainKm: (selected?.distanceKm ?? 0) +
+                          svc.connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm),
+                      heatmapActive: _heatmapMode,
+                      onGo: () => svc.requestSprint(),
+                      onClose: () => svc.deselectRoute(),
+                      onTrim: selected != null ? () => _startTrim(selected) : null,
+                      onReverse: selected != null ? () => _reverseRoute(selected) : null,
+                      onFindSimilar: selected != null ? () => _findSimilar(selected) : null,
+                      onChain: selected != null ? () => _showChainPicker(selected) : null,
+                      onHeatmap: selected != null ? () => _toggleHeatmap(selected) : null,
+                      onEdit: selected != null ? () => _openRouteEdit(selected, svc) : null,
+                      onExclude: selected != null ? () => svc.excludeRoute(selected) : null,
+                      onPreview: selected != null
+                          ? () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => RoutePreviewScreen(route: selected),
+                                ),
+                              )
+                          : null,
                     ),
                   );
-                }
-                final total = svc.routes.length;
-                final idx = total == 0
-                    ? 0
-                    : svc.routes.indexWhere((r) => r.id == svc.selectedRoute?.id).clamp(0, total - 1);
-                final selected = svc.selectedRoute;
-                return GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onHorizontalDragEnd: (details) {
-                    final v = details.primaryVelocity ?? 0;
-                    if (v < -200) _nextRoute(svc);
-                    else if (v > 200) _prevRoute(svc);
-                  },
-                  child: _SwipeRouteCard(
-                    selected: selected,
-                    displayIdx: idx,
-                    total: total,
-                    searchRadiusKm: svc.searchRadiusKm,
-                    connectingCount: svc.connectingRoutes.length,
-                    totalChainKm: (selected?.distanceKm ?? 0) +
-                        svc.connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm),
-                    heatmapActive: _heatmapMode,
-                    onGo: () => svc.requestSprint(),
-                    onClose: () => svc.deselectRoute(),
-                    onTrim: selected != null ? () => _startTrim(selected) : null,
-                    onReverse: selected != null ? () => _reverseRoute(selected) : null,
-                    onFindSimilar: selected != null ? () => _findSimilar(selected) : null,
-                    onChain: selected != null ? () => _showChainPicker(selected) : null,
-                    onHeatmap: selected != null ? () => _toggleHeatmap(selected) : null,
-                    onEdit: selected != null ? () => _openRouteEdit(selected, svc) : null,
-                    onExclude: selected != null ? () => svc.excludeRoute(selected) : null,
-                    onPreview: selected != null
-                        ? () => Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => RoutePreviewScreen(route: selected),
-                              ),
-                            )
-                        : null,
-                  ),
-                );
-              },
+                },
+              ),
             ),
-          ),
+
+          // ── 하단 카드 (LOOP 탭) ──
+          if (_activeTab == 1)
+            Positioned(
+              bottom: MediaQuery.of(context).padding.bottom + 8,
+              left: 12,
+              right: 12,
+              child: _LoopTabPanel(
+                loopSvc: _loopSvc,
+                loopIdx: _loopIdx,
+                loopFromHome: _loopFromHome,
+                onLoopSelected: (idx) {
+                  setState(() => _loopIdx = idx);
+                  if (_loopSvc.loops.isNotEmpty) {
+                    _drawLoopRoutes(_loopSvc.loops[idx]);
+                  }
+                },
+                onHomeToggled: (val) {
+                  setState(() => _loopFromHome = val);
+                  _activateLoopTab();
+                },
+                onGo: () {
+                  if (_loopSvc.loops.isEmpty) return;
+                  final loop = _loopSvc.loops[_loopIdx];
+                  if (loop.segments.isEmpty) return;
+                  final svc = _routeSvc;
+                  if (svc == null) return;
+                  svc.selectRoute(loop.segments.first);
+                  svc.requestSprint();
+                },
+              ),
+            ),
         ],
       ),
     );
@@ -908,6 +1031,22 @@ class _SwipeRouteCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 6),
                           ],
+                          if (route.curveStyle != 'MIXED') ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.purpleAccent.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                route.curveStyle,
+                                style: GoogleFonts.orbitron(
+                                    fontSize: 7, fontWeight: FontWeight.w700,
+                                    color: Colors.purpleAccent),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
                           const Spacer(),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -931,8 +1070,6 @@ class _SwipeRouteCard extends StatelessWidget {
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            if (onPreview != null)
-                              _IconBtn(icon: Icons.route_rounded, onTap: onPreview!, tooltip: '루트 프리뷰'),
                             if (onReverse != null)
                               _IconBtn(icon: Icons.swap_horiz_rounded, onTap: onReverse!, tooltip: '방향 반전'),
                             if (onFindSimilar != null)
@@ -970,6 +1107,34 @@ class _SwipeRouteCard extends StatelessWidget {
                               ),
                             ),
                           const Spacer(),
+                          if (onPreview != null) ...[
+                            GestureDetector(
+                              onTap: onPreview,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                                decoration: BoxDecoration(
+                                  color: Colors.white10,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.white24),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.route_rounded, size: 13, color: Colors.white70),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      'PREVIEW',
+                                      style: GoogleFonts.orbitron(
+                                        fontSize: 10, fontWeight: FontWeight.w700,
+                                        color: Colors.white70, letterSpacing: 1.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
                           GestureDetector(
                             onTap: onGo,
                             child: Container(
@@ -1419,6 +1584,356 @@ class _RadiusBtn extends StatelessWidget {
             fontSize: 10,
             fontWeight: FontWeight.w800,
             color: active ? Colors.white : AppColors.textHint,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 탭 버튼 (ROUTES | LOOP)
+// ══════════════════════════════════════════════════════════════════
+class _TabBtn extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _TabBtn({required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 40,
+          decoration: BoxDecoration(
+            color: active
+                ? AppColors.red.withValues(alpha: 0.85)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: GoogleFonts.orbitron(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: active ? Colors.white : Colors.white38,
+                letterSpacing: 2.5,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// LOOP 탭 하단 패널
+// ══════════════════════════════════════════════════════════════════
+class _LoopTabPanel extends StatelessWidget {
+  final LoopRouteService loopSvc;
+  final int loopIdx;
+  final bool loopFromHome;
+  final void Function(int) onLoopSelected;
+  final void Function(bool) onHomeToggled;
+  final VoidCallback onGo;
+
+  const _LoopTabPanel({
+    required this.loopSvc,
+    required this.loopIdx,
+    required this.loopFromHome,
+    required this.onLoopSelected,
+    required this.onHomeToggled,
+    required this.onGo,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final loops = loopSvc.loops;
+    final loop = loops.isNotEmpty ? loops[loopIdx.clamp(0, loops.length - 1)] : null;
+    final diffColor = loop != null ? _routeDiffColor(loop.difficultyLevel) : AppColors.red;
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xF0141416),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+              color: diffColor.withValues(alpha: 0.45), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.6),
+                blurRadius: 20,
+                offset: const Offset(0, 6)),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(15),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 난이도 컬러 밴드
+              Container(height: 3, color: diffColor),
+              // ── 헤더: 집 출발 토글 + 루프 선택 버튼 ──
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 10, 10, 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.loop_rounded,
+                        size: 14, color: AppColors.red),
+                    const SizedBox(width: 6),
+                    Text(
+                      'LOOP',
+                      style: GoogleFonts.orbitron(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                    const Spacer(),
+                    // 집에서 출발 토글
+                    GestureDetector(
+                      onTap: () => onHomeToggled(!loopFromHome),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: loopFromHome
+                              ? AppColors.red.withValues(alpha: 0.2)
+                              : Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: loopFromHome
+                                ? AppColors.red.withValues(alpha: 0.6)
+                                : Colors.white12,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.home_rounded,
+                                size: 11,
+                                color: loopFromHome
+                                    ? AppColors.red
+                                    : Colors.white38),
+                            const SizedBox(width: 4),
+                            Text(
+                              '집 출발',
+                              style: GoogleFonts.rajdhani(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: loopFromHome
+                                    ? AppColors.red
+                                    : Colors.white38,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // ── 루프 목표 거리 선택 ──
+              if (loops.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                  child: Row(
+                    children: List.generate(loops.length, (i) {
+                      final l = loops[i];
+                      final active = i == loopIdx;
+                      return GestureDetector(
+                        onTap: () => onLoopSelected(i),
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: active
+                                ? AppColors.red.withValues(alpha: 0.85)
+                                : AppColors.surface,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: active
+                                  ? AppColors.red
+                                  : Colors.white12,
+                            ),
+                          ),
+                          child: Text(
+                            '${l.targetKm}km',
+                            style: GoogleFonts.orbitron(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: active
+                                  ? Colors.white
+                                  : AppColors.textHint,
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+              // ── 루프 상세 ──
+              if (loopSvc.isBuilding)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(14, 4, 14, 14),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 1.5, color: AppColors.red),
+                      ),
+                      SizedBox(width: 10),
+                      Text('루프 생성 중...',
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.white54)),
+                    ],
+                  ),
+                )
+              else if (loop != null) ...[
+                Container(height: 1, color: Colors.white.withValues(alpha: 0.07)),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 총 거리 + 세그먼트 수
+                      Row(
+                        children: [
+                          _TooltipChip(
+                              icon: Icons.route_rounded,
+                              label: loop.totalDisplay),
+                          const SizedBox(width: 8),
+                          _TooltipChip(
+                              icon: Icons.map_rounded,
+                              label:
+                                  '${loop.segments.length}개 구간'),
+                          const SizedBox(width: 8),
+                          _TooltipChip(
+                              icon: Icons.star_rounded,
+                              label: loop.scoreDisplay),
+                          const Spacer(),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: diffColor.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                  color:
+                                      diffColor.withValues(alpha: 0.4)),
+                            ),
+                            child: Text(
+                              loop.difficultyLabel,
+                              style: GoogleFonts.orbitron(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  color: diffColor,
+                                  letterSpacing: 1),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      // 세그먼트 이름 목록 (최대 3개)
+                      ...loop.segments.take(3).map((seg) => Padding(
+                            padding: const EdgeInsets.only(bottom: 3),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 3,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: _routeDiffColor(
+                                        seg.difficultyLevel),
+                                    borderRadius:
+                                        BorderRadius.circular(1.5),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    seg.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: GoogleFonts.rajdhani(
+                                        fontSize: 11,
+                                        color: Colors.white70),
+                                  ),
+                                ),
+                                Text(
+                                  seg.distanceDisplay,
+                                  style: GoogleFonts.rajdhani(
+                                      fontSize: 10,
+                                      color: AppColors.textHint),
+                                ),
+                              ],
+                            ),
+                          )),
+                      if (loop.segments.length > 3)
+                        Text(
+                          '+${loop.segments.length - 3}개 더',
+                          style: GoogleFonts.rajdhani(
+                              fontSize: 10, color: AppColors.textHint),
+                        ),
+                      const SizedBox(height: 8),
+                      // GO 버튼
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          GestureDetector(
+                            onTap: onGo,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 22, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: AppColors.red,
+                                borderRadius: BorderRadius.circular(8),
+                                boxShadow: [
+                                  BoxShadow(
+                                      color: AppColors.red
+                                          .withValues(alpha: 0.35),
+                                      blurRadius: 10),
+                                ],
+                              ),
+                              child: Text(
+                                'GO',
+                                style: GoogleFonts.orbitron(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  letterSpacing: 3,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ] else ...[
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+                  child: Text(
+                    '루트를 먼저 탐색해주세요.',
+                    style: GoogleFonts.rajdhani(
+                        fontSize: 12, color: Colors.white38),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),

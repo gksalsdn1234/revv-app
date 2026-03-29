@@ -738,38 +738,38 @@ class RouteService extends ChangeNotifier {
       final globalFiltered =
           globalRoutes.where((r) => !isExcluded(r)).toList();
 
-      List<RevvRoute> fresh;
-      if (globalFiltered.length >= 5) {
-        // ③-b-skip 전역 DB에 충분 → Overpass 스킵 (네트워크 절약)
-        fresh = globalFiltered;
-        debugPrint('[RouteService] Global DB ${globalFiltered.length}개 — Overpass 스킵');
-      } else {
-        // ③-b-overpass Overpass fallback
-        final seed = math.Random().nextInt(0x7FFFFFFF);
-        var overpass =
-            await _fetchAndScore(lat, lng, searchRadiusKm * 1000, seed: seed);
+      // ③-b Overpass 항상 실행 (다양성 보장), 전역 DB와 병합
+      final seed = math.Random().nextInt(0x7FFFFFFF);
+      var overpass =
+          await _fetchAndScore(lat, lng, searchRadiusKm * 1000, seed: seed);
+      overpass = overpass.where((r) => !isExcluded(r)).toList();
+
+      if (overpass.length < 3 && searchRadiusKm < 100) {
+        debugPrint('[RouteService] 루트 부족 (${overpass.length}개) → 100km 자동 확장');
+        overpass = await _fetchAndScore(lat, lng, 100000, seed: seed);
         overpass = overpass.where((r) => !isExcluded(r)).toList();
-
-        if (overpass.length < 3 && searchRadiusKm < 100) {
-          debugPrint('[RouteService] 루트 부족 (${overpass.length}개) → 100km 자동 확장');
-          overpass = await _fetchAndScore(lat, lng, 100000, seed: seed);
-          overpass = overpass.where((r) => !isExcluded(r)).toList();
-        }
-
-        // Overpass 신규 루트 → 전역 DB 게시 (fire-and-forget)
-        _publishNewRoutes(overpass, globalFiltered);
-
-        // 전역 + Overpass 병합
-        fresh = _mergeRoutePools(globalFiltered, overpass);
       }
+
+      // Overpass 신규 루트 → 전역 DB 게시 (fire-and-forget)
+      _publishNewRoutes(overpass, globalFiltered);
+
+      // 전역 + Overpass 병합
+      List<RevvRoute> fresh = _mergeRoutePools(globalFiltered, overpass);
+      debugPrint('[RouteService] Global ${globalFiltered.length}개 + Overpass ${overpass.length}개 병합');
 
       // 고도 분석: 지형 기반 점수 보정
       fresh = await _enrichWithElevation(fresh);
 
       // ④ 누적: 기존 풀 + 새 루트 병합 (중복 6km 기준 제거), 상위 25개 유지
       final merged = _mergeRoutePools(routes, fresh);
-      merged.sort((a, b) => b.windingScore.compareTo(a.windingScore));
-      routes = merged.take(25).toList();
+      // runCount 커뮤니티 부스트: 주행 많은 루트 우선 노출 (최대 +40%)
+      final boosted = merged.map((r) {
+        if (r.runCount <= 0) return r;
+        final factor = 1 + math.min(r.runCount, 10) * 0.04;
+        return r.copyWith(windingScore: r.windingScore * factor);
+      }).toList();
+      boosted.sort((a, b) => b.windingScore.compareTo(a.windingScore));
+      routes = boosted.take(25).toList();
 
       selectedRoute = routes.isNotEmpty ? routes.first : null;
       // 전역 DB에서 온 루트는 nodes=[] — 첫 번째 루트 노드 미리 로드 (지도 폴리라인용)

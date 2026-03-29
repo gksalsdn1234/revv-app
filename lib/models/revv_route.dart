@@ -90,6 +90,17 @@ class RevvRoute {
     return 0;
   }
 
+  /// 커브 특성 태그 (tightCurveKm 비율 기준)
+  /// SWITCHBACK = 헤어핀 위주 (tight > 55%), SWEEPER = 넓은 스위퍼 (tight < 25%), MIXED
+  String get curveStyle {
+    final total = tightCurveKm + mediumCurveKm;
+    if (total < 0.5) return 'MIXED';
+    final ratio = tightCurveKm / total;
+    if (ratio > 0.55) return 'SWITCHBACK';
+    if (ratio < 0.25) return 'SWEEPER';
+    return 'MIXED';
+  }
+
   /// 와인딩 밀도 0.0~1.0 (스코어바용)
   double get windingDensityPct {
     if (distanceKm <= 0) return 0;
