@@ -298,26 +298,24 @@ $recent
   }
 
   // ──────────────────────────────────────────────────────────────
-  // AI 루트 네이밍 — autoName() 제네릭 이름을 가진 루트에만 호출
+  // AI 루트 닉네임 — 북마크하거나 3회 이상 달린 특별한 루트에만 부여
   // ──────────────────────────────────────────────────────────────
-  static const _genericNames = {'언노운 와인딩 루트', '근교 드라이빙 루트', '경치 좋은 루트'};
   static final Map<String, String> _nameCache = {};
 
-  /// 루트 이름 생성. 이미 고유 이름이면 null 반환.
+  /// 루트 닉네임 생성. 이미 닉네임이 있으면 캐시값 반환.
   Future<String?> nameRoute(RevvRoute route) async {
-    if (!_genericNames.contains(route.name)) return null;
     if (_nameCache.containsKey(route.id)) return _nameCache[route.id];
     try {
       final result = await _callClaude(
         model: 'claude-haiku-4-5-20251001',
-        system: '너는 드라이빙 루트 네이머야. 루트 특성을 보고 한국어로 5~8글자의 멋진 이름을 짓는다. 이름만 반환. 설명이나 부연 절대 금지.',
+        system: '너는 드라이빙 루트 닉네임 메이커야. 자주 달리거나 좋아하는 루트에 드라이버만의 별명을 지어준다. 한국어 4~7글자. 이름만 반환. 설명 금지.',
         messages: [
           {
             'role': 'user',
-            'content': '거리: ${route.distanceKm.toStringAsFixed(0)}km / 커브타입: ${route.curveStyle} / 와인딩점수: ${route.windingScore.toStringAsFixed(1)} / 난이도: ${route.difficultyLabel}',
+            'content': '거리: ${route.distanceKm.toStringAsFixed(0)}km / 커브: ${route.curveStyle} / 점수: ${route.windingScore.toStringAsFixed(1)} / 난이도: ${route.difficultyLabel} / 기존이름: ${route.name}',
           }
         ],
-        maxTokens: 20,
+        maxTokens: 15,
       );
       if (result.isNotEmpty) {
         _nameCache[route.id] = result;

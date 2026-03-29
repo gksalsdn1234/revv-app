@@ -120,13 +120,24 @@ class _RoutesScreenState extends State<RoutesScreen> {
     }
   }
 
-  Future<void> _nameTopRoutes(List<RevvRoute> routes) async {
+  /// 3회 이상 주행한 루트에 자동 닉네임 (fire-and-forget)
+  void _namePopularRoutes(List<RevvRoute> routes) {
     final svc = _routeSvc;
     if (svc == null) return;
-    for (final r in routes.take(5)) {
-      final name = await RevvAiService().nameRoute(r);
-      if (name != null && mounted) svc.renameRoute(r.id, name);
+    for (final r in routes.where((r) => r.runCount >= 3)) {
+      RevvAiService().nameRoute(r).then((name) {
+        if (name != null && mounted) svc.renameRoute(r.id, name);
+      });
     }
+  }
+
+  /// 북마크 시 닉네임 즉시 생성
+  void _nameOnSave(RevvRoute route) {
+    final svc = _routeSvc;
+    if (svc == null) return;
+    RevvAiService().nameRoute(route).then((name) {
+      if (name != null && mounted) svc.renameRoute(route.id, name);
+    });
   }
 
   void _activateLoopTab() {
@@ -186,8 +197,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
     if (_activeTab != 0) return; // LOOP 탭에서는 무시
     if (_styleLoaded && !_routeSvc!.isLoading) {
       final sel = _routeSvc!.selectedRoute;
-      // AI 루트 네이밍 (최초 로드 시)
-      _nameTopRoutes(_routeSvc!.routes);
+      // 인기 루트 닉네임 (3회 이상 주행)
+      _namePopularRoutes(_routeSvc!.routes);
       if (sel != null && sel.id != _lastFlownRouteId) {
         _lastFlownRouteId = sel.id;
         // AI 브리핑 fetch
@@ -834,6 +845,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       heatmapActive: _heatmapMode,
                       brief: _currentBrief,
                       briefLoading: _briefLoading,
+                      onSaved: selected != null ? () => _nameOnSave(selected) : null,
                       onGo: () => svc.requestSprint(),
                       onClose: () => svc.deselectRoute(),
                       onTrim: selected != null ? () => _startTrim(selected) : null,
@@ -938,6 +950,7 @@ class _SwipeRouteCard extends StatelessWidget {
   final VoidCallback? onPreview;
   final String? brief;
   final bool briefLoading;
+  final VoidCallback? onSaved; // 북마크 저장 시 (저장→해제 아님)
 
   const _SwipeRouteCard({
     required this.selected,
@@ -959,6 +972,7 @@ class _SwipeRouteCard extends StatelessWidget {
     this.onPreview,
     this.brief,
     this.briefLoading = false,
+    this.onSaved,
   });
 
   @override
@@ -1052,7 +1066,10 @@ class _SwipeRouteCard extends StatelessWidget {
                             ),
                           ),
                           GestureDetector(
-                            onTap: () => context.read<SavedRouteService>().toggle(route),
+                            onTap: () {
+                              context.read<SavedRouteService>().toggle(route);
+                              if (!isSaved) onSaved?.call(); // 저장 시만 (해제 제외)
+                            },
                             child: Padding(
                               padding: const EdgeInsets.all(4),
                               child: Icon(
