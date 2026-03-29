@@ -55,11 +55,11 @@ class _RoutesScreenState extends State<RoutesScreen> {
   String? _loopBrief;
   bool _loopBriefLoading = false;
 
-  // ── AI 루트 브리핑 ────────────────────────────────────────────
+  // ── AI 루트 브리핑 (화면 진입 후 최초 1회만) ──────────────────
   final RouteBriefService _briefSvc = RouteBriefService();
-  final Map<String, String> _briefCache = {};
   String? _currentBrief;
   bool _briefLoading = false;
+  bool _briefShownOnce = false; // 한 번 표시되면 이후 재트리거 없음
 
   @override
   void initState() {
@@ -107,15 +107,17 @@ class _RoutesScreenState extends State<RoutesScreen> {
   }
 
   Future<void> _fetchBrief(RevvRoute route) async {
-    if (_briefCache.containsKey(route.id)) {
-      if (mounted) setState(() { _currentBrief = _briefCache[route.id]; _briefLoading = false; });
-      return;
-    }
+    if (_briefShownOnce) return; // 이미 1회 표시됨 → 재트리거 없음
     if (mounted) setState(() { _briefLoading = true; _currentBrief = null; });
     final weather = context.read<WeatherService>();
     final brief = await _briefSvc.getBriefing(route: route, weather: weather);
-    _briefCache[route.id] = brief;
-    if (mounted) setState(() { _currentBrief = brief; _briefLoading = false; });
+    if (mounted) {
+      setState(() {
+        _currentBrief = brief;
+        _briefLoading = false;
+        _briefShownOnce = true;
+      });
+    }
   }
 
   Future<void> _nameTopRoutes(List<RevvRoute> routes) async {
@@ -833,10 +835,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       brief: _currentBrief,
                       briefLoading: _briefLoading,
                       onGo: () => svc.requestSprint(),
-                      onClose: () {
-                        svc.deselectRoute();
-                        setState(() { _currentBrief = null; _briefLoading = false; });
-                      },
+                      onClose: () => svc.deselectRoute(),
                       onTrim: selected != null ? () => _startTrim(selected) : null,
                       onReverse: selected != null ? () => _reverseRoute(selected) : null,
                       onFindSimilar: selected != null ? () => _findSimilar(selected) : null,

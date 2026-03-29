@@ -57,7 +57,8 @@ class RevvAiService {
   }
 
   /// 주행 종료 후 자동 분석 리포트 생성
-  Future<String> analyzeRun(RunSession session) async {
+  /// [useHighQuality] OBD 연결 시 true → Sonnet, 미연결 → Haiku
+  Future<String> analyzeRun(RunSession session, {bool useHighQuality = false}) async {
     try {
       final dur = session.duration;
       final durStr = dur.inHours > 0
@@ -102,21 +103,22 @@ class RevvAiService {
 - 드라이빙 모드 비율: $modeStr''';
 
       return await _callClaude(
-        model: 'claude-haiku-4-5-20251001',
+        model: useHighQuality ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001',
         system: '너는 REVV, AI 코드라이버야. 주행 데이터를 받아 드라이버에게 짧고 솔직한 피드백을 줘. '
             '3문장 이내. 한국어. 구체적인 수치를 인용해. 칭찬과 개선점을 균형있게. '
             '앱스토어 규정상 과속·위험 운전을 조장하는 표현은 절대 쓰지 마.',
         messages: [
           {'role': 'user', 'content': prompt},
         ],
-        maxTokens: 180,
+        maxTokens: useHighQuality ? 260 : 180,
       );
     } catch (_) {}
     return _buildFallbackAnalysis(session);
   }
 
   /// 상세 AI 코칭 리포트 — 런카드 "상세 분석" 버튼에서 호출
-  Future<String> analyzeRunDetailed(RunSession session) async {
+  /// [useHighQuality] OBD 연결 시 true → Sonnet
+  Future<String> analyzeRunDetailed(RunSession session, {bool useHighQuality = false}) async {
     try {
       final dur = session.duration;
       final durStr = dur.inHours > 0
@@ -170,13 +172,13 @@ class RevvAiService {
 총 8~10문장, 한국어, 수치를 적극 활용. 앱스토어 규정상 과속·위험 표현 절대 금지.''';
 
       return await _callClaude(
-        model: 'claude-haiku-4-5-20251001',
+        model: useHighQuality ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001',
         system: '너는 REVV, AI 드라이빙 코치야. 주행 데이터를 분석하여 드라이버 성장에 도움이 되는 구체적이고 따뜻한 피드백을 준다. '
             '앱스토어 규정 준수: 과속·위험 운전 조장 표현 절대 금지.',
         messages: [
           {'role': 'user', 'content': prompt},
         ],
-        maxTokens: 500,
+        maxTokens: useHighQuality ? 700 : 500,
       );
     } catch (_) {}
     return _buildDetailedFallback(session);

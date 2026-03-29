@@ -15,7 +15,7 @@ import '../models/obd_data.dart';
 import '../services/run_history_service.dart';
 import '../services/revv_ai_service.dart';
 import '../services/saved_route_service.dart';
-import '../services/revv_ai_service.dart';
+import '../services/obd_service.dart';
 import '../widgets/corner_brackets.dart';
 import '../widgets/sprint_toggle.dart';
 import '../services/mapbox_service.dart';
@@ -118,7 +118,8 @@ class _RunCardScreenState extends State<RunCardScreen> {
     final s = widget.session;
     if (s == null) return;
     if (mounted) setState(() => _jarvisLoading = true);
-    final result = await RevvAiService().analyzeRun(s);
+    final obdConnected = context.read<OBDService>().isConnected;
+    final result = await RevvAiService().analyzeRun(s, useHighQuality: obdConnected);
     if (mounted) {
       setState(() {
         _jarvisAnalysis = result;
@@ -131,12 +132,13 @@ class _RunCardScreenState extends State<RunCardScreen> {
     if (_detailSheetOpen) return;
     final s = widget.session;
     if (s == null) return;
+    final obdConnected = context.read<OBDService>().isConnected;
     setState(() => _detailSheetOpen = true);
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _DetailedAnalysisSheet(session: s),
+      builder: (_) => _DetailedAnalysisSheet(session: s, obdConnected: obdConnected),
     ).then((_) {
       if (mounted) setState(() => _detailSheetOpen = false);
     });
@@ -1384,7 +1386,8 @@ class _BottomButtons extends StatelessWidget {
 // ══════════════════════════════════════════════════════════════════
 class _DetailedAnalysisSheet extends StatefulWidget {
   final RunSession session;
-  const _DetailedAnalysisSheet({required this.session});
+  final bool obdConnected;
+  const _DetailedAnalysisSheet({required this.session, this.obdConnected = false});
 
   @override
   State<_DetailedAnalysisSheet> createState() => _DetailedAnalysisSheetState();
@@ -1401,7 +1404,10 @@ class _DetailedAnalysisSheetState extends State<_DetailedAnalysisSheet> {
   }
 
   Future<void> _loadReport() async {
-    final result = await RevvAiService().analyzeRunDetailed(widget.session);
+    final result = await RevvAiService().analyzeRunDetailed(
+      widget.session,
+      useHighQuality: widget.obdConnected,
+    );
     if (mounted) setState(() { _report = result; _loading = false; });
   }
 
