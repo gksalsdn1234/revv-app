@@ -1,15 +1,30 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:cloud_functions/cloud_functions.dart';
 import '../models/run_session.dart';
+import '../models/run_summary.dart';
 
 class RevvAiService {
   static final RevvAiService _instance = RevvAiService._internal();
   factory RevvAiService() => _instance;
   RevvAiService._internal();
 
-  static const _apiKey =
-      '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';
   static const _fallback = '잘 들었어요. 안전하게 달려요.';
+
+  static FirebaseFunctions get _fn => FirebaseFunctions.instance;
+
+  Future<String> _callClaude({
+    required String model,
+    required String system,
+    required List<Map<String, String>> messages,
+    int maxTokens = 200,
+  }) async {
+    final result = await _fn.httpsCallable('callClaude').call<Map>({
+      'model': model,
+      'system': system,
+      'messages': messages,
+      'maxTokens': maxTokens,
+    });
+    return (result.data['text'] as String? ?? '').trim();
+  }
 
   Future<String> ask(
     String userText, {
@@ -18,38 +33,23 @@ class RevvAiService {
     String roadCondition = '',
   }) async {
     if (userText.isEmpty) return _fallback;
-
     try {
-      final res = await http.post(
-        Uri.parse('https://api.anthropic.com/v1/messages'),
-        headers: {
-          'x-api-key': _apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: jsonEncode({
-          'model': 'claude-sonnet-4-6',
-          'max_tokens': 100,
-          'system':
-              '너는 REVV, AI 코드라이버야. 드라이버와 짧게 소통해. 2문장 이내로, 한국어로, 핵심만 말해. 주행 안전을 최우선으로.',
-          'messages': [
-            {
-              'role': 'user',
-              'content': '''현재 상태:
+      return await _callClaude(
+        model: 'claude-sonnet-4-6',
+        system: '너는 REVV, AI 코드라이버야. 드라이버와 짧게 소통해. 2문장 이내로, 한국어로, 핵심만 말해. 주행 안전을 최우선으로.',
+        messages: [
+          {
+            'role': 'user',
+            'content': '''현재 상태:
 - 속도: ${speedKmh.toStringAsFixed(0)}km/h
 - 날씨: $weather
 - 노면: $roadCondition
 
 드라이버: "$userText"''',
-            }
-          ],
-        }),
-      ).timeout(const Duration(seconds: 10));
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(res.bodyBytes));
-        return (data['content'][0]['text'] as String).trim();
-      }
+          }
+        ],
+        maxTokens: 100,
+      );
     } catch (_) {}
     return _fallback;
   }
@@ -99,36 +99,21 @@ class RevvAiService {
 - G포스: $gStr
 - 드라이빙 모드 비율: $modeStr''';
 
-      final res = await http.post(
-        Uri.parse('https://api.anthropic.com/v1/messages'),
-        headers: {
-          'x-api-key': _apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: jsonEncode({
-          'model': 'claude-haiku-4-5-20251001',
-          'max_tokens': 180,
-          'system':
-              '너는 REVV, AI 코드라이버야. 주행 데이터를 받아 드라이버에게 짧고 솔직한 피드백을 줘. '
-              '3문장 이내. 한국어. 구체적인 수치를 인용해. 칭찬과 개선점을 균형있게. '
-              '앱스토어 규정상 과속·위험 운전을 조장하는 표현은 절대 쓰지 마.',
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-        }),
-      ).timeout(const Duration(seconds: 15));
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(res.bodyBytes));
-        return (data['content'][0]['text'] as String).trim();
-      }
+      return await _callClaude(
+        model: 'claude-haiku-4-5-20251001',
+        system: '너는 REVV, AI 코드라이버야. 주행 데이터를 받아 드라이버에게 짧고 솔직한 피드백을 줘. '
+            '3문장 이내. 한국어. 구체적인 수치를 인용해. 칭찬과 개선점을 균형있게. '
+            '앱스토어 규정상 과속·위험 운전을 조장하는 표현은 절대 쓰지 마.',
+        messages: [
+          {'role': 'user', 'content': prompt},
+        ],
+        maxTokens: 180,
+      );
     } catch (_) {}
     return _buildFallbackAnalysis(session);
   }
 
   /// 상세 AI 코칭 리포트 — 런카드 "상세 분석" 버튼에서 호출
-  /// analyzeRun보다 더 길고 구체적인 섹션별 피드백 생성
   Future<String> analyzeRunDetailed(RunSession session) async {
     try {
       final dur = session.duration;
@@ -151,7 +136,6 @@ class RevvAiService {
       final hasG = session.maxLateralG > 0.01;
       final sharpCount = session.sharpCorners.length;
 
-      // 드라이빙 스타일 분류
       String styleLabel;
       if (!hasG) {
         styleLabel = '미측정';
@@ -170,8 +154,8 @@ class RevvAiService {
 - 거리: ${session.distanceKm.toStringAsFixed(2)} km / 시간: $durStr
 - 최고속도: ${session.maxSpeedKmh.toStringAsFixed(1)} km/h / 평균: ${session.avgSpeedKmh.toStringAsFixed(1)} km/h
 - 드라이빙 스타일: $styleLabel
-- 최대 횡G: ${hasG ? session.maxLateralG.toStringAsFixed(2) + 'G' : '미측정'}
-- 최대 종G: ${hasG ? session.maxLonG.toStringAsFixed(2) + 'G' : '미측정'}
+- 최대 횡G: ${hasG ? '${session.maxLateralG.toStringAsFixed(2)}G' : '미측정'}
+- 최대 종G: ${hasG ? '${session.maxLonG.toStringAsFixed(2)}G' : '미측정'}
 - 급조작 횟수: ${hasG ? '${sharpCount}회 (0.45G 초과)' : '미측정'}
 - 드라이빙 모드: $modeStr
 - 날씨: ${session.weatherEmoji} ${session.tempDisplay}
@@ -183,29 +167,15 @@ class RevvAiService {
 3. 🗺️ 다음 목표 — 다음 드라이브에 도전할 것
 총 8~10문장, 한국어, 수치를 적극 활용. 앱스토어 규정상 과속·위험 표현 절대 금지.''';
 
-      final res = await http.post(
-        Uri.parse('https://api.anthropic.com/v1/messages'),
-        headers: {
-          'x-api-key': _apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: jsonEncode({
-          'model': 'claude-haiku-4-5-20251001',
-          'max_tokens': 500,
-          'system':
-              '너는 REVV, AI 드라이빙 코치야. 주행 데이터를 분석하여 드라이버 성장에 도움이 되는 구체적이고 따뜻한 피드백을 준다. '
-              '앱스토어 규정 준수: 과속·위험 운전 조장 표현 절대 금지.',
-          'messages': [
-            {'role': 'user', 'content': prompt},
-          ],
-        }),
-      ).timeout(const Duration(seconds: 20));
-
-      if (res.statusCode == 200) {
-        final data = jsonDecode(utf8.decode(res.bodyBytes));
-        return (data['content'][0]['text'] as String).trim();
-      }
+      return await _callClaude(
+        model: 'claude-haiku-4-5-20251001',
+        system: '너는 REVV, AI 드라이빙 코치야. 주행 데이터를 분석하여 드라이버 성장에 도움이 되는 구체적이고 따뜻한 피드백을 준다. '
+            '앱스토어 규정 준수: 과속·위험 운전 조장 표현 절대 금지.',
+        messages: [
+          {'role': 'user', 'content': prompt},
+        ],
+        maxTokens: 500,
+      );
     } catch (_) {}
     return _buildDetailedFallback(session);
   }
@@ -231,7 +201,98 @@ class RevvAiService {
     return buf.toString();
   }
 
-  /// API 실패 시 로컬 폴백 분석
+  /// 전체 주행 히스토리 기반 드라이버 종합 분석
+  Future<String> analyzeHistory(List<RunSummary> history) async {
+    if (history.isEmpty) return '아직 주행 기록이 없어요. 첫 드라이브를 시작해보세요!';
+
+    final totalRuns = history.length;
+    final totalDistKm = history.fold(0.0, (s, r) => s + r.distanceKm);
+    final totalSecs = history.fold(0, (s, r) => s + r.durationSeconds);
+    final avgDistKm = totalDistKm / totalRuns;
+    final avgDurMin = (totalSecs / totalRuns / 60).round();
+
+    final gRuns = history.where((r) => r.maxLateralG != null && r.maxLateralG! > 0.01).toList();
+    final bestG = gRuns.isEmpty ? null : gRuns.map((r) => r.maxLateralG!).reduce((a, b) => a > b ? a : b);
+    final avgG = gRuns.isEmpty ? null : gRuns.map((r) => r.maxLateralG!).fold(0.0, (a, b) => a + b) / gRuns.length;
+    final totalSharp = history.fold(0, (s, r) => s + r.sharpCornersCount);
+
+    final routeCount = <String, int>{};
+    for (final r in history) {
+      if (r.routeId != null) routeCount[r.routeName] = (routeCount[r.routeName] ?? 0) + 1;
+    }
+    final favoriteRoute = routeCount.isEmpty ? null
+        : routeCount.entries.reduce((a, b) => a.value > b.value ? a : b).key;
+
+    double? runsPerWeek;
+    if (history.length >= 2) {
+      final oldest = history.map((r) => r.date).reduce((a, b) => a.isBefore(b) ? a : b);
+      final daysDiff = DateTime.now().difference(oldest).inDays;
+      if (daysDiff > 0) runsPerWeek = totalRuns / (daysDiff / 7);
+    }
+
+    final recent = history.take(5).map((r) {
+      final dur = r.durationSeconds ~/ 60;
+      final gStr = r.maxLateralG != null && r.maxLateralG! > 0.01
+          ? '횡G ${r.maxLateralG!.toStringAsFixed(2)}G'
+          : 'G미측정';
+      return '${r.date.month}/${r.date.day} ${r.routeName} ${r.distanceKm.toStringAsFixed(1)}km ${dur}분 $gStr 급조작${r.sharpCornersCount}회';
+    }).join('\n');
+
+    final totalHrs = totalSecs ~/ 3600;
+    final totalMin = (totalSecs % 3600) ~/ 60;
+    final timeStr = totalHrs > 0 ? '${totalHrs}시간 ${totalMin}분' : '${totalMin}분';
+
+    final prompt = '''[드라이버 전체 주행 기록]
+- 총 드라이브: ${totalRuns}회
+- 누적 거리: ${totalDistKm.toStringAsFixed(1)} km
+- 누적 주행시간: $timeStr
+- 평균 거리/회: ${avgDistKm.toStringAsFixed(1)} km
+- 평균 시간/회: ${avgDurMin}분
+${bestG != null ? '- 베스트 횡G: ${bestG.toStringAsFixed(2)}G' : ''}
+${avgG != null ? '- 평균 횡G: ${avgG.toStringAsFixed(2)}G (${gRuns.length}회 측정)' : ''}
+- 총 급조작: ${totalSharp}회 (평균 ${totalRuns > 0 ? (totalSharp / totalRuns).toStringAsFixed(1) : 0}회/런)
+${favoriteRoute != null ? '- 자주 찾는 루트: $favoriteRoute (${routeCount[favoriteRoute]}회)' : ''}
+${runsPerWeek != null ? '- 주행 빈도: 주 ${runsPerWeek.toStringAsFixed(1)}회' : ''}
+
+[최근 5개 드라이브]
+$recent
+
+[요청]
+이 드라이버의 전체적인 드라이빙 프로필을 분석해줘. 아래 4개 섹션으로 구성:
+1. 🏁 드라이버 프로필 — 전체적인 주행 스타일 특성 (2~3문장)
+2. 💪 강점 — 데이터에서 보이는 잘하는 점 (2문장)
+3. 🎯 개선 포인트 — 구체적 수치 기반 개선 제안 (2문장)
+4. 🗺️ 다음 도전 — 성장을 위한 다음 목표 (2문장)
+총 8~10문장, 한국어, 수치 적극 활용. 과속·위험 운전 조장 표현 절대 금지.''';
+
+    try {
+      return await _callClaude(
+        model: 'claude-sonnet-4-6',
+        system: '너는 REVV, AI 드라이빙 코치야. 누적 주행 데이터를 분석해 드라이버 성장을 돕는 통찰력 있는 피드백을 한국어로 제공한다. 앱스토어 규정 준수: 과속·위험 운전 조장 표현 절대 금지.',
+        messages: [
+          {'role': 'user', 'content': prompt},
+        ],
+        maxTokens: 700,
+      );
+    } catch (_) {}
+
+    final buf = StringBuffer();
+    buf.writeln('🏁 드라이버 프로필');
+    buf.writeln('총 ${totalRuns}회, ${totalDistKm.toStringAsFixed(1)}km를 달려온 드라이버예요.');
+    buf.writeln();
+    buf.writeln('💪 강점');
+    buf.writeln('꾸준히 드라이브를 이어가고 있어요. 평균 ${avgDistKm.toStringAsFixed(1)}km의 일관된 드라이브가 인상적이에요.');
+    buf.writeln();
+    buf.writeln('🎯 개선 포인트');
+    buf.writeln(totalSharp > totalRuns * 3
+        ? '급조작이 평균 ${(totalSharp / totalRuns).toStringAsFixed(1)}회/런으로 다소 많아요. 코너 진입 전 속도 조정을 의식해보세요.'
+        : '급조작 빈도가 안정적이에요. 다양한 루트에 도전해 경험을 넓혀보세요.');
+    buf.writeln();
+    buf.writeln('🗺️ 다음 도전');
+    buf.writeln('새로운 루트를 탐색하며 드라이빙 반경을 넓혀보세요. REVV가 좋은 길을 찾아드릴게요!');
+    return buf.toString();
+  }
+
   String _buildFallbackAnalysis(RunSession session) {
     final km = session.distanceKm;
     final min = session.duration.inMinutes;

@@ -1,12 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:cloud_functions/cloud_functions.dart';
 
 class WeatherService extends ChangeNotifier {
-  static const _apiKey = '6d167899a70041622363c7bcfcd5725d';
-  static const _baseUrl = 'https://api.openweathermap.org/data/2.5';
-
   String weatherDesc = '맑음';
   double tempCelsius = 0;
   String weatherIcon = '01d';
@@ -20,17 +16,15 @@ class WeatherService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final url = Uri.parse(
-          '$_baseUrl/weather?lat=$lat&lon=$lng&appid=$_apiKey&units=metric&lang=kr');
-      final res = await http.get(url).timeout(const Duration(seconds: 10));
+      final result = await FirebaseFunctions.instance
+          .httpsCallable('getWeather')
+          .call<Map>({'lat': lat, 'lng': lng});
 
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        weatherDesc = data['weather'][0]['description'] as String;
-        tempCelsius = (data['main']['temp'] as num).toDouble();
-        weatherIcon = data['weather'][0]['icon'] as String;
-        roadCondition = _inferRoadCondition(data);
-      }
+      final data = result.data;
+      weatherDesc = data['weather'][0]['description'] as String;
+      tempCelsius = (data['main']['temp'] as num).toDouble();
+      weatherIcon = data['weather'][0]['icon'] as String;
+      roadCondition = _inferRoadCondition(data);
     } catch (_) {
       // 실패 시 기존 값 유지
     }

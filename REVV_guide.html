@@ -413,6 +413,48 @@ ${ideaTexts || '(없음)'}
         /* 세션 브리핑 버튼 */
         .briefing-btn { background: transparent; border: 1px solid rgba(225,29,72,0.4); border-radius: 8px; color: #E11D48; padding: 8px 14px; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
         .briefing-btn:hover { background: rgba(225,29,72,0.1); }
+        /* ─── 퀘스트 보드 ─── */
+        .quest-board-title { font-family:'Orbitron',sans-serif; font-size:1.1rem; font-weight:700; color:#E11D48; letter-spacing:0.08em; margin-bottom:4px; }
+        .quest-card { border-radius:14px; border:1px solid #1e293b; margin-bottom:14px; overflow:hidden; transition:border-color 0.2s; }
+        .quest-card:hover { border-color:rgba(225,29,72,0.5); }
+        .quest-card-head { display:flex; align-items:flex-start; gap:12px; padding:14px 16px 10px; }
+        .quest-icon { width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1.1rem; flex-shrink:0; }
+        .quest-type-urgent .quest-icon { background:rgba(239,68,68,0.15); }
+        .quest-type-main   .quest-icon { background:rgba(251,146,60,0.12); }
+        .quest-type-side   .quest-icon { background:rgba(99,102,241,0.12); }
+        .quest-type-done   .quest-icon { background:rgba(16,185,129,0.1); }
+        .quest-title { font-size:0.92rem; font-weight:700; color:#e2e8f0; line-height:1.4; }
+        .quest-title.done-title { color:#475569; text-decoration:line-through; }
+        .quest-meta { display:flex; align-items:center; gap:8px; margin-top:5px; flex-wrap:wrap; }
+        .quest-tag { font-size:0.6rem; font-weight:800; padding:2px 8px; border-radius:99px; letter-spacing:0.06em; text-transform:uppercase; }
+        .quest-tag.urgent { background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.35); }
+        .quest-tag.main   { background:rgba(251,146,60,0.15); color:#fb923c; border:1px solid rgba(251,146,60,0.3); }
+        .quest-tag.side   { background:rgba(99,102,241,0.15); color:#818cf8; border:1px solid rgba(99,102,241,0.3); }
+        .quest-tag.done   { background:rgba(16,185,129,0.12); color:#34d399; border:1px solid rgba(16,185,129,0.25); }
+        .quest-stars { color:#f59e0b; font-size:0.65rem; letter-spacing:1px; }
+        .quest-xp { font-size:0.65rem; font-weight:700; color:#fbbf24; background:rgba(251,191,36,0.1); padding:2px 7px; border-radius:99px; border:1px solid rgba(251,191,36,0.2); margin-left:auto; white-space:nowrap; }
+        .quest-desc { font-size:0.78rem; color:#64748b; padding:0 16px 10px; line-height:1.6; }
+        .quest-steps { background:#0a0f1c; border-top:1px solid #1e293b; padding:12px 16px; }
+        .quest-steps-title { font-size:0.65rem; font-weight:700; color:#475569; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:10px; display:flex; align-items:center; gap:6px; }
+        .quest-step { display:flex; align-items:flex-start; gap:10px; margin-bottom:9px; }
+        .quest-step-num { width:20px; height:20px; border-radius:50%; background:rgba(225,29,72,0.15); border:1px solid rgba(225,29,72,0.3); display:flex; align-items:center; justify-content:center; font-size:0.6rem; font-weight:800; color:#f87171; flex-shrink:0; margin-top:1px; }
+        .quest-step-body { flex:1; }
+        .quest-step-text { font-size:0.78rem; color:#94a3b8; line-height:1.55; }
+        .quest-step-cmd { font-family:'Courier New',monospace; font-size:0.72rem; background:#0f172a; border:1px solid #1e293b; border-radius:6px; padding:5px 10px; color:#7dd3fc; margin-top:5px; display:block; word-break:break-all; cursor:pointer; transition:border-color 0.15s; }
+        .quest-step-cmd:hover { border-color:#334155; }
+        .quest-link-btn { display:inline-flex; align-items:center; gap:5px; font-size:0.7rem; font-weight:700; padding:4px 12px; border-radius:7px; border:none; cursor:pointer; text-decoration:none; transition:all 0.15s; margin-top:6px; }
+        .quest-link-btn.red  { background:rgba(225,29,72,0.15); color:#f87171; border:1px solid rgba(225,29,72,0.3); }
+        .quest-link-btn.blue { background:rgba(99,102,241,0.12); color:#818cf8; border:1px solid rgba(99,102,241,0.25); }
+        .quest-link-btn.green{ background:rgba(16,185,129,0.1); color:#34d399; border:1px solid rgba(16,185,129,0.2); }
+        .quest-link-btn:hover { filter:brightness(1.2); transform:translateY(-1px); }
+        .quest-divider { height:1px; background:rgba(99,102,241,0.1); margin:20px 0; }
+        .quest-section-label { font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.12em; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+        .q-toggle-btn { background:transparent; border:1px solid #1e293b; border-radius:10px; color:#475569; padding:10px 16px; font-size:0.78rem; font-weight:600; cursor:pointer; width:100%; text-align:left; display:flex; align-items:center; gap:8px; transition:all 0.2s; }
+        .q-toggle-btn:hover { border-color:#334155; color:#94a3b8; }
+        .quest-done-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+        .quest-done-chip { background:#0a0f1c; border:1px solid #1e293b; border-left:3px solid #10B981; border-radius:8px; padding:9px 12px; font-size:0.75rem; color:#475569; display:flex; align-items:center; gap:7px; }
+        .quest-done-chip i { color:#34d399; flex-shrink:0; }
+        @media (max-width:640px) { .quest-done-grid { grid-template-columns:1fr; } }
         @media (max-width: 1024px) { .branches-grid { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 640px) { .branches-grid { grid-template-columns: 1fr; } }
     </style>
@@ -476,6 +518,7 @@ ${ideaTexts || '(없음)'}
                 <button class="memo-tab" onclick="window.switchMemoTab(2)">🧠 루트 인텔리전스</button>
                 <button class="memo-tab" onclick="window.switchMemoTab(3)">📈 투자자 평가</button>
                 <button class="memo-tab" onclick="window.switchMemoTab(4)">💡 아이디어</button>
+                <button class="memo-tab" onclick="window.switchMemoTab(5)">🎮 퀘스트</button>
             </div>
 
             <!-- 탭 0: 현재 현황 -->
@@ -1438,6 +1481,341 @@ ${ideaTexts || '(없음)'}
                 </div>
             </div><!-- end tab-4 -->
 
+            <!-- 탭 5: 퀘스트 보드 -->
+            <div class="memo-tab-content">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+                    <div>
+                        <div class="quest-board-title"><i class="fas fa-scroll mr-2"></i>QUEST BOARD</div>
+                        <div style="font-size:0.72rem;color:#475569;margin-top:2px">클리어하면 REVV가 한 단계 성장합니다</div>
+                    </div>
+                    <div style="background:#0a0f1c;border:1px solid #1e293b;border-radius:10px;padding:8px 14px;text-align:center">
+                        <div style="font-size:0.6rem;color:#475569;text-transform:uppercase;letter-spacing:0.1em">활성 퀘스트</div>
+                        <div style="font-size:1.4rem;font-weight:800;color:#E11D48;font-family:'Orbitron',sans-serif;line-height:1.1" id="q-active-count">9</div>
+                    </div>
+                </div>
+
+                <!-- ── URGENT ───────────────────────────── -->
+                <div class="quest-section-label" style="color:#f87171"><i class="fas fa-exclamation-triangle"></i> 긴급 퀘스트</div>
+
+                <!-- Q1 -->
+                <div class="quest-card quest-type-urgent">
+                    <div class="quest-card-head">
+                        <div class="quest-icon">🔐</div>
+                        <div style="flex:1">
+                            <div class="quest-title">API 키 서버 이전 (Blaze 플랜 업그레이드)</div>
+                            <div class="quest-meta">
+                                <span class="quest-tag urgent">URGENT</span>
+                                <span class="quest-stars">★★☆☆☆</span>
+                                <span style="font-size:0.68rem;color:#475569">보안</span>
+                                <span class="quest-xp">XP +500</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quest-desc">Claude API 키(sk-ant-...)와 OpenWeatherMap 키가 앱 바이너리에 노출되어 있습니다. Firebase Cloud Functions 프록시는 이미 구현됐고, Blaze 업그레이드 후 시크릿 등록 + 배포만 남았습니다.</div>
+                    <div class="quest-steps">
+                        <div class="quest-steps-title"><i class="fas fa-list-ol"></i> 진행 방법</div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">1</div>
+                            <div class="quest-step-body">
+                                <div class="quest-step-text">Firebase Console에서 Blaze (종량제) 플랜으로 업그레이드 — 소규모 앱은 무료 할당량 안에서 거의 무료</div>
+                                <a href="https://console.firebase.google.com/project/revv-eb7c9/usage/details" target="_blank" class="quest-link-btn red"><i class="fas fa-external-link-alt"></i> Firebase Billing 열기</a>
+                            </div>
+                        </div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">2</div>
+                            <div class="quest-step-body">
+                                <div class="quest-step-text">터미널에서 시크릿 키 등록 (Claude API 키 입력 프롬프트 뜸)</div>
+                                <code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">firebase functions:secrets:set ANTHROPIC_API_KEY --project revv-eb7c9</code>
+                                <code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">firebase functions:secrets:set OPENWEATHER_API_KEY --project revv-eb7c9</code>
+                            </div>
+                        </div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">3</div>
+                            <div class="quest-step-body">
+                                <div class="quest-step-text">Cloud Functions 배포 (callClaude + getWeather 두 함수)</div>
+                                <code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">firebase deploy --only functions --project revv-eb7c9</code>
+                            </div>
+                        </div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">4</div>
+                            <div class="quest-step-body">
+                                <div class="quest-step-text">Mapbox 퍼블릭 토큰(pk.*)은 Mapbox 대시보드에서 번들 ID 제한만 설정하면 완료</div>
+                                <a href="https://account.mapbox.com/access-tokens/" target="_blank" class="quest-link-btn blue"><i class="fas fa-external-link-alt"></i> Mapbox Access Tokens</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Q2 -->
+                <div class="quest-card quest-type-urgent">
+                    <div class="quest-card-head">
+                        <div class="quest-icon">🚗</div>
+                        <div style="flex:1">
+                            <div class="quest-title">실기기 end-to-end 주행 테스트</div>
+                            <div class="quest-meta">
+                                <span class="quest-tag urgent">URGENT</span>
+                                <span class="quest-stars">★★★☆☆</span>
+                                <span style="font-size:0.68rem;color:#475569">검증</span>
+                                <span class="quest-xp">XP +800</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quest-desc">Mapbox + Android GFXSTREAM 충돌로 에뮬레이터 미검증 항목 다수. G포스, TBT 음성, NavPolyline, 루트 이탈 감지, G-FORCE 탭은 실기기에서만 확인 가능.</div>
+                    <div class="quest-steps">
+                        <div class="quest-steps-title"><i class="fas fa-list-ol"></i> 진행 방법</div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">1</div>
+                            <div class="quest-step-body">
+                                <div class="quest-step-text">USB로 Android 기기 연결 후 빌드</div>
+                                <code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">flutter run --release</code>
+                            </div>
+                        </div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">2</div>
+                            <div class="quest-step-body">
+                                <div class="quest-step-text">실제 와인딩 도로에서 스프린트 모드 ON → 루트 따라 주행</div>
+                            </div>
+                        </div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">3</div>
+                            <div class="quest-step-body">
+                                <div class="quest-step-text">체크리스트: G포스 원형 계기판 표시 / TBT 음성 300m+80m 예고 / 루트 이탈 300m 주황 배너 / G-FORCE 탭 실시간 / 런카드 자동 저장 + 공유</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="quest-divider"></div>
+                <!-- ── MAIN ────────────────────────────── -->
+                <div class="quest-section-label" style="color:#fb923c"><i class="fas fa-sword"></i> 메인 퀘스트</div>
+
+                <!-- Q3 -->
+                <div class="quest-card quest-type-main">
+                    <div class="quest-card-head">
+                        <div class="quest-icon">📊</div>
+                        <div style="flex:1">
+                            <div class="quest-title">고도 프로파일 미니 차트 → 루트 카드 통합</div>
+                            <div class="quest-meta">
+                                <span class="quest-tag main">MAIN</span>
+                                <span class="quest-stars">★★☆☆☆</span>
+                                <span style="font-size:0.68rem;color:#475569">UI</span>
+                                <span class="quest-xp">XP +300</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quest-desc">elevation_service.dart는 완성됨. 루트 카드 하단에 고도 프로파일 미니 SVG 차트만 붙이면 됩니다. 오르막 빨강 / 내리막 파랑.</div>
+                    <div class="quest-steps">
+                        <div class="quest-steps-title"><i class="fas fa-list-ol"></i> 진행 방법</div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">1</div>
+                            <div class="quest-step-body"><div class="quest-step-text">Claude에게 전달할 프롬프트 (클릭하면 복사)</div>
+                                <code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">routes_bottom_sheet.dart의 _RouteCard 위젯에 ElevationMiniChart 위젯을 추가해줘. elevation_service.dart의 elevationProfile 데이터를 받아 오르막=빨강, 내리막=파랑으로 시각화하는 CustomPainter 기반 미니 SVG 차트. 루트 카드 하단에 50px 높이로 표시.</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Q4 -->
+                <div class="quest-card quest-type-main">
+                    <div class="quest-card-head">
+                        <div class="quest-icon">🚙</div>
+                        <div style="flex:1">
+                            <div class="quest-title">차량 프로필 카드 (Garage Pro ga1)</div>
+                            <div class="quest-meta">
+                                <span class="quest-tag main">MAIN</span>
+                                <span class="quest-stars">★★★☆☆</span>
+                                <span style="font-size:0.68rem;color:#475569">신기능</span>
+                                <span class="quest-xp">XP +600</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quest-desc">차종/마력/타이어 규격 입력 → G포스 임계치 자동 계산. 차쟁이 핵심 기능의 첫 단계. MORE 메뉴 → Garage 진입.</div>
+                    <div class="quest-steps">
+                        <div class="quest-steps-title"><i class="fas fa-list-ol"></i> 진행 방법</div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">1</div>
+                            <div class="quest-step-body"><div class="quest-step-text">Claude 프롬프트 복사 후 전달</div>
+                                <code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">VehicleProfileService(singleton)와 garage_screen.dart를 새로 만들어줘. 차종/마력/타이어규격/구동방식(FF/FR/AWD) 입력 폼 → G포스 임계치(sport/attack) 자동 계산 → shared_preferences 저장. cruise_screen MORE 메뉴에 🚙 Garage 항목 추가.</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Q5 -->
+                <div class="quest-card quest-type-main">
+                    <div class="quest-card-head">
+                        <div class="quest-icon">⏱️</div>
+                        <div style="flex:1">
+                            <div class="quest-title">랩 타임 시스템 (Track Mode tr1)</div>
+                            <div class="quest-meta">
+                                <span class="quest-tag main">MAIN</span>
+                                <span class="quest-stars">★★★★☆</span>
+                                <span style="font-size:0.68rem;color:#475569">신기능</span>
+                                <span class="quest-xp">XP +700</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quest-desc">지도에서 출발선 지정 + GPS 통과 감지로 정밀 랩 타임 자동 측정. 개인 최고 기록 갱신 시 축하 이펙트. 서킷·고갯길 모두 사용 가능.</div>
+                    <div class="quest-steps">
+                        <div class="quest-steps-title"><i class="fas fa-list-ol"></i> 진행 방법</div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">1</div>
+                            <div class="quest-step-body"><div class="quest-step-text">Claude 프롬프트 복사 후 전달</div>
+                                <code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">LapTimerService를 새로 만들어줘. Mapbox 지도에서 길게 탭 → 출발선 좌표 저장. GPS 위치가 출발선 반경 20m 진입 시 랩 타임 시작/종료 자동 감지. 베스트 랩 갱신 시 sprint_screen에 🏆 축하 애니메이션. shared_preferences에 루트별 베스트 랩 저장.</code>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="quest-divider"></div>
+                <!-- ── SIDE ────────────────────────────── -->
+                <div class="quest-section-label" style="color:#818cf8"><i class="fas fa-scroll"></i> 사이드 퀘스트</div>
+
+                <!-- Q6 -->
+                <div class="quest-card quest-type-side">
+                    <div class="quest-card-head">
+                        <div class="quest-icon">🌡️</div>
+                        <div style="flex:1">
+                            <div class="quest-title">엔진 웜업 가드 (Safety s5)</div>
+                            <div class="quest-meta">
+                                <span class="quest-tag side">SIDE</span>
+                                <span class="quest-stars">★★☆☆☆</span>
+                                <span style="font-size:0.68rem;color:#475569">안전</span>
+                                <span class="quest-xp">XP +250</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quest-desc">OBD coolantTemp &lt; 70°C 시 스프린트 시작 차단 + JARVIS 경고. 냉각수 온도 원형 게이지 OBD 화면에 추가.</div>
+                    <div class="quest-steps">
+                        <div class="quest-steps-title"><i class="fas fa-list-ol"></i> 진행 방법</div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">1</div>
+                            <div class="quest-step-body"><code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">obd_service.dart의 coolantTemp가 70°C 미만일 때 스프린트 시작 시 경고 바텀시트를 띄워줘. "엔진이 아직 차가워요 (${temp}°C). 워밍업 후 출발을 권장합니다." 메시지 + 강행/취소 버튼. OBD LIVE 탭에 냉각수 온도 원형 게이지 추가.</code></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Q7 -->
+                <div class="quest-card quest-type-side">
+                    <div class="quest-card-head">
+                        <div class="quest-icon">🛞</div>
+                        <div style="flex:1">
+                            <div class="quest-title">타이어 열화 추적기 (Safety s6)</div>
+                            <div class="quest-meta">
+                                <span class="quest-tag side">SIDE</span>
+                                <span class="quest-stars">★★★☆☆</span>
+                                <span style="font-size:0.68rem;color:#475569">안전</span>
+                                <span class="quest-xp">XP +400</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quest-desc">누적 G×거리 → 타이어 열화 지수 %. 80% 도달 시 JARVIS 교체 권고. Garage Pro와 연동.</div>
+                    <div class="quest-steps">
+                        <div class="quest-steps-title"><i class="fas fa-list-ol"></i> 진행 방법</div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">1</div>
+                            <div class="quest-step-body"><code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">TireWearService(singleton)를 만들어줘. 런 종료 시 maxLateralG × distanceKm를 누적해 타이어 스트레스 인덱스 계산. 열화도 0-100% 표시. Garage 화면에 타이어 위젯 추가, 80% 초과 시 JARVIS TTS 교체 권고.</code></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Q8 -->
+                <div class="quest-card quest-type-side">
+                    <div class="quest-card-head">
+                        <div class="quest-icon">🎬</div>
+                        <div style="flex:1">
+                            <div class="quest-title">주행 영상 HUD 오버레이 녹화 (Media m1)</div>
+                            <div class="quest-meta">
+                                <span class="quest-tag side">SIDE</span>
+                                <span class="quest-stars">★★★★☆</span>
+                                <span style="font-size:0.68rem;color:#475569">미디어</span>
+                                <span class="quest-xp">XP +600</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quest-desc">camera + screen_recorder로 속도/G포스/RPM HUD를 영상에 합성해서 저장. SNS 공유용 드라이빙 클립.</div>
+                    <div class="quest-steps">
+                        <div class="quest-steps-title"><i class="fas fa-list-ol"></i> 진행 방법</div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">1</div>
+                            <div class="quest-step-body"><code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">pubspec에 camera: ^0.11.0, screen_recorder: ^0.3.0 추가. 스프린트 화면에 녹화 시작/정지 버튼 추가. RepaintBoundary로 속도/G포스/RPM HUD를 카메라 프리뷰 위에 오버레이 합성 후 갤러리 저장.</code></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Q9 -->
+                <div class="quest-card quest-type-side">
+                    <div class="quest-card-head">
+                        <div class="quest-icon">🗄️</div>
+                        <div style="flex:1">
+                            <div class="quest-title">실시간 센서 로깅 SQLite (d1)</div>
+                            <div class="quest-meta">
+                                <span class="quest-tag side">SIDE</span>
+                                <span class="quest-stars">★★★☆☆</span>
+                                <span style="font-size:0.68km;color:#475569">데이터</span>
+                                <span class="quest-xp">XP +450</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="quest-desc">sensors_plus 데이터를 100ms 간격으로 SQLite에 저장. 급조작 지점 GPS 자동 마킹. 분석 화면에서 타임라인 재생.</div>
+                    <div class="quest-steps">
+                        <div class="quest-steps-title"><i class="fas fa-list-ol"></i> 진행 방법</div>
+                        <div class="quest-step">
+                            <div class="quest-step-num">1</div>
+                            <div class="quest-step-body"><code class="quest-step-cmd" onclick="navigator.clipboard.writeText(this.innerText);this.style.color='#34d399';setTimeout(()=>this.style.color='',1500)">pubspec에 sqflite 추가. SensorLogService를 만들어줘. 스프린트 주행 중 100ms마다 lateralG/lonG/speed/gps 를 SQLite에 저장. G > 0.45G 시 sharp_corner 태그 자동 마킹. 런 종료 후 analysis_screen에서 타임라인 차트로 표시.</code></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="quest-divider"></div>
+
+                <!-- 완료된 퀘스트 토글 -->
+                <button class="q-toggle-btn" onclick="(function(btn){const el=document.getElementById('q-done-list');const open=el.style.display!=='none';el.style.display=open?'none':'block';btn.innerHTML=open?'<i class=\"fas fa-trophy\" style=\"color:#34d399\"></i> 완료된 퀘스트 보기 <span style=\"color:#34d399;font-weight:800\">(' + document.querySelectorAll('.quest-done-chip').length + '개)</span><i class=\"fas fa-chevron-down\" style=\"margin-left:auto;color:#475569\"></i>':'<i class=\"fas fa-trophy\" style=\"color:#34d399\"></i> 완료된 퀘스트 숨기기 <i class=\"fas fa-chevron-up\" style=\"margin-left:auto;color:#475569\"></i>';})(this)" id="q-done-toggle">
+                    <i class="fas fa-trophy" style="color:#34d399"></i> 완료된 퀘스트 보기 <span style="color:#34d399;font-weight:800">(35개)</span><i class="fas fa-chevron-down" style="margin-left:auto;color:#475569"></i>
+                </button>
+                <div id="q-done-list" style="display:none;margin-top:14px">
+                    <div style="font-size:0.68rem;color:#475569;margin-bottom:10px;padding-left:2px">✅ 완료된 퀘스트 — 지금의 REVV를 만든 것들</div>
+                    <div class="quest-done-grid">
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>와인딩 곡률 분석 엔진 (bearing rate)</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>OBD2 BLE 완전 연동 (14개 PID)</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>Mapbox 커스텀 다크 스타일</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>스프린트 모드 + 런카드 저장</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>턴바이턴 TBT 음성 안내</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>G포스 전용 탭 _GForceTab</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>풀스크린 맵 + 슬라이드 레일 UI</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>Firebase Firestore 런 동기화</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>DrivingContextService (cruise/sport)</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>WaypointOptimizer TSP+2-opt</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>루트 이탈 감지 + 주황 배너</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>런카드 share_plus v10 공유</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>Way Stitching 체인 연결 루트</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>루프 감지 + LOOP 배지 ×1.25</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>앱 내 nav polyline 파란 선</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>Tinder 캘리브레이션 스와이프</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>루트 영구 배제 🚫 시스템</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>고도 분석 + 지형 스코어 보정</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>roadcurvature.com 알고리즘 교체</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>NEAR/MID/FAR 누적 반경 시스템</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>compute() isolate UI 프리즈 방지</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>Overpass 안정화 (XML 에러/타임아웃)</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>8-sector 방향 다양성 루트 선택</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>급조작 감지 (0.45G 초과 로깅)</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>상세 AI 코칭 리포트 3섹션</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>다음 코너 브리핑 TTS HUD</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>OSM 지리 데이터 3종 통합</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>종횡비 필터 (spreadRatio)</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>route_preview_screen.dart 신규</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>analysis_screen.dart 신규</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>커뮤니티 루트 global Firestore</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>Geohash4 근방 루트 쿼리</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>PR 시스템 + 랭킹 화면</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>Strava식 챌린지 (월간/주간)</div>
+                        <div class="quest-done-chip"><i class="fas fa-check-circle"></i>런카드 Mapbox Static 지도 섬네일</div>
+                    </div>
+                </div>
+
+            </div><!-- end tab-5 -->
+
         </div>
     </div>
 
@@ -1611,7 +1989,7 @@ ${ideaTexts || '(없음)'}
             { id: '7', text: 'WaypointOptimizer TSP+2-opt — 와인딩 구간 반드시 통과하는 경유지 순서 최적화', status: 'done' },
             { id: '8', text: '앱 내 통합 내비게이션 — DirectionsService로 nav polyline 자동 fetch + 200m 루트 진입 자동 감지', status: 'done' },
             { id: '9', text: '실기기 테스트 — G포스/TBT/DrivingContext/NavPolyline/CloudSync/G-FORCE탭/플래시효과', status: 'pending' },
-            { id: '10', text: 'Firebase 보안 규칙 — Firestore rules users/{uid}/runs 오너 전용', status: 'pending' },
+            { id: '10', text: 'Firebase 보안 규칙 — Firestore rules users/{uid}/runs 오너 전용 + routes 커뮤니티 규칙', status: 'done' },
             { id: '11', text: '루트+여정 통합 — RoutesScreen ROUTES/TRIP 2탭, trip_planner_screen deprecated', status: 'done' },
             { id: '12', text: 'UI 전면 리디자인 — Calimoto/Rever 스타일, 풀스크린 맵, 원형 GO 버튼, 플로팅 HUD', status: 'done' },
             { id: '13', text: 'v3 히스토리 타임라인 — 월별 그룹, 레드 타임라인 도트, 4칸 스탯 그리드, G뱃지', status: 'done' },
@@ -1647,6 +2025,10 @@ ${ideaTexts || '(없음)'}
             { id: '43', text: '엔진 웜업 가드 (Safety s5) — OBD coolantTemp < 70°C 시 스프린트 시작 JARVIS 경고 + 냉각수 온도 원형 게이지', status: 'pending' },
             { id: '44', text: '타이어 열화 추적기 (Safety s6) — TireWearService: 누적 G×거리 → 열화 지수%. 80% 도달 시 JARVIS 교체 권고', status: 'pending' },
             { id: '45', text: '주행 영상 HUD 오버레이 녹화 (Media m1) — camera 패키지 + screen_recorder + 속도/G포스/RPM 실시간 합성 저장', status: 'pending' },
+            { id: '46', text: '커뮤니티 루트 글로벌 DB — routes/{routeId} Firestore 전역 컬렉션, Geohash4 쿼리, publishRoute()/fetchNearbyRoutes() CloudSyncService', status: 'done' },
+            { id: '47', text: 'Strava식 랭킹+PR 시스템 — ranking_screen.dart (ROUTES 인기 루트/MY STATS 챌린지), PrService, ChallengeService(월간500km/주간100km)', status: 'done' },
+            { id: '48', text: '런카드 Mapbox Static API 지도 섬네일 — 경로 폴리라인 URL 인코딩, precacheImage() 사전 로드, 공유 카드에 지도 미리보기', status: 'done' },
+            { id: '49', text: 'API 키 서버 이전 — Firebase Cloud Functions callClaude+getWeather 프록시 구현 완료. Blaze 업그레이드 후 배포 대기', status: 'coding' },
         ];
     </script>
 </body>
