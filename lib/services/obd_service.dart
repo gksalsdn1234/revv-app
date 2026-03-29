@@ -152,12 +152,63 @@ class OBDService extends ChangeNotifier {
   final List<ScanResult> _scanResults = [];
   List<ScanResult> get scanResults => List.unmodifiable(_scanResults);
 
-  // FFE0/FFE1 UUID — short form, full 128bit, 또는 포함 여부로 매칭
-  static bool _matchUuid(String uuid, String shortId) {
+  // 알려진 ELM327 BLE 서비스 UUID 쌍 (순서대로 시도)
+  // [serviceShortId, characteristicShortId]
+  // characteristicShortId가 null이면 해당 서비스에서 쓰기+알림 특성 자동 탐색
+  static const _knownUuidPairs = [
+    ('ffe0', 'ffe1'),   // VEEPEAK, 대부분 중국산 ELM327 클론
+    ('18f0', '2af0'),   // Vgate iCar Pro
+    ('fff0', 'fff1'),   // 일부 클론
+    ('beef', 'bee1'),   // Kiwi 3
+    ('e7810a71', null), // OBDLink MX+ (iOS 전용, 긴 UUID 앞 부분)
+  ];
+
+  static bool _uuidContains(String uuid, String shortId) {
     final u = uuid.toLowerCase().replaceAll('-', '').replaceAll('{', '').replaceAll('}', '');
     return u == shortId ||
         u == '0000${shortId}00001000800000805f9b34fb' ||
-        u.contains(shortId); // 비표준 포맷 fallback
+        u.startsWith(shortId) ||
+        u.contains(shortId);
+  }
+
+  // 연결된 기기에서 OBD 통신 가능한 특성 탐색
+  BluetoothCharacteristic? _findObdChar(List<BluetoothService> services) {
+    // 1단계: 알려진 UUID 쌍으로 탐색
+    for (final (svcId, charId) in _knownUuidPairs) {
+      for (final svc in services) {
+        if (!_uuidContains(svc.uuid.toString(), svcId)) continue;
+        debugPrint('[OBD] 서비스 매칭: $svcId (${svc.uuid})');
+        for (final c in svc.characteristics) {
+          if (charId == null) {
+            // 쓰기 + 알림 둘 다 되는 특성 자동 선택
+            if (c.properties.write || c.properties.writeWithoutResponse) {
+              if (c.properties.notify || c.properties.indicate) {
+                debugPrint('[OBD] 특성 자동 선택: ${c.uuid}');
+                return c;
+              }
+            }
+          } else {
+            if (_uuidContains(c.uuid.toString(), charId)) {
+              debugPrint('[OBD] 특성 매칭: $charId (${c.uuid})');
+              return c;
+            }
+          }
+        }
+      }
+    }
+    // 2단계: 모든 서비스에서 쓰기+알림 특성 fallback 탐색
+    debugPrint('[OBD] 알려진 UUID 없음 — fallback 탐색');
+    for (final svc in services) {
+      for (final c in svc.characteristics) {
+        final canWrite = c.properties.write || c.properties.writeWithoutResponse;
+        final canNotify = c.properties.notify || c.properties.indicate;
+        if (canWrite && canNotify) {
+          debugPrint('[OBD] Fallback 특성: svc=${svc.uuid} char=${c.uuid}');
+          return c;
+        }
+      }
+    }
+    return null;
   }
 
   int _pidIdx = 0;
@@ -262,6 +313,10 @@ class OBDService extends ChangeNotifier {
 
   // ── 내부 연결 ─────────────────────────────────────────────
 
+  // 이 차량이 지원하는 PID 집합 (연결 후 자동 감지)
+  Set<String> _supportedPids = {};
+  Set<String> get supportedPids => Set.unmodifiable(_supportedPids);
+
   Future<void> _connectDevice(BluetoothDevice device) async {
     _setState(OBDState.connecting);
     _device = device;
@@ -270,49 +325,97 @@ class OBDService extends ChangeNotifier {
       await device.connect(timeout: const Duration(seconds: 10));
       debugPrint('[OBD] 연결됨 → 서비스 탐색 중...');
       final services = await device.discoverServices();
-      debugPrint('[OBD] 발견된 서비스 ${services.length}개:');
-      for (final svc in services) {
-        debugPrint('[OBD]   SVC: ${svc.uuid}');
-        for (final c in svc.characteristics) {
-          debugPrint('[OBD]     CHAR: ${c.uuid}');
-        }
-      }
 
-      for (final svc in services) {
-        if (_matchUuid(svc.uuid.toString(), 'ffe0')) {
-          debugPrint('[OBD] FFE0 서비스 매칭!');
-          for (final c in svc.characteristics) {
-            if (_matchUuid(c.uuid.toString(), 'ffe1')) {
-              debugPrint('[OBD] FFE1 특성 매칭!');
-              _char = c;
-              break;
-            }
-          }
-        }
-        if (_char != null) break;
-      }
+      _char = _findObdChar(services);
 
       if (_char == null) {
-        debugPrint('[OBD] ❌ FFE0/FFE1 매칭 실패 — 위 UUID 목록 확인 필요');
-        _setError('OBD 특성을 찾지 못했어요.');
+        debugPrint('[OBD] ❌ OBD 특성 탐색 실패');
+        // 디버그용 서비스 목록 출력
+        for (final svc in services) {
+          debugPrint('[OBD]   SVC: ${svc.uuid}');
+          for (final c in svc.characteristics) {
+            debugPrint('[OBD]     CHAR: ${c.uuid} '
+                'write=${c.properties.write} '
+                'writeNoResp=${c.properties.writeWithoutResponse} '
+                'notify=${c.properties.notify}');
+          }
+        }
+        _setError('OBD 특성을 찾지 못했어요.\n로그의 UUID를 개발자에게 공유해주세요.');
         return;
       }
 
       await _char!.setNotifyValue(true);
       _notifySub = _char!.onValueReceived.listen(_onBytes);
 
+      // ELM327 초기화
       await _cmd('ATZ');
-      await Future.delayed(const Duration(milliseconds: 800));
-      await _cmd('ATE0');
-      await _cmd('ATH0');
-      await _cmd('ATS0');
-      await _cmd('ATSP0');
+      await Future.delayed(const Duration(milliseconds: 1000));
+      await _cmd('ATE0'); // 에코 끄기
+      await _cmd('ATH0'); // 헤더 숨기기
+      await _cmd('ATS0'); // 공백 제거
+      await _cmd('ATL0'); // 개행 제거
+      await _cmd('ATSP0'); // 프로토콜 자동 감지
+
+      // 차량별 지원 PID 감지
+      _supportedPids = await _detectSupportedPids();
+      debugPrint('[OBD] 지원 PID ${_supportedPids.length}개: $_supportedPids');
 
       _setState(OBDState.ready);
       _startPolling();
     } catch (e) {
       _setError('연결 실패: $e');
     }
+  }
+
+  /// OBD 표준 PID 지원 비트맵 쿼리 (0100 / 0120 / 0140)
+  /// 응답 없거나 실패하면 기본 폴링 목록 전체 사용
+  Future<Set<String>> _detectSupportedPids() async {
+    final supported = <String>{};
+    // 쿼리할 지원 비트맵 PID 목록 (각각 다음 32개 PID 지원 여부 반환)
+    for (final queryPid in ['0100', '0120', '0140']) {
+      final resp = await _cmd(queryPid).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => '',
+      );
+      if (resp.isEmpty) continue;
+      final parsed = _parseSupportBitmap(queryPid, resp);
+      supported.addAll(parsed);
+      // 비트맵 PID 자체가 지원되면 다음 범위도 쿼리
+      // (마지막 비트가 1이면 다음 0120/0140이 존재한다는 신호이기도 하지만
+      //  일단 3개 모두 시도하는 게 더 안전)
+    }
+    // 지원 PID가 하나도 감지 안 되면 (구형 차 또는 응답 파싱 실패)
+    // 기존 폴링 목록 전체를 사용
+    if (supported.isEmpty) {
+      debugPrint('[OBD] PID 지원 감지 실패 → 기본 목록 전체 사용');
+      return _pollOrder.toSet();
+    }
+    return supported;
+  }
+
+  /// OBD 지원 비트맵 응답 파싱 → 지원되는 PID 집합 반환
+  Set<String> _parseSupportBitmap(String queryPid, String raw) {
+    final supported = <String>{};
+    final s = raw.replaceAll(RegExp(r'\s'), '').toUpperCase();
+    // 응답 예: "4100BE3EB810" — "41" + queryPid[2:4] + 4바이트 비트맵
+    final prefix = '41${queryPid.substring(2).toUpperCase()}';
+    final idx = s.indexOf(prefix);
+    if (idx < 0) return supported;
+    final hexData = s.substring(idx + prefix.length);
+    if (hexData.length < 8) return supported;
+
+    final bitmap = int.tryParse(hexData.substring(0, 8), radix: 16);
+    if (bitmap == null) return supported;
+
+    final baseOffset = int.parse(queryPid.substring(2), radix: 16);
+    for (int i = 0; i < 32; i++) {
+      if (bitmap & (1 << (31 - i)) != 0) {
+        final pidNum = baseOffset + i + 1;
+        final pidStr = '01${pidNum.toRadixString(16).padLeft(2, '0').toUpperCase()}';
+        supported.add(pidStr);
+      }
+    }
+    return supported;
   }
 
   void _onBytes(List<int> bytes) {
@@ -359,10 +462,17 @@ class OBDService extends ChangeNotifier {
   void _startPolling() {
     _pidIdx = 0;
     _consecutiveFailures = 0;
+    // 이 차량이 지원하는 PID만 폴링 (없으면 전체)
+    final activePids = _pollOrder
+        .where((p) => _supportedPids.isEmpty || _supportedPids.contains(p))
+        .toList();
+    debugPrint('[OBD] 폴링 PID ${activePids.length}개: $activePids');
+
     _pollTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
       if (_state != OBDState.ready) return;
-      final pid = _pollOrder[_pidIdx];
-      _pidIdx = (_pidIdx + 1) % _pollOrder.length;
+      if (activePids.isEmpty) return;
+      final pid = activePids[_pidIdx % activePids.length];
+      _pidIdx = (_pidIdx + 1) % activePids.length;
       final resp = await _cmd(pid);
       if (resp.isNotEmpty) {
         _consecutiveFailures = 0;
