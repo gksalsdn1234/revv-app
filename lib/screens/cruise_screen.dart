@@ -107,7 +107,13 @@ class _CruiseScreenState extends State<CruiseScreen> {
     if (mounted) setState(() {});
   }
 
+  static const _wakeWords = ['레브', 'revv', 'revy', '레비'];
+
   Future<void> _onAlwaysListenResult(String text) async {
+    // 웨이크워드 "레브" 없으면 무시
+    final lower = text.toLowerCase();
+    if (!_wakeWords.any((w) => lower.contains(w))) return;
+
     if (!mounted) return;
     SttService().setProcessing(true);
     final loc = context.read<LocationService>();
