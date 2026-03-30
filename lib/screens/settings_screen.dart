@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../services/settings_service.dart';
+import '../services/jarvis_script.dart';
 import '../services/route_service.dart';
 import 'calibration_screen.dart';
 import '../services/route_service.dart';
@@ -59,6 +60,21 @@ class SettingsScreen extends StatelessWidget {
                 onChanged: (v) => settings.setTtsMuted(!v),
               ),
 
+              // ── 섹션: 코파일럿 스타일 ───────────────────────────────
+              _SectionHeader(label: '코파일럿 스타일'),
+              _RadioTile<JarvisPersona>(
+                icon: Icons.record_voice_over_rounded,
+                iconColor: AppColors.red,
+                title: '음성 페르소나',
+                subtitle: '자동 브리핑 어조',
+                options: const [
+                  _Option(label: '레이스 엔지니어', value: JarvisPersona.engineer),
+                  _Option(label: '친근한 코파일럿', value: JarvisPersona.friendly),
+                ],
+                selected: settings.jarvisPersona,
+                onChanged: settings.setJarvisPersona,
+              ),
+
               // ── 섹션: 루트 탐색 ─────────────────────────────────
               _SectionHeader(label: '루트 탐색'),
               _RadioTile<int>(
@@ -108,6 +124,14 @@ class SettingsScreen extends StatelessWidget {
                 subtitle: '루트 300m 이상 벗어나면 알림',
                 value: settings.offRouteAlert,
                 onChanged: settings.setOffRouteAlert,
+              ),
+              _ToggleTile(
+                icon: Icons.hearing,
+                iconColor: AppColors.cyan,
+                title: '항상 듣기',
+                subtitle: '마이크 버튼 없이 자동으로 음성 명령 감지',
+                value: settings.alwaysListen,
+                onChanged: settings.setAlwaysListen,
               ),
 
               const SizedBox(height: 32),

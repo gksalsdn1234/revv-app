@@ -36,7 +36,9 @@ class StorageKeys {
   static const searchRadius  = 'setting_searchRadius';
   static const distUnit      = 'setting_distUnit';
   static const showSpeedHud  = 'setting_showSpeedHud';
-  static const offRouteAlert = 'setting_offRouteAlert';
+  static const offRouteAlert  = 'setting_offRouteAlert';
+  static const jarvisPersona  = 'setting_jarvisPersona'; // 'engineer' | 'friendly'
+  static const alwaysListen   = 'setting_alwaysListen';
 
   // ── IMU 캘리브레이션 (ImuService) ───────────────────────────
   static const imuMount = 'imu_mount';

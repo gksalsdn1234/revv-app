@@ -11,6 +11,12 @@ import '../services/location_service.dart';
 import '../services/weather_service.dart';
 import '../services/route_service.dart';
 import '../services/directions_service.dart';
+import '../services/settings_service.dart';
+import '../services/stt_service.dart';
+import '../services/revv_ai_service.dart';
+import '../services/imu_service.dart';
+import '../services/obd_service.dart';
+import '../services/jarvis_service.dart';
 import '../models/run_session.dart';
 import 'sprint_screen.dart';
 import 'drive_screen.dart';
@@ -58,6 +64,9 @@ class _CruiseScreenState extends State<CruiseScreen> {
   bool _isDriveMode = false;
   RevvRoute? _driveRoute;
 
+  // ── 항상 듣기 상태 ──
+  bool _alwaysListening = false;
+
   @override
   void initState() {
     super.initState();
@@ -86,8 +95,47 @@ class _CruiseScreenState extends State<CruiseScreen> {
     });
   }
 
+  void _syncAlwaysListen() {
+    final want = context.read<SettingsService>().alwaysListen;
+    if (want == _alwaysListening) return;
+    _alwaysListening = want;
+    if (want) {
+      SttService().startAlwaysListening(_onAlwaysListenResult);
+    } else {
+      SttService().stopAlwaysListening();
+    }
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _onAlwaysListenResult(String text) async {
+    if (!mounted) return;
+    SttService().setProcessing(true);
+    final loc = context.read<LocationService>();
+    final weather = context.read<WeatherService>();
+    final jarvis = context.read<JarvisService>();
+    final routeSvc = context.read<RouteService>();
+    final imu = context.read<ImuService>();
+    final obd = context.read<OBDService>();
+    final response = await RevvAiService().ask(
+      text,
+      speedKmh: loc.speedKmh,
+      weather: weather.weatherDesc,
+      roadCondition: weather.roadCondition,
+      routeName: routeSvc.selectedRoute?.name,
+      routeDistanceKm: routeSvc.selectedRoute?.distanceKm,
+      lateralG: imu.lateralG,
+      longitudinalG: imu.longitudinalG,
+      rpm: obd.data?.rpm,
+      coolantTempC: obd.data?.coolantTempC,
+      throttlePct: obd.data?.throttlePct,
+    );
+    if (mounted) jarvis.speak(response);
+    SttService().setProcessing(false);
+  }
+
   @override
   void dispose() {
+    SttService().stopAlwaysListening();
     _locationService?.removeListener(_onLocationChanged);
     super.dispose();
   }
@@ -227,6 +275,9 @@ class _CruiseScreenState extends State<CruiseScreen> {
     // select는 필요한 속성만 감시 → 불필요한 rebuild 차단
     final selectedRoute = context.select<RouteService, RevvRoute?>((r) => r.selectedRoute);
     final sprintRequested = context.select<RouteService, bool>((r) => r.sprintRequested);
+    // 항상듣기 설정 변화 감지 → 즉시 동기화
+    context.select<SettingsService, bool>((s) => s.alwaysListen);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncAlwaysListen());
 
     if (sprintRequested && !_isSprinting && !_isDriveMode) {
       context.read<RouteService>().clearSprintRequest();
@@ -368,6 +419,15 @@ class _CruiseScreenState extends State<CruiseScreen> {
                     child: const Icon(Icons.thermostat_rounded, size: 20, color: Colors.white),
                   ),
                 ),
+              ),
+
+            // ── 항상듣기 인디케이터 ──
+            if (!_isSprinting && !_isDriveMode && _alwaysListening)
+              Positioned(
+                key: const ValueKey('always-listen-dot'),
+                top: MediaQuery.of(context).padding.top + 14,
+                right: 14,
+                child: const _AlwaysListenDot(),
               ),
 
             // ── 하단 탭바 ──
@@ -1458,6 +1518,80 @@ class _SheetOptionBtnState extends State<_SheetOptionBtn> {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 항상듣기 인디케이터 — 우상단 pulsing dot
+// ══════════════════════════════════════════════════════════════════
+class _AlwaysListenDot extends StatefulWidget {
+  const _AlwaysListenDot();
+
+  @override
+  State<_AlwaysListenDot> createState() => _AlwaysListenDotState();
+}
+
+class _AlwaysListenDotState extends State<_AlwaysListenDot>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+    _pulse = Tween(begin: 0.4, end: 1.0).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _pulse,
+      builder: (_, __) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.65),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: AppColors.cyan.withValues(alpha: _pulse.value * 0.7),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.cyan.withValues(alpha: _pulse.value),
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              'LISTENING',
+              style: GoogleFonts.rajdhani(
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                color: AppColors.cyan.withValues(alpha: _pulse.value),
+                letterSpacing: 1.5,
+              ),
+            ),
+          ],
         ),
       ),
     );
