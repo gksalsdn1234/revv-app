@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
@@ -16,11 +17,15 @@ class MapWidget extends StatefulWidget {
   /// 선택한 드라이빙 루트 (빨간 선)
   final List<LatLng>? routePolyline;
 
+  /// 커브 밀도 히트맵 모드 (파랑→초록→노랑→주황→빨강)
+  final bool showCurveHeatmap;
+
   const MapWidget({
     super.key,
     this.isSprintMode = false,
     this.navPolyline,
     this.routePolyline,
+    this.showCurveHeatmap = false,
   });
 
   @override
@@ -34,14 +39,13 @@ class _MapWidgetState extends State<MapWidget> {
   bool _locationPuckEnabled = false;
   LocationService? _locationService;
 
-  // ── 카메라 업데이트 1-프레임 격리 ──────────────────────────────
-  // LocationService notifyListeners (post-frame) → 모든 리스너 동기 실행:
-  //   MapWidget._onLocationChanged → _moveCamera (Mapbox 네이티브 호출)
-  //   SprintScreen._onLocation → setState (다음 프레임 dirty 마킹)
-  // 문제: _moveCamera의 platform view 업데이트가 다음 프레임 layout 중 도착
-  //   → !_debugDoingThisLayout assertion
-  // 해결: 카메라 업데이트를 별도 addPostFrameCallback으로 1프레임 격리
-  //   → setState 트리거 layout이 완전히 끝난 후 카메라 이동
+  // ── FollowPuckViewportState: Mapbox 네이티브 위치 추적 ──────────
+  // 수동 flyTo/easeTo 대신 SDK의 viewport 추적 기능 사용.
+  // 스타일 로드 후 setState로 활성화 → SDK가 GPS 추적을 자동 처리.
+  // 사용자 터치로 카메라 이탈 시에도 다음 GPS 업데이트로 재잠금.
+  mbx.ViewportState? _viewportState;
+
+  // ── 카메라 업데이트 1-프레임 격리 (viewport 비활성 구간 fallback) ──
   bool _cameraPending = false;
 
   @override
@@ -70,14 +74,21 @@ class _MapWidgetState extends State<MapWidget> {
     if (oldWidget.isSprintMode != widget.isSprintMode) {
       _styleLoaded = false;
       _locationPuckEnabled = false;
+      _viewportState = null; // 스타일 재로드 후 _onStyleLoaded에서 재활성화
     }
 
     if (_styleLoaded) {
       if (oldWidget.navPolyline != widget.navPolyline) {
         _drawPolyline('nav', widget.navPolyline ?? [], Colors.blue.value, 4.0);
       }
-      if (oldWidget.routePolyline != widget.routePolyline) {
-        _drawPolyline('route', widget.routePolyline ?? [], AppColors.orange.value, 5.5);
+      if (oldWidget.routePolyline != widget.routePolyline ||
+          oldWidget.showCurveHeatmap != widget.showCurveHeatmap) {
+        if (widget.showCurveHeatmap && widget.routePolyline?.isNotEmpty == true) {
+          _drawCurveHeatmap(widget.routePolyline!);
+        } else {
+          _clearHeatmap();
+          _drawPolyline('route', widget.routePolyline ?? [], AppColors.red.value, 5.5);
+        }
       }
     }
     // 스타일 재로드 중(_styleLoaded=false)에 polyline 변경이 오면
@@ -92,9 +103,28 @@ class _MapWidgetState extends State<MapWidget> {
 
   void _onLocationChanged() {
     if (_locationService == null || !_styleLoaded) return;
-    // 카메라 업데이트를 다음 프레임 post-frame으로 격리:
-    // 현재 post-frame 사이클의 setState 들이 유발하는 layout이
-    // 완전히 끝난 후 Mapbox 네이티브 호출 실행
+    // FollowPuckViewportState가 활성화돼 있으면 SDK가 자동 추적 → 수동 카메라 불필요.
+    // 단, viewport가 아직 없거나 사용자가 이탈한 경우 수동 재잠금 (fallback).
+    if (_viewportState != null) {
+      // 사용자가 수동으로 지도를 이탈했을 때 GPS 업데이트마다 재잠금:
+      // 새 ViewportState 인스턴스를 만들어 SDK equality 체크 통과 → transition 재호출
+      if (!_cameraPending) {
+        _cameraPending = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _cameraPending = false;
+          if (!mounted || !_styleLoaded) return;
+          setState(() {
+            _viewportState = mbx.FollowPuckViewportState(
+              zoom: widget.isSprintMode ? 16.5 : 15.0,
+              pitch: widget.isSprintMode ? 50.0 : 20.0,
+              bearing: const mbx.FollowPuckViewportStateBearingHeading(),
+            );
+          });
+        });
+      }
+      return;
+    }
+    // viewport 비활성 구간 fallback: 수동 카메라 이동
     if (!_cameraPending) {
       _cameraPending = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -117,15 +147,25 @@ class _MapWidgetState extends State<MapWidget> {
     _locationPuckEnabled = false;
     _annotationManager =
         await _mapController?.annotations.createPointAnnotationManager();
-    final loc = context.read<LocationService>();
     await _applyCustomStyle();
-    await _moveCamera(loc.lat, loc.lng, heading: loc.heading, immediate: true);
+    // FollowPuckViewportState 활성화: 스타일 로드 완료 후 SDK 네이티브 추적 시작
+    setState(() {
+      _viewportState = mbx.FollowPuckViewportState(
+        zoom: widget.isSprintMode ? 16.5 : 15.0,
+        pitch: widget.isSprintMode ? 50.0 : 20.0,
+        bearing: const mbx.FollowPuckViewportStateBearingHeading(),
+      );
+    });
     // 폴리라인 재그리기 (스타일 재로드 시)
     if (widget.navPolyline?.isNotEmpty == true) {
       await _drawPolyline('nav', widget.navPolyline!, Colors.blue.value, 4.0);
     }
     if (widget.routePolyline?.isNotEmpty == true) {
-      await _drawPolyline('route', widget.routePolyline!, AppColors.red.value, 5.5);
+      if (widget.showCurveHeatmap) {
+        await _drawCurveHeatmap(widget.routePolyline!);
+      } else {
+        await _drawPolyline('route', widget.routePolyline!, AppColors.red.value, 5.5);
+      }
     }
   }
 
@@ -180,6 +220,123 @@ class _MapWidgetState extends State<MapWidget> {
     }
   }
 
+  // ── 커브 히트맵 레이어 ────────────────────────────────────────────
+  static const _hmIds = ['hm-straight', 'hm-gentle', 'hm-medium', 'hm-tight'];
+  static const _hmColors = [0xFF3B82F6, 0xFF22C55E, 0xFFF59E0B, 0xFFEF4444];
+
+  Future<void> _clearHeatmap() async {
+    final map = _mapController;
+    if (map == null) return;
+    for (final id in _hmIds) {
+      try { await map.style.removeStyleLayer('$id-layer'); } catch (_) {}
+      try { await map.style.removeStyleSource('$id-source'); } catch (_) {}
+    }
+  }
+
+  static double _bearing(double lat1d, double lon1d, double lat2d, double lon2d) {
+    final lat1 = lat1d * math.pi / 180;
+    final lat2 = lat2d * math.pi / 180;
+    final dLon = (lon2d - lon1d) * math.pi / 180;
+    final y = math.sin(dLon) * math.cos(lat2);
+    final x = math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLon);
+    return math.atan2(y, x) * 180 / math.pi;
+  }
+
+  static double _bearingDiff(double b1, double b2) {
+    final d = (b2 - b1).abs();
+    return d > 180 ? 360 - d : d;
+  }
+
+  static double _haversineKm(double lat1, double lon1, double lat2, double lon2) {
+    const r = 6371.0;
+    final dLat = (lat2 - lat1) * math.pi / 180;
+    final dLon = (lon2 - lon1) * math.pi / 180;
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1 * math.pi / 180) * math.cos(lat2 * math.pi / 180) *
+            math.sin(dLon / 2) * math.sin(dLon / 2);
+    return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  // bucket: 0=straight(blue) 1=gentle(green) 2=medium(amber) 3=tight(red)
+  static int _curveBucket(double ratePerKm) {
+    if (ratePerKm < 60) return 0;
+    if (ratePerKm < 200) return 1;
+    if (ratePerKm < 400) return 2;
+    return 3;
+  }
+
+  Future<void> _drawCurveHeatmap(List<LatLng> nodes) async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded || nodes.length < 3) return;
+
+    // Remove existing route + heatmap layers
+    try { await map.style.removeStyleLayer('route-layer'); } catch (_) {}
+    try { await map.style.removeStyleLayer('route-casing-layer'); } catch (_) {}
+    try { await map.style.removeStyleSource('route-source'); } catch (_) {}
+    await _clearHeatmap();
+
+    // Build 4 bucket FeatureCollections (each bucket = list of LineString coordinates)
+    final buckets = List.generate(4, (_) => <List<List<double>>>[]);
+    List<List<double>>? curSeg;
+    int curBucket = -1;
+
+    for (int i = 0; i < nodes.length - 1; i++) {
+      final n = nodes[i];
+      final n1 = nodes[i + 1];
+
+      // Compute curvature rate at node i (use i-1..i..i+1 bearing change)
+      int bucket = 1; // default gentle
+      if (i > 0 && i < nodes.length - 2) {
+        final prev = nodes[i - 1];
+        final b1 = _bearing(prev.lat, prev.lng, n.lat, n.lng);
+        final b2 = _bearing(n.lat, n.lng, n1.lat, n1.lng);
+        final dist = _haversineKm(prev.lat, prev.lng, n1.lat, n1.lng);
+        final rate = dist > 0.00001 ? _bearingDiff(b1, b2) / dist : 0.0;
+        bucket = _curveBucket(rate);
+      }
+
+      if (bucket != curBucket) {
+        if (curSeg != null && curSeg.length >= 2) {
+          buckets[curBucket].add(curSeg);
+        }
+        curBucket = bucket;
+        curSeg = [[n.lng, n.lat]];
+      }
+      curSeg!.add([n1.lng, n1.lat]);
+    }
+    if (curSeg != null && curSeg.length >= 2) {
+      buckets[curBucket].add(curSeg);
+    }
+
+    // Draw each bucket as one GeoJSON FeatureCollection
+    for (int b = 0; b < 4; b++) {
+      if (buckets[b].isEmpty) continue;
+      final features = buckets[b].map((coords) => {
+        'type': 'Feature',
+        'geometry': {'type': 'LineString', 'coordinates': coords},
+        'properties': {},
+      }).toList();
+      final geoJson = jsonEncode({'type': 'FeatureCollection', 'features': features});
+      final sourceId = '${_hmIds[b]}-source';
+      final layerId = '${_hmIds[b]}-layer';
+      try {
+        await map.style.addSource(mbx.GeoJsonSource(id: sourceId, data: geoJson));
+        await map.style.addLayer(mbx.LineLayer(
+          id: layerId,
+          sourceId: sourceId,
+          lineColor: _hmColors[b],
+          lineWidth: 5.5,
+          lineOpacity: 1.0,
+          lineCap: mbx.LineCap.ROUND,
+          lineJoin: mbx.LineJoin.ROUND,
+        ));
+      } catch (e) {
+        debugPrint('[MapWidget] heatmap bucket $b: $e');
+      }
+    }
+  }
+
   Future<void> _applyCustomStyle() async {
     final map = _mapController;
     if (map == null) return;
@@ -189,6 +346,9 @@ class _MapWidgetState extends State<MapWidget> {
       await map.compass.updateSettings(mbx.CompassSettings(
         enabled: true,
         opacity: 0.85,
+        position: mbx.OrnamentPosition.BOTTOM_RIGHT,
+        marginBottom: 120,
+        marginRight: 14,
       ));
     } catch (e) {
       debugPrint('[MapWidget] compass: $e');
@@ -304,6 +464,8 @@ class _MapWidgetState extends State<MapWidget> {
         zoom: widget.isSprintMode ? 16.5 : 15.0,
         pitch: widget.isSprintMode ? 50.0 : 20.0,
       ),
+      // FollowPuckViewportState: 스타일 로드 후 활성화 → Mapbox 네이티브 GPS 추적
+      viewport: _viewportState,
       androidHostingMode: mbx.AndroidPlatformViewHostingMode.TLHC_VD,
       textureView: true,
       onMapCreated: _onMapCreated,
