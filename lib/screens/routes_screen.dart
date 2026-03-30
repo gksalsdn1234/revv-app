@@ -14,6 +14,8 @@ import '../services/loop_route_service.dart';
 import '../services/route_brief_service.dart';
 import '../services/weather_service.dart';
 import '../services/revv_ai_service.dart';
+import '../services/jarvis_service.dart';
+import '../services/settings_service.dart';
 import '../models/revv_route.dart';
 import '../models/loop_route.dart';
 import 'route_wizard_screen.dart';
@@ -117,6 +119,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
         _briefLoading = false;
         _briefShownOnce = true;
       });
+      // 음소거 아니면 TTS로도 읽어줌
+      if (brief.isNotEmpty && !context.read<SettingsService>().ttsMuted) {
+        context.read<JarvisService>().speak(brief);
+      }
     }
   }
 
@@ -601,7 +607,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
             child: Row(
               children: [
                 // 뒤로가기
-                GestureDetector(
+                _TapScale(
                   onTap: () => Navigator.pop(context),
                   child: ClipOval(
                     child: BackdropFilter(
@@ -665,7 +671,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                 ),
                 const SizedBox(width: 10),
                 // 루트 wizard
-                GestureDetector(
+                _TapScale(
                   onTap: () => RouteWizardSheet.show(context),
                   child: Container(
                     width: 40,
@@ -693,7 +699,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
               builder: (_, svc, __) {
                 if (svc.isLoading) return const SizedBox.shrink();
                 return Center(
-                  child: GestureDetector(
+                  child: _TapScale(
                     onTap: _searchHere,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
@@ -750,34 +756,39 @@ class _RoutesScreenState extends State<RoutesScreen> {
               ),
             ),
 
-          // 로딩 오버레이 — IgnorePointer로 버튼 터치 통과
+          // 로딩 오버레이 — FadeTransition으로 부드럽게 등장/사라짐
           Consumer<RouteService>(
             builder: (context, svc, _) {
-              if (!svc.isLoading) return const SizedBox.shrink();
-              return Positioned.fill(
-                child: IgnorePointer(
-                  child: Container(
-                    color: Colors.black.withOpacity(0.45),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'REVV가 주변 루트를 분석하고 있어요',
-                          style: GoogleFonts.rajdhani(
-                              fontSize: 14, color: Colors.white),
-                        ),
-                        const SizedBox(height: 16),
-                        const SizedBox(
-                          width: 200,
-                          child: LinearProgressIndicator(
-                            color: AppColors.red,
-                            backgroundColor: AppColors.panel,
+              return AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: svc.isLoading
+                    ? Positioned.fill(
+                        key: const ValueKey('loading'),
+                        child: IgnorePointer(
+                          child: Container(
+                            color: Colors.black.withOpacity(0.45),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'REVV가 주변 루트를 분석하고 있어요',
+                                  style: GoogleFonts.rajdhani(
+                                      fontSize: 14, color: Colors.white),
+                                ),
+                                const SizedBox(height: 16),
+                                const SizedBox(
+                                  width: 200,
+                                  child: LinearProgressIndicator(
+                                    color: AppColors.red,
+                                    backgroundColor: AppColors.panel,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
+                      )
+                    : const SizedBox.shrink(key: ValueKey('no-loading')),
               );
             },
           ),
@@ -1042,8 +1053,24 @@ class _SwipeRouteCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // ── 루트 상세 (루트 선택 시만) ──
-              if (route != null) ...[
+              // ── 루트 상세 (루트 선택 시만) — AnimatedSwitcher 진입 페이드 ──
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 250),
+                transitionBuilder: (child, anim) => FadeTransition(
+                  opacity: anim,
+                  child: SlideTransition(
+                    position: Tween(begin: const Offset(0, 0.06), end: Offset.zero)
+                        .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+                    child: child,
+                  ),
+                ),
+                child: route == null
+                    ? const SizedBox.shrink(key: ValueKey('no-route'))
+                    : Column(
+                        key: ValueKey('route-${route.id}'),
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
                 Container(height: 1, color: Colors.white.withValues(alpha: 0.07)),
                 Padding(
                   padding: const EdgeInsets.fromLTRB(14, 10, 10, 12),
@@ -1065,21 +1092,26 @@ class _SwipeRouteCard extends StatelessWidget {
                               ),
                             ),
                           ),
-                          GestureDetector(
+                          _TapScale(
                             onTap: () {
                               context.read<SavedRouteService>().toggle(route);
-                              if (!isSaved) onSaved?.call(); // 저장 시만 (해제 제외)
+                              if (!isSaved) onSaved?.call();
                             },
                             child: Padding(
                               padding: const EdgeInsets.all(4),
-                              child: Icon(
-                                isSaved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                                size: 18,
-                                color: isSaved ? AppColors.red : Colors.white38,
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 200),
+                                transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+                                child: Icon(
+                                  isSaved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                                  key: ValueKey(isSaved),
+                                  size: 18,
+                                  color: isSaved ? AppColors.red : Colors.white38,
+                                ),
                               ),
                             ),
                           ),
-                          GestureDetector(
+                          _TapScale(
                             onTap: onClose,
                             child: const Padding(
                               padding: EdgeInsets.all(4),
@@ -1214,7 +1246,7 @@ class _SwipeRouteCard extends StatelessWidget {
                             ),
                           const Spacer(),
                           if (onPreview != null) ...[
-                            GestureDetector(
+                            _TapScale(
                               onTap: onPreview,
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
@@ -1241,7 +1273,7 @@ class _SwipeRouteCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                           ],
-                          GestureDetector(
+                          _TapScale(
                             onTap: onGo,
                             child: Container(
                               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
@@ -1268,7 +1300,9 @@ class _SwipeRouteCard extends StatelessWidget {
                     ],
                   ),
                 ),
-              ],
+                        ],
+                      ),
+              ),
             ],
           ),
         ),
@@ -1299,9 +1333,10 @@ class _IconBtn extends StatelessWidget {
         : active
             ? AppColors.red
             : Colors.white54;
-    return GestureDetector(
+    return _TapScale(
       onTap: onTap,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
         width: 36,
         height: 32,
         margin: const EdgeInsets.only(right: 6),
@@ -1668,12 +1703,14 @@ class _RadiusBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return _TapScale(
       onTap: () {
         final loc = context.read<LocationService>();
         context.read<RouteService>().changeRadius(km, loc.lat, loc.lng);
       },
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
         margin: const EdgeInsets.only(left: 3),
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
         decoration: BoxDecoration(
@@ -1755,6 +1792,38 @@ class _BriefingTextState extends State<_BriefingText> {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// 탭 스케일 피드백
+// ══════════════════════════════════════════════════════════════════
+class _TapScale extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  const _TapScale({required this.child, this.onTap});
+
+  @override
+  State<_TapScale> createState() => _TapScaleState();
+}
+
+class _TapScaleState extends State<_TapScale> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap,
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.93 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOut,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // 탭 버튼 (ROUTES | LOOP)
 // ══════════════════════════════════════════════════════════════════
 class _TabBtn extends StatelessWidget {
@@ -1766,9 +1835,11 @@ class _TabBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: GestureDetector(
+      child: _TapScale(
         onTap: onTap,
-        child: Container(
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
           height: 40,
           decoration: BoxDecoration(
             color: active
@@ -1777,14 +1848,15 @@ class _TabBtn extends StatelessWidget {
             borderRadius: BorderRadius.circular(20),
           ),
           child: Center(
-            child: Text(
-              label,
+            child: AnimatedDefaultTextStyle(
+              duration: const Duration(milliseconds: 200),
               style: GoogleFonts.orbitron(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
                 color: active ? Colors.white : Colors.white38,
                 letterSpacing: 2.5,
               ),
+              child: Text(label),
             ),
           ),
         ),

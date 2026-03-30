@@ -5,6 +5,37 @@ import '../theme/colors.dart';
 import '../models/revv_route.dart';
 import '../services/route_service.dart';
 import '../services/location_service.dart';
+import '../screens/route_preview_screen.dart';
+
+// ── 탭 스케일 피드백 ─────────────────────────────────────────────────
+class _TapScale extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  const _TapScale({required this.child, this.onTap});
+
+  @override
+  State<_TapScale> createState() => _TapScaleState();
+}
+
+class _TapScaleState extends State<_TapScale> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap,
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.93 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOut,
+        child: widget.child,
+      ),
+    );
+  }
+}
 
 // ── 난이도 색상 헬퍼 (외부 공개) ─────────────────────────────────
 Color routeDiffColor(int level) {
@@ -83,7 +114,7 @@ class _RoutesBottomSheetState extends State<RoutesBottomSheet> {
                 ),
               const Spacer(),
               // 정렬 토글
-              GestureDetector(
+              _TapScale(
                 onTap: () =>
                     setState(() => _sortMode = _sortMode == 0 ? 1 : 0),
                 child: Container(
@@ -97,18 +128,27 @@ class _RoutesBottomSheetState extends State<RoutesBottomSheet> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        child: Icon(
                           _sortMode == 0 ? Icons.star : Icons.near_me,
+                          key: ValueKey(_sortMode),
                           size: 10,
-                          color: AppColors.red),
+                          color: AppColors.red,
+                        ),
+                      ),
                       const SizedBox(width: 4),
-                      Text(
-                        _sortMode == 0 ? '점수순' : '거리순',
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textSecondary,
-                            letterSpacing: 1),
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        child: Text(
+                          _sortMode == 0 ? '점수순' : '거리순',
+                          key: ValueKey(_sortMode),
+                          style: GoogleFonts.rajdhani(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textSecondary,
+                              letterSpacing: 1),
+                        ),
                       ),
                     ],
                   ),
@@ -142,9 +182,11 @@ class _RadiusSelector extends StatelessWidget {
     return Row(
       children: [30, 50, 100].map((km) {
         final active = current == km;
-        return GestureDetector(
+        return _TapScale(
           onTap: () => onSelect(km),
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
             margin: const EdgeInsets.only(left: 4),
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
             decoration: BoxDecoration(
@@ -287,8 +329,39 @@ class RouteInfoOverlay extends StatelessWidget {
                       Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          // PREVIEW 버튼
+                          _TapScale(
+                            onTap: () => Navigator.push(
+                              ctx,
+                              MaterialPageRoute(
+                                builder: (_) => RoutePreviewScreen(route: route),
+                              ),
+                            ),
+                            child: Container(
+                              width: 76,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: AppColors.surface,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                    color: AppColors.red.withValues(alpha: 0.5)),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  'PREVIEW',
+                                  style: GoogleFonts.orbitron(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 5),
                           // GO 버튼
-                          GestureDetector(
+                          _TapScale(
                             onTap: () {
                               svc.requestSprint();
                               Navigator.of(ctx).pop();
@@ -321,7 +394,7 @@ class RouteInfoOverlay extends StatelessWidget {
                           // CHAIN 버튼
                           if (hasChain) ...[
                             const SizedBox(height: 5),
-                            GestureDetector(
+                            _TapScale(
                               onTap: () {
                                 final allNodes = [
                                   ...route.nodes,
@@ -369,7 +442,7 @@ class RouteInfoOverlay extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           // 닫기
-                          GestureDetector(
+                          _TapScale(
                             onTap: () => svc.deselectRoute(),
                             child: Container(
                               width: 28, height: 28,
@@ -382,7 +455,7 @@ class RouteInfoOverlay extends StatelessWidget {
                           ),
                           const SizedBox(height: 6),
                           // 배제 버튼
-                          GestureDetector(
+                          _TapScale(
                             onTap: () {
                               final route = svc.selectedRoute;
                               if (route != null) svc.excludeRoute(route);
