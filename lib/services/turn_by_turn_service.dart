@@ -12,6 +12,7 @@ class TurnByTurnService {
   bool _announced500 = false; // 급커브 사전 경고 (sharp turn만)
   bool _announced300 = false;
   bool _announced100 = false;
+  bool _announcedStraight = false; // 직진 구간 진입 안내
   final FlutterTts _tts = FlutterTts();
   bool _stopped = false;
   bool _muted = false;
@@ -22,6 +23,22 @@ class TurnByTurnService {
   /// 현재 보여줄 다음 스텝 (upcoming turn)
   NavStep? get upcomingStep =>
       _idx + 1 < steps.length ? steps[_idx + 1] : (_idx < steps.length ? steps[_idx] : null);
+
+  /// 남은 스텝에 진짜 턴(좌/우/급커브/로터리 등)이 없으면 true
+  bool get isStraightAhead {
+    for (int i = _idx + 1; i < steps.length; i++) {
+      final s = steps[i];
+      if (s.type == 'arrive') continue;
+      final m = s.modifier;
+      if (m == 'left' || m == 'right' ||
+          m == 'slight left' || m == 'slight right' ||
+          m == 'sharp left' || m == 'sharp right' ||
+          m == 'uturn') return false;
+      if (s.type == 'roundabout' || s.type == 'rotary' ||
+          s.type == 'fork' || s.type == 'end of road') return false;
+    }
+    return true;
+  }
 
   TurnByTurnService({
     required this.steps,
@@ -91,6 +108,13 @@ class TurnByTurnService {
       // 마지막 스텝(arrive) 도착
       if (_idx >= steps.length - 1) {
         _speak('목적지에 도착했습니다');
+        return;
+      }
+
+      // 직진 구간 진입 — 남은 스텝에 턴 없을 때 1회만 안내
+      if (!_announcedStraight && isStraightAhead) {
+        _announcedStraight = true;
+        _speak('앞으로 직진 구간입니다');
       }
     }
   }

@@ -122,12 +122,12 @@ class _CruiseScreenState extends State<CruiseScreen> {
     final routeSvc = context.read<RouteService>();
     final route = routeSvc.sprintRoute ?? routeSvc.selectedRoute;
 
-    // 루트 시작점까지 거리 계산 → 3km 이내면 DRIVE/NAV 선택 시트
+    // 루트 시작점까지 거리 계산 → 500m 이내면 DRIVE/NAV 선택 시트
     if (route != null) {
       final loc = context.read<LocationService>();
       final dist = RevvRoute.haversineKm(
           LatLng(loc.lat, loc.lng), route.nodes.first);
-      if (dist <= 3.0) {
+      if (dist <= 0.5) {
         _showDriveOrNavSheet(route);
         return;
       }

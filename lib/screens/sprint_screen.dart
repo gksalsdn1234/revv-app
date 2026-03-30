@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -16,6 +17,9 @@ import '../services/imu_service.dart';
 import '../services/turn_by_turn_service.dart';
 import '../services/settings_service.dart';
 import '../services/corner_briefing_service.dart';
+import '../services/obd_service.dart';
+import '../services/jarvis_service.dart';
+import '../services/jarvis_script.dart';
 import '../models/nav_step.dart';
 import '../models/run_session.dart';
 import 'run_card_screen.dart';
@@ -36,8 +40,7 @@ class SprintScreen extends StatefulWidget {
   State<SprintScreen> createState() => _SprintScreenState();
 }
 
-class _SprintScreenState extends State<SprintScreen>
-    with SingleTickerProviderStateMixin {
+class _SprintScreenState extends State<SprintScreen> {
   LocationService? _locationService;
   RunSessionService? _runSessionService;
 
@@ -49,15 +52,13 @@ class _SprintScreenState extends State<SprintScreen>
   double _tbtDistM = 0;
   bool _isMuted = false;
 
-  // G-Force 레드 플래시
-  late AnimationController _flashCtrl;
-  late Animation<double> _flashAnim;
-  double _lastFlashG = 0;
-  static const double _flashThreshold = 0.65;
+  // G-Force 엣지 글로우 (합성G, 0.0 ~ ~1.0+)
+  double _currentG = 0.0;
 
   // DriveMode — Consumer<DrivingContextService> 대신 State로 관리
   DriveMode _driveMode = DriveMode.cruise;
   DrivingContextService? _drivingCtxService;
+  DateTime? _lastSportSpeak; // sport 모드 TTS 쿨다운
 
   // 루트 진행률 (0.0 ~ 1.0)
   double _routeProgressPct = 0.0;
@@ -65,26 +66,8 @@ class _SprintScreenState extends State<SprintScreen>
   // 코너 브리핑
   CornerBriefingService? _cornerBriefing;
   int _closestNodeIdx = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _flashCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    // value=1.0 → opacity=0.45(max), value=0.0 → opacity=0.0(invisible)
-    // FadeTransition은 paint-only(RenderAnimatedOpacity) — layout 미개입
-    _flashAnim = Tween<double>(begin: 0.0, end: 0.45).animate(
-      CurvedAnimation(parent: _flashCtrl, curve: Curves.easeOut),
-    );
-  }
-
-  // value를 1.0으로 점프 후 reverse() — forward(from:0)의 isAnimating 타이밍 이슈 회피
-  void _triggerGFlash() {
-    _flashCtrl.value = 1.0;
-    _flashCtrl.reverse();
-  }
+  // 루트 전체 코너 분석 캐시 (didChangeDependencies에서 1회 계산)
+  ({int hairpin, int sharp, int medium, double firstCornerM})? _routeAnalysis;
 
   @override
   void didChangeDependencies() {
@@ -102,6 +85,26 @@ class _SprintScreenState extends State<SprintScreen>
           tempDisplay: weather.tempDisplay,
           weatherDesc: weather.weatherDesc,
         );
+        // OBD 연결 상태면 런 트래킹 시작
+        try {
+          final obd = context.read<OBDService>();
+          if (obd.isConnected) obd.startRunTracking();
+        } catch (_) {}
+        // 주행 시작 자동 브리핑 (거리 + 커브타입 + 첫 코너 거리 포함)
+        if (!context.read<SettingsService>().ttsMuted) {
+          final persona = context.read<SettingsService>().jarvisPersona;
+          final firstCornerKm = _routeAnalysis != null && _routeAnalysis!.firstCornerM > 0
+              ? _routeAnalysis!.firstCornerM / 1000.0
+              : null;
+          context.read<JarvisService>().speak(
+            JarvisScript.sessionStart(
+              widget.selectedRoute,
+              weather.roadCondition,
+              persona,
+              firstCornerKm: firstCornerKm,
+            ),
+          );
+        }
       });
 
       _locationService!.addListener(_onLocation);
@@ -110,10 +113,24 @@ class _SprintScreenState extends State<SprintScreen>
       _drivingCtxService!.addListener(_onDriveMode);
       _isMuted = context.read<SettingsService>().ttsMuted;
 
-      // 코너 브리핑 서비스 초기화
+      // 루트 전체 코너 사전 분석
+      final route = widget.selectedRoute;
+      if (route != null && route.nodes.length >= 2) {
+        final loc = _locationService!;
+        _routeAnalysis = CornerBriefingService.analyzeFullRoute(
+          LatLng(loc.lat, loc.lng),
+          route.nodes,
+        );
+      }
+
+      // 코너 브리핑 서비스 초기화 (speak 콜백으로 JarvisService 연결)
+      final persona = context.read<SettingsService>().jarvisPersona;
       _cornerBriefing = CornerBriefingService(
+        onSpeak: (text) {
+          if (!_isMuted && mounted) context.read<JarvisService>().speak(text);
+        },
         onUpdate: () { if (mounted) setState(() {}); },
-        initialMuted: context.read<SettingsService>().ttsMuted,
+        persona: persona,
       );
 
       if (widget.selectedRoute != null) _fetchNavRoute();
@@ -161,6 +178,23 @@ class _SprintScreenState extends State<SprintScreen>
         Future.delayed(const Duration(seconds: 3), () {
           if (mounted) setState(() => _routeStatusMsg = null);
         });
+        // 루트 진입 코너 요약 브리핑
+        if (!_isMuted && _routeAnalysis != null) {
+          final analysis = _routeAnalysis!;
+          final route = widget.selectedRoute!;
+          final persona = context.read<SettingsService>().jarvisPersona;
+          Future.delayed(const Duration(milliseconds: 1500), () {
+            if (mounted) {
+              context.read<JarvisService>().speak(JarvisScript.routeEntry(
+                route.distanceKm,
+                analysis.hairpin,
+                analysis.sharp,
+                analysis.firstCornerM,
+                persona,
+              ));
+            }
+          });
+        }
         return;
       }
     }
@@ -179,6 +213,13 @@ class _SprintScreenState extends State<SprintScreen>
       final nowOff = minDist > 0.3;
       final newPct = nodes.length > 1 ? closestIdx / (nodes.length - 1) : 0.0;
       if (wasOff != nowOff || (newPct - _routeProgressPct).abs() > 0.005) {
+        // 이탈/복귀 전환 시 TTS
+        if (wasOff != nowOff && !_isMuted) {
+          final persona = context.read<SettingsService>().jarvisPersona;
+          context.read<JarvisService>().speak(
+            nowOff ? JarvisScript.offRoute(persona) : JarvisScript.onRoute(persona),
+          );
+        }
         setState(() {
           _isOffRoute = nowOff;
           _routeProgressPct = newPct;
@@ -208,33 +249,45 @@ class _SprintScreenState extends State<SprintScreen>
   void _onDriveMode() {
     if (!mounted) return;
     final mode = _drivingCtxService?.mode ?? DriveMode.cruise;
-    if (mode != _driveMode) setState(() => _driveMode = mode);
+    if (mode != _driveMode) {
+      // cruise/winding → sport 진입 시 TTS (60초 쿨다운)
+      if (mode == DriveMode.sport && _driveMode != DriveMode.sport && !_isMuted) {
+        final now = DateTime.now();
+        if (_lastSportSpeak == null || now.difference(_lastSportSpeak!).inSeconds > 60) {
+          final persona = context.read<SettingsService>().jarvisPersona;
+          context.read<JarvisService>().speak(JarvisScript.sportMode(persona));
+          _lastSportSpeak = now;
+        }
+      }
+      setState(() => _driveMode = mode);
+    }
   }
 
   void _toggleMute() {
     setState(() => _isMuted = !_isMuted);
     _tbtService?.toggleMute();
-    _cornerBriefing?.toggleMute();
+    // cornerBriefing은 speak 콜백에서 _isMuted 체크 → 별도 toggleMute 불필요
     context.read<SettingsService>().setTtsMuted(_isMuted);
   }
 
   void _onImu() {
     if (!mounted) return;
     final imu = context.read<ImuService>();
-    final g = imu.lateralG.abs();
+    final lateral = imu.lateralG;
+    final lon = imu.longitudinalG;
+    final totalG = math.sqrt(lateral * lateral + lon * lon);
 
-    // 플래시 트리거 (setState 없이 AnimationController만 건드림)
-    if (g >= _flashThreshold && _lastFlashG < _flashThreshold) {
-      _triggerGFlash();
-    }
-    _lastFlashG = g;
-
-    // 급조작 감지 — G 임계값(0.45G) 초과 시 현재 위치와 함께 기록
-    if (g >= 0.45) {
+    // 급조작 감지 — 횡G 임계값(0.45G) 초과 시 현재 위치와 함께 기록
+    if (lateral.abs() >= 0.45) {
       final loc = _locationService;
       if (loc != null) {
-        _runSessionService?.recordSharpCorner(loc.lat, loc.lng, g);
+        _runSessionService?.recordSharpCorner(loc.lat, loc.lng, lateral.abs());
       }
+    }
+
+    // G-Force 엣지 글로우 업데이트 — 0.02G 이상 변화 시만 rebuild
+    if ((totalG - _currentG).abs() > 0.02) {
+      setState(() => _currentG = totalG);
     }
   }
 
@@ -244,12 +297,24 @@ class _SprintScreenState extends State<SprintScreen>
     _cornerBriefing?.stop();
     try { context.read<ImuService>().removeListener(_onImu); } catch (_) {}
     final imu = context.read<ImuService>();
+    OBDRunSummary? obdSummary;
+    try {
+      obdSummary = context.read<OBDService>().stopRunTracking();
+    } catch (_) {}
     final session = _runSessionService?.stopSession(
       maxLateralG: imu.maxLateralG,
       maxLonG: imu.maxLonG,
+      obdSummary: obdSummary,
     );
     imu.resetMaxG();
     if (!mounted) return;
+    // 즉시 음성 요약 (AI 없음 — 로컬 생성)
+    if (session != null && !_isMuted) {
+      final persona = context.read<SettingsService>().jarvisPersona;
+      context.read<JarvisService>().speak(
+        JarvisScript.sessionEnd(session.distanceKm, session.sharpCorners.length, persona),
+      );
+    }
     if (widget.onEnd != null) {
       widget.onEnd!(session);
       return;
@@ -266,7 +331,6 @@ class _SprintScreenState extends State<SprintScreen>
     _drivingCtxService?.removeListener(_onDriveMode);
     _tbtService?.stop();
     _cornerBriefing?.stop();
-    _flashCtrl.dispose();
     super.dispose();
   }
 
@@ -317,6 +381,16 @@ class _SprintScreenState extends State<SprintScreen>
             ),
           ),
 
+        // ── G-Force 엣지 글로우 (파→초→빨, paint-only) ──
+        Positioned.fill(
+          key: const ValueKey('g-glow'),
+          child: IgnorePointer(
+            child: CustomPaint(
+              painter: _GlowBorderPainter(g: _currentG),
+            ),
+          ),
+        ),
+
         // ── 상단: 턴바이턴 배너 ──
         if (_tbtService != null && _tbtService!.upcomingStep != null)
           Positioned(
@@ -327,6 +401,7 @@ class _SprintScreenState extends State<SprintScreen>
               distanceM: _tbtDistM,
               muted: _tbtService!.muted,
               onToggleMute: _tbtService!.toggleMute,
+              isStraightAhead: _tbtService!.isStraightAhead,
             ),
           ),
 
@@ -404,6 +479,14 @@ class _SprintScreenState extends State<SprintScreen>
             child: _CornerPreviewHUD(corner: _cornerBriefing!.nextCorner!),
           ),
 
+        // ── 우하단: 속도 HUD ──
+        Positioned(
+          key: const ValueKey('speed-hud'),
+          right: 14,
+          bottom: 76,
+          child: const _SpeedHUD(),
+        ),
+
         // ── 루트 진행률 바 (바텀바 바로 위, 3px) ──
         if (_onRoute && widget.selectedRoute != null)
           Positioned(
@@ -429,39 +512,6 @@ class _SprintScreenState extends State<SprintScreen>
     );
   }
 
-  // G-Force 레드 플래시 오버레이
-  Widget _buildFlashOverlay() {
-    // ⚠️ Flutter issue #120874 fix (final):
-    // AnimatedBuilder + Container → FadeTransition + DecoratedBox 로 교체
-    //
-    // FadeTransition → RenderAnimatedOpacity: paint-only, layout 미개입
-    // → !_debugDoingThisLayout assertion 원천 차단
-    //
-    // _flashCtrl.value=1.0 → reverse() 방식:
-    //   forward(from:0) 는 value setter가 동기적으로 notifyListeners()를 호출하는 시점에
-    //   isAnimating=false 상태 → AnimatedBuilder가 opacity=0으로 빌드 (타이밍 버그)
-    //   reverse()는 이미 value=1.0인 상태에서 시작 → 첫 프레임부터 opacity=0.45 보장
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: FadeTransition(
-          opacity: _flashAnim,
-          child: const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0x8AE53935), // red ~54% (0.45 * 1.2 ≈ 0.54)
-                  Color(0x22E53935), // red ~13% (0.45 * 0.3 ≈ 0.135)
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     // SizedBox.expand() 필수:
@@ -471,12 +521,7 @@ class _SprintScreenState extends State<SprintScreen>
     // → Positioned.fill이 0×0을 채우려 하면 RenderDecoratedBox layout 실패.
     // SizedBox.expand()는 loose constraints에서도 강제로 최대 크기(fullscreen)를 사용.
     final body = SizedBox.expand(
-      child: Stack(
-        children: [
-          Positioned.fill(child: _buildSprintBody(context)),
-          _buildFlashOverlay(), // Positioned.fill 반환
-        ],
-      ),
+      child: _buildSprintBody(context),
     );
 
     if (widget.onEnd != null) {
@@ -791,11 +836,13 @@ class _NavBanner extends StatelessWidget {
   final double distanceM;
   final bool muted;
   final VoidCallback onToggleMute;
+  final bool isStraightAhead;
   const _NavBanner({
     required this.step,
     required this.distanceM,
     required this.muted,
     required this.onToggleMute,
+    this.isStraightAhead = false,
   });
 
   String get _distText {
@@ -805,56 +852,88 @@ class _NavBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    // 직진 구간: 배너를 슬림하게, 연한 색상으로 처리
+    final bannerColor = isStraightAhead
+        ? AppColors.bg.withValues(alpha: 0.80)
+        : AppColors.bg.withValues(alpha: 0.94);
+    final accentColor = isStraightAhead
+        ? AppColors.textHint
+        : Colors.lightBlueAccent;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      padding: EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: isStraightAhead ? 8 : 12,
+      ),
       decoration: BoxDecoration(
-        color: AppColors.bg.withValues(alpha: 0.94),
+        color: bannerColor,
         border: Border(
-          bottom: BorderSide(color: Colors.lightBlueAccent.withValues(alpha: 0.4)),
+          bottom: BorderSide(color: accentColor.withValues(alpha: 0.3)),
         ),
       ),
       child: Row(
         children: [
-          Icon(step.icon, color: Colors.lightBlueAccent, size: 34),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: Icon(
+              isStraightAhead ? Icons.straight : step.icon,
+              key: ValueKey(isStraightAhead),
+              color: accentColor,
+              size: isStraightAhead ? 24 : 34,
+            ),
+          ),
           const SizedBox(width: 14),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  step.koreanInstruction,
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
+            child: isStraightAhead
+                ? Text(
+                    '직진 구간',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textHint,
+                    ),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        step.koreanInstruction,
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (step.streetName.isNotEmpty)
+                        Text(
+                          step.streetName,
+                          style: GoogleFonts.rajdhani(
+                              fontSize: 11, color: AppColors.gray),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                    ],
                   ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (step.streetName.isNotEmpty)
-                  Text(
-                    step.streetName,
-                    style: GoogleFonts.rajdhani(fontSize: 11, color: AppColors.gray),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-              ],
-            ),
           ),
           const SizedBox(width: 12),
-          Text(
-            _distText,
-            style: GoogleFonts.orbitron(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: Colors.lightBlueAccent,
+          if (!isStraightAhead)
+            Text(
+              _distText,
+              style: GoogleFonts.orbitron(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Colors.lightBlueAccent,
+              ),
             ),
-          ),
           const SizedBox(width: 10),
           GestureDetector(
             onTap: onToggleMute,
             child: Icon(
               muted ? Icons.volume_off : Icons.volume_up,
-              color: muted ? AppColors.gray : Colors.lightBlueAccent,
+              color: muted ? AppColors.gray : accentColor,
               size: 22,
             ),
           ),
@@ -1069,6 +1148,119 @@ class _CornerPreviewHUD extends StatelessWidget {
               fontSize: 10,
               fontWeight: FontWeight.w700,
               color: Colors.white70,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── G-Force 엣지 글로우 페인터 ───────────────────────────────
+// 합성G(sqrt(lateral²+lon²)) 기반으로 화면 가장자리 glow 표현
+// 파(0.12G) → 초(0.4G) → 빨(0.75G+) 연속 색상 전환
+// paint-only (CustomPainter) → layout 단계 미개입, setState 안전
+class _GlowBorderPainter extends CustomPainter {
+  final double g;
+  const _GlowBorderPainter({required this.g});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const threshold = 0.12;
+    if (g < threshold) return;
+
+    final t = ((g - threshold) / 0.63).clamp(0.0, 1.0);
+    final opacity = (0.15 + t * 0.45).clamp(0.0, 0.6);
+    final glowSize = 90.0 + t * 50; // 90 ~ 140px
+
+    // 파→초→빨 선형 보간
+    final Color glowColor;
+    if (t < 0.5) {
+      glowColor = Color.lerp(
+        const Color(0xFF2196F3), // 파
+        const Color(0xFF4CAF50), // 초
+        t / 0.5,
+      )!;
+    } else {
+      glowColor = Color.lerp(
+        const Color(0xFF4CAF50), // 초
+        const Color(0xFFE53935), // 빨
+        (t - 0.5) / 0.5,
+      )!;
+    }
+
+    final base = glowColor.withValues(alpha: opacity);
+    final clear = Colors.transparent;
+
+    void drawEdge(Rect rect, Alignment from, Alignment to) {
+      canvas.drawRect(
+        rect,
+        Paint()
+          ..shader = LinearGradient(
+            begin: from,
+            end: to,
+            colors: [base, clear],
+          ).createShader(rect),
+      );
+    }
+
+    // 상단
+    drawEdge(Rect.fromLTWH(0, 0, size.width, glowSize),
+        Alignment.topCenter, Alignment.bottomCenter);
+    // 하단
+    drawEdge(Rect.fromLTWH(0, size.height - glowSize, size.width, glowSize),
+        Alignment.bottomCenter, Alignment.topCenter);
+    // 좌측
+    drawEdge(Rect.fromLTWH(0, 0, glowSize, size.height),
+        Alignment.centerLeft, Alignment.centerRight);
+    // 우측
+    drawEdge(Rect.fromLTWH(size.width - glowSize, 0, glowSize, size.height),
+        Alignment.centerRight, Alignment.centerLeft);
+  }
+
+  @override
+  bool shouldRepaint(_GlowBorderPainter old) => old.g != g;
+}
+
+// ── 속도 HUD (우하단) ─────────────────────────────────────────
+// LocationService.speedKmh를 watch — GPS 업데이트마다 자동 갱신
+class _SpeedHUD extends StatelessWidget {
+  const _SpeedHUD();
+
+  @override
+  Widget build(BuildContext context) {
+    final speedKmh = context.watch<LocationService>().speedKmh;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.bg.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white12),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 8),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            speedKmh.toStringAsFixed(0),
+            style: GoogleFonts.orbitron(
+              fontSize: 34,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+              height: 1.0,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'km/h',
+            style: GoogleFonts.rajdhani(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: AppColors.gray,
+              letterSpacing: 1.5,
             ),
           ),
         ],
