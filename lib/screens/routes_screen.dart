@@ -11,6 +11,7 @@ import '../services/mapbox_service.dart';
 import '../services/saved_route_service.dart';
 import '../services/home_location_service.dart';
 import '../services/loop_route_service.dart';
+import '../services/circuit_service.dart';
 import '../services/route_brief_service.dart';
 import '../services/weather_service.dart';
 import '../services/revv_ai_service.dart';
@@ -50,12 +51,16 @@ class _RoutesScreenState extends State<RoutesScreen> {
   bool _heatmapMode = false;
 
   // ── LOOP 탭 ───────────────────────────────────────────────────
-  int _activeTab = 0; // 0=ROUTES, 1=LOOP
+  int _activeTab = 0; // 0=ROUTES, 1=LOOP, 2=CIRCUIT
   final LoopRouteService _loopSvc = LoopRouteService();
   bool _loopFromHome = false;
   int _loopIdx = 0;
   String? _loopBrief;
   bool _loopBriefLoading = false;
+
+  // ── CIRCUIT 탭 ────────────────────────────────────────────────
+  final CircuitService _circuitSvc = CircuitService();
+  int _circuitTarget = 40; // 20 / 40 / 60 km
 
   // ── AI 루트 브리핑 (화면 진입 후 최초 1회만) ──────────────────
   final RouteBriefService _briefSvc = RouteBriefService();

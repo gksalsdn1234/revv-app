@@ -214,10 +214,11 @@ class OBDService extends ChangeNotifier {
   int _pidIdx = 0;
   final StringBuffer _buf = StringBuffer();
   Completer<String>? _responseCompleter;
+  bool _cmdInFlight = false; // 폴링 중복 방지
 
   // 자동 재연결
   int _consecutiveFailures = 0;
-  static const _maxConsecutiveFailures = 5;
+  static const _maxConsecutiveFailures = 8; // 여유 있게 상향
 
   // 런 트래킹 (주행 중 OBD 집계)
   bool _trackingRun = false;
@@ -471,9 +472,12 @@ class OBDService extends ChangeNotifier {
     _pollTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
       if (_state != OBDState.ready) return;
       if (activePids.isEmpty) return;
+      if (_cmdInFlight) return; // 이전 명령 완료 전 스킵 → 레이스 컨디션 방지
+      _cmdInFlight = true;
       final pid = activePids[_pidIdx % activePids.length];
       _pidIdx = (_pidIdx + 1) % activePids.length;
       final resp = await _cmd(pid);
+      _cmdInFlight = false;
       if (resp.isNotEmpty) {
         _consecutiveFailures = 0;
         _parse(pid, resp);
@@ -489,13 +493,14 @@ class OBDService extends ChangeNotifier {
   }
 
   Future<void> _autoReconnect() async {
+    _cmdInFlight = false;
     _pollTimer?.cancel();
     _notifySub?.cancel();
     try { await _device?.disconnect(); } catch (_) {}
     _device = null;
     _char = null;
     _setError('응답 없음. 재연결 중...');
-    await Future.delayed(const Duration(seconds: 2));
+    await Future.delayed(const Duration(seconds: 3));
     connect();
   }
 
