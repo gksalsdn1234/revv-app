@@ -12,6 +12,7 @@ import '../services/weather_service.dart';
 import '../services/route_service.dart';
 import '../services/directions_service.dart';
 import '../services/settings_service.dart';
+import '../services/audio_service.dart';
 import '../services/stt_service.dart';
 import '../services/revv_ai_service.dart';
 import '../services/imu_service.dart';
@@ -47,7 +48,8 @@ class CruiseScreen extends StatefulWidget {
   State<CruiseScreen> createState() => _CruiseScreenState();
 }
 
-class _CruiseScreenState extends State<CruiseScreen> {
+class _CruiseScreenState extends State<CruiseScreen>
+    with WidgetsBindingObserver {
   List<LatLng>? _navPolyline;
   RevvRoute? _lastFetchedRoute;
   bool _nearRouteStart = false;
@@ -70,6 +72,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.light,
@@ -115,6 +118,8 @@ class _CruiseScreenState extends State<CruiseScreen> {
     if (!_wakeWords.any((w) => lower.contains(w))) return;
 
     if (!mounted) return;
+    // 웨이크워드 감지 즉시 신호음 — AI 응답 대기 전 즉각 피드백
+    AudioService().playBeep();
     SttService().setProcessing(true);
     final loc = context.read<LocationService>();
     final weather = context.read<WeatherService>();
@@ -140,7 +145,23 @@ class _CruiseScreenState extends State<CruiseScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final wantListen = context.read<SettingsService>().alwaysListen;
+    if (!wantListen) return;
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      SttService().stopAlwaysListening();
+      if (mounted) setState(() => _alwaysListening = false);
+    } else if (state == AppLifecycleState.resumed && !_alwaysListening) {
+      SttService().startAlwaysListening(_onAlwaysListenResult);
+      if (mounted) setState(() => _alwaysListening = true);
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     SttService().stopAlwaysListening();
     _locationService?.removeListener(_onLocationChanged);
     super.dispose();
