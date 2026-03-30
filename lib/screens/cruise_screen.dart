@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -277,7 +278,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
                 key: const ValueKey('heatmap-btn'),
                 right: 14,
                 bottom: 84 + MediaQuery.of(context).padding.bottom,
-                child: GestureDetector(
+                child: _TapScale(
                   onTap: () => setState(() => _showCurveHeatmap = !_showCurveHeatmap),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 180),
@@ -334,56 +335,110 @@ class _CruiseScreenState extends State<CruiseScreen> {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 상단 플로팅 HUD — 투명 필 오버레이
+// 탭 스케일 피드백 — 모든 버튼에 재사용
 // ══════════════════════════════════════════════════════════════════
-class _TopFloatingHud extends StatelessWidget {
+class _TapScale extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  const _TapScale({required this.child, this.onTap});
+
+  @override
+  State<_TapScale> createState() => _TapScaleState();
+}
+
+class _TapScaleState extends State<_TapScale> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap,
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.93 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOut,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 상단 플로팅 HUD — 투명 필 오버레이 (Timer로 매초 갱신)
+// ══════════════════════════════════════════════════════════════════
+class _TopFloatingHud extends StatefulWidget {
   const _TopFloatingHud();
+
+  @override
+  State<_TopFloatingHud> createState() => _TopFloatingHudState();
+}
+
+class _TopFloatingHudState extends State<_TopFloatingHud> {
+  late String _time;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _time = _formatted();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _time = _formatted());
+    });
+  }
+
+  String _formatted() {
+    final now = DateTime.now();
+    return '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
         const Spacer(),
-        // 날씨 + 시간 필
         Consumer<WeatherService>(
-          builder: (_, w, __) {
-            final now = DateTime.now();
-            final h = now.hour.toString().padLeft(2, '0');
-            final m = now.minute.toString().padLeft(2, '0');
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(w.weatherEmoji, style: const TextStyle(fontSize: 14)),
-                  const SizedBox(width: 5),
-                  Text(
-                    w.tempDisplay,
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 12, fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
-                    ),
+          builder: (_, w, __) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(w.weatherEmoji, style: const TextStyle(fontSize: 14)),
+                const SizedBox(width: 5),
+                Text(
+                  w.tempDisplay,
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 12, fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
                   ),
-                  Container(
-                    width: 1, height: 13,
-                    color: Colors.white.withValues(alpha: 0.15),
-                    margin: const EdgeInsets.symmetric(horizontal: 9),
+                ),
+                Container(
+                  width: 1, height: 13,
+                  color: Colors.white.withValues(alpha: 0.15),
+                  margin: const EdgeInsets.symmetric(horizontal: 9),
+                ),
+                Text(
+                  _time,
+                  style: GoogleFonts.orbitron(
+                    fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white,
                   ),
-                  Text(
-                    '$h:$m',
-                    style: GoogleFonts.orbitron(
-                      fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
+                ),
+              ],
+            ),
+          ),
         ),
       ],
     );
@@ -595,7 +650,7 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                   Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      GestureDetector(
+                      _TapScale(
                         onTap: widget.onGo,
                         child: Container(
                           width: 76,
@@ -664,7 +719,7 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                     ],
                   ),
                   const SizedBox(width: 6),
-                  GestureDetector(
+                  _TapScale(
                     onTap: widget.onDismiss,
                     child: Container(
                       width: 36, height: 36,
@@ -712,88 +767,147 @@ class _StatChip extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════════
-// 루트 시작 근접 배너
+// 루트 시작 근접 배너 — 진입 슬라이드 + 펄싱 도트
 // ══════════════════════════════════════════════════════════════════
-class _NearStartBanner extends StatelessWidget {
+class _NearStartBanner extends StatefulWidget {
   final String routeName;
   final VoidCallback onSprint;
   const _NearStartBanner({required this.routeName, required this.onSprint});
 
   @override
+  State<_NearStartBanner> createState() => _NearStartBannerState();
+}
+
+class _NearStartBannerState extends State<_NearStartBanner>
+    with TickerProviderStateMixin {
+  late final AnimationController _entryCtrl;
+  late final AnimationController _pulseCtrl;
+  late final Animation<Offset> _slide;
+  late final Animation<double> _fade;
+  late final Animation<double> _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    _entryCtrl = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _pulseCtrl = AnimationController(
+      duration: const Duration(milliseconds: 900),
+      vsync: this,
+    )..repeat(reverse: true);
+
+    _slide = Tween(begin: const Offset(0, -0.4), end: Offset.zero)
+        .animate(CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic));
+    _fade = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOut);
+    _pulse = Tween<double>(begin: 0.35, end: 1.0)
+        .animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
+
+    _entryCtrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _entryCtrl.dispose();
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A0808),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.red.withValues(alpha: 0.7), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.red.withValues(alpha: 0.3),
-            blurRadius: 24,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 8, height: 8,
-            decoration: BoxDecoration(
-              color: AppColors.red,
-              shape: BoxShape.circle,
-              boxShadow: [BoxShadow(color: AppColors.red, blurRadius: 8)],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '시작 지점 근처',
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 10, fontWeight: FontWeight.w700,
-                    color: AppColors.red, letterSpacing: 1,
-                  ),
-                ),
-                Text(
-                  routeName,
-                  style: GoogleFonts.orbitron(
-                    fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          GestureDetector(
-            onTap: onSprint,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
-              decoration: BoxDecoration(
-                color: AppColors.red,
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.red.withValues(alpha: 0.5),
-                    blurRadius: 14,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
+    return FadeTransition(
+      opacity: _fade,
+      child: SlideTransition(
+        position: _slide,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A0808),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.red.withValues(alpha: 0.7), width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.red.withValues(alpha: 0.3),
+                blurRadius: 24,
+                offset: const Offset(0, 4),
               ),
-              child: Text(
-                'START',
-                style: GoogleFonts.orbitron(
-                  fontSize: 11, fontWeight: FontWeight.w900,
-                  color: Colors.white, letterSpacing: 2,
+            ],
+          ),
+          child: Row(
+            children: [
+              // 펄싱 도트
+              AnimatedBuilder(
+                animation: _pulse,
+                builder: (_, __) => Opacity(
+                  opacity: _pulse.value,
+                  child: Container(
+                    width: 8, height: 8,
+                    decoration: BoxDecoration(
+                      color: AppColors.red,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.red.withValues(alpha: _pulse.value * 0.8),
+                          blurRadius: 10,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-            ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '시작 지점 근처',
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 10, fontWeight: FontWeight.w700,
+                        color: AppColors.red, letterSpacing: 1,
+                      ),
+                    ),
+                    Text(
+                      widget.routeName,
+                      style: GoogleFonts.orbitron(
+                        fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              _TapScale(
+                onTap: widget.onSprint,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: AppColors.red,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.red.withValues(alpha: 0.5),
+                        blurRadius: 14,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    'START',
+                    style: GoogleFonts.orbitron(
+                      fontSize: 11, fontWeight: FontWeight.w900,
+                      color: Colors.white, letterSpacing: 2,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -846,7 +960,7 @@ class _BottomNavBar extends StatelessWidget {
             ),
             // GO 히어로 버튼
             Expanded(
-              child: GestureDetector(
+              child: _TapScale(
                 onTap: onGo,
                 child: SizedBox(
                   height: 64,
@@ -936,18 +1050,21 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: GestureDetector(
+      child: _TapScale(
         onTap: onTap,
-        behavior: HitTestBehavior.opaque,
         child: SizedBox(
           height: 64,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                active ? activeIcon : icon,
-                size: 23,
-                color: active ? AppColors.red : Colors.white30,
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: Icon(
+                  active ? activeIcon : icon,
+                  key: ValueKey(active),
+                  size: 23,
+                  color: active ? AppColors.red : Colors.white30,
+                ),
               ),
               const SizedBox(height: 3),
               Text(
@@ -959,7 +1076,9 @@ class _NavItem extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 5),
-              Container(
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
                 width: active ? 20 : 0,
                 height: 2,
                 decoration: BoxDecoration(
