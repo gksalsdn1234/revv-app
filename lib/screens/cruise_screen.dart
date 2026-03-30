@@ -13,6 +13,7 @@ import '../services/route_service.dart';
 import '../services/directions_service.dart';
 import '../models/run_session.dart';
 import 'sprint_screen.dart';
+import 'drive_screen.dart';
 import 'run_card_screen.dart';
 import 'routes_screen.dart';
 import 'obd_screen.dart';
@@ -52,6 +53,10 @@ class _CruiseScreenState extends State<CruiseScreen> {
   bool _showCurveHeatmap = false;
   RevvRoute? _sprintRoute;
   List<LatLng>? _sprintNavPolyline;
+
+  // ── Drive 오버레이 상태 ──
+  bool _isDriveMode = false;
+  RevvRoute? _driveRoute;
 
   @override
   void initState() {
@@ -113,9 +118,21 @@ class _CruiseScreenState extends State<CruiseScreen> {
   }
 
   void _goSprint() {
-    if (_isSprinting) return;
+    if (_isSprinting || _isDriveMode) return;
     final routeSvc = context.read<RouteService>();
     final route = routeSvc.sprintRoute ?? routeSvc.selectedRoute;
+
+    // 루트 시작점까지 거리 계산 → 3km 이내면 DRIVE/NAV 선택 시트
+    if (route != null) {
+      final loc = context.read<LocationService>();
+      final dist = RevvRoute.haversineKm(
+          LatLng(loc.lat, loc.lng), route.nodes.first);
+      if (dist <= 3.0) {
+        _showDriveOrNavSheet(route);
+        return;
+      }
+    }
+
     setState(() {
       _isSprinting = true;
       _sprintRoute = route;
@@ -123,11 +140,49 @@ class _CruiseScreenState extends State<CruiseScreen> {
     });
   }
 
+  void _showDriveOrNavSheet(RevvRoute route) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _DriveOrNavSheet(
+        route: route,
+        onDrive: () {
+          Navigator.pop(context);
+          setState(() {
+            _isDriveMode = true;
+            _driveRoute = route;
+          });
+        },
+        onNav: () {
+          Navigator.pop(context);
+          setState(() {
+            _isSprinting = true;
+            _sprintRoute = route;
+            _sprintNavPolyline = null;
+          });
+        },
+      ),
+    );
+  }
+
   void _onSprintEnd(RunSession? session) {
     setState(() {
       _isSprinting = false;
       _sprintRoute = null;
       _sprintNavPolyline = null;
+    });
+    if (session != null && mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => RunCardScreen(session: session)),
+      );
+    }
+  }
+
+  void _onDriveEnd(RunSession? session) {
+    setState(() {
+      _isDriveMode = false;
+      _driveRoute = null;
     });
     if (session != null && mounted) {
       Navigator.push(
@@ -173,7 +228,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
     final selectedRoute = context.select<RouteService, RevvRoute?>((r) => r.selectedRoute);
     final sprintRequested = context.select<RouteService, bool>((r) => r.sprintRequested);
 
-    if (sprintRequested && !_isSprinting) {
+    if (sprintRequested && !_isSprinting && !_isDriveMode) {
       context.read<RouteService>().clearSprintRequest();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _goSprint();
@@ -201,12 +256,14 @@ class _CruiseScreenState extends State<CruiseScreen> {
                 child: SizedBox.expand(
                   child: RepaintBoundary(
                     child: MapWidget(
-                      isSprintMode: _isSprinting,
+                      isSprintMode: _isSprinting || _isDriveMode,
                       navPolyline: _isSprinting ? _sprintNavPolyline : _navPolyline,
                       routePolyline: _isSprinting
                           ? _sprintRoute?.nodes
-                          : selectedRoute?.nodes,
-                      showCurveHeatmap: !_isSprinting && _showCurveHeatmap && selectedRoute != null,
+                          : _isDriveMode
+                              ? _driveRoute?.nodes
+                              : selectedRoute?.nodes,
+                      showCurveHeatmap: !_isSprinting && !_isDriveMode && _showCurveHeatmap && selectedRoute != null,
                     ),
                   ),
                 ),
@@ -214,7 +271,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
             ),
 
             // ── 상단 플로팅 HUD ──
-            if (!_isSprinting)
+            if (!_isSprinting && !_isDriveMode)
               Positioned(
                 key: const ValueKey('top-hud'),
                 top: MediaQuery.of(context).padding.top + 10,
@@ -224,7 +281,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
               ),
 
             // ── 속도 게이지 (좌하단 플로팅) ──
-            if (!_isSprinting)
+            if (!_isSprinting && !_isDriveMode)
               Positioned(
                 key: const ValueKey('speed-gauge'),
                 bottom: 80 + MediaQuery.of(context).padding.bottom + 18,
@@ -233,7 +290,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
               ),
 
             // ── 루트 시작 근접 배너 ──
-            if (!_isSprinting && _nearRouteStart && selectedRoute != null)
+            if (!_isSprinting && !_isDriveMode && _nearRouteStart && selectedRoute != null)
               Positioned(
                 key: const ValueKey('near-start'),
                 top: MediaQuery.of(context).padding.top + 70,
@@ -246,7 +303,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
               ),
 
             // ── 루트 선택 카드 (하단 탭바 바로 위) ──
-            if (!_isSprinting && selectedRoute != null)
+            if (!_isSprinting && !_isDriveMode && selectedRoute != null)
               Positioned(
                 key: const ValueKey('route-card'),
                 bottom: 74 + MediaQuery.of(context).padding.bottom,
@@ -272,8 +329,18 @@ class _CruiseScreenState extends State<CruiseScreen> {
                 ),
               ),
 
+            // ── Drive 오버레이 (미니멀 HUD) ──
+            if (_isDriveMode)
+              Positioned.fill(
+                key: const ValueKey('drive-overlay'),
+                child: DriveScreen(
+                  selectedRoute: _driveRoute,
+                  onEnd: _onDriveEnd,
+                ),
+              ),
+
             // ── 커브 히트맵 토글 버튼 ──
-            if (!_isSprinting && selectedRoute != null)
+            if (!_isSprinting && !_isDriveMode && selectedRoute != null)
               Positioned(
                 key: const ValueKey('heatmap-btn'),
                 right: 14,
@@ -304,7 +371,7 @@ class _CruiseScreenState extends State<CruiseScreen> {
               ),
 
             // ── 하단 탭바 ──
-            if (!_isSprinting)
+            if (!_isSprinting && !_isDriveMode)
               Positioned(
                 key: const ValueKey('bottom-nav'),
                 bottom: 0,
@@ -1235,6 +1302,160 @@ class _MoreItem extends StatelessWidget {
               ),
               const Spacer(),
               const Icon(Icons.chevron_right, size: 18, color: Colors.white24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DriveOrNav 선택 시트 — 루트 시작점 3km 이내 시 표시
+// ══════════════════════════════════════════════════════════════════
+class _DriveOrNavSheet extends StatelessWidget {
+  final RevvRoute route;
+  final VoidCallback onDrive;
+  final VoidCallback onNav;
+
+  const _DriveOrNavSheet({
+    required this.route,
+    required this.onDrive,
+    required this.onNav,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.panel,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+          20, 16, 20, 20 + MediaQuery.of(context).padding.bottom),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+              color: AppColors.divider,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            route.name,
+            style: GoogleFonts.orbitron(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '루트 시작점 근처예요. 어떻게 시작할까요?',
+            style: GoogleFonts.rajdhani(
+              fontSize: 12,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: _SheetOptionBtn(
+                  icon: Icons.speed,
+                  title: 'DRIVE',
+                  subtitle: '미니멀 HUD\nG포스 + 속도',
+                  color: AppColors.cyan,
+                  onTap: onDrive,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _SheetOptionBtn(
+                  icon: Icons.navigation,
+                  title: 'NAV',
+                  subtitle: '풀 내비게이션\n턴바이턴 안내',
+                  color: AppColors.red,
+                  onTap: onNav,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SheetOptionBtn extends StatefulWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _SheetOptionBtn({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  State<_SheetOptionBtn> createState() => _SheetOptionBtnState();
+}
+
+class _SheetOptionBtnState extends State<_SheetOptionBtn> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: widget.onTap,
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) => setState(() => _pressed = false),
+      onTapCancel: () => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.95 : 1.0,
+        duration: const Duration(milliseconds: 100),
+        curve: Curves.easeOut,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: widget.color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: widget.color.withValues(alpha: 0.4)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(widget.icon, size: 22, color: widget.color),
+              const SizedBox(height: 8),
+              Text(
+                widget.title,
+                style: GoogleFonts.orbitron(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: widget.color,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                widget.subtitle,
+                style: GoogleFonts.rajdhani(
+                  fontSize: 11,
+                  color: AppColors.textSecondary,
+                  height: 1.4,
+                ),
+              ),
             ],
           ),
         ),
