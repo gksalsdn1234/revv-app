@@ -18,6 +18,7 @@ import '../services/revv_ai_service.dart';
 import '../services/imu_service.dart';
 import '../services/obd_service.dart';
 import '../services/jarvis_service.dart';
+import '../services/local_command_service.dart';
 import '../models/run_session.dart';
 import 'sprint_screen.dart';
 import 'drive_screen.dart';
@@ -118,12 +119,23 @@ class _CruiseScreenState extends State<CruiseScreen>
     if (!_wakeWords.any((w) => lower.contains(w))) return;
 
     if (!mounted) return;
-    // 웨이크워드 감지 즉시 신호음 — AI 응답 대기 전 즉각 피드백
+    // 웨이크워드 감지 즉시 신호음
     AudioService().playBeep();
     SttService().setProcessing(true);
+
+    final jarvis = context.read<JarvisService>();
+
+    // 1. 로컬 인텐트 처리 (무료, 즉시 응답)
+    final localResponse = LocalCommandService.handle(context, text);
+    if (localResponse != null) {
+      if (mounted) jarvis.speak(localResponse);
+      SttService().setProcessing(false);
+      return;
+    }
+
+    // 2. 로컬로 처리 불가 → AI 폴백 (복잡한 질문만)
     final loc = context.read<LocationService>();
     final weather = context.read<WeatherService>();
-    final jarvis = context.read<JarvisService>();
     final routeSvc = context.read<RouteService>();
     final imu = context.read<ImuService>();
     final obd = context.read<OBDService>();
