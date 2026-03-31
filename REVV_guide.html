@@ -507,7 +507,7 @@ ${ideaTexts || '(없음)'}
                 <div class="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-500"><i class="fas fa-clipboard-list text-lg"></i></div>
                 <div style="flex:1">
                     <h2 class="title-font text-2xl font-bold text-white tracking-tight">REVV 개발 현황</h2>
-                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.38 · Flutter + Mapbox + Claude API + Firebase</p>
+                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.39 · Flutter + Mapbox + Claude API + Firebase</p>
                 </div>
                 <button id="briefing-btn" class="briefing-btn" onclick="window.copyBriefing()">🌳 세션 브리핑 복사</button>
             </div>
@@ -713,7 +713,7 @@ ${ideaTexts || '(없음)'}
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">센서</div><div class="text-slate-500">sensors_plus 50Hz IMU<br>flutter_blue_plus OBD2 BLE</div></div>
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">저장</div><div class="text-slate-500">shared_preferences (런 기록/집 위치)<br>Firebase Firestore (클라우드 런 동기화) ✅</div></div>
                     <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">루트 탐색</div><div class="text-slate-500">Overpass API (커브 분석)<br>Google Maps (내비 연결)</div></div>
-                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (12개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.38 · GitHub Private</div></div>
+                    <div class="bg-slate-800/50 rounded-lg p-3 border border-slate-700"><div class="text-slate-300 font-semibold mb-1">상태관리 · 백엔드</div><div class="text-slate-500">Provider (12개 서비스)<br>Firebase Firestore · Auth (익명)<br>v1.39 · GitHub Private</div></div>
                 </div>
             </div>
 
@@ -1269,19 +1269,40 @@ ${ideaTexts || '(없음)'}
                     <div class="patch-line block-note">💬 캐나다 특성상 루트 밀도가 낮아 자동 확장이 필수였음. OSM 필터로 직선 강변 도로가 와인딩으로 오분류되던 문제 해결</div>
                 </div>
 
+                <!-- v1.39 패치 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.39</span>
+                        <span class="patch-date">2026-03-30</span>
+                        <span class="patch-tag feat">FEAT</span>
+                        <span class="patch-tag fix">FIX</span>
+                    </div>
+                    <div class="patch-line"><strong>항상 듣기 (Always-On Wake Word)</strong></div>
+                    <div class="patch-line">• 마이크 버튼 없이 자동 음성 인식 — '레브' 포함 발화만 처리</div>
+                    <div class="patch-line">• 포그라운드(주행 중) 한정 활성화 — 배터리 최적화</div>
+                    <div class="patch-line">• 웨이크워드 감지 즉시 신호음(beep) 재생</div>
+                    <div class="patch-line">• 로컬 명령 처리 우선 — AI API 폴백 최소화 (속도 향상)</div>
+                    <div class="patch-line"><strong>DriveScreen 미니멀 HUD + DRIVE/NAV 선택 시트</strong></div>
+                    <div class="patch-line">• 루트 시작점 3km 이내 진입 시 DRIVE / NAV 선택 시트 자동 팝업</div>
+                    <div class="patch-line">• 500m 기준 시트 트리거 + TBT 직진 구간 자동 감지</div>
+                    <div class="patch-line"><strong>버그 수정</strong></div>
+                    <div class="patch-line">• OBD 연결/끊김 반복 — 폴링 레이스 컨디션 수정</div>
+                    <div class="patch-line">• 드라이빙 중 지도 위치 추적 — FollowPuckViewportState 교체 (Mapbox 2.x 호환)</div>
+                </div>
+
                 <!-- 다음 할 일 -->
                 <div class="patch-entry">
                     <div class="patch-header">
-                        <span class="patch-version">v1.39 예정</span>
+                        <span class="patch-version">v1.40 예정</span>
                         <span class="patch-date">다음 세션</span>
                         <span class="patch-tag feat">NEXT</span>
                     </div>
-                    <div class="patch-line">① 실기기 end-to-end 주행 테스트 — G포스/TBT/NavPolyline/플래시/코너브리핑/타임라인</div>
+                    <div class="patch-line">① 실기기 end-to-end 주행 테스트 — G포스/TBT/NavPolyline/항상듣기/코너브리핑</div>
                     <div class="patch-line">② Firebase 보안 규칙 — users/{uid}/runs 오너 전용 read/write (Firebase Console)</div>
                     <div class="patch-line">③ 고도 프로파일 미니 차트 → 루트 카드 통합 표시</div>
                     <div class="patch-line">④ 차량 프로필 카드 — VehicleProfileService (Garage Pro 1단계)</div>
                     <div class="patch-line">⑤ 랩 타임 시스템 — LapTimerService (Track Mode 1단계)</div>
-                    <div class="patch-line block-note">💬 실기기 테스트가 여전히 최우선 — 실기기 없이는 절반의 기능이 검증 불가</div>
+                    <div class="patch-line block-note">💬 실기기 테스트가 여전히 최우선 — 항상듣기/HUD 시트 실기기 검증 필요</div>
                 </div>
 
             </div><!-- end tab-1 -->
