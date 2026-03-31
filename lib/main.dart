@@ -18,6 +18,7 @@ import 'services/imu_service.dart';
 import 'services/driving_context_service.dart';
 import 'services/cloud_sync_service.dart';
 import 'services/settings_service.dart';
+import 'services/garage_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,6 +41,8 @@ void main() async {
   await savedRoutes.load();
   final settings = SettingsService();
   await settings.load();
+  final garage = GarageService();
+  await garage.load();
 
   // 클라우드 병합 (백그라운드 — 앱 시작 블로킹 없음)
   history.syncWithCloud();
@@ -55,6 +58,7 @@ void main() async {
     homeLocation: homeLocation,
     savedRoutes: savedRoutes,
     settings: settings,
+    garage: garage,
   ));
 }
 
@@ -63,12 +67,14 @@ class RevvApp extends StatelessWidget {
   final HomeLocationService homeLocation;
   final SavedRouteService savedRoutes;
   final SettingsService settings;
+  final GarageService garage;
   const RevvApp({
     super.key,
     required this.history,
     required this.homeLocation,
     required this.savedRoutes,
     required this.settings,
+    required this.garage,
   });
 
   @override
@@ -84,6 +90,7 @@ class RevvApp extends StatelessWidget {
         ChangeNotifierProvider<HomeLocationService>.value(value: homeLocation),
         ChangeNotifierProvider<SavedRouteService>.value(value: savedRoutes),
         ChangeNotifierProvider<SettingsService>.value(value: settings),
+        ChangeNotifierProvider<GarageService>.value(value: garage),
         ChangeNotifierProvider.value(value: CloudSyncService()),
         ChangeNotifierProvider(create: (_) => OBDService()),
         ChangeNotifierProvider(create: (_) => ImuService()),

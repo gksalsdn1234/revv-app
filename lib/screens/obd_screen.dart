@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../services/obd_service.dart';
 import '../services/imu_service.dart';
+import '../services/garage_service.dart';
+import 'garage_screen.dart';
 
 class OBDScreen extends StatefulWidget {
   const OBDScreen({super.key});
@@ -848,13 +850,23 @@ class _CarGforceMeterState extends State<_CarGforceMeter>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulse;
 
+  Color _displayColor = const Color(0xFF00E5FF); // 현재 표시 색상
+
   @override
   void initState() {
     super.initState();
     _pulse = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 1600), // 숨쉬는 속도
+    )..addListener(_onTick)..repeat(reverse: true);
+  }
+
+  void _onTick() {
+    final mag = math.sqrt(widget.lateralG * widget.lateralG + widget.longitudinalG * widget.longitudinalG);
+    final color = AppColors.gForceColor(mag);
+    if (color != _displayColor) {
+      setState(() => _displayColor = color);
+    }
   }
 
   @override
@@ -863,37 +875,20 @@ class _CarGforceMeterState extends State<_CarGforceMeter>
     super.dispose();
   }
 
-  static Color _gColor(double mag) {
-    final t = (mag / 1.2).clamp(0.0, 1.0);
-    if (t < 0.42) {
-      return Color.lerp(const Color(0xFF1565C0), const Color(0xFFFDD835), t / 0.42)!;
-    }
-    return Color.lerp(
-      const Color(0xFFFDD835),
-      const Color(0xFFE53935),
-      ((t - 0.42) / 0.58).clamp(0.0, 1.0),
-    )!;
-  }
-
   @override
   Widget build(BuildContext context) {
-    final mag = math.sqrt(
-        widget.lateralG * widget.lateralG + widget.longitudinalG * widget.longitudinalG);
     final maxMag = math.sqrt(widget.maxLatG * widget.maxLatG + widget.maxLonG * widget.maxLonG);
-    final color = _gColor(mag);
+    final color = _displayColor;
 
     return Column(
       children: [
-        AnimatedBuilder(
-          animation: _pulse,
-          builder: (_, __) => CustomPaint(
-            size: const Size(110, 185),
-            painter: _CarGforcePainter(
-              lateralG: widget.lateralG,
-              longitudinalG: widget.longitudinalG,
-              gColor: color,
-              pulseValue: _pulse.value,
-            ),
+        CustomPaint(
+          size: const Size(110, 185),
+          painter: _CarGforcePainter(
+            lateralG: widget.lateralG,
+            longitudinalG: widget.longitudinalG,
+            gColor: color,
+            pulseValue: _pulse.value,
           ),
         ),
         const SizedBox(height: 14),
@@ -939,7 +934,7 @@ class _CarGforceMeterState extends State<_CarGforceMeter>
               const SizedBox(width: 12),
               Text('합 ${maxMag.toStringAsFixed(2)}g',
                   style: GoogleFonts.rajdhani(fontSize: 12,
-                      color: _gColor(maxMag), fontWeight: FontWeight.w700)),
+                      color: AppColors.gForceColor(maxMag), fontWeight: FontWeight.w700)),
             ],
           ),
         ),
@@ -994,8 +989,16 @@ class _CarGforcePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final w = size.width;
     final h = size.height;
-    final mag = _magnitude;
-    final glowRadius = (3.0 + mag * 9.0) * (0.65 + 0.35 * pulseValue);
+    final cx = w / 2;
+    final cy = h / 2;
+
+    // ── 방향별 G 분리 ─────────────────────────────────────────
+    // lateralG: 양수=우, 음수=좌 / longitudinalG: 양수=가속(앞), 음수=감속(뒤)
+    final leftG  = (-lateralG).clamp(0.0, 1.5);
+    final rightG = lateralG.clamp(0.0, 1.5);
+    final frontG = longitudinalG.clamp(0.0, 1.5);
+    final rearG  = (-longitudinalG).clamp(0.0, 1.5);
+    final breathe = 0.55 + 0.45 * pulseValue;
 
     // ── 차체 실루엣 ──────────────────────────────────────────────
     final bodyRRect = RRect.fromRectAndCorners(
@@ -1006,26 +1009,55 @@ class _CarGforcePainter extends CustomPainter {
       bottomRight: Radius.circular(w * 0.14),
     );
 
-    // 글로우
+    // ── 상시 브리딩 ambient glow (전체 윤곽, 항상 파란 숨) ───────
+    // BlurStyle.normal: Impeller/Skia 모두 안정적으로 렌더링됨
     canvas.drawRRect(bodyRRect, Paint()
-      ..color = gColor.withValues(alpha: 0.7)
+      ..color = gColor.withValues(alpha: 0.55 * breathe)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5
-      ..maskFilter = MaskFilter.blur(BlurStyle.outer, glowRadius));
+      ..strokeWidth = 12.0  // 두꺼운 stroke를 blur → 외곽 halo 효과
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10.0 * breathe));
 
-    // 실선
+    // ── 방향별 directional glow ─────────────────────────────────
+    // clipRect로 절반씩 잘라 해당 면만 강하게 빛남
+    void sideGlow(Rect clip, double g) {
+      if (g < 0.01) return;
+      final sigma = 8.0 + g * 18.0;
+      canvas.save();
+      canvas.clipRect(clip);
+      // 넓은 halo
+      canvas.drawRRect(bodyRRect, Paint()
+        ..color = gColor.withValues(alpha: (0.4 + g * 0.5).clamp(0.0, 0.9))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 14.0
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma * 1.2));
+      // 밝은 코어
+      canvas.drawRRect(bodyRRect, Paint()
+        ..color = gColor.withValues(alpha: 0.95)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma * 0.3));
+      canvas.restore();
+    }
+
+    sideGlow(Rect.fromLTWH(0,  0,  cx, h),  leftG);   // 왼쪽 절반
+    sideGlow(Rect.fromLTWH(cx, 0,  cx, h),  rightG);  // 오른쪽 절반
+    sideGlow(Rect.fromLTWH(0,  0,  w,  cy), frontG);  // 앞(위) 절반
+    sideGlow(Rect.fromLTWH(0,  cy, w,  cy), rearG);   // 뒤(아래) 절반
+
+    // 실선 (glow 위에 덧그려 윤곽 선명하게)
     canvas.drawRRect(bodyRRect, Paint()
-      ..color = gColor
+      ..color = gColor.withValues(alpha: 0.85)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.8);
 
     // ── 바퀴 4개 ──────────────────────────────────────────────
+    final mag = _magnitude;
     final wheelGlow = Paint()
-      ..color = gColor.withValues(alpha: 0.3)
+      ..color = gColor.withValues(alpha: 0.45 + mag * 0.2)
       ..style = PaintingStyle.fill
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, glowRadius * 0.5);
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4.0 + mag * 8.0);
     final wheelFill = Paint()
-      ..color = gColor.withValues(alpha: 0.5)
+      ..color = gColor.withValues(alpha: 0.8)
       ..style = PaintingStyle.fill;
 
     for (final r in [
@@ -1048,8 +1080,6 @@ class _CarGforcePainter extends CustomPainter {
     canvas.drawLine(Offset(w * 0.27, h * 0.77), Offset(w * 0.73, h * 0.77), glassPaint);
 
     // ── G포스 도트 ─────────────────────────────────────────────
-    final cx = w / 2;
-    final cy = h / 2;
     final maxOff = w * 0.21;
 
     double dx = lateralG * maxOff;
@@ -1061,23 +1091,27 @@ class _CarGforcePainter extends CustomPainter {
     }
 
     // 크로스헤어
-    final crossP = Paint()..color = Colors.white.withValues(alpha: 0.07)..strokeWidth = 0.5;
+    final crossP = Paint()..color = Colors.white.withValues(alpha: 0.15)..strokeWidth = 0.7;
     canvas.drawLine(Offset(cx - maxOff, cy), Offset(cx + maxOff, cy), crossP);
     canvas.drawLine(Offset(cx, cy - maxOff), Offset(cx, cy + maxOff), crossP);
     canvas.drawCircle(Offset(cx, cy), maxOff, Paint()
-      ..color = Colors.white.withValues(alpha: 0.05)
+      ..color = Colors.white.withValues(alpha: 0.12)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.5);
+      ..strokeWidth = 0.8);
 
-    // 도트 글로우
+    // 도트 외곽 글로우 (넓게)
+    canvas.drawCircle(Offset(cx + dx, cy + dy), 16, Paint()
+      ..color = gColor.withValues(alpha: 0.25)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14));
+    // 도트 글로우 (중간)
     canvas.drawCircle(Offset(cx + dx, cy + dy), 9, Paint()
-      ..color = gColor.withValues(alpha: 0.35)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7));
+      ..color = gColor.withValues(alpha: 0.7)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
     // 도트 본체
-    canvas.drawCircle(Offset(cx + dx, cy + dy), 5, Paint()..color = gColor);
+    canvas.drawCircle(Offset(cx + dx, cy + dy), 6, Paint()..color = gColor);
     // 도트 하이라이트
-    canvas.drawCircle(Offset(cx + dx, cy + dy), 2,
-        Paint()..color = Colors.white.withValues(alpha: 0.9));
+    canvas.drawCircle(Offset(cx + dx, cy + dy), 2.5,
+        Paint()..color = Colors.white.withValues(alpha: 0.95));
   }
 
   @override
@@ -1119,6 +1153,167 @@ class _SetupTab extends StatelessWidget {
           ],
           // IMU 캘리브레이션 카드
           _ImuCalibrationCard(imu: imu),
+          const SizedBox(height: 24),
+          // 차량 프로필 카드
+          const _GarageProfileCard(),
+        ],
+      ),
+    );
+  }
+}
+
+// ── 차량 프로필 카드 (Garage Pro 진입) ────────────────────────
+class _GarageProfileCard extends StatelessWidget {
+  const _GarageProfileCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<GarageService>(
+      builder: (_, garage, __) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '차량 프로필 (GARAGE PRO)',
+              style: GoogleFonts.rajdhani(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: AppColors.red,
+                letterSpacing: 2,
+              ),
+            ),
+            const SizedBox(height: 10),
+            GestureDetector(
+              onTap: () => GarageScreen.show(context),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.bg,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: garage.hasVehicle
+                        ? AppColors.red.withValues(alpha: 0.4)
+                        : Colors.white12,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 40, height: 40,
+                      decoration: BoxDecoration(
+                        color: AppColors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Center(
+                        child: Text(
+                          FuelType.emoji(garage.fuelType),
+                          style: const TextStyle(fontSize: 20),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            garage.hasVehicle ? garage.vehicleName : '차량 미등록',
+                            style: GoogleFonts.orbitron(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: garage.hasVehicle ? Colors.white : Colors.white38,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          if (garage.hasVehicle)
+                            Text(
+                              '${garage.horsepowerHp > 0 ? '${garage.horsepowerHp}HP · ' : ''}'
+                              '타이어 ${garage.tireWidth}mm · '
+                              '${FuelType.label(garage.fuelType)}',
+                              style: GoogleFonts.rajdhani(
+                                fontSize: 10,
+                                color: AppColors.gray,
+                              ),
+                            )
+                          else
+                            Text(
+                              '차종·마력·타이어를 등록하면 G포스 임계치 자동 계산',
+                              style: GoogleFonts.rajdhani(
+                                fontSize: 10,
+                                color: Colors.white24,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, size: 18, color: Colors.white24),
+                  ],
+                ),
+              ),
+            ),
+            if (garage.hasVehicle) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  _GThresholdChip(
+                    label: '횡G 한계',
+                    value: garage.lateralGThreshold,
+                    color: const Color(0xFFF97316),
+                  ),
+                  const SizedBox(width: 10),
+                  _GThresholdChip(
+                    label: '종G 한계',
+                    value: garage.longitudinalGThreshold,
+                    color: const Color(0xFF3B82F6),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _GThresholdChip extends StatelessWidget {
+  final String label;
+  final double value;
+  final Color color;
+  const _GThresholdChip({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${value.toStringAsFixed(2)}g',
+            style: GoogleFonts.orbitron(
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: GoogleFonts.rajdhani(
+              fontSize: 9,
+              color: color.withValues(alpha: 0.8),
+            ),
+          ),
         ],
       ),
     );

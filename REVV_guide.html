@@ -507,7 +507,7 @@ ${ideaTexts || '(없음)'}
                 <div class="w-10 h-10 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-500"><i class="fas fa-clipboard-list text-lg"></i></div>
                 <div style="flex:1">
                     <h2 class="title-font text-2xl font-bold text-white tracking-tight">REVV 개발 현황</h2>
-                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.39 · Flutter + Mapbox + Claude API + Firebase</p>
+                    <p class="text-slate-500 text-xs mt-0.5">현재 버전 v1.40 · Flutter + Mapbox + Claude API + Firebase</p>
                 </div>
                 <button id="briefing-btn" class="briefing-btn" onclick="window.copyBriefing()">🌳 세션 브리핑 복사</button>
             </div>
@@ -1290,19 +1290,38 @@ ${ideaTexts || '(없음)'}
                     <div class="patch-line">• 드라이빙 중 지도 위치 추적 — FollowPuckViewportState 교체 (Mapbox 2.x 호환)</div>
                 </div>
 
+                <!-- v1.40 패치 -->
+                <div class="patch-entry">
+                    <div class="patch-header">
+                        <span class="patch-version">v1.40</span>
+                        <span class="patch-date">2026-03-31</span>
+                        <span class="patch-tag feat">FEAT</span>
+                    </div>
+                    <div class="patch-line"><strong>고도 프로파일 미니 차트 → 루트 카드 통합</strong></div>
+                    <div class="patch-line">• MiniElevSection 위젯 신규 생성 (lib/widgets/mini_elev_chart.dart)</div>
+                    <div class="patch-line">• RouteInfoOverlay (routes_bottom_sheet) + _RouteSelectedCard (cruise_screen) 하단에 미니 차트 통합</div>
+                    <div class="patch-line">• ↑ 상승 / ↓ 하강 / 최고고도 칩 표시 + 그라디언트 fill 차트 (CustomPainter)</div>
+                    <div class="patch-line">• ElevationService 캐시 활용 → 같은 루트는 재요청 없음, didUpdateWidget에서 route.id 비교</div>
+                    <div class="patch-line"><strong>차량 프로필 카드 — Garage Pro 1단계</strong></div>
+                    <div class="patch-line">• GarageService (ChangeNotifier) 신규 생성 — SharedPreferences 영속 저장</div>
+                    <div class="patch-line">• GarageScreen 신규 — 차종/마력/차량무게/타이어폭/연료타입 입력 폼</div>
+                    <div class="patch-line">• 타이어 폭 프리셋 칩 (195~265mm) + G포스 임계치 실시간 미리보기</div>
+                    <div class="patch-line">• MORE 메뉴 → Garage Pro 진입 + OBD SETUP 탭 → 차량 프로필 카드 표시</div>
+                    <div class="patch-line">• lateralGThreshold / longitudinalGThreshold 자동 계산 (타이어 폭 기반)</div>
+                </div>
+
                 <!-- 다음 할 일 -->
                 <div class="patch-entry">
                     <div class="patch-header">
-                        <span class="patch-version">v1.40 예정</span>
+                        <span class="patch-version">v1.41 예정</span>
                         <span class="patch-date">다음 세션</span>
                         <span class="patch-tag feat">NEXT</span>
                     </div>
                     <div class="patch-line">① 실기기 end-to-end 주행 테스트 — G포스/TBT/NavPolyline/항상듣기/코너브리핑</div>
                     <div class="patch-line">② Firebase 보안 규칙 — users/{uid}/runs 오너 전용 read/write (Firebase Console)</div>
-                    <div class="patch-line">③ 고도 프로파일 미니 차트 → 루트 카드 통합 표시</div>
-                    <div class="patch-line">④ 차량 프로필 카드 — VehicleProfileService (Garage Pro 1단계)</div>
-                    <div class="patch-line">⑤ 랩 타임 시스템 — LapTimerService (Track Mode 1단계)</div>
-                    <div class="patch-line block-note">💬 실기기 테스트가 여전히 최우선 — 항상듣기/HUD 시트 실기기 검증 필요</div>
+                    <div class="patch-line">③ Garage Pro 2단계 — GarageService G포스 임계치를 ImuService/DrivingContextService에 연동</div>
+                    <div class="patch-line">④ 실주행 데이터 피드백 루프 — RunSession 종료 시 routeId+maxLateralG Firestore 저장 → 점수 보정</div>
+                    <div class="patch-line block-note">💬 랩 타임 시스템은 앱스토어 심사 리스크(속도 조장 해석 가능성) 검토 후 결정</div>
                 </div>
 
             </div><!-- end tab-1 -->

@@ -6,6 +6,7 @@ import '../models/revv_route.dart';
 import '../services/route_service.dart';
 import '../services/location_service.dart';
 import '../screens/route_preview_screen.dart';
+import '../widgets/mini_elev_chart.dart';
 
 // ── 탭 스케일 피드백 ─────────────────────────────────────────────────
 class _TapScale extends StatefulWidget {
@@ -477,6 +478,9 @@ class RouteInfoOverlay extends StatelessWidget {
                     ],
                   ),
                 ),
+                // ── 미니 고도 프로파일 ──────────────────────────
+                Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+                MiniElevSection(route: route, lineColor: diffColor),
               ],
             ),
           ),

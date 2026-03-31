@@ -174,7 +174,7 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(height: 32),
               // ── 앱 정보 ──────────────────────────────────────────
               _SectionHeader(label: '앱 정보'),
-              _InfoTile(label: '버전', value: 'v1.38'),
+              _InfoTile(label: '버전', value: 'v1.40'),
               _InfoTile(label: '지도', value: 'Mapbox'),
               _InfoTile(label: '루트 데이터', value: 'Overpass API (OSM)'),
               const SizedBox(height: 24),

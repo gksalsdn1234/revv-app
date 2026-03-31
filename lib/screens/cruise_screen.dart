@@ -30,6 +30,8 @@ import 'settings_screen.dart';
 import 'analysis_screen.dart';
 import 'ranking_screen.dart';
 import '../widgets/driver_level_card.dart';
+import '../widgets/mini_elev_chart.dart';
+import 'garage_screen.dart';
 
 PageRouteBuilder<T> _slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
   pageBuilder: (_, __, ___) => page,
@@ -111,7 +113,7 @@ class _CruiseScreenState extends State<CruiseScreen>
     if (mounted) setState(() {});
   }
 
-  static const _wakeWords = ['레브', 'revv', 'revy', '레비'];
+  static const _wakeWords = ['레브', '래브', 'revv', 'revy', '레비', '래비'];
 
   Future<void> _onAlwaysListenResult(String text) async {
     // 웨이크워드 "레브" 없으면 무시
@@ -302,6 +304,7 @@ class _CruiseScreenState extends State<CruiseScreen>
         onSettings: () { Navigator.pop(context); SettingsScreen.show(context); },
         onRanking: () { Navigator.pop(context); RankingScreen.show(context); },
         onMic: () { Navigator.pop(context); },
+        onGarage: () { Navigator.pop(context); GarageScreen.show(context); },
       ),
     );
   }
@@ -900,6 +903,9 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                 ],
               ),
             ),
+            // ── 미니 고도 프로파일 ──────────────────────────────
+            Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+            MiniElevSection(route: widget.route, lineColor: diffColor),
           ],
         ),
       ),
@@ -1271,6 +1277,7 @@ class _MoreSheet extends StatelessWidget {
   final VoidCallback onSettings;
   final VoidCallback onRanking;
   final VoidCallback onMic;
+  final VoidCallback onGarage;
 
   const _MoreSheet({
     required this.onObd,
@@ -1280,6 +1287,7 @@ class _MoreSheet extends StatelessWidget {
     required this.onSettings,
     required this.onRanking,
     required this.onMic,
+    required this.onGarage,
   });
 
   @override
@@ -1306,6 +1314,12 @@ class _MoreSheet extends StatelessWidget {
             label: 'OBD 진단',
             sub: '실시간 차량 데이터',
             onTap: onObd,
+          ),
+          _MoreItem(
+            icon: Icons.directions_car_rounded,
+            label: 'Garage Pro',
+            sub: '차량 프로필 · G포스 설정',
+            onTap: onGarage,
           ),
           _MoreItem(
             icon: Icons.auto_awesome_rounded,
