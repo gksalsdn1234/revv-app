@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'revv_route.dart';
 
 class RunSummary {
   final String id;
@@ -14,6 +15,8 @@ class RunSummary {
 
   /// 급조작 횟수 (G > 0.45G 순간) — 실기기에서만 유효
   final int sharpCornersCount;
+  final LatLng? startPoint;
+  final LatLng? endPoint;
 
   const RunSummary({
     required this.id,
@@ -26,6 +29,8 @@ class RunSummary {
     required this.tempDisplay,
     this.maxLateralG,
     this.sharpCornersCount = 0,
+    this.startPoint,
+    this.endPoint,
   });
 
   String get durationDisplay {
@@ -48,6 +53,8 @@ class RunSummary {
         'tempDisplay': tempDisplay,
         if (maxLateralG != null) 'maxLateralG': maxLateralG,
         if (sharpCornersCount > 0) 'sharpCornersCount': sharpCornersCount,
+        if (startPoint != null) 'startPoint': {'lat': startPoint!.lat, 'lng': startPoint!.lng},
+        if (endPoint != null) 'endPoint': {'lat': endPoint!.lat, 'lng': endPoint!.lng},
       };
 
   factory RunSummary.fromJson(Map<String, dynamic> j) => RunSummary(
@@ -61,7 +68,17 @@ class RunSummary {
         tempDisplay: j['tempDisplay'] as String,
         maxLateralG: (j['maxLateralG'] as num?)?.toDouble(),
         sharpCornersCount: (j['sharpCornersCount'] as int?) ?? 0,
+        startPoint: _latLngFromJson(j['startPoint']),
+        endPoint: _latLngFromJson(j['endPoint']),
       );
+
+  static LatLng? _latLngFromJson(dynamic value) {
+    if (value is! Map<String, dynamic>) return null;
+    final lat = value['lat'];
+    final lng = value['lng'];
+    if (lat is! num || lng is! num) return null;
+    return LatLng(lat.toDouble(), lng.toDouble());
+  }
 
   static List<RunSummary> listFromJson(String raw) {
     final list = jsonDecode(raw) as List;

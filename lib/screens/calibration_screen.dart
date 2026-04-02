@@ -30,6 +30,24 @@ class _CalibrationScreenState extends State<CalibrationScreen>
   // fetch가 완료되기 전까지는 로딩 상태로 표시
   bool _fetchDone = false;
 
+  Future<void> _fetchRoutesFromLiveLocation() async {
+    final svc = context.read<RouteService>();
+    final loc = context.read<LocationService>();
+    await loc.requestPermission();
+    if (loc.hasPermission) {
+      await loc.startTracking();
+    }
+    final anchor = await loc.ensureLiveLocation(timeout: const Duration(seconds: 6));
+    if (!mounted) return;
+    if (anchor == null) {
+      setState(() => _fetchDone = true);
+      return;
+    }
+    svc.resetCache(); // 캘리브레이션은 항상 새로 탐색
+    await svc.fetchRoutes(anchor.lat, anchor.lng);
+    if (mounted) setState(() => _fetchDone = true);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -54,11 +72,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
 
     // 루트 탐색 시작 — resetCache()로 10km 스킵 조건 우회
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final svc = context.read<RouteService>();
-      final loc = context.read<LocationService>();
-      svc.resetCache(); // 캘리브레이션은 항상 새로 탐색
-      await svc.fetchRoutes(loc.lat, loc.lng);
-      if (mounted) setState(() => _fetchDone = true);
+      await _fetchRoutesFromLiveLocation();
     });
   }
 

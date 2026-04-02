@@ -11,7 +11,6 @@ import '../theme/colors.dart';
 import '../models/revv_route.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
-import '../models/obd_data.dart';
 import '../services/run_history_service.dart';
 import '../services/revv_ai_service.dart';
 import '../services/saved_route_service.dart';
@@ -21,6 +20,8 @@ import '../widgets/sprint_toggle.dart';
 import '../services/mapbox_service.dart';
 import '../services/pr_service.dart';
 import 'cruise_screen.dart';
+import 'history_screen.dart';
+import '../ui/ux_contracts.dart';
 
 // ── Mapbox Static 이미지 URL 생성 ────────────────────────────────
 List<LatLng> _samplePath(List<LatLng> pts, int max) {
@@ -73,9 +74,7 @@ class RunCardScreen extends StatefulWidget {
 
 class _RunCardScreenState extends State<RunCardScreen> {
   RunSummary? _saved;
-  final _pageCtrl = PageController();
-  int _currentPage = 0;
-  late final List<GlobalKey> _cardKeys = List.generate(3, (_) => GlobalKey());
+  final GlobalKey _summaryKey = GlobalKey();
   bool _sharing = false;
   String? _jarvisAnalysis;
   bool _jarvisLoading = false;
@@ -96,12 +95,6 @@ class _RunCardScreenState extends State<RunCardScreen> {
       await _saveSession();
       await _runJarvisAnalysis();
     });
-  }
-
-  @override
-  void dispose() {
-    _pageCtrl.dispose();
-    super.dispose();
   }
 
   Future<void> _saveSession() async {
@@ -158,7 +151,7 @@ class _RunCardScreenState extends State<RunCardScreen> {
       if (_mapUrl != null) {
         await precacheImage(NetworkImage(_mapUrl!), context);
       }
-      final boundary = _cardKeys[_currentPage].currentContext
+      final boundary = _summaryKey.currentContext
           ?.findRenderObject() as RenderRepaintBoundary?;
       if (boundary == null) return;
 
@@ -194,68 +187,438 @@ class _RunCardScreenState extends State<RunCardScreen> {
     final visitCount =
         _saved != null ? history.visitCount(_saved!.routeId) : null;
     final s = widget.session;
+    final reviewSummary =
+        s != null ? resolveRunReviewSummary(s) : null;
 
     return PopScope(
       canPop: false,
       child: Scaffold(
         backgroundColor: AppColors.bg,
         body: SafeArea(
-          child: Column(
-            children: [
-              // ── 카드 PageView ──
-              Expanded(
-                child: PageView(
-                  controller: _pageCtrl,
-                  onPageChanged: (i) => setState(() => _currentPage = i),
-                  children: [
-                    // Card 1: Summary
-                    _PageSlot(
-                      child: RepaintBoundary(
-                        key: _cardKeys[0],
-                        child: _SummaryCard(
-                          session: s,
-                          visitCount: visitCount,
-                          jarvisAnalysis: _jarvisAnalysis,
-                          jarvisLoading: _jarvisLoading,
-                          mapUrl: _mapUrl,
-                          prFlags: _prFlags,
-                        ),
-                      ),
-                    ),
-                    // Card 2: Stats
-                    _PageSlot(
-                      child: RepaintBoundary(
-                        key: _cardKeys[1],
-                        child: _StatsCard(session: s),
-                      ),
-                    ),
-                    // Card 3: GPS Map
-                    _PageSlot(
-                      child: RepaintBoundary(
-                        key: _cardKeys[2],
-                        child: _GpsMapCard(session: s, mapUrl: _mapUrl),
-                      ),
-                    ),
-                  ],
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _RunReviewHeader(
+                  summary: reviewSummary,
+                  routeName: s?.routeName ?? '자유 드라이빙',
                 ),
-              ),
-
-              // ── 페이지 인디케이터 ──
-              const SizedBox(height: 10),
-              _PageDots(current: _currentPage, total: 3),
-              const SizedBox(height: 14),
-
-              // ── 하단 버튼 ──
-              _BottomButtons(
-                onShare: _shareCard,
-                sharing: _sharing,
-                onDetail: s != null ? _openDetailedAnalysis : null,
-              ),
-              const SizedBox(height: 24),
-            ],
+                const SizedBox(height: 16),
+                RepaintBoundary(
+                  key: _summaryKey,
+                  child: _HeroReviewCard(
+                    session: s,
+                    reviewSummary: reviewSummary,
+                    visitCount: visitCount,
+                    jarvisAnalysis: _jarvisAnalysis,
+                    jarvisLoading: _jarvisLoading,
+                    mapUrl: _mapUrl,
+                    prFlags: _prFlags,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                _QuickStatsSection(session: s, reviewSummary: reviewSummary),
+                if (s?.obdSummary?.hasData == true) ...[
+                  const SizedBox(height: 14),
+                  _SupportSection(
+                    title: 'OBD 요약',
+                    child: _ObdSection(obd: s!.obdSummary!),
+                  ),
+                ],
+                if (s != null) ...[
+                  const SizedBox(height: 14),
+                  _SupportSection(
+                    title: '주행 맵',
+                    child: _GpsMapCard(session: s, mapUrl: _mapUrl),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                _ReviewActions(
+                  primaryLabel: reviewSummary?.primaryActionLabel ?? '기록 보기',
+                  onPrimary: () {
+                    if (s?.route != null) {
+                      Navigator.of(context).popUntil((route) => route.isFirst);
+                      Navigator.of(context).pushReplacement(
+                        MaterialPageRoute(builder: (_) => const CruiseScreen()),
+                      );
+                      return;
+                    }
+                    HistoryScreen.show(context);
+                  },
+                  onShare: _shareCard,
+                  sharing: _sharing,
+                  onDetail: s != null ? _openDetailedAnalysis : null,
+                ),
+              ],
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _RunReviewHeader extends StatelessWidget {
+  final RunReviewSummary? summary;
+  final String routeName;
+
+  const _RunReviewHeader({
+    required this.summary,
+    required this.routeName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '오늘 주행 요약',
+          style: GoogleFonts.rajdhani(
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          routeName,
+          style: GoogleFonts.rajdhani(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Colors.white.withValues(alpha: 0.62),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HeroReviewCard extends StatelessWidget {
+  final RunSession? session;
+  final RunReviewSummary? reviewSummary;
+  final int? visitCount;
+  final String? jarvisAnalysis;
+  final bool jarvisLoading;
+  final String? mapUrl;
+  final NewPrFlags? prFlags;
+
+  const _HeroReviewCard({
+    required this.session,
+    required this.reviewSummary,
+    required this.visitCount,
+    required this.jarvisAnalysis,
+    required this.jarvisLoading,
+    required this.mapUrl,
+    required this.prFlags,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = session;
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: AppColors.panel,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (prFlags?.any == true) ...[
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (prFlags!.newBestTime)
+                  const _PrBadge(label: '베스트 타임', icon: Icons.timer_rounded),
+                if (prFlags!.newBestG)
+                  const _PrBadge(label: '최대 G', icon: Icons.show_chart_rounded),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
+          Text(
+            reviewSummary?.headline ?? '오늘 드라이브를 기록했어요.',
+            style: GoogleFonts.rajdhani(
+              fontSize: 24,
+              height: 1.15,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (mapUrl != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: SizedBox(
+                height: 190,
+                width: double.infinity,
+                child: Image.network(
+                  mapUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => _noGpsPlaceholder(),
+                ),
+              ),
+            )
+          else
+            ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: SizedBox(height: 190, child: _noGpsPlaceholder()),
+            ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              if (visitCount != null && visitCount! > 1)
+                _Pill(label: '$visitCount번째 드라이브'),
+              _Pill(label: s?.weatherEmoji ?? '🌤 ${s?.tempDisplay ?? '—'}'),
+              _Pill(label: s?.durationDisplay ?? '—'),
+              if (s != null && s.sharpCorners.isNotEmpty)
+                _Pill(label: '급조작 ${s.sharpCorners.length}회'),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            jarvisLoading
+                ? 'AI가 오늘 드라이브를 정리하고 있어요.'
+                : (jarvisAnalysis ?? '다음 드라이브를 더 즐기기 좋은 흐름이었어요.'),
+            style: GoogleFonts.rajdhani(
+              fontSize: 16,
+              height: 1.4,
+              fontWeight: FontWeight.w600,
+              color: Colors.white.withValues(alpha: 0.72),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickStatsSection extends StatelessWidget {
+  final RunSession? session;
+  final RunReviewSummary? reviewSummary;
+
+  const _QuickStatsSection({
+    required this.session,
+    required this.reviewSummary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = session;
+    final stats = reviewSummary?.topStats ??
+        [
+          s?.distanceKm.toStringAsFixed(1) ?? '—',
+          s?.durationDisplay ?? '—',
+          s != null && s.maxSpeedKmh > 0 ? s.maxSpeedKmh.toStringAsFixed(0) : '—',
+        ];
+
+    return Row(
+      children: [
+        Expanded(child: _MetricCard(label: 'DISTANCE', value: stats[0], unit: 'km')),
+        const SizedBox(width: 10),
+        Expanded(child: _MetricCard(label: 'DURATION', value: stats[1], unit: '')),
+        const SizedBox(width: 10),
+        Expanded(child: _MetricCard(label: 'TOP SPEED', value: stats[2], unit: 'km/h')),
+      ],
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final String unit;
+
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    required this.unit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.rajdhani(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Colors.white54,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: GoogleFonts.orbitron(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          if (unit.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              unit,
+              style: GoogleFonts.rajdhani(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Colors.white38,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  final String label;
+  const _Pill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.rajdhani(
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+          color: Colors.white70,
+        ),
+      ),
+    );
+  }
+}
+
+class _SupportSection extends StatelessWidget {
+  final String title;
+  final Widget child;
+
+  const _SupportSection({
+    required this.title,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.panel,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: GoogleFonts.rajdhani(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _ReviewActions extends StatelessWidget {
+  final String primaryLabel;
+  final VoidCallback onPrimary;
+  final VoidCallback onShare;
+  final bool sharing;
+  final VoidCallback? onDetail;
+
+  const _ReviewActions({
+    required this.primaryLabel,
+    required this.onPrimary,
+    required this.onShare,
+    required this.sharing,
+    this.onDetail,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.red,
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+            ),
+          ),
+          onPressed: onPrimary,
+          child: Text(
+            primaryLabel,
+            style: GoogleFonts.rajdhani(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 16,
+          alignment: WrapAlignment.center,
+          children: [
+            TextButton(
+              onPressed: sharing ? null : onShare,
+              child: Text(
+                sharing ? '공유 중...' : '공유하기',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white70,
+                ),
+              ),
+            ),
+            if (onDetail != null)
+              TextButton(
+                onPressed: onDetail,
+                child: Text(
+                  '상세 AI 분석',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white70,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/revv_route.dart';
 import '../core/storage_keys.dart';
 import 'cloud_sync_service.dart';
+import 'route_loading_policy.dart';
 import 'waypoint_optimizer.dart';
 
 // ─── compute() isolate 파라미터 / 결과 ────────────────────────────
@@ -15,7 +16,14 @@ class _IsolateParams {
   final double lat;
   final double lng;
   final int seed;
-  const _IsolateParams(this.jsonBody, this.lat, this.lng, {this.seed = 0});
+  final RouteSearchStage stage;
+  const _IsolateParams(
+    this.jsonBody,
+    this.lat,
+    this.lng, {
+    this.seed = 0,
+    this.stage = RouteSearchStage.strict,
+  });
 }
 
 // isolate → 메인 스레드 반환 (routes + 로그)
@@ -23,6 +31,22 @@ class _IsolateResult {
   final List<RevvRoute> routes;
   final String log;
   const _IsolateResult(this.routes, this.log);
+}
+
+class _SearchRunResult {
+  final List<RevvRoute> routes;
+  final RouteSearchStage stage;
+  final int radiusKm;
+  final int expansionStep;
+  final int expansionSteps;
+
+  const _SearchRunResult({
+    required this.routes,
+    required this.stage,
+    required this.radiusKm,
+    required this.expansionStep,
+    required this.expansionSteps,
+  });
 }
 
 // ─── Top-level 처리 함수 (isolate에서 실행) ────────────────────────
@@ -72,7 +96,14 @@ _IsolateResult _processRoutes(_IsolateParams p) {
 
   // Way Stitching — 인접 도로 조각을 하나의 연속 루트로 이어붙임
   final stitched = _stitchWays(rawWays);
-  final result = _selectTopRoutes(stitched, userPos, intersectionNodes, signalNodes, seed: p.seed);
+  final result = _selectTopRoutes(
+    stitched,
+    userPos,
+    intersectionNodes,
+    signalNodes,
+    seed: p.seed,
+    stage: p.stage,
+  );
   return _IsolateResult(result.routes, result.log);
 }
 
@@ -425,8 +456,12 @@ double _bearingDegTo(LatLng from, LatLng to) {
 
 _IsolateResult _selectTopRoutes(
     List<_RawWay> ways, LatLng userPos, List<LatLng> intersections, List<LatLng> signalNodes,
-    {int seed = 0}) {
+    {int seed = 0, RouteSearchStage stage = RouteSearchStage.strict}) {
   final scored = <_ScoredWay>[];
+  final thresholds = thresholdsForStage(stage);
+  final hardSignalLimit = stage == RouteSearchStage.strict
+      ? thresholds.signalHardLimit
+      : thresholds.signalHardLimit + 1;
 
   int cDist = 0, cResidential = 0, cSignal = 0, cCurvature = 0,
       cContKm = 0, cStraight = 0, cCurvyFrac = 0, cSelfInt = 0,
@@ -435,24 +470,45 @@ _IsolateResult _selectTopRoutes(
   for (final way in ways) {
     final dist = _totalDistance(way.nodes);
     final isLoopRoute = _isLoop(way.nodes);
-    if (isLoopRoute && dist < 8.0) { cDist++; continue; }
-    if (!isLoopRoute && dist < 5.0) { cDist++; continue; } // 3→5km: 너무 짧은 단편 제거
+    if (isLoopRoute && dist < thresholds.minLoopDistanceKm) { cDist++; continue; }
+    if (!isLoopRoute && dist < thresholds.minLinearDistanceKm) { cDist++; continue; }
 
     if (way.highwayType == 'residential') { cResidential++; continue; }
 
     final signalCount = _countSignalsNearRoute(way.nodes, signalNodes);
-    if (signalCount >= 3) { cSignal++; continue; }
+    final signalDensity = dist > 0 ? signalCount / dist : signalCount.toDouble();
+    if (signalCount >= hardSignalLimit) { cSignal++; continue; }
+    if (signalDensity > thresholds.maxSignalPerKm) { cSignal++; continue; }
 
     final curves = _analyzeCurves(way.nodes);
+    final curvyDistanceKm = curves.tightKm + curves.mediumKm;
+    final straightShare = straightFraction(
+      distanceKm: dist,
+      maxStraightRunKm: curves.maxStraightRunKm,
+    );
 
-    if (curves.totalCurvature < 75) { cCurvature++; continue; }
-    if (curves.maxContinuousKm < 0.8) { cContKm++; continue; }
-    if (curves.maxStraightRunKm > 1.5) { cStraight++; continue; }
-    if (curves.curvyFraction < 0.25) { cCurvyFrac++; continue; }
+    if (curves.totalCurvature < thresholds.totalCurvatureMin) { cCurvature++; continue; }
+    if (curves.maxContinuousKm < thresholds.maxContinuousKmMin) { cContKm++; continue; }
+    if (straightShare > thresholds.maxStraightFractionMax * 0.92 &&
+        curves.curvyFraction < thresholds.curvyFractionMin + 0.04) {
+      cStraight++;
+      continue;
+    }
+    if (curves.maxStraightRunKm > thresholds.maxStraightRunKmMax ||
+        isStraightDominantRoute(
+          distanceKm: dist,
+          curvyDistanceKm: curvyDistanceKm,
+          maxStraightRunKm: curves.maxStraightRunKm,
+          thresholds: thresholds,
+        )) {
+      cStraight++;
+      continue;
+    }
+    if (curves.curvyFraction < thresholds.curvyFractionMin) { cCurvyFrac++; continue; }
     if (_selfIntersects(way.nodes)) { cSelfInt++; continue; }
 
     final curvatureDensity = curves.totalCurvature / dist;
-    if (curvatureDensity < 7.5) { cDensity++; continue; }
+    if (curvatureDensity < thresholds.curvatureDensityMin) { cDensity++; continue; }
 
     // Spread Ratio
     {
@@ -469,20 +525,32 @@ _IsolateResult _selectTopRoutes(
       final lngKm = (maxLng - minLng) * 111.0 * math.cos(_rad(avgLat));
       final bbDiagonal = math.sqrt(latKm * latKm + lngKm * lngKm);
       final spreadRatio = dist > 0 ? bbDiagonal / dist : 0;
-      if (spreadRatio < 0.25) { cSpread++; continue; }
+      if (spreadRatio < thresholds.spreadRatioMin) { cSpread++; continue; }
 
       // 종횡비 필터:
       // elongated(가늘고 길다) + 커브 적음 = rang 직선 도로 → 제거
       // elongated + 커브 많음 = 강/계곡 따르는 와인딩 도로 → 유지
       if (latKm > 0.1 && lngKm > 0.1) {
         final bbAspect = math.min(latKm, lngKm) / math.max(latKm, lngKm);
-        if (bbAspect < 0.15 && curves.curvyFraction < 0.30) { cAspect++; continue; }
+        if (bbAspect < thresholds.elongatedAspectMin &&
+            curves.curvyFraction < thresholds.elongatedCurvyFractionMin) {
+          cAspect++;
+          continue;
+        }
       }
     }
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
     final intersectCount = _countNearbyIntersections(way.nodes, intersections);
+    final intersectionDensity = dist > 0 ? intersectCount / dist : intersectCount.toDouble();
+    if (intersectionDensity > thresholds.maxIntersectionPerKm) { cSignal++; continue; }
     final intersectPenalty = _intersectionPenalty(intersectCount, dist);
-    final signalPenalty = signalCount == 0 ? 1.0 : signalCount == 1 ? 0.55 : 0.25;
+    final signalPenalty = signalCount == 0
+        ? 1.0
+        : signalCount == 1
+            ? 0.78
+            : signalCount == 2
+                ? 0.62
+                : 0.42;
     final roadMultiplier = _roadMultiplier(way.highwayType);
     final surfaceMult   = _surfaceMultiplier(way.surface);
     final speedMult     = _maxspeedMultiplier(way.maxspeedKmh);
@@ -492,10 +560,12 @@ _IsolateResult _selectTopRoutes(
         RevvRoute.haversineKm(userPos, way.nodes.first));
 
     // roadcurvature.com 방식 + 지리 데이터 배수
+    final straightPenalty = 1.0 - (straightShare * 0.8);
+    final curvyCoverageBonus = 0.9 + math.min(curvyDistanceKm / math.max(dist, 1.0), 0.45);
     final score = curvatureDensity * math.sqrt(dist) *
         continuityBonus * intersectPenalty * signalPenalty * roadMultiplier *
         surfaceMult * speedMult * lanesMult *
-        loopBonus * distPenalty;
+        loopBonus * distPenalty * straightPenalty * curvyCoverageBonus;
 
     scored.add(_ScoredWay(
       way: way,
@@ -529,7 +599,7 @@ _IsolateResult _selectTopRoutes(
   final selected = <_ScoredWay>[];
 
   bool isTooClose(_ScoredWay candidate) => selected.any(
-      (sel) => RevvRoute.haversineKm(candidate.center, sel.center) < 6);
+      (sel) => RevvRoute.haversineKm(candidate.center, sel.center) < thresholds.dedupDistanceKm);
 
   // 1라운드: 각 섹터 상위 5개 풀에서 랜덤 선택 (seed로 다양성 보장)
   final rng = math.Random(seed == 0 ? null : seed);
@@ -542,7 +612,7 @@ _IsolateResult _selectTopRoutes(
   }
   // 2라운드: 6km 간격 유지하며 나머지 채우기
   for (final s in scored) {
-    if (selected.length >= 10) break;
+    if (selected.length >= thresholds.maxSelectedRoutes) break;
     if (!selected.contains(s) && !isTooClose(s)) selected.add(s);
   }
   // 점수순 재정렬
@@ -603,7 +673,15 @@ class RouteService extends ChangeNotifier {
   List<RevvRoute> routes = [];
   RevvRoute? selectedRoute;
   bool isLoading = false;
+  bool isLoadingInitial = false;
+  bool isRefreshingDiversity = false;
   String? errorMessage;
+  String? backgroundStatusMessage;
+  String? lastDiversitySource;
+  RouteSearchStage currentSearchStage = RouteSearchStage.strict;
+  int currentSearchRadiusKm = 0;
+  int currentExpansionStep = 1;
+  int currentExpansionTotal = 1;
   int searchRadiusKm = 50; // 기본 50km
 
   // 연결 루트 (선택 루트 끝점 기준)
@@ -617,6 +695,8 @@ class RouteService extends ChangeNotifier {
   String? _lastJsonBody;
   double? _lastJsonLat;
   double? _lastJsonLng;
+  int? _lastJsonRadiusM;
+  int _fetchToken = 0;
 
   // ── 루트 배제 ────────────────────────────────────────────────
   final List<LatLng> _excludedCenters = [];
@@ -699,6 +779,14 @@ class RouteService extends ChangeNotifier {
     _lastFetchRadius = null;
   }
 
+  String get searchStatusLabel {
+    final base = currentSearchRadiusKm > 0
+        ? '현재 위치 기준 ${currentSearchRadiusKm}km'
+        : '현재 위치 기준 탐색';
+    if (currentExpansionTotal <= 1) return base;
+    return '$base · 반경 자동 확장 ${currentExpansionStep}/$currentExpansionTotal';
+  }
+
   /// 반경 변경 후 재검색
   Future<void> changeRadius(int radiusKm, double lat, double lng) async {
     searchRadiusKm = radiusKm;
@@ -710,11 +798,13 @@ class RouteService extends ChangeNotifier {
   }
 
   Future<void> fetchRoutes(double lat, double lng) async {
+    final fetchToken = ++_fetchToken;
     // ① 캐시 즉시 표시 (stale-while-revalidate)
-    final cached = await _loadFromCache();
+    final cached = await _loadFromCache(lat, lng);
     if (cached != null && cached.isNotEmpty && routes.isEmpty) {
       routes = cached;
       selectedRoute = routes.first;
+      lastDiversitySource = 'cache';
       notifyListeners();
     }
 
@@ -724,65 +814,110 @@ class RouteService extends ChangeNotifier {
       if (dist < 10) return;
     }
 
-    isLoading = true;
+    isLoading = routes.isEmpty;
+    isLoadingInitial = routes.isEmpty;
+    isRefreshingDiversity = false;
     errorMessage = null;
+    backgroundStatusMessage = null;
+    currentSearchStage = RouteSearchStage.strict;
+    currentSearchRadiusKm = searchRadiusKm;
+    currentExpansionStep = 1;
+    currentExpansionTotal = buildSearchRadiusPlan(searchRadiusKm).length;
     notifyListeners();
 
     try {
       await loadExclusions();
 
       // ③-a 전역 DB 먼저 조회 (커뮤니티 루트)
-      final globalRoutes = await CloudSyncService().fetchNearbyRoutes(
-        lat, lng, searchRadiusKm.toDouble(),
-      );
+      final globalRoutes = await CloudSyncService()
+          .fetchNearbyRoutes(lat, lng, searchRadiusKm.toDouble())
+          .timeout(const Duration(seconds: 6), onTimeout: () => <RevvRoute>[]);
       final globalFiltered =
           globalRoutes.where((r) => !isExcluded(r)).toList();
 
-      // ③-b Overpass 항상 실행 (다양성 보장), 전역 DB와 병합
-      final seed = math.Random().nextInt(0x7FFFFFFF);
-      var overpass =
-          await _fetchAndScore(lat, lng, searchRadiusKm * 1000, seed: seed);
-      overpass = overpass.where((r) => !isExcluded(r)).toList();
+      final initial = _rankRoutes(
+        mergeDiversityRoutes(
+          routes,
+          globalFiltered,
+          limit: 25,
+          dedupeDistanceKm: thresholdsForStage(RouteSearchStage.strict).dedupDistanceKm,
+        ),
+      );
+      if (fetchToken != _fetchToken) return;
+      if (initial.isNotEmpty) {
+        final guardedInitial = _withQualityGuardrails(initial);
+        _applyVisibleRoutes(
+          _withCompositeFallback(guardedInitial),
+          source: routes.isNotEmpty ? 'mixed' : 'global',
+          preserveSelection: true,
+        );
+        _saveToCache(routes, lat, lng);
+        _saveRoutesToFirestore(routes);
+        isLoading = false;
+        isLoadingInitial = false;
+        notifyListeners();
 
-      if (overpass.length < 3 && searchRadiusKm < 100) {
-        debugPrint('[RouteService] 루트 부족 (${overpass.length}개) → 100km 자동 확장');
-        overpass = await _fetchAndScore(lat, lng, 100000, seed: seed);
-        overpass = overpass.where((r) => !isExcluded(r)).toList();
+        if (initial.length >= minimumVisibleRoutes) {
+          final seed = math.Random().nextInt(0x7FFFFFFF);
+          _refreshDiversityInBackground(
+            lat: lat,
+            lng: lng,
+            globalFiltered: globalFiltered,
+            seed: seed,
+            fetchToken: fetchToken,
+          );
+          return;
+        }
       }
 
-      // Overpass 신규 루트 → 전역 DB 게시 (fire-and-forget)
-      _publishNewRoutes(overpass, globalFiltered);
-
-      // 전역 + Overpass 병합
-      List<RevvRoute> fresh = _mergeRoutePools(globalFiltered, overpass);
-      debugPrint('[RouteService] Global ${globalFiltered.length}개 + Overpass ${overpass.length}개 병합');
+      final seed = math.Random().nextInt(0x7FFFFFFF);
+      final stagedResult = await _runStagedRouteSearch(
+        lat: lat,
+        lng: lng,
+        seed: seed,
+        baseRoutes: globalFiltered,
+      );
+      var bootstrap = stagedResult.routes.where((r) => !isExcluded(r)).toList();
+      List<RevvRoute> fresh = _rankRoutes(
+        mergeDiversityRoutes(
+          globalFiltered,
+          bootstrap,
+          limit: 25,
+          dedupeDistanceKm: thresholdsForStage(stagedResult.stage).dedupDistanceKm,
+        ),
+      );
+      fresh = _withQualityGuardrails(fresh);
+      fresh = _withCompositeFallback(fresh);
 
       // 고도 분석: 지형 기반 점수 보정
       fresh = await _enrichWithElevation(fresh);
-
-      // ④ 누적: 기존 풀 + 새 루트 병합 (중복 6km 기준 제거), 상위 25개 유지
-      final merged = _mergeRoutePools(routes, fresh);
-      // runCount 커뮤니티 부스트: 주행 많은 루트 우선 노출 (최대 +40%)
-      final boosted = merged.map((r) {
-        if (r.runCount <= 0) return r;
-        final factor = 1 + math.min(r.runCount, 10) * 0.04;
-        return r.copyWith(windingScore: r.windingScore * factor);
-      }).toList();
-      boosted.sort((a, b) => b.windingScore.compareTo(a.windingScore));
-      routes = boosted.take(25).toList();
-
-      selectedRoute = routes.isNotEmpty ? routes.first : null;
-      // 전역 DB에서 온 루트는 nodes=[] — 첫 번째 루트 노드 미리 로드 (지도 폴리라인용)
-      if (selectedRoute != null && selectedRoute!.nodes.isEmpty) {
-        _ensureRouteNodes(selectedRoute!); // fire-and-forget
-      }
+      if (fetchToken != _fetchToken) return;
+      _publishNewRoutes(bootstrap, globalFiltered);
+      _applyVisibleRoutes(
+        fresh,
+        source: bootstrap.isNotEmpty ? 'overpass' : 'global',
+        preserveSelection: true,
+      );
       _lastFetchLocation = LatLng(lat, lng);
       _lastFetchRadius = searchRadiusKm;
-      debugPrint('[RouteService] 풀 누적 후 루트: ${routes.length}개 (신규 ${fresh.length}개)');
+      debugPrint('[RouteService] 초기 루트 로드: ${routes.length}개');
+      backgroundStatusMessage = routes.length < minimumVisibleRoutes
+          ? '근처에 와인딩 성향 루트가 적어 반경을 넓혀 찾았어요'
+          : '현재 위치 기준 루트를 준비했어요';
 
       // ⑤ 캐시 저장 (SharedPreferences + Firestore 비동기)
       _saveToCache(routes, lat, lng);
       _saveRoutesToFirestore(routes);
+
+      if (routes.isNotEmpty) {
+        _refreshDiversityInBackground(
+          lat: lat,
+          lng: lng,
+          globalFiltered: globalFiltered,
+          seed: seed,
+          fetchToken: fetchToken,
+        );
+      }
     } catch (e, st) {
       debugPrint('[RouteService] 예외: $e\n$st');
       if (routes.isEmpty) {
@@ -791,6 +926,7 @@ class RouteService extends ChangeNotifier {
           routes = fallback;
           selectedRoute = routes.first;
           errorMessage = '오프라인 모드 — 마지막 검색 결과를 표시합니다';
+          lastDiversitySource = 'cache';
           debugPrint('[RouteService] 오프라인 캐시 복원: ${routes.length}개');
         } else {
           errorMessage = '네트워크 오류가 발생했어요. 인터넷 연결을 확인하세요.';
@@ -799,7 +935,213 @@ class RouteService extends ChangeNotifier {
     }
 
     isLoading = false;
+    isLoadingInitial = false;
     notifyListeners();
+  }
+
+  Future<void> _refreshDiversityInBackground({
+    required double lat,
+    required double lng,
+    required List<RevvRoute> globalFiltered,
+    required int seed,
+    required int fetchToken,
+  }) async {
+    isRefreshingDiversity = true;
+    backgroundStatusMessage = '추가 루트를 찾는 중이에요';
+    notifyListeners();
+
+    try {
+      var overpass = await _fetchAndScore(
+        lat,
+        lng,
+        searchRadiusKm * 1000,
+        seed: seed,
+        stage: RouteSearchStage.balanced,
+      );
+      if (overpass.length < minimumVisibleRoutes) {
+        final expanded = await _fetchAndScore(
+          lat,
+          lng,
+          (searchRadiusKm + 20) * 1000,
+          seed: seed,
+          stage: RouteSearchStage.expanded,
+        );
+        if (expanded.length > overpass.length) {
+          overpass = expanded;
+        }
+      }
+      overpass = overpass.where((r) => !isExcluded(r)).toList();
+      if (fetchToken != _fetchToken) return;
+
+      if (overpass.isEmpty) {
+        backgroundStatusMessage = '추가 루트를 찾지 못했어요';
+        return;
+      }
+
+      _publishNewRoutes(overpass, globalFiltered);
+      var enriched = _rankRoutes(
+        mergeDiversityRoutes(
+          routes,
+          overpass,
+          limit: 25,
+          dedupeDistanceKm: thresholdsForStage(RouteSearchStage.expanded).dedupDistanceKm,
+        ),
+      );
+      enriched = _withQualityGuardrails(enriched);
+      enriched = _withCompositeFallback(enriched);
+      enriched = await _enrichWithElevation(enriched);
+      if (fetchToken != _fetchToken) return;
+
+      if (hasMeaningfulDiversityGain(routes, enriched)) {
+        _applyVisibleRoutes(
+          enriched,
+          source: routes.isEmpty ? 'overpass' : 'mixed',
+          preserveSelection: true,
+        );
+        backgroundStatusMessage = '루트 다양성을 보강했어요';
+        _saveToCache(routes, lat, lng);
+        _saveRoutesToFirestore(routes);
+      } else {
+        backgroundStatusMessage = '현재 추천 루트가 가장 안정적이에요';
+      }
+    } catch (e) {
+      debugPrint('[RouteService] 백그라운드 다양성 보강 실패: $e');
+      if (routes.isNotEmpty) {
+        backgroundStatusMessage = '추가 루트 보강은 잠시 실패했어요';
+      } else {
+        errorMessage = '네트워크 오류가 발생했어요. 인터넷 연결을 확인하세요.';
+      }
+    } finally {
+      if (fetchToken == _fetchToken) {
+        isRefreshingDiversity = false;
+        isLoading = false;
+        isLoadingInitial = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  void _applyVisibleRoutes(
+    List<RevvRoute> nextRoutes, {
+    required String source,
+    required bool preserveSelection,
+  }) {
+    final previousSelectionId = preserveSelection ? selectedRoute?.id : null;
+    routes = nextRoutes;
+    selectedRoute = previousSelectionId == null
+        ? (routes.isNotEmpty ? routes.first : null)
+        : routes.cast<RevvRoute?>().firstWhere(
+              (route) => route?.id == previousSelectionId,
+              orElse: () => routes.isNotEmpty ? routes.first : null,
+            );
+    lastDiversitySource = source;
+    if (selectedRoute != null && selectedRoute!.nodes.isEmpty) {
+      _ensureRouteNodes(selectedRoute!);
+    }
+  }
+
+  List<RevvRoute> _rankRoutes(List<RevvRoute> pool) {
+    final boosted = pool.map((route) {
+      double score = route.windingScore;
+      if (route.runCount > 0) {
+        score *= 1 + math.min(route.runCount, 10) * 0.04;
+      }
+      final distancePenalty = route.distanceFromUser <= 15
+          ? 1.0
+          : route.distanceFromUser >= 80
+              ? 0.45
+              : 1.0 - ((route.distanceFromUser - 15) / 65) * 0.55;
+      return route.copyWith(windingScore: score * distancePenalty);
+    }).toList();
+    boosted.sort((a, b) => b.windingScore.compareTo(a.windingScore));
+    return boosted.take(maximumVisibleRoutes).toList();
+  }
+
+  List<RevvRoute> _withCompositeFallback(List<RevvRoute> pool) {
+    if (pool.length >= targetVisibleRoutes) return pool;
+    final expanded = buildCompositeFallbackRoutes(
+      pool,
+      targetCount: targetVisibleRoutes,
+    );
+    return _rankRoutes(expanded);
+  }
+
+  List<RevvRoute> _withQualityGuardrails(List<RevvRoute> pool) {
+    final compelling = pool.where(hasCompellingRouteReason).toList();
+    if (compelling.length >= minimumVisibleRoutes) {
+      return compelling;
+    }
+    return pool
+        .where((route) => hasCompellingRouteReason(route) || route.windingScore >= 5.8)
+        .toList();
+  }
+
+  Future<_SearchRunResult> _runStagedRouteSearch({
+    required double lat,
+    required double lng,
+    required int seed,
+    required List<RevvRoute> baseRoutes,
+  }) async {
+    final radiusPlan = buildSearchRadiusPlan(searchRadiusKm);
+    var merged = List<RevvRoute>.from(baseRoutes);
+    var bestStage = RouteSearchStage.strict;
+    var bestRadius = radiusPlan.first;
+
+    for (int i = 0; i < radiusPlan.length; i++) {
+      final radiusKm = radiusPlan[i];
+      final stages = i == 0
+          ? [RouteSearchStage.strict, RouteSearchStage.balanced]
+          : [RouteSearchStage.expanded];
+
+      for (final stage in stages) {
+        currentSearchStage = stage;
+        currentSearchRadiusKm = radiusKm;
+        currentExpansionStep = i + 1;
+        currentExpansionTotal = radiusPlan.length;
+        backgroundStatusMessage = i == 0 && stage == RouteSearchStage.strict
+            ? '현재 반경에서 와인딩 루트를 찾고 있어요'
+            : '근처에 와인딩 성향 루트가 적어 반경을 넓혀 찾고 있어요';
+        notifyListeners();
+
+        final found = await _fetchAndScore(
+          lat,
+          lng,
+          radiusKm * 1000,
+          seed: seed,
+          stage: stage,
+        );
+        final filtered = found.where((r) => !isExcluded(r)).toList();
+        merged = mergeDiversityRoutes(
+          merged,
+          filtered,
+          limit: 25,
+          dedupeDistanceKm: thresholdsForStage(stage).dedupDistanceKm,
+        );
+        merged = _rankRoutes(merged);
+
+        if (merged.isNotEmpty) {
+          bestStage = stage;
+          bestRadius = radiusKm;
+        }
+        if (merged.length >= targetVisibleRoutes) {
+          return _SearchRunResult(
+            routes: merged,
+            stage: bestStage,
+            radiusKm: bestRadius,
+            expansionStep: i + 1,
+            expansionSteps: radiusPlan.length,
+          );
+        }
+      }
+    }
+
+    return _SearchRunResult(
+      routes: merged,
+      stage: bestStage,
+      radiusKm: bestRadius,
+      expansionStep: radiusPlan.length,
+      expansionSteps: radiusPlan.length,
+    );
   }
 
   /// AI가 생성한 이름으로 루트를 업데이트 (routes_screen에서 호출)
@@ -815,14 +1157,7 @@ class RouteService extends ChangeNotifier {
 
   /// 기존 풀 + 새 루트 병합 — centerPoint 6km 이내 중복 제거
   List<RevvRoute> _mergeRoutePools(List<RevvRoute> existing, List<RevvRoute> fresh) {
-    final pool = List<RevvRoute>.from(existing);
-    for (final r in fresh) {
-      final isDup = pool.any(
-        (e) => RevvRoute.haversineKm(e.centerPoint, r.centerPoint) < 6,
-      );
-      if (!isDup) pool.add(r);
-    }
-    return pool;
+    return mergeDiversityRoutes(existing, fresh, limit: 100);
   }
 
   /// 개인 Firestore 캐시 저장 (preloadFromFirestore용)
@@ -875,11 +1210,29 @@ class RouteService extends ChangeNotifier {
     }
   }
 
-  Future<List<RevvRoute>?> _loadFromCache() async {
+  Future<List<RevvRoute>?> _loadFromCache([double? lat, double? lng]) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_cacheKey);
       if (raw == null) return null;
+      if (lat != null && lng != null) {
+        final cachePos = prefs.getString(_cachePosKey);
+        if (cachePos != null) {
+          final parts = cachePos.split(',');
+          if (parts.length == 2) {
+            final cacheLat = double.tryParse(parts[0]);
+            final cacheLng = double.tryParse(parts[1]);
+            if (cacheLat != null && cacheLng != null) {
+              final canReuse = shouldUseCachedRoutes(
+                cacheCenter: LatLng(cacheLat, cacheLng),
+                targetCenter: LatLng(lat, lng),
+                searchRadiusKm: searchRadiusKm,
+              );
+              if (!canReuse) return null;
+            }
+          }
+        }
+      }
       return RevvRoute.listFromJson(raw);
     } catch (e) {
       debugPrint('[RouteService] 캐시 로드 실패: $e');
@@ -985,58 +1338,90 @@ class RouteService extends ChangeNotifier {
     }
   }
 
-  Future<List<RevvRoute>> _fetchAndScore(double lat, double lng, int radiusM, {int seed = 0}) async {
-    // ["name"] 필터: 이름 없는 도로 제거 → 데이터량 80% 감소
-    // primary 포함: 캐나다 일부 primary가 와인딩 명소
-    final query = '''
-[out:json][timeout:55];
-(
-  way["highway"="primary"]["name"](around:$radiusM,$lat,$lng);
-  way["highway"="secondary"]["name"](around:$radiusM,$lat,$lng);
-  way["highway"="tertiary"]["name"](around:$radiusM,$lat,$lng);
-  way["highway"="unclassified"]["name"](around:$radiusM,$lat,$lng);
-  node["highway"="traffic_signals"](around:$radiusM,$lat,$lng);
-  node["highway"="stop"](around:$radiusM,$lat,$lng);
-);
-out geom qt;
-''';
+  Future<List<RevvRoute>> _fetchAndScore(
+    double lat,
+    double lng,
+    int radiusM, {
+    int seed = 0,
+    RouteSearchStage stage = RouteSearchStage.strict,
+  }) async {
+    final canReuseCachedJson = _lastJsonBody != null &&
+        _lastJsonLat == lat &&
+        _lastJsonLng == lng &&
+        _lastJsonRadiusM != null &&
+        canReuseSearchResponse(
+          stage: stage,
+          cachedRadiusM: _lastJsonRadiusM!,
+          requestedRadiusM: radiusM,
+        );
+    if (canReuseCachedJson && _lastJsonRadiusM == radiusM) {
+      debugPrint('[RouteService] ${routeStageLabel(stage)} 단계는 동일 반경 응답 JSON을 재사용합니다');
+      final cachedResult = await compute(
+        _processRoutes,
+        _IsolateParams(
+          _lastJsonBody!,
+          lat,
+          lng,
+          seed: seed,
+          stage: stage,
+        ),
+      );
+      debugPrint(cachedResult.log);
+      debugPrint('[RouteService] compute() 완료: ${cachedResult.routes.length}개');
+      return cachedResult.routes;
+    }
 
-    debugPrint('[RouteService] _fetchAndScore ($lat, $lng, r=${radiusM}m)');
+    final relaxedQuery = stage != RouteSearchStage.strict;
+    final query = buildOverpassQuery(
+      lat: lat,
+      lng: lng,
+      radiusM: radiusM,
+      includePrimary: relaxedQuery,
+      requireName: !relaxedQuery,
+      timeoutSeconds: relaxedQuery ? 18 : 12,
+    );
 
-    final endpoints = [
-      'https://overpass-api.de/api/interpreter',
-      'https://z.overpass-api.de/api/interpreter',
-      'https://lz4.overpass-api.de/api/interpreter',
-      'https://overpass.kumi.systems/api/interpreter',
-      'https://overpass.osm.ch/api/interpreter',
-      'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-    ];
+    debugPrint('[RouteService] _fetchAndScore ($lat, $lng, r=${radiusM}m, stage=${routeStageLabel(stage)})');
 
-    String? resBody;
-    for (final url in endpoints) {
-      try {
-        final r = await http.post(
-          Uri.parse(url),
-          body: {'data': query},
-        ).timeout(const Duration(seconds: 60));
-        if (r.statusCode == 200) {
-          final body = utf8.decode(r.bodyBytes);
-          // Overpass가 XML 에러 페이지를 200으로 반환하는 경우 방어
-          if (body.trimLeft().startsWith('<')) {
-            debugPrint('[RouteService] $url XML 에러 응답 → 다음 서버 시도');
-            continue;
-          }
-          resBody = body;
-          debugPrint('[RouteService] $url 성공 (${body.length} bytes)');
-          break;
-        }
-        debugPrint('[RouteService] $url → ${r.statusCode}');
-      } catch (e) {
-        debugPrint('[RouteService] $url 실패: $e');
-      }
+    String? resBody = await _tryFetchOverpassBody(
+      query,
+      requestTimeout: Duration(seconds: relaxedQuery ? 14 : 9),
+    );
+
+    if (resBody == null && stage == RouteSearchStage.strict) {
+      final relaxedQuery = buildOverpassQuery(
+        lat: lat,
+        lng: lng,
+        radiusM: radiusM,
+        includePrimary: true,
+        requireName: false,
+        timeoutSeconds: 24,
+      );
+      debugPrint('[RouteService] 빠른 쿼리 실패 → 완화된 fallback 재시도');
+      resBody = await _tryFetchOverpassBody(
+        relaxedQuery,
+        requestTimeout: const Duration(seconds: 24),
+        endpoints: const ['https://overpass-api.de/api/interpreter'],
+      );
     }
 
     if (resBody == null) {
+      if (canReuseCachedJson) {
+        debugPrint('[RouteService] ${routeStageLabel(stage)} 단계는 더 좁은 반경 캐시 JSON으로 fallback합니다');
+        final cachedResult = await compute(
+          _processRoutes,
+          _IsolateParams(
+            _lastJsonBody!,
+            lat,
+            lng,
+            seed: seed,
+            stage: stage,
+          ),
+        );
+        debugPrint(cachedResult.log);
+        debugPrint('[RouteService] compute() 완료: ${cachedResult.routes.length}개');
+        return cachedResult.routes;
+      }
       debugPrint('[RouteService] 모든 서버 실패');
       return [];
     }
@@ -1045,14 +1430,51 @@ out geom qt;
     _lastJsonBody = resBody;
     _lastJsonLat = lat;
     _lastJsonLng = lng;
+    _lastJsonRadiusM = radiusM;
 
     // ── compute() isolate: JSON 파싱 + Way Stitching + 스코어링 ──
     // 메인 스레드에서 실행하면 320프레임+ 스킵 발생 → 별도 isolate로 분리
     debugPrint('[RouteService] compute() isolate 시작 (seed=$seed)');
-    final result = await compute(_processRoutes, _IsolateParams(resBody, lat, lng, seed: seed));
+    final result = await compute(
+      _processRoutes,
+      _IsolateParams(resBody, lat, lng, seed: seed, stage: stage),
+    );
     debugPrint(result.log); // ← 메인 스레드에서 번호 로그 출력
     debugPrint('[RouteService] compute() 완료: ${result.routes.length}개');
     return result.routes;
+  }
+
+  Future<String?> _tryFetchOverpassBody(
+    String query, {
+    required Duration requestTimeout,
+    List<String> endpoints = preferredOverpassEndpoints,
+  }) async {
+    for (final url in endpoints) {
+      try {
+        final r = await http.post(
+          Uri.parse(url),
+          body: {'data': query},
+        ).timeout(requestTimeout);
+        if (r.statusCode == 200) {
+          final body = utf8.decode(r.bodyBytes);
+          // Overpass가 XML 에러 페이지를 200으로 반환하는 경우 방어
+          if (body.trimLeft().startsWith('<')) {
+            debugPrint('[RouteService] $url XML 에러 응답 → 다음 서버 시도');
+            continue;
+          }
+          if (looksLikeEmptyOverpassPayload(body)) {
+            debugPrint('[RouteService] $url 빈 응답 → 다음 서버 시도');
+            continue;
+          }
+          debugPrint('[RouteService] $url 성공 (${body.length} bytes)');
+          return body;
+        }
+        debugPrint('[RouteService] $url → ${r.statusCode}');
+      } catch (e) {
+        debugPrint('[RouteService] $url 실패: $e');
+      }
+    }
+    return null;
   }
 
   /// 새 랜덤 시드로 캐시된 JSON 재처리 — 네트워크 호출 없이 다른 루트 조합 반환
@@ -1065,7 +1487,13 @@ out geom qt;
     try {
       final result = await compute(
         _processRoutes,
-        _IsolateParams(_lastJsonBody!, _lastJsonLat!, _lastJsonLng!, seed: seed),
+        _IsolateParams(
+          _lastJsonBody!,
+          _lastJsonLat!,
+          _lastJsonLng!,
+          seed: seed,
+          stage: currentSearchStage,
+        ),
       );
       debugPrint(result.log);
       routes = result.routes.where((r) => !isExcluded(r)).toList();

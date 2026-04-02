@@ -25,6 +25,9 @@ class StorageKeys {
   static const routeCachePos = 'revv_route_cache_pos';
   /// 제외된 루트 센터 목록
   static const excludedCenters = 'revv_excluded_centers';
+  /// 마지막으로 성공한 실제 위치
+  static const lastKnownLat = 'revv_last_known_lat';
+  static const lastKnownLng = 'revv_last_known_lng';
 
   // ── 집 위치 (HomeLocationService) ──────────────────────────
   static const homeLat  = 'home_lat';

@@ -33,6 +33,13 @@ class RevvAiService {
     double speedKmh = 0,
     String weather = '',
     String roadCondition = '',
+    String? routeName,
+    double? routeDistanceKm,
+    double? lateralG,
+    double? longitudinalG,
+    int? rpm,
+    int? coolantTempC,
+    double? throttlePct,
   }) async {
     if (userText.isEmpty) return _fallback;
     try {
@@ -46,6 +53,7 @@ class RevvAiService {
 - 속도: ${speedKmh.toStringAsFixed(0)}km/h
 - 날씨: $weather
 - 노면: $roadCondition
+${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? '- 루트 거리: ${routeDistanceKm.toStringAsFixed(1)}km\n' : ''}${lateralG != null ? '- 횡G: ${lateralG.toStringAsFixed(2)}\n' : ''}${longitudinalG != null ? '- 종G: ${longitudinalG.toStringAsFixed(2)}\n' : ''}${rpm != null ? '- RPM: $rpm\n' : ''}${coolantTempC != null ? '- 냉각수: ${coolantTempC}°C\n' : ''}${throttlePct != null ? '- 스로틀: ${throttlePct.toStringAsFixed(0)}%\n' : ''}
 
 드라이버: "$userText"''',
           }

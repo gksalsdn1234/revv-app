@@ -30,8 +30,8 @@ import 'settings_screen.dart';
 import 'analysis_screen.dart';
 import 'ranking_screen.dart';
 import '../widgets/driver_level_card.dart';
-import '../widgets/mini_elev_chart.dart';
 import 'garage_screen.dart';
+import '../ui/ux_contracts.dart';
 
 PageRouteBuilder<T> _slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
   pageBuilder: (_, __, ___) => page,
@@ -317,6 +317,10 @@ class _CruiseScreenState extends State<CruiseScreen>
     // select는 필요한 속성만 감시 → 불필요한 rebuild 차단
     final selectedRoute = context.select<RouteService, RevvRoute?>((r) => r.selectedRoute);
     final sprintRequested = context.select<RouteService, bool>((r) => r.sprintRequested);
+    final uiState = resolveCruiseUiState(
+      hasSelectedRoute: selectedRoute != null,
+      nearRouteStart: _nearRouteStart,
+    );
     // 항상듣기 설정 변화 감지 → 즉시 동기화
     context.select<SettingsService, bool>((s) => s.alwaysListen);
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncAlwaysListen());
@@ -383,7 +387,10 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── 루트 시작 근접 배너 ──
-            if (!_isSprinting && !_isDriveMode && _nearRouteStart && selectedRoute != null)
+            if (!_isSprinting &&
+                !_isDriveMode &&
+                uiState == CruiseUiState.readyToStart &&
+                selectedRoute != null)
               Positioned(
                 key: const ValueKey('near-start'),
                 top: MediaQuery.of(context).padding.top + 70,
@@ -396,7 +403,10 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── 루트 선택 카드 (하단 탭바 바로 위) ──
-            if (!_isSprinting && !_isDriveMode && selectedRoute != null)
+            if (!_isSprinting &&
+                !_isDriveMode &&
+                uiState == CruiseUiState.routeSelected &&
+                selectedRoute != null)
               Positioned(
                 key: const ValueKey('route-card'),
                 bottom: 74 + MediaQuery.of(context).padding.bottom,
@@ -433,7 +443,24 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── 커브 히트맵 토글 버튼 ──
-            if (!_isSprinting && !_isDriveMode && selectedRoute != null)
+            if (!_isSprinting && !_isDriveMode && uiState == CruiseUiState.idle)
+              Positioned(
+                key: const ValueKey('idle-prompt'),
+                left: 14,
+                right: 14,
+                bottom: 80 + MediaQuery.of(context).padding.bottom,
+                child: _IdleDrivePrompt(
+                  onBrowseRoutes: () {
+                    setState(() => _activeTab = 0);
+                    Navigator.push(context, _slideUpRoute(const RoutesScreen()));
+                  },
+                ),
+              ),
+
+            if (!_isSprinting &&
+                !_isDriveMode &&
+                uiState == CruiseUiState.routeSelected &&
+                selectedRoute != null)
               Positioned(
                 key: const ValueKey('heatmap-btn'),
                 right: 14,
@@ -454,9 +481,7 @@ class _CruiseScreenState extends State<CruiseScreen>
                             ? AppColors.red
                             : Colors.white.withValues(alpha: 0.15),
                       ),
-                      boxShadow: _showCurveHeatmap
-                          ? [BoxShadow(color: AppColors.red.withValues(alpha: 0.4), blurRadius: 12)]
-                          : [],
+                      boxShadow: const [],
                     ),
                     child: const Icon(Icons.thermostat_rounded, size: 20, color: Colors.white),
                   ),
@@ -485,7 +510,14 @@ class _CruiseScreenState extends State<CruiseScreen>
                     setState(() => _activeTab = 0);
                     Navigator.push(context, _slideUpRoute(const RoutesScreen()));
                   },
-                  onGo: _goSprint,
+                  onGo: () {
+                    if (uiState == CruiseUiState.idle) {
+                      setState(() => _activeTab = 0);
+                      Navigator.push(context, _slideUpRoute(const RoutesScreen()));
+                      return;
+                    }
+                    _goSprint();
+                  },
                   onLog: () {
                     setState(() => _activeTab = 3);
                     Navigator.push(context, _slideUpRoute(const HistoryScreen()));
@@ -530,6 +562,75 @@ class _TapScaleState extends State<_TapScale> {
         duration: const Duration(milliseconds: 100),
         curve: Curves.easeOut,
         child: widget.child,
+      ),
+    );
+  }
+}
+
+class _IdleDrivePrompt extends StatelessWidget {
+  final VoidCallback onBrowseRoutes;
+  const _IdleDrivePrompt({required this.onBrowseRoutes});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      decoration: BoxDecoration(
+        color: const Color(0xF0141416),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.45),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '어디로 달릴까?',
+            style: GoogleFonts.rajdhani(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '오늘 드라이브에 맞는 루트를 먼저 고르고 바로 시작하세요.',
+            style: GoogleFonts.rajdhani(
+              fontSize: 14,
+              height: 1.35,
+              color: Colors.white.withValues(alpha: 0.68),
+            ),
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.red,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onPressed: onBrowseRoutes,
+              child: Text(
+                '루트 보기',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -746,10 +847,9 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
       decoration: BoxDecoration(
         color: const Color(0xFF141416),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: diffColor.withValues(alpha: 0.45), width: 1.5),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1.2),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.7), blurRadius: 28, offset: const Offset(0, 8)),
-          BoxShadow(color: diffColor.withValues(alpha: 0.1), blurRadius: 24, spreadRadius: 2),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.55), blurRadius: 24, offset: const Offset(0, 8)),
         ],
       ),
       child: ClipRRect(
@@ -757,9 +857,8 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(height: 3, color: diffColor),
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 11, 10, 12),
+              padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -770,16 +869,16 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                         Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: diffColor.withValues(alpha: 0.18),
-                                borderRadius: BorderRadius.circular(4),
+                                color: diffColor.withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(999),
                               ),
                               child: Text(
                                 widget.route.difficultyLabel,
                                 style: GoogleFonts.rajdhani(
-                                  fontSize: 9, fontWeight: FontWeight.w800,
-                                  color: diffColor, letterSpacing: 1,
+                                  fontSize: 11, fontWeight: FontWeight.w800,
+                                  color: diffColor,
                                 ),
                               ),
                             ),
@@ -787,8 +886,8 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                             Expanded(
                               child: Text(
                                 widget.route.name,
-                                style: GoogleFonts.orbitron(
-                                  fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white,
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -800,10 +899,10 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                         Row(
                           children: [
                             _StatChip(icon: Icons.straighten, value: widget.route.distanceDisplay),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 10),
                             _StatChip(icon: Icons.schedule, value: widget.route.durationDisplay),
                             if (widget.route.windingDensityPct > 0) ...[
-                              const SizedBox(width: 12),
+                              const SizedBox(width: 10),
                               _StatChip(
                                 icon: Icons.turn_right,
                                 value: '${widget.route.windingDensityPct.toStringAsFixed(0)}%',
@@ -811,6 +910,15 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                               ),
                             ],
                           ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '이 루트로 시작할까?',
+                          style: GoogleFonts.rajdhani(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white.withValues(alpha: 0.68),
+                          ),
                         ),
                       ],
                     ),
@@ -822,32 +930,25 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                       _TapScale(
                         onTap: widget.onGo,
                         child: Container(
-                          width: 76,
-                          height: 44,
+                          width: 92,
+                          height: 46,
                           decoration: BoxDecoration(
                             color: AppColors.red,
-                            borderRadius: BorderRadius.circular(10),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppColors.red.withValues(alpha: 0.55),
-                                blurRadius: 16,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
+                            borderRadius: BorderRadius.circular(12),
                           ),
                           child: Center(
                             child: Text(
-                              'GO',
-                              style: GoogleFonts.orbitron(
-                                fontSize: 16, fontWeight: FontWeight.w900,
-                                color: Colors.white, letterSpacing: 3,
+                              '시작',
+                              style: GoogleFonts.rajdhani(
+                                fontSize: 17, fontWeight: FontWeight.w800,
+                                color: Colors.white,
                               ),
                             ),
                           ),
                         ),
                       ),
                       if (hasChain) ...[
-                        const SizedBox(height: 5),
+                        const SizedBox(height: 6),
                         GestureDetector(
                           onTap: () {
                             final rs = context.read<RouteService>();
@@ -862,22 +963,22 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                             );
                           },
                           child: Container(
-                            width: 76,
-                            height: 28,
+                            width: 92,
+                            height: 30,
                             decoration: BoxDecoration(
                               color: AppColors.surface,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Icon(Icons.link, size: 9, color: AppColors.red),
+                                const Icon(Icons.link, size: 10, color: AppColors.red),
                                 const SizedBox(width: 3),
                                 Text(
                                   '${totalChainKm.toStringAsFixed(0)}km',
                                   style: GoogleFonts.rajdhani(
-                                    fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white,
+                                    fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white,
                                   ),
                                 ),
                               ],
@@ -904,8 +1005,6 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
               ),
             ),
             // ── 미니 고도 프로파일 ──────────────────────────────
-            Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
-            MiniElevSection(route: widget.route, lineColor: diffColor),
           ],
         ),
       ),
@@ -953,10 +1052,8 @@ class _NearStartBanner extends StatefulWidget {
 class _NearStartBannerState extends State<_NearStartBanner>
     with TickerProviderStateMixin {
   late final AnimationController _entryCtrl;
-  late final AnimationController _pulseCtrl;
   late final Animation<Offset> _slide;
   late final Animation<double> _fade;
-  late final Animation<double> _pulse;
 
   @override
   void initState() {
@@ -965,16 +1062,10 @@ class _NearStartBannerState extends State<_NearStartBanner>
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-    _pulseCtrl = AnimationController(
-      duration: const Duration(milliseconds: 900),
-      vsync: this,
-    )..repeat(reverse: true);
 
     _slide = Tween(begin: const Offset(0, -0.4), end: Offset.zero)
         .animate(CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic));
     _fade = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOut);
-    _pulse = Tween<double>(begin: 0.35, end: 1.0)
-        .animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
 
     _entryCtrl.forward();
   }
@@ -982,7 +1073,6 @@ class _NearStartBannerState extends State<_NearStartBanner>
   @override
   void dispose() {
     _entryCtrl.dispose();
-    _pulseCtrl.dispose();
     super.dispose();
   }
 
@@ -993,40 +1083,20 @@ class _NearStartBannerState extends State<_NearStartBanner>
       child: SlideTransition(
         position: _slide,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+          padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
           decoration: BoxDecoration(
-            color: const Color(0xFF1A0808),
+            color: const Color(0xF0141416),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppColors.red.withValues(alpha: 0.7), width: 1.5),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.red.withValues(alpha: 0.3),
-                blurRadius: 24,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1.2),
           ),
           child: Row(
             children: [
-              // 펄싱 도트
-              AnimatedBuilder(
-                animation: _pulse,
-                builder: (_, __) => Opacity(
-                  opacity: _pulse.value,
-                  child: Container(
-                    width: 8, height: 8,
-                    decoration: BoxDecoration(
-                      color: AppColors.red,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.red.withValues(alpha: _pulse.value * 0.8),
-                          blurRadius: 10,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                  ),
+              Container(
+                width: 10,
+                height: 10,
+                decoration: const BoxDecoration(
+                  color: AppColors.red,
+                  shape: BoxShape.circle,
                 ),
               ),
               const SizedBox(width: 10),
@@ -1037,14 +1107,17 @@ class _NearStartBannerState extends State<_NearStartBanner>
                     Text(
                       '시작 지점 근처',
                       style: GoogleFonts.rajdhani(
-                        fontSize: 10, fontWeight: FontWeight.w700,
-                        color: AppColors.red, letterSpacing: 1,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.red,
                       ),
                     ),
                     Text(
                       widget.routeName,
-                      style: GoogleFonts.orbitron(
-                        fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white,
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1060,19 +1133,13 @@ class _NearStartBannerState extends State<_NearStartBanner>
                   decoration: BoxDecoration(
                     color: AppColors.red,
                     borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.red.withValues(alpha: 0.5),
-                        blurRadius: 14,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
                   ),
                   child: Text(
-                    'START',
-                    style: GoogleFonts.orbitron(
-                      fontSize: 11, fontWeight: FontWeight.w900,
-                      color: Colors.white, letterSpacing: 2,
+                    '시작',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -1322,40 +1389,24 @@ class _MoreSheet extends StatelessWidget {
             onTap: onGarage,
           ),
           _MoreItem(
-            icon: Icons.auto_awesome_rounded,
-            label: 'Jarvis AI',
-            sub: '드라이빙 브리핑',
-            onTap: onAi,
-          ),
-          _MoreItem(
-            icon: Icons.emoji_events_rounded,
-            label: '드라이버 프로필',
-            sub: '레벨 · 마일스톤 · 통계',
-            onTap: onDriverLevel,
-          ),
-          _MoreItem(
-            icon: Icons.analytics_rounded,
-            label: '드라이버 분석',
-            sub: 'AI 주행 데이터 분석',
-            onTap: onAnalysis,
-          ),
-          _MoreItem(
-            icon: Icons.mic_rounded,
-            label: '마이크',
-            sub: '음성 명령',
-            onTap: onMic,
-          ),
-          _MoreItem(
-            icon: Icons.emoji_events_rounded,
-            label: '랭킹',
-            sub: '인기 루트 · 챌린지 · 내 기록',
-            onTap: onRanking,
-          ),
-          _MoreItem(
             icon: Icons.settings_rounded,
             label: '설정',
             sub: '앱 환경설정',
             onTap: onSettings,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 10, 22, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'AI 분석, 랭킹, 음성 명령은 주행 흐름 안에서 필요할 때만 다시 꺼내는 방향으로 정리 중이에요.',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 13,
+                  height: 1.35,
+                  color: Colors.white.withValues(alpha: 0.45),
+                ),
+              ),
+            ),
           ),
           SizedBox(height: MediaQuery.of(context).padding.bottom + 20),
         ],

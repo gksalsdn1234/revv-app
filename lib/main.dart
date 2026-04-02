@@ -25,9 +25,14 @@ void main() async {
 
   // Firebase 초기화 — firebase_options.dart는 `flutterfire configure`로 생성
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    final options = DefaultFirebaseOptions.tryCurrentPlatform();
+    if (options != null) {
+      await Firebase.initializeApp(
+        options: options,
+      );
+    } else {
+      await Firebase.initializeApp();
+    }
     await CloudSyncService().init(); // 익명 로그인
   } catch (e) {
     debugPrint('[Firebase] 초기화 건너뜀: $e');

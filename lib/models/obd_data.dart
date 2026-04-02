@@ -92,3 +92,42 @@ class OBDData {
   String get fuelRateDisplay => fuelRateLph != null ? fuelRateLph!.toStringAsFixed(1) : '—';
   String get relThrottleDisplay => relThrottlePct != null ? '${relThrottlePct!.round()}' : '—';
 }
+
+class OBDRunSummary {
+  final int? maxRpm;
+  final double? avgFuelRateLph;
+  final double? startFuelLevelPct;
+  final double? endFuelLevelPct;
+  final int? maxCoolantTempC;
+
+  const OBDRunSummary({
+    this.maxRpm,
+    this.avgFuelRateLph,
+    this.startFuelLevelPct,
+    this.endFuelLevelPct,
+    this.maxCoolantTempC,
+  });
+
+  bool get hasData =>
+      maxRpm != null ||
+      avgFuelRateLph != null ||
+      startFuelLevelPct != null ||
+      endFuelLevelPct != null ||
+      maxCoolantTempC != null;
+
+  Map<String, dynamic> toJson() => {
+        if (maxRpm != null) 'maxRpm': maxRpm,
+        if (avgFuelRateLph != null) 'avgFuelRateLph': avgFuelRateLph,
+        if (startFuelLevelPct != null) 'startFuelLevelPct': startFuelLevelPct,
+        if (endFuelLevelPct != null) 'endFuelLevelPct': endFuelLevelPct,
+        if (maxCoolantTempC != null) 'maxCoolantTempC': maxCoolantTempC,
+      };
+
+  factory OBDRunSummary.fromJson(Map<String, dynamic> json) => OBDRunSummary(
+        maxRpm: json['maxRpm'] as int?,
+        avgFuelRateLph: (json['avgFuelRateLph'] as num?)?.toDouble(),
+        startFuelLevelPct: (json['startFuelLevelPct'] as num?)?.toDouble(),
+        endFuelLevelPct: (json['endFuelLevelPct'] as num?)?.toDouble(),
+        maxCoolantTempC: json['maxCoolantTempC'] as int?,
+      );
+}

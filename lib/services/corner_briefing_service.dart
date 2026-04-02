@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../models/revv_route.dart';
+import 'jarvis_script.dart';
 
 // ── 커브 강도 분류 ──────────────────────────────────────────────
 enum CurveIntensity {
@@ -92,8 +93,15 @@ class CornerBriefingService {
 
   // 리스너 (UI 갱신용)
   VoidCallback? onUpdate;
+  final void Function(String text)? onSpeak;
+  final JarvisPersona persona;
 
-  CornerBriefingService({this.onUpdate, bool initialMuted = false}) {
+  CornerBriefingService({
+    this.onUpdate,
+    this.onSpeak,
+    this.persona = JarvisPersona.engineer,
+    bool initialMuted = false,
+  }) {
     _muted = initialMuted;
     _initTts();
   }
@@ -210,7 +218,12 @@ class CornerBriefingService {
   }
 
   void _speak(String text) {
-    if (!_stopped && !_muted) _tts.speak(text);
+    if (_stopped || _muted) return;
+    if (onSpeak != null) {
+      onSpeak!(text);
+      return;
+    }
+    _tts.speak(text);
   }
 
   // ── 수학 헬퍼 ────────────────────────────────────────────────────
@@ -242,5 +255,43 @@ class CornerBriefingService {
     while (d > 180)  d -= 360;
     while (d < -180) d += 360;
     return d;
+  }
+
+  static ({int hairpin, int sharp, int medium, double firstCornerM}) analyzeFullRoute(
+    LatLng userPos,
+    List<LatLng> nodes,
+  ) {
+    if (nodes.length < 3) {
+      return (hairpin: 0, sharp: 0, medium: 0, firstCornerM: 0.0);
+    }
+
+    int hairpin = 0;
+    int sharp = 0;
+    int medium = 0;
+    double? firstCornerM;
+    double distanceM = _haversineM(userPos, nodes.first);
+
+    for (int i = 1; i < nodes.length - 1; i++) {
+      distanceM += _haversineM(nodes[i - 1], nodes[i]);
+      final delta = _normDelta(_bearing(nodes[i], nodes[i + 1]) - _bearing(nodes[i - 1], nodes[i])).abs();
+      if (delta < 40) {
+        continue;
+      }
+      firstCornerM ??= distanceM;
+      if (delta >= 110) {
+        hairpin++;
+      } else if (delta >= 70) {
+        sharp++;
+      } else {
+        medium++;
+      }
+    }
+
+    return (
+      hairpin: hairpin,
+      sharp: sharp,
+      medium: medium,
+      firstCornerM: firstCornerM ?? 0.0,
+    );
   }
 }

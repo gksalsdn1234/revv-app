@@ -20,4 +20,16 @@ class AppColors {
 
   // Divider
   static const divider = Color(0xFF1E293B);
+
+  static Color gForceColor(double mag) {
+    final t = (mag / 1.2).clamp(0.0, 1.0);
+    if (t < 0.42) {
+      return Color.lerp(const Color(0xFF1565C0), const Color(0xFFFDD835), t / 0.42)!;
+    }
+    return Color.lerp(
+      const Color(0xFFFDD835),
+      const Color(0xFFE53935),
+      ((t - 0.42) / 0.58).clamp(0.0, 1.0),
+    )!;
+  }
 }

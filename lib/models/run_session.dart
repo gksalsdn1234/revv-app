@@ -1,4 +1,5 @@
 import 'revv_route.dart';
+import 'obd_data.dart';
 
 /// 급조작 순간 — G포스가 임계값을 초과한 지점
 class SharpCorner {
@@ -34,6 +35,7 @@ class RunSession {
 
   /// G포스 임계값(0.45G) 초과 급조작 지점 목록
   final List<SharpCorner> sharpCorners;
+  final OBDRunSummary? obdSummary;
 
   const RunSession({
     required this.startTime,
@@ -50,6 +52,7 @@ class RunSession {
     this.maxLonG = 0.0,
     this.driveModeSeconds = const {},
     this.sharpCorners = const [],
+    this.obdSummary,
   });
 
   Duration get duration => endTime.difference(startTime);

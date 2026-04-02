@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import '../models/run_session.dart';
 import '../models/revv_route.dart';
+import '../models/obd_data.dart';
 // SharpCorner는 run_session.dart에 정의됨
 
 class RunSessionService extends ChangeNotifier {
@@ -126,6 +127,7 @@ class RunSessionService extends ChangeNotifier {
   RunSession? stopSession({
     double maxLateralG = 0.0,
     double maxLonG = 0.0,
+    OBDRunSummary? obdSummary,
   }) {
     if (!isRecording || _startTime == null) return null;
     isRecording = false;
@@ -145,6 +147,7 @@ class RunSessionService extends ChangeNotifier {
       maxLonG: maxLonG,
       driveModeSeconds: Map.unmodifiable(Map.of(_driveModeSeconds)),
       sharpCorners: List.unmodifiable(List.of(_sharpCorners)),
+      obdSummary: obdSummary,
     );
     _scheduleNotify();
     return session;
