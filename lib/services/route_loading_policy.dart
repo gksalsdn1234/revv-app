@@ -270,25 +270,25 @@ bool hasCompellingRouteReason(RevvRoute route) {
 String? primaryRouteReason(RevvRoute route) {
   final reasons = deriveRouteReasonTags(route);
   if (reasons.contains('switchbacks')) {
-    return '타이트 코너 감각이 분명한 스위치백 성향 루트예요.';
+    return '타이트한 스위치백이 연속되는 기술적인 드라이브 루트예요.';
   }
   if (reasons.contains('sweepers')) {
-    return '리듬감 있게 이어지는 스위퍼 코너가 좋은 루트예요.';
+    return '장쾌한 스위퍼 코너가 리듬감 있게 이어지는 루트예요.';
   }
   if (reasons.contains('dense_corners')) {
-    return '코너가 끊기지 않고 이어지는 와인딩 루트예요.';
+    return '코너가 쉼 없이 이어지는 밀도 높은 와인딩 코스예요.';
   }
   if (reasons.contains('continuous_flow')) {
-    return '호흡 길게 몰입하기 좋은 연속 코너 구간이 있어요.';
+    return '긴 호흡으로 몰입하기 좋은 연속 코너 구간이에요.';
   }
   if (reasons.contains('elevation')) {
-    return '고저차가 살아 있어 드라이브 감각이 더 좋은 코스예요.';
+    return '오르막과 내리막이 살아 있어 드라이브 감각이 두드러지는 코스예요.';
   }
   if (reasons.contains('loop')) {
-    return '되돌아오기 편하면서도 흐름이 살아 있는 루프예요.';
+    return '출발지로 자연스럽게 돌아오는 흐름 좋은 루프예요.';
   }
   if (reasons.contains('high_score')) {
-    return '와인딩 밀도가 높은 핵심 드라이브 코스예요.';
+    return '밀도 높은 와인딩이 가득한 핵심 드라이브 코스예요.';
   }
   return null;
 }

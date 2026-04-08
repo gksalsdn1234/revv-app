@@ -36,8 +36,8 @@ class RouteRecommendation {
 RouteRecommendation buildRouteRecommendation(RevvRoute route) {
   final reason = primaryRouteReason(route) ??
       (route.distanceKm <= 15 && route.windingDensityPct >= 0.2
-          ? '부담 없이 다녀오면서도 코너 감각을 살릴 수 있는 짧은 드라이브예요.'
-          : '추천 이유 정리 중...');
+          ? '가볍게 나서기 좋은 짧은 와인딩 드라이브예요.'
+          : '여유롭게 달리기 좋은 드라이브 루트예요.');
 
   return RouteRecommendation(
     title: route.name,
