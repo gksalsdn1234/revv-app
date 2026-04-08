@@ -37,7 +37,7 @@ RouteRecommendation buildRouteRecommendation(RevvRoute route) {
   final reason = primaryRouteReason(route) ??
       (route.distanceKm <= 15 && route.windingDensityPct >= 0.2
           ? '가볍게 나서기 좋은 짧은 와인딩 드라이브예요.'
-          : '여유롭게 달리기 좋은 드라이브 루트예요.');
+          : '가볍게 나서기 좋은 드라이브 루트예요.');
 
   return RouteRecommendation(
     title: route.name,

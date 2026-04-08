@@ -279,16 +279,16 @@ String? primaryRouteReason(RevvRoute route) {
     return '코너가 쉼 없이 이어지는 밀도 높은 와인딩 코스예요.';
   }
   if (reasons.contains('continuous_flow')) {
-    return '긴 호흡으로 몰입하기 좋은 연속 코너 구간이에요.';
+    return '긴 호흡으로 몰입하기 좋은 연속 코너 루트예요.';
   }
   if (reasons.contains('elevation')) {
-    return '오르막과 내리막이 살아 있어 드라이브 감각이 두드러지는 코스예요.';
+    return '오르막내리막이 살아있는 드라이브 코스예요.';
   }
   if (reasons.contains('loop')) {
     return '출발지로 자연스럽게 돌아오는 흐름 좋은 루프예요.';
   }
   if (reasons.contains('high_score')) {
-    return '밀도 높은 와인딩이 가득한 핵심 드라이브 코스예요.';
+    return '와인딩 점수가 높은 검증된 드라이빙 코스예요.';
   }
   return null;
 }
