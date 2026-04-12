@@ -1,10 +1,11 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import '../theme/colors.dart';
-import '../services/run_history_service.dart';
+import '../models/revv_route.dart';
 import '../services/challenge_service.dart';
+import '../services/run_history_service.dart';
+import '../services/supabase_service.dart';
+import '../theme/colors.dart';
 
 class RankingScreen extends StatefulWidget {
   const RankingScreen({super.key});
@@ -17,9 +18,10 @@ class RankingScreen extends StatefulWidget {
         transitionDuration: const Duration(milliseconds: 320),
         reverseTransitionDuration: const Duration(milliseconds: 280),
         transitionsBuilder: (_, anim, __, child) => SlideTransition(
-          position: Tween(begin: const Offset(0, 1), end: Offset.zero).animate(
-            CurvedAnimation(parent: anim, curve: Curves.easeOutCubic),
-          ),
+          position: Tween(
+            begin: const Offset(0, 1),
+            end: Offset.zero,
+          ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
           child: child,
         ),
       ),
@@ -33,7 +35,7 @@ class RankingScreen extends StatefulWidget {
 class _RankingScreenState extends State<RankingScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tab;
-  List<Map<String, dynamic>>? _topRoutes;
+  List<RevvRoute>? _topRoutes;
   bool _loadingRoutes = true;
   String? _routeError;
 
@@ -51,24 +53,24 @@ class _RankingScreenState extends State<RankingScreen>
   }
 
   Future<void> _loadTopRoutes() async {
-    setState(() { _loadingRoutes = true; _routeError = null; });
+    setState(() {
+      _loadingRoutes = true;
+      _routeError = null;
+    });
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('routes')
-          .orderBy('runCount', descending: true)
-          .limit(20)
-          .get();
+      final routes = await SupabaseService().fetchTopRoutes(limit: 20);
       if (mounted) {
         setState(() {
-          _topRoutes = snap.docs
-              .map((d) => {'id': d.id, ...d.data()})
-              .toList();
+          _topRoutes = routes;
           _loadingRoutes = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() { _loadingRoutes = false; _routeError = '데이터 로드 실패'; });
+        setState(() {
+          _loadingRoutes = false;
+          _routeError = '데이터 로드 실패';
+        });
       }
     }
   }
@@ -80,32 +82,38 @@ class _RankingScreenState extends State<RankingScreen>
       body: SafeArea(
         child: Column(
           children: [
-            // ── 헤더 ──
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
               child: Row(
                 children: [
                   GestureDetector(
                     onTap: () => Navigator.pop(context),
-                    child: const Icon(Icons.arrow_back_ios_new_rounded,
-                        color: Colors.white, size: 20),
+                    child: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Text(
                     'RANKING',
                     style: GoogleFonts.orbitron(
-                      fontSize: 18, fontWeight: FontWeight.w900,
-                      color: Colors.white, letterSpacing: 4,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                      letterSpacing: 4,
                     ),
                   ),
                   const Spacer(),
-                  Icon(Icons.emoji_events_rounded,
-                      color: AppColors.red, size: 22),
+                  Icon(
+                    Icons.emoji_events_rounded,
+                    color: AppColors.red,
+                    size: 22,
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-            // ── 탭 ──
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 20),
               height: 36,
@@ -119,13 +127,17 @@ class _RankingScreenState extends State<RankingScreen>
                 indicatorSize: TabBarIndicatorSize.tab,
                 indicatorWeight: 2,
                 labelStyle: GoogleFonts.rajdhani(
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 2,
-                    fontSize: 13),
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 2,
+                  fontSize: 13,
+                ),
                 unselectedLabelColor: AppColors.gray,
                 labelColor: Colors.white,
                 dividerColor: Colors.transparent,
-                tabs: const [Tab(text: 'ROUTES'), Tab(text: 'MY STATS')],
+                tabs: const [
+                  Tab(text: 'ROUTES'),
+                  Tab(text: 'MY STATS'),
+                ],
               ),
             ),
             const SizedBox(height: 8),
@@ -150,11 +162,8 @@ class _RankingScreenState extends State<RankingScreen>
   }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// Routes Tab — 커뮤니티 인기 루트 랭킹
-// ══════════════════════════════════════════════════════════════════
 class _RoutesTab extends StatelessWidget {
-  final List<Map<String, dynamic>>? routes;
+  final List<RevvRoute>? routes;
   final bool loading;
   final String? error;
   final VoidCallback onRefresh;
@@ -170,7 +179,8 @@ class _RoutesTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (loading) {
       return const Center(
-          child: CircularProgressIndicator(color: AppColors.red, strokeWidth: 2));
+        child: CircularProgressIndicator(color: AppColors.red, strokeWidth: 2),
+      );
     }
 
     final empty = routes == null || routes!.isEmpty;
@@ -185,16 +195,22 @@ class _RoutesTab extends StatelessWidget {
               empty ? '아직 커뮤니티 루트가 없어요\n루트 탐색 후 주행하면 등록돼요' : error!,
               textAlign: TextAlign.center,
               style: GoogleFonts.rajdhani(
-                  fontSize: 14, color: AppColors.gray, height: 1.5),
+                fontSize: 14,
+                color: AppColors.gray,
+                height: 1.5,
+              ),
             ),
             const SizedBox(height: 16),
             GestureDetector(
               onTap: onRefresh,
-              child: Text('새로고침',
-                  style: GoogleFonts.rajdhani(
-                      fontSize: 13,
-                      color: AppColors.red,
-                      fontWeight: FontWeight.w600)),
+              child: Text(
+                '새로고침',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 13,
+                  color: AppColors.red,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
           ],
         ),
@@ -208,8 +224,7 @@ class _RoutesTab extends StatelessWidget {
       child: ListView.builder(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
         itemCount: routes!.length,
-        itemBuilder: (_, i) =>
-            _RouteRankCard(rank: i + 1, data: routes![i]),
+        itemBuilder: (_, i) => _RouteRankCard(rank: i + 1, route: routes![i]),
       ),
     );
   }
@@ -217,8 +232,8 @@ class _RoutesTab extends StatelessWidget {
 
 class _RouteRankCard extends StatelessWidget {
   final int rank;
-  final Map<String, dynamic> data;
-  const _RouteRankCard({required this.rank, required this.data});
+  final RevvRoute route;
+  const _RouteRankCard({required this.rank, required this.route});
 
   Color get _rankColor {
     if (rank == 1) return const Color(0xFFFFD700);
@@ -229,11 +244,10 @@ class _RouteRankCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = data['name'] as String? ?? '이름 없음';
-    final score = (data['windingScore'] as num?)?.toDouble() ?? 0.0;
-    final runCount = (data['runCount'] as num?)?.toInt() ?? 0;
-    final distKm = (data['distanceKm'] as num?)?.toDouble() ?? 0.0;
-    final isLoop = data['isLoop'] as bool? ?? false;
+    final score = route.windingScore;
+    final runCount = route.runCount;
+    final distKm = route.distanceKm;
+    final isLoop = route.isLoop;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -249,11 +263,16 @@ class _RouteRankCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // 순위
           SizedBox(
             width: 34,
             child: Text(
-              rank == 1 ? '🥇' : rank == 2 ? '🥈' : rank == 3 ? '🥉' : '#$rank',
+              rank == 1
+                  ? '🥇'
+                  : rank == 2
+                  ? '🥈'
+                  : rank == 3
+                  ? '🥉'
+                  : '#$rank',
               style: GoogleFonts.orbitron(
                 fontSize: rank <= 3 ? 20 : 11,
                 fontWeight: FontWeight.w700,
@@ -263,15 +282,15 @@ class _RouteRankCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          // 루트 정보
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name + (isLoop ? '  🔄' : ''),
+                  route.name + (isLoop ? '  🔄' : ''),
                   style: GoogleFonts.rajdhani(
-                    fontSize: 15, fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
                     color: Colors.white,
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -282,7 +301,9 @@ class _RouteRankCard extends StatelessWidget {
                     Text(
                       '${distKm.toStringAsFixed(0)} km',
                       style: GoogleFonts.rajdhani(
-                          fontSize: 12, color: AppColors.gray),
+                        fontSize: 12,
+                        color: AppColors.gray,
+                      ),
                     ),
                     const SizedBox(width: 8),
                     _DifficultyPill(score: score),
@@ -292,7 +313,6 @@ class _RouteRankCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          // runCount
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -307,7 +327,10 @@ class _RouteRankCard extends StatelessWidget {
               Text(
                 '주행',
                 style: GoogleFonts.rajdhani(
-                    fontSize: 10, color: AppColors.gray, letterSpacing: 1),
+                  fontSize: 10,
+                  color: AppColors.gray,
+                  letterSpacing: 1,
+                ),
               ),
             ],
           ),
@@ -339,25 +362,24 @@ class _DifficultyPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-        decoration: BoxDecoration(
-          color: _color.withValues(alpha: 0.15),
-          borderRadius: BorderRadius.circular(2),
-          border: Border.all(color: _color.withValues(alpha: 0.4)),
-        ),
-        child: Text(
-          _label,
-          style: GoogleFonts.rajdhani(
-            fontSize: 9, fontWeight: FontWeight.w700,
-            color: _color, letterSpacing: 1,
-          ),
-        ),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+    decoration: BoxDecoration(
+      color: _color.withValues(alpha: 0.15),
+      borderRadius: BorderRadius.circular(2),
+      border: Border.all(color: _color.withValues(alpha: 0.4)),
+    ),
+    child: Text(
+      _label,
+      style: GoogleFonts.rajdhani(
+        fontSize: 9,
+        fontWeight: FontWeight.w700,
+        color: _color,
+        letterSpacing: 1,
+      ),
+    ),
+  );
 }
 
-// ══════════════════════════════════════════════════════════════════
-// My Stats Tab — 챌린지 + 개인 통계
-// ══════════════════════════════════════════════════════════════════
 class _MyStatsTab extends StatelessWidget {
   const _MyStatsTab();
 
@@ -442,12 +464,14 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Text(
-        text,
-        style: GoogleFonts.rajdhani(
-          fontSize: 11, fontWeight: FontWeight.w600,
-          color: AppColors.gray, letterSpacing: 3,
-        ),
-      );
+    text,
+    style: GoogleFonts.rajdhani(
+      fontSize: 11,
+      fontWeight: FontWeight.w600,
+      color: AppColors.gray,
+      letterSpacing: 3,
+    ),
+  );
 }
 
 class _ChallengeCard extends StatelessWidget {
@@ -484,26 +508,39 @@ class _ChallengeCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, color: done ? AppColors.red : AppColors.gray, size: 15),
+              Icon(
+                icon,
+                color: done ? AppColors.red : AppColors.gray,
+                size: 15,
+              ),
               const SizedBox(width: 8),
               Text(
                 title,
                 style: GoogleFonts.rajdhani(
-                    fontSize: 13, fontWeight: FontWeight.w600,
-                    color: Colors.white),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
               ),
               const Spacer(),
               if (done)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.red.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(2),
                   ),
-                  child: Text('DONE',
-                      style: GoogleFonts.orbitron(
-                          fontSize: 8, color: AppColors.red,
-                          fontWeight: FontWeight.w700)),
+                  child: Text(
+                    'DONE',
+                    style: GoogleFonts.orbitron(
+                      fontSize: 8,
+                      color: AppColors.red,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
             ],
           ),
@@ -514,7 +551,8 @@ class _ChallengeCard extends StatelessWidget {
               value: progress,
               backgroundColor: AppColors.surface,
               valueColor: AlwaysStoppedAnimation<Color>(
-                  done ? AppColors.red : const Color(0xFF4CAF50)),
+                done ? AppColors.red : const Color(0xFF4CAF50),
+              ),
               minHeight: 6,
             ),
           ),
@@ -525,12 +563,17 @@ class _ChallengeCard extends StatelessWidget {
               Text(
                 '${current.toStringAsFixed(0)} km',
                 style: GoogleFonts.orbitron(
-                    fontSize: 16, fontWeight: FontWeight.w700,
-                    color: Colors.white),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
               ),
               Text(
                 '목표 ${goal.toStringAsFixed(0)} km',
-                style: GoogleFonts.rajdhani(fontSize: 11, color: AppColors.gray),
+                style: GoogleFonts.rajdhani(
+                  fontSize: 11,
+                  color: AppColors.gray,
+                ),
               ),
             ],
           ),
@@ -557,50 +600,58 @@ class _StatCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-            color: highlight
-                ? AppColors.red.withValues(alpha: 0.3)
-                : Colors.white.withValues(alpha: 0.05),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: AppColors.panel,
+      borderRadius: BorderRadius.circular(4),
+      border: Border.all(
+        color: highlight
+            ? AppColors.red.withValues(alpha: 0.3)
+            : Colors.white.withValues(alpha: 0.05),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                Icon(icon,
-                    size: 13,
-                    color: highlight ? AppColors.red : AppColors.gray),
-                const SizedBox(width: 4),
-                Text(
-                  label,
-                  style: GoogleFonts.rajdhani(
-                      fontSize: 10, color: AppColors.gray, letterSpacing: 1),
-                ),
-              ],
+            Icon(
+              icon,
+              size: 13,
+              color: highlight ? AppColors.red : AppColors.gray,
             ),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(
-                  value,
-                  style: GoogleFonts.orbitron(
-                      fontSize: 22, fontWeight: FontWeight.w700,
-                      color: Colors.white),
-                ),
-                const SizedBox(width: 3),
-                Text(unit,
-                    style: GoogleFonts.rajdhani(
-                        fontSize: 12, color: AppColors.gray)),
-              ],
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: GoogleFonts.rajdhani(
+                fontSize: 10,
+                color: AppColors.gray,
+                letterSpacing: 1,
+              ),
             ),
           ],
         ),
-      );
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              value,
+              style: GoogleFonts.orbitron(
+                fontSize: 22,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(width: 3),
+            Text(
+              unit,
+              style: GoogleFonts.rajdhani(fontSize: 12, color: AppColors.gray),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
 }

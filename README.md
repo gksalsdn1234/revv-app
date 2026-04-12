@@ -1,12 +1,12 @@
 # REVV
 
-REVV is a Flutter driving companion focused on three core flows:
+REVV is a Flutter driving companion centered on three flows:
 
-- discover an enjoyable route
+- discover a good driving route
 - drive with a focused HUD and optional telemetry
-- save the run and review coaching/summary afterward
+- save and review the run afterward
 
-This repository is currently in MVP stabilization mode. Core driving flows are prioritized over feature breadth.
+This repository is in MVP stabilization mode. The current backend target is Supabase for route data, run sync, saved routes, and rankings.
 
 ## Current MVP Scope
 
@@ -14,17 +14,15 @@ This repository is currently in MVP stabilization mode. Core driving flows are p
 - route browse/select flow
 - cruise, drive, and sprint driving flows
 - run save and history view
-- optional OBD, AI, and cloud integrations that should fail safely
+- optional OBD, AI, and Supabase cloud features that must fail safely
 
-## Temporarily De-scoped or Placeholder Features
-
-The following areas are intentionally reduced for stability during this phase:
+## Temporarily Reduced Areas
 
 - detailed analysis screen
-- rich route preview expansion
-- elevation data fetching uses a lightweight fallback service
+- richer route preview expansion
+- elevation enrichment stays lightweight and non-blocking
 
-These are kept build-safe so they do not block the main user flow.
+These areas are kept build-safe so they do not block the main user flow.
 
 ## Setup
 
@@ -32,7 +30,7 @@ These are kept build-safe so they do not block the main user flow.
 
 - Flutter SDK
 - a valid Mapbox access token configured in the project
-- Firebase project configuration if you want cloud and AI features fully enabled
+- a Supabase project if cloud features should be enabled
 
 ### Install
 
@@ -40,10 +38,19 @@ These are kept build-safe so they do not block the main user flow.
 flutter pub get
 ```
 
+### Supabase Configuration
+
+Cloud features stay disabled unless these Dart defines are provided:
+
+```bash
+--dart-define=SUPABASE_URL=...
+--dart-define=SUPABASE_ANON_KEY=...
+```
+
 ### Run
 
 ```bash
-flutter run
+flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
 ```
 
 ### Verify
@@ -51,20 +58,21 @@ flutter run
 ```bash
 flutter analyze
 flutter test
+python -m unittest discover -s test -p "curvature_pipeline_test.py"
 ```
-
-Note: `flutter analyze` currently reports warnings and infos, but MVP-blocking analyzer errors should be zero.
 
 ## Key Project Areas
 
-- `lib/main.dart`: app bootstrap, providers, Firebase init fallback
-- `lib/screens/`: user-facing flows like loading, routes, cruise, sprint, run card
-- `lib/services/`: route generation, run tracking, OBD, AI, sync, settings
+- `lib/main.dart`: app bootstrap and provider wiring
+- `lib/services/supabase_service.dart`: Supabase auth, runs, saved routes, rankings, curvy road RPC access
+- `lib/services/route_service.dart`: local cache + Supabase-first route loading + Overpass enrichment fallback
 - `lib/models/`: route, run, and telemetry contracts
+- `tools/curvature_pipeline/`: KMZ to Supabase preprocessing pipeline
+- `tools/supabase_migrations/`: PostGIS schema and RPC setup
 
-## Stability Rules for This Phase
+## Stability Rules For This Phase
 
 - OBD must remain optional
-- AI failures must fall back to local responses
-- cloud sync failures must not block local save/use
+- AI failures must fall back locally
+- Supabase failures must not block local save/use
 - missing or incomplete expansion features should degrade gracefully instead of breaking build/runtime
