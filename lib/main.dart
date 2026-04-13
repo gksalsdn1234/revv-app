@@ -1,8 +1,6 @@
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'firebase_options.dart'; // flutterfire configure 로 자동 생성
 import 'theme/colors.dart';
 import 'screens/loading_screen.dart';
 import 'services/location_service.dart';
@@ -16,27 +14,14 @@ import 'services/saved_route_service.dart';
 import 'services/obd_service.dart';
 import 'services/imu_service.dart';
 import 'services/driving_context_service.dart';
-import 'services/cloud_sync_service.dart';
 import 'services/settings_service.dart';
 import 'services/garage_service.dart';
+import 'services/supabase_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Firebase 초기화 — firebase_options.dart는 `flutterfire configure`로 생성
-  try {
-    final options = DefaultFirebaseOptions.tryCurrentPlatform();
-    if (options != null) {
-      await Firebase.initializeApp(
-        options: options,
-      );
-    } else {
-      await Firebase.initializeApp();
-    }
-    await CloudSyncService().init(); // 익명 로그인
-  } catch (e) {
-    debugPrint('[Firebase] 초기화 건너뜀: $e');
-  }
+  await SupabaseService().init();
 
   final history = RunHistoryService();
   await history.load();
@@ -49,7 +34,6 @@ void main() async {
   final garage = GarageService();
   await garage.load();
 
-  // 클라우드 병합 (백그라운드 — 앱 시작 블로킹 없음)
   history.syncWithCloud();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   SystemChrome.setSystemUIOverlayStyle(
@@ -58,13 +42,15 @@ void main() async {
       statusBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(RevvApp(
-    history: history,
-    homeLocation: homeLocation,
-    savedRoutes: savedRoutes,
-    settings: settings,
-    garage: garage,
-  ));
+  runApp(
+    RevvApp(
+      history: history,
+      homeLocation: homeLocation,
+      savedRoutes: savedRoutes,
+      settings: settings,
+      garage: garage,
+    ),
+  );
 }
 
 class RevvApp extends StatelessWidget {
@@ -96,10 +82,14 @@ class RevvApp extends StatelessWidget {
         ChangeNotifierProvider<SavedRouteService>.value(value: savedRoutes),
         ChangeNotifierProvider<SettingsService>.value(value: settings),
         ChangeNotifierProvider<GarageService>.value(value: garage),
-        ChangeNotifierProvider.value(value: CloudSyncService()),
+        ChangeNotifierProvider.value(value: SupabaseService()),
         ChangeNotifierProvider(create: (_) => OBDService()),
         ChangeNotifierProvider(create: (_) => ImuService()),
-        ChangeNotifierProxyProvider2<LocationService, OBDService, DrivingContextService>(
+        ChangeNotifierProxyProvider2<
+          LocationService,
+          OBDService,
+          DrivingContextService
+        >(
           create: (_) => DrivingContextService(),
           update: (_, loc, obd, ctx) {
             ctx ??= DrivingContextService();

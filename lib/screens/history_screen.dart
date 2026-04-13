@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../models/run_summary.dart';
 import '../services/run_history_service.dart';
-import '../services/cloud_sync_service.dart';
+import '../services/supabase_service.dart';
 
 class HistoryScreen extends StatelessWidget {
   const HistoryScreen({super.key});
@@ -26,9 +26,7 @@ class HistoryScreen extends StatelessWidget {
           return CustomScrollView(
             slivers: [
               // ── 상단 헤더 (SliverAppBar 스타일) ──
-              SliverToBoxAdapter(
-                child: _Header(svc: svc),
-              ),
+              SliverToBoxAdapter(child: _Header(svc: svc)),
               // ── 내용 ──
               if (history.isEmpty)
                 const SliverFillRemaining(child: _EmptyState())
@@ -57,7 +55,11 @@ class HistoryScreen extends StatelessWidget {
   }
 
   Widget _buildTimelineItem(
-      BuildContext ctx, RunHistoryService svc, List<RunSummary> history, int idx) {
+    BuildContext ctx,
+    RunHistoryService svc,
+    List<RunSummary> history,
+    int idx,
+  ) {
     final groups = _groupByMonth(history);
     int cursor = 0;
     for (final group in groups) {
@@ -82,7 +84,8 @@ class HistoryScreen extends StatelessWidget {
   List<_MonthGroup> _groupByMonth(List<RunSummary> history) {
     final Map<String, _MonthGroup> map = {};
     for (final run in history) {
-      final key = '${run.date.year}-${run.date.month.toString().padLeft(2, '0')}';
+      final key =
+          '${run.date.year}-${run.date.month.toString().padLeft(2, '0')}';
       map.putIfAbsent(key, () => _MonthGroup(_monthLabel(run.date), []));
       map[key]!.runs.add(run);
     }
@@ -90,8 +93,20 @@ class HistoryScreen extends StatelessWidget {
   }
 
   String _monthLabel(DateTime d) {
-    const months = ['1월', '2월', '3월', '4월', '5월', '6월',
-                    '7월', '8월', '9월', '10월', '11월', '12월'];
+    const months = [
+      '1월',
+      '2월',
+      '3월',
+      '4월',
+      '5월',
+      '6월',
+      '7월',
+      '8월',
+      '9월',
+      '10월',
+      '11월',
+      '12월',
+    ];
     return '${d.year}년  ${months[d.month - 1]}';
   }
 }
@@ -126,13 +141,17 @@ class _Header extends StatelessWidget {
                 GestureDetector(
                   onTap: () => Navigator.pop(context),
                   child: Container(
-                    width: 36, height: 36,
+                    width: 36,
+                    height: 36,
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.06),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.arrow_back_ios_new_rounded,
-                        size: 15, color: Colors.white70),
+                    child: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      size: 15,
+                      color: Colors.white70,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -142,20 +161,23 @@ class _Header extends StatelessWidget {
                     Text(
                       'RUN LOG',
                       style: GoogleFonts.orbitron(
-                        fontSize: 18, fontWeight: FontWeight.w900,
-                        color: Colors.white, letterSpacing: 3,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                        letterSpacing: 3,
                       ),
                     ),
                     Text(
                       '${svc.totalRuns}회 주행  ·  ${svc.totalDistanceKm.toStringAsFixed(0)} km',
                       style: GoogleFonts.rajdhani(
-                        fontSize: 11, color: AppColors.textSecondary,
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
                       ),
                     ),
                   ],
                 ),
                 const Spacer(),
-                Consumer<CloudSyncService>(
+                Consumer<SupabaseService>(
                   builder: (_, sync, __) => _SyncBadge(sync: sync),
                 ),
               ],
@@ -185,46 +207,52 @@ class _StatsGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final avgKm = svc.totalRuns > 0
-        ? svc.totalDistanceKm / svc.totalRuns
-        : 0.0;
+    final avgKm = svc.totalRuns > 0 ? svc.totalDistanceKm / svc.totalRuns : 0.0;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       child: Row(
         children: [
-          Expanded(child: _StatCard(
-            icon: Icons.flag_rounded,
-            label: 'TOTAL RUNS',
-            value: '${svc.totalRuns}',
-            unit: '회',
-            color: AppColors.red,
-          )),
+          Expanded(
+            child: _StatCard(
+              icon: Icons.flag_rounded,
+              label: 'TOTAL RUNS',
+              value: '${svc.totalRuns}',
+              unit: '회',
+              color: AppColors.red,
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: _StatCard(
-            icon: Icons.straighten,
-            label: 'TOTAL KM',
-            value: svc.totalDistanceKm.toStringAsFixed(0),
-            unit: 'km',
-            color: AppColors.cyan,
-          )),
+          Expanded(
+            child: _StatCard(
+              icon: Icons.straighten,
+              label: 'TOTAL KM',
+              value: svc.totalDistanceKm.toStringAsFixed(0),
+              unit: 'km',
+              color: AppColors.cyan,
+            ),
+          ),
           const SizedBox(width: 8),
-          Expanded(child: _StatCard(
-            icon: Icons.av_timer,
-            label: 'AVG DIST',
-            value: avgKm.toStringAsFixed(1),
-            unit: 'km',
-            color: const Color(0xFFF59E0B),
-          )),
+          Expanded(
+            child: _StatCard(
+              icon: Icons.av_timer,
+              label: 'AVG DIST',
+              value: avgKm.toStringAsFixed(1),
+              unit: 'km',
+              color: const Color(0xFFF59E0B),
+            ),
+          ),
           if (svc.bestMaxG != null) ...[
             const SizedBox(width: 8),
-            Expanded(child: _StatCard(
-              icon: Icons.speed,
-              label: 'BEST G',
-              value: svc.bestMaxG!.toStringAsFixed(2),
-              unit: 'G',
-              color: const Color(0xFFEF4444),
-            )),
+            Expanded(
+              child: _StatCard(
+                icon: Icons.speed,
+                label: 'BEST G',
+                value: svc.bestMaxG!.toStringAsFixed(2),
+                unit: 'G',
+                color: const Color(0xFFEF4444),
+              ),
+            ),
           ],
         ],
       ),
@@ -239,8 +267,11 @@ class _StatCard extends StatelessWidget {
   final String unit;
   final Color color;
   const _StatCard({
-    required this.icon, required this.label,
-    required this.value, required this.unit, required this.color,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.unit,
+    required this.color,
   });
 
   @override
@@ -265,22 +296,34 @@ class _StatCard extends StatelessWidget {
                 child: Text(
                   value,
                   style: GoogleFonts.orbitron(
-                    fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               const SizedBox(width: 2),
-              Text(unit, style: GoogleFonts.rajdhani(
-                fontSize: 10, color: AppColors.textSecondary, fontWeight: FontWeight.w600,
-              )),
+              Text(
+                unit,
+                style: GoogleFonts.rajdhani(
+                  fontSize: 10,
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 2),
-          Text(label, style: GoogleFonts.rajdhani(
-            fontSize: 8, color: color.withValues(alpha: 0.7),
-            fontWeight: FontWeight.w700, letterSpacing: 1,
-          )),
+          Text(
+            label,
+            style: GoogleFonts.rajdhani(
+              fontSize: 8,
+              color: color.withValues(alpha: 0.7),
+              fontWeight: FontWeight.w700,
+              letterSpacing: 1,
+            ),
+          ),
         ],
       ),
     );
@@ -303,8 +346,10 @@ class _MonthHeader extends StatelessWidget {
           Text(
             label,
             style: GoogleFonts.orbitron(
-              fontSize: 11, fontWeight: FontWeight.w700,
-              color: AppColors.red, letterSpacing: 2,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppColors.red,
+              letterSpacing: 2,
             ),
           ),
           const SizedBox(width: 10),
@@ -328,7 +373,9 @@ class _TimelineRunCard extends StatelessWidget {
   final int visitCount;
   final bool isLast;
   const _TimelineRunCard({
-    required this.run, required this.visitCount, required this.isLast,
+    required this.run,
+    required this.visitCount,
+    required this.isLast,
   });
 
   String _weekday(DateTime d) {
@@ -372,7 +419,8 @@ class _TimelineRunCard extends StatelessWidget {
                 ),
                 // 점
                 Container(
-                  width: 10, height: 10,
+                  width: 10,
+                  height: 10,
                   decoration: BoxDecoration(
                     color: AppColors.red,
                     shape: BoxShape.circle,
@@ -425,7 +473,10 @@ class _TimelineRunCard extends StatelessWidget {
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.05),
                             borderRadius: BorderRadius.circular(6),
@@ -433,7 +484,8 @@ class _TimelineRunCard extends StatelessWidget {
                           child: Text(
                             '${run.date.month}/${run.date.day} (${_weekday(run.date)})',
                             style: GoogleFonts.rajdhani(
-                              fontSize: 11, fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
                               color: Colors.white60,
                             ),
                           ),
@@ -442,7 +494,9 @@ class _TimelineRunCard extends StatelessWidget {
                         Text(
                           '${run.date.hour.toString().padLeft(2, '0')}:${run.date.minute.toString().padLeft(2, '0')}',
                           style: GoogleFonts.orbitron(
-                            fontSize: 10, color: Colors.white30, fontWeight: FontWeight.w500,
+                            fontSize: 10,
+                            color: Colors.white30,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                         const Spacer(),
@@ -450,7 +504,8 @@ class _TimelineRunCard extends StatelessWidget {
                         Text(
                           '${run.weatherEmoji} ${run.tempDisplay}',
                           style: GoogleFonts.rajdhani(
-                            fontSize: 11, color: Colors.white38,
+                            fontSize: 11,
+                            color: Colors.white38,
                           ),
                         ),
                       ],
@@ -464,7 +519,9 @@ class _TimelineRunCard extends StatelessWidget {
                         Text(
                           run.distanceKm.toStringAsFixed(1),
                           style: GoogleFonts.orbitron(
-                            fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white,
+                            fontSize: 34,
+                            fontWeight: FontWeight.w900,
+                            color: Colors.white,
                             height: 1.0,
                           ),
                         ),
@@ -472,31 +529,42 @@ class _TimelineRunCard extends StatelessWidget {
                         Text(
                           'km',
                           style: GoogleFonts.orbitron(
-                            fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textSecondary,
                           ),
                         ),
                         const Spacer(),
                         if (hasG)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
                             decoration: BoxDecoration(
                               color: gColor.withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: gColor.withValues(alpha: 0.4)),
+                              border: Border.all(
+                                color: gColor.withValues(alpha: 0.4),
+                              ),
                             ),
                             child: Column(
                               children: [
                                 Text(
                                   run.maxLateralG!.toStringAsFixed(2),
                                   style: GoogleFonts.orbitron(
-                                    fontSize: 13, fontWeight: FontWeight.w800, color: gColor,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w800,
+                                    color: gColor,
                                   ),
                                 ),
                                 Text(
                                   _gLabel(run.maxLateralG),
                                   style: GoogleFonts.rajdhani(
-                                    fontSize: 7, fontWeight: FontWeight.w700,
-                                    color: gColor, letterSpacing: 1,
+                                    fontSize: 7,
+                                    fontWeight: FontWeight.w700,
+                                    color: gColor,
+                                    letterSpacing: 1,
                                   ),
                                 ),
                               ],
@@ -512,7 +580,8 @@ class _TimelineRunCard extends StatelessWidget {
                           child: Text(
                             run.routeName,
                             style: GoogleFonts.rajdhani(
-                              fontSize: 13, fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
                               color: Colors.white70,
                             ),
                             maxLines: 1,
@@ -523,24 +592,33 @@ class _TimelineRunCard extends StatelessWidget {
                         Text(
                           run.durationDisplay,
                           style: GoogleFonts.rajdhani(
-                            fontSize: 12, color: AppColors.textSecondary, fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         // 회차 배지
                         if (visitCount >= 2) ...[
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.red.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: AppColors.red.withValues(alpha: 0.35)),
+                              border: Border.all(
+                                color: AppColors.red.withValues(alpha: 0.35),
+                              ),
                             ),
                             child: Text(
                               '${visitCount}회차',
                               style: GoogleFonts.rajdhani(
-                                fontSize: 9, fontWeight: FontWeight.w800,
-                                color: AppColors.red, letterSpacing: 1,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.red,
+                                letterSpacing: 1,
                               ),
                             ),
                           ),
@@ -568,19 +646,28 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.flag_outlined, size: 52, color: AppColors.red.withValues(alpha: 0.25)),
+          Icon(
+            Icons.flag_outlined,
+            size: 52,
+            color: AppColors.red.withValues(alpha: 0.25),
+          ),
           const SizedBox(height: 18),
           Text(
             'NO RUNS YET',
             style: GoogleFonts.orbitron(
-              fontSize: 14, fontWeight: FontWeight.w800,
-              color: Colors.white.withValues(alpha: 0.18), letterSpacing: 4,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+              color: Colors.white.withValues(alpha: 0.18),
+              letterSpacing: 4,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             'GO 버튼으로 첫 드라이브를 시작하세요',
-            style: GoogleFonts.rajdhani(fontSize: 13, color: AppColors.textSecondary),
+            style: GoogleFonts.rajdhani(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
           ),
         ],
       ),
@@ -590,7 +677,7 @@ class _EmptyState extends StatelessWidget {
 
 // ── 클라우드 동기화 배지 ─────────────────────────────────────────
 class _SyncBadge extends StatelessWidget {
-  final CloudSyncService sync;
+  final SupabaseService sync;
   const _SyncBadge({required this.sync});
 
   @override
@@ -601,7 +688,13 @@ class _SyncBadge extends StatelessWidget {
         children: [
           Icon(Icons.cloud_off, size: 13, color: AppColors.textSecondary),
           const SizedBox(width: 4),
-          Text('오프라인', style: GoogleFonts.rajdhani(fontSize: 10, color: AppColors.textSecondary)),
+          Text(
+            '오프라인',
+            style: GoogleFonts.rajdhani(
+              fontSize: 10,
+              color: AppColors.textSecondary,
+            ),
+          ),
         ],
       );
     }
@@ -611,17 +704,28 @@ class _SyncBadge extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(
-              width: 10, height: 10,
-              child: CircularProgressIndicator(strokeWidth: 1.5, color: AppColors.cyan),
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.5,
+                color: AppColors.cyan,
+              ),
             ),
             const SizedBox(width: 5),
-            Text('동기화 중', style: GoogleFonts.rajdhani(fontSize: 10, color: AppColors.cyan)),
+            Text(
+              '동기화 중',
+              style: GoogleFonts.rajdhani(fontSize: 10, color: AppColors.cyan),
+            ),
           ],
         );
       case SyncStatus.error:
         return Icon(Icons.cloud_off, size: 13, color: AppColors.red);
       default:
-        return Icon(Icons.cloud_done_outlined, size: 13, color: AppColors.cyan.withValues(alpha: 0.7));
+        return Icon(
+          Icons.cloud_done_outlined,
+          size: 13,
+          color: AppColors.cyan.withValues(alpha: 0.7),
+        );
     }
   }
 }

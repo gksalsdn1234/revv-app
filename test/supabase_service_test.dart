@@ -1,0 +1,99 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:revv_app/core/supabase_config.dart';
+import 'package:revv_app/models/revv_route.dart';
+import 'package:revv_app/models/run_summary.dart';
+import 'package:revv_app/services/supabase_service.dart';
+
+void main() {
+  test('SupabaseConfig instance is configured', () {
+    final config = SupabaseConfig.instance;
+
+    expect(config.isConfigured, isTrue);
+    expect(config.url, isNotEmpty);
+    expect(config.anonKey, isNotEmpty);
+  });
+
+  test('RunSummary serializes into Supabase run payload columns', () {
+    final summary = RunSummary(
+      id: 'run-1',
+      date: DateTime.parse('2026-04-01T10:00:00Z'),
+      distanceKm: 12.5,
+      durationSeconds: 780,
+      routeName: '북악 스카이웨이',
+      routeId: 'route-9',
+      weatherEmoji: '🌤',
+      tempDisplay: '18°C',
+      maxLateralG: 0.48,
+      sharpCornersCount: 2,
+      startPoint: const LatLng(37.0, 127.0),
+      endPoint: const LatLng(37.1, 127.1),
+    );
+
+    final payload = SupabaseService.runSummaryToRow(summary, userId: 'user-1');
+
+    expect(payload['id'], 'run-1');
+    expect(payload['user_id'], 'user-1');
+    expect(payload['route_name'], '북악 스카이웨이');
+    expect(payload['route_id'], 'route-9');
+    expect(payload['start_lat'], 37.0);
+    expect(payload['end_lng'], 127.1);
+  });
+
+  test('Route rows map back into RevvRoute models', () {
+    final route = SupabaseService.routeFromRow({
+      'id': 'route-1',
+      'name': 'Mountain Sweep',
+      'nodes': [
+        {'lat': 45.0, 'lng': -73.0},
+        {'lat': 45.1, 'lng': -73.1},
+      ],
+      'distance_km': 18.4,
+      'winding_score': 6.3,
+      'star_rating': 4,
+      'sharp_curve_count': 11,
+      'center_lat': 45.05,
+      'center_lng': -73.05,
+      'distance_from_user_km': 12.0,
+      'tight_curve_km': 3.1,
+      'medium_curve_km': 4.4,
+      'max_continuous_km': 1.8,
+      'is_loop': true,
+      'run_count': 7,
+      'published_by': 'user-1',
+    });
+
+    expect(route.id, 'route-1');
+    expect(route.nodes, hasLength(2));
+    expect(route.isLoop, isTrue);
+    expect(route.curveStyle, isNotEmpty);
+    expect(route.runCount, 7);
+    expect(route.publishedBy, 'user-1');
+  });
+
+  test('route payload only uses columns present in curvy_roads schema', () {
+    final payload = SupabaseService.routeToRow(
+      const RevvRoute(
+        id: 'route-1',
+        name: 'Mountain Sweep',
+        nodes: [LatLng(45.0, -73.0), LatLng(45.1, -73.1)],
+        distanceKm: 18.4,
+        windingScore: 6.3,
+        starRating: 4,
+        sharpCurveCount: 11,
+        centerPoint: LatLng(45.05, -73.05),
+        distanceFromUser: 12.0,
+        tightCurveKm: 3.1,
+        mediumCurveKm: 4.4,
+        maxContinuousKm: 1.8,
+        isLoop: true,
+        runCount: 7,
+        publishedBy: 'user-1',
+      ),
+    );
+
+    expect(payload.containsKey('distance_from_user_km'), isFalse);
+    expect(payload['curvature_score'], 6.3);
+    expect(payload['sharp_curve_count'], 11);
+    expect(payload['run_count'], 7);
+  });
+}

@@ -5,8 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/revv_route.dart';
 import '../core/storage_keys.dart';
-import 'cloud_sync_service.dart';
 import 'route_loading_policy.dart';
+import 'supabase_service.dart';
 import 'waypoint_optimizer.dart';
 
 // ─── compute() isolate 파라미터 / 결과 ────────────────────────────
@@ -829,7 +829,7 @@ class RouteService extends ChangeNotifier {
       await loadExclusions();
 
       // ③-a 전역 DB 먼저 조회 (커뮤니티 루트)
-      final globalRoutes = await CloudSyncService()
+      final globalRoutes = await SupabaseService()
           .fetchNearbyRoutes(lat, lng, searchRadiusKm.toDouble())
           .timeout(const Duration(seconds: 6), onTimeout: () => <RevvRoute>[]);
       final globalFiltered =
@@ -848,7 +848,7 @@ class RouteService extends ChangeNotifier {
         final guardedInitial = _withQualityGuardrails(initial);
         _applyVisibleRoutes(
           _withCompositeFallback(guardedInitial),
-          source: routes.isNotEmpty ? 'mixed' : 'global',
+          source: routes.isNotEmpty ? 'mixed' : 'supabase',
           preserveSelection: true,
         );
         _saveToCache(routes, lat, lng);
@@ -895,7 +895,7 @@ class RouteService extends ChangeNotifier {
       _publishNewRoutes(bootstrap, globalFiltered);
       _applyVisibleRoutes(
         fresh,
-        source: bootstrap.isNotEmpty ? 'overpass' : 'global',
+          source: bootstrap.isNotEmpty ? 'overpass' : 'supabase',
         preserveSelection: true,
       );
       _lastFetchLocation = LatLng(lat, lng);
@@ -1160,39 +1160,39 @@ class RouteService extends ChangeNotifier {
     return mergeDiversityRoutes(existing, fresh, limit: 100);
   }
 
-  /// 개인 Firestore 캐시 저장 (preloadFromFirestore용)
+  /// Supabase 캐시 저장 (preloadFromCloud용)
   void _saveRoutesToFirestore(List<RevvRoute> rs) {
-    CloudSyncService().saveDiscoveredRoutes(rs).catchError((e) {
-      debugPrint('[RouteService] Firestore 루트 저장 실패: $e');
+    SupabaseService().saveDiscoveredRoutes(rs).catchError((e) {
+      debugPrint('[RouteService] Supabase 루트 저장 실패: $e');
     });
   }
 
-  /// Overpass 결과 중 전역 DB에 없는 신규 루트 게시 (fire-and-forget)
+  /// Overpass 결과 중 Supabase에 없는 신규 루트 게시 (fire-and-forget)
   void _publishNewRoutes(
       List<RevvRoute> overpassRoutes, List<RevvRoute> globalRoutes) {
     final globalIds = globalRoutes.map((r) => r.id).toSet();
     for (final r in overpassRoutes) {
       if (!globalIds.contains(r.id)) {
-        CloudSyncService().publishRoute(r).catchError((e) {
+        SupabaseService().publishRoute(r).catchError((e) {
           debugPrint('[RouteService] 루트 게시 실패: $e');
         });
       }
     }
   }
 
-  /// Firestore에서 루트 풀 사전 로드 (앱 시작 시)
+  /// Supabase에서 루트 풀 사전 로드 (앱 시작 시)
   Future<void> preloadFromFirestore() async {
     if (routes.isNotEmpty) return; // 이미 캐시가 있으면 스킵
     try {
-      final firestoreRoutes = await CloudSyncService().loadDiscoveredRoutes();
-      if (firestoreRoutes.isNotEmpty && routes.isEmpty) {
-        routes = firestoreRoutes;
+      final cloudRoutes = await SupabaseService().loadDiscoveredRoutes();
+      if (cloudRoutes.isNotEmpty && routes.isEmpty) {
+        routes = cloudRoutes;
         selectedRoute = routes.first;
         notifyListeners();
-        debugPrint('[RouteService] Firestore 사전 로드: ${routes.length}개');
+        debugPrint('[RouteService] Supabase 사전 로드: ${routes.length}개');
       }
     } catch (e) {
-      debugPrint('[RouteService] Firestore 사전 로드 실패: $e');
+      debugPrint('[RouteService] Supabase 사전 로드 실패: $e');
     }
   }
 
@@ -1530,7 +1530,7 @@ class RouteService extends ChangeNotifier {
 
   /// 전역 DB 루트의 노드를 lazy 로드해 routes 리스트와 selectedRoute를 갱신
   Future<void> _ensureRouteNodes(RevvRoute route) async {
-    final nodes = await CloudSyncService().fetchRouteNodes(route.id);
+    final nodes = await SupabaseService().fetchRouteNodes(route.id);
     if (nodes.isEmpty) return;
     final full = route.copyWith(nodes: nodes);
     routes = routes.map((r) => r.id == route.id ? full : r).toList();

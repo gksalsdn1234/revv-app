@@ -46,3 +46,9 @@ app.*.map.json
 .worktrees/
 node_modules/
 functions/lib/
+
+# Supabase secrets (service_role key — never commit)
+tools/curvature_pipeline/.env
+
+# Pipeline data (KMZ + JSON — already uploaded to Supabase, no need to commit)
+tools/curvature_pipeline/data/
