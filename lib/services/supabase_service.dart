@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:math';
 import '../core/supabase_config.dart';
 import '../core/supabase_tables.dart';
 import '../models/revv_route.dart';
@@ -140,8 +141,11 @@ class SupabaseService extends ChangeNotifier {
     if (!_ready || uid == null || routes.isEmpty) return;
     try {
       await client!
-          .from(SupabaseTables.curvyRoads)
-          .upsert(routes.map(routeToRow).toList(), onConflict: 'id');
+          .from(SupabaseTables.discoveredRoutes)
+          .upsert(
+            routes.map((route) => discoveredRouteCacheRow(route, userId: uid!)).toList(),
+            onConflict: 'user_id,route_id',
+          );
       debugPrint('[Supabase] route pool saved — ${routes.length}');
     } catch (e) {
       debugPrint('[Supabase] saveDiscoveredRoutes failed: $e');
@@ -149,14 +153,17 @@ class SupabaseService extends ChangeNotifier {
   }
 
   Future<List<RevvRoute>> loadDiscoveredRoutes() async {
-    if (!_ready) return const [];
+    if (!_ready || uid == null) return const [];
     try {
       final rows = await client!
-          .from(SupabaseTables.curvyRoads)
-          .select()
-          .order('winding_score', ascending: false)
+          .from(SupabaseTables.discoveredRoutes)
+          .select('route_data')
+          .eq('user_id', uid!)
+          .order('saved_at', ascending: false)
           .limit(25);
       return (rows as List)
+          .whereType<Map<String, dynamic>>()
+          .map((row) => row['route_data'])
           .whereType<Map<String, dynamic>>()
           .map(routeFromRow)
           .toList();
@@ -167,14 +174,8 @@ class SupabaseService extends ChangeNotifier {
   }
 
   Future<void> publishRoute(RevvRoute route) async {
-    if (!_ready || uid == null) return;
-    try {
-      await client!
-          .from(SupabaseTables.curvyRoads)
-          .upsert(routeToRow(route, publishedBy: uid!), onConflict: 'id');
-    } catch (e) {
-      debugPrint('[Supabase] publishRoute failed: $e');
-    }
+    if (!_ready) return;
+    debugPrint('[Supabase] publishRoute skipped: curvy_roads is canonical read-only');
   }
 
   Future<List<RevvRoute>> fetchNearbyRoutes(
@@ -186,6 +187,7 @@ class SupabaseService extends ChangeNotifier {
       lat: lat,
       lng: lng,
       radiusM: (radiusKm * 1000).round(),
+      maxResults: 200,
     );
   }
 
@@ -210,7 +212,7 @@ class SupabaseService extends ChangeNotifier {
       );
       return (rows as List)
           .whereType<Map<String, dynamic>>()
-          .map(routeFromRow)
+          .map((row) => routeFromRow(row, userLat: lat, userLng: lng))
           .toList();
     } catch (e) {
       debugPrint('[Supabase] findCurvyRoads failed: $e');
@@ -245,16 +247,10 @@ class SupabaseService extends ChangeNotifier {
   Future<void> recordRouteRun(String? routeId) async {
     if (!_ready || routeId == null) return;
     try {
-      final current = await client!
-          .from(SupabaseTables.curvyRoads)
-          .select('run_count')
-          .eq('id', routeId)
-          .maybeSingle();
-      final runCount = ((current?['run_count'] as num?)?.toInt() ?? 0) + 1;
-      await client!
-          .from(SupabaseTables.curvyRoads)
-          .update({'run_count': runCount})
-          .eq('id', routeId);
+      await client!.rpc(
+        'increment_route_run_count',
+        params: recordRouteRunRpcParams(routeId),
+      );
     } catch (e) {
       debugPrint('[Supabase] recordRouteRun failed: $e');
     }
@@ -429,6 +425,20 @@ class SupabaseService extends ChangeNotifier {
       'medium_curve_km': route.mediumCurveKm,
       'max_continuous_km': route.maxContinuousKm,
       'is_loop': route.isLoop,
+      'route_rank_score': route.routeRankScore,
+      'fun_score': route.funScore,
+      'flow_score': route.flowScore,
+      'driveability_penalty': route.driveabilityPenalty,
+      'stop_sign_count': route.stopSignCount,
+      'traffic_signal_count': route.trafficSignalCount,
+      'stop_control_density': route.stopControlDensity,
+      'road_class_bucket': route.roadClassBucket,
+      'is_named': route.isNamed,
+      'is_facility_like': route.isFacilityLike,
+      'is_bridge_like': route.isBridgeLike,
+      'is_connector_like': route.isConnectorLike,
+      'is_major_road_like': route.isMajorRoadLike,
+      'is_private_like': route.isPrivateLike,
       'elevation_delta': route.elevationDelta,
       'source': 'revv',
       if (route.runCount > 0) 'run_count': route.runCount,
@@ -436,7 +446,27 @@ class SupabaseService extends ChangeNotifier {
     };
   }
 
-  static RevvRoute routeFromRow(Map<String, dynamic> row) {
+  static Map<String, dynamic> discoveredRouteCacheRow(
+    RevvRoute route, {
+    required String userId,
+  }) {
+    return {
+      'user_id': userId,
+      'route_id': route.id,
+      'route_data': routeToRow(route, publishedBy: route.publishedBy),
+      'saved_at': DateTime.now().toIso8601String(),
+    };
+  }
+
+  static Map<String, dynamic> recordRouteRunRpcParams(String routeId) {
+    return {'route_id_input': routeId};
+  }
+
+  static RevvRoute routeFromRow(
+    Map<String, dynamic> row, {
+    double? userLat,
+    double? userLng,
+  }) {
     final centerLat = (row['center_lat'] as num?)?.toDouble() ?? 0;
     final centerLng = (row['center_lng'] as num?)?.toDouble() ?? 0;
     final nodes =
@@ -450,6 +480,11 @@ class SupabaseService extends ChangeNotifier {
             )
             .toList() ??
         const [];
+    final distanceFromUser =
+        (row['distance_from_user_km'] as num?)?.toDouble() ??
+        ((userLat != null && userLng != null && centerLat != 0 && centerLng != 0)
+            ? _distanceKmBetween(userLat, userLng, centerLat, centerLng)
+            : 0);
     return RevvRoute(
       id: row['id'] as String,
       name: row['name'] as String? ?? '',
@@ -459,11 +494,28 @@ class SupabaseService extends ChangeNotifier {
       starRating: (row['star_rating'] as num?)?.toInt() ?? 1,
       sharpCurveCount: (row['sharp_curve_count'] as num?)?.toInt() ?? 0,
       centerPoint: LatLng(centerLat, centerLng),
-      distanceFromUser: (row['distance_from_user_km'] as num?)?.toDouble() ?? 0,
+      distanceFromUser: distanceFromUser,
       tightCurveKm: (row['tight_curve_km'] as num?)?.toDouble() ?? 0,
       mediumCurveKm: (row['medium_curve_km'] as num?)?.toDouble() ?? 0,
       maxContinuousKm: (row['max_continuous_km'] as num?)?.toDouble() ?? 0,
       isLoop: row['is_loop'] as bool? ?? false,
+      routeRankScore: (row['route_rank_score'] as num?)?.toDouble() ?? 0,
+      funScore: (row['fun_score'] as num?)?.toDouble() ?? 0,
+      flowScore: (row['flow_score'] as num?)?.toDouble() ?? 0,
+      driveabilityPenalty:
+          (row['driveability_penalty'] as num?)?.toDouble() ?? 0,
+      stopSignCount: (row['stop_sign_count'] as num?)?.toInt() ?? 0,
+      trafficSignalCount:
+          (row['traffic_signal_count'] as num?)?.toInt() ?? 0,
+      stopControlDensity:
+          (row['stop_control_density'] as num?)?.toDouble() ?? 0,
+      roadClassBucket: row['road_class_bucket'] as String? ?? '',
+      isNamed: row['is_named'] as bool? ?? (row['name'] as String? ?? '').trim().isNotEmpty,
+      isFacilityLike: row['is_facility_like'] as bool? ?? false,
+      isBridgeLike: row['is_bridge_like'] as bool? ?? false,
+      isConnectorLike: row['is_connector_like'] as bool? ?? false,
+      isMajorRoadLike: row['is_major_road_like'] as bool? ?? false,
+      isPrivateLike: row['is_private_like'] as bool? ?? false,
       runCount: (row['run_count'] as num?)?.toInt() ?? 0,
       publishedBy: row['published_by'] as String?,
     );
@@ -475,6 +527,26 @@ class SupabaseService extends ChangeNotifier {
     if (lat is! num || lng is! num) return null;
     return LatLng(lat.toDouble(), lng.toDouble());
   }
+
+  static double _distanceKmBetween(
+    double lat1,
+    double lng1,
+    double lat2,
+    double lng2,
+  ) {
+    const earthRadiusKm = 6371.0;
+    final dLat = _toRadians(lat2 - lat1);
+    final dLng = _toRadians(lng2 - lng1);
+    final a =
+        (sin(dLat / 2) * sin(dLat / 2)) +
+        cos(_toRadians(lat1)) *
+            cos(_toRadians(lat2)) *
+            (sin(dLng / 2) * sin(dLng / 2));
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return earthRadiusKm * c;
+  }
+
+  static double _toRadians(double degrees) => degrees * 3.1415926535897932 / 180.0;
 
   void _setStatus(SyncStatus s) {
     _status = s;

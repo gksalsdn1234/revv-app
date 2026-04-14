@@ -24,6 +24,20 @@ class RevvRoute {
   final double maxContinuousKm;
   // 루프 루트 여부 (시작점~끝점 3km 이내)
   final bool isLoop;
+  final double routeRankScore;
+  final double funScore;
+  final double flowScore;
+  final double driveabilityPenalty;
+  final int stopSignCount;
+  final int trafficSignalCount;
+  final double stopControlDensity;
+  final String roadClassBucket;
+  final bool isNamed;
+  final bool isFacilityLike;
+  final bool isBridgeLike;
+  final bool isConnectorLike;
+  final bool isMajorRoadLike;
+  final bool isPrivateLike;
 
   // ElevationService로 채워지는 고도 프로파일 (선택적)
   final List<double>? elevationProfile;
@@ -49,6 +63,20 @@ class RevvRoute {
     this.mediumCurveKm = 0,
     this.maxContinuousKm = 0,
     this.isLoop = false,
+    this.routeRankScore = 0,
+    this.funScore = 0,
+    this.flowScore = 0,
+    this.driveabilityPenalty = 0,
+    this.stopSignCount = 0,
+    this.trafficSignalCount = 0,
+    this.stopControlDensity = 0,
+    this.roadClassBucket = '',
+    this.isNamed = true,
+    this.isFacilityLike = false,
+    this.isBridgeLike = false,
+    this.isConnectorLike = false,
+    this.isMajorRoadLike = false,
+    this.isPrivateLike = false,
     this.elevationProfile,
     this.runCount = 0,
     this.publishedBy,
@@ -210,6 +238,20 @@ class RevvRoute {
     double? mediumCurveKm,
     double? maxContinuousKm,
     bool? isLoop,
+    double? routeRankScore,
+    double? funScore,
+    double? flowScore,
+    double? driveabilityPenalty,
+    int? stopSignCount,
+    int? trafficSignalCount,
+    double? stopControlDensity,
+    String? roadClassBucket,
+    bool? isNamed,
+    bool? isFacilityLike,
+    bool? isBridgeLike,
+    bool? isConnectorLike,
+    bool? isMajorRoadLike,
+    bool? isPrivateLike,
     List<double>? elevationProfile,
     int? runCount,
     String? publishedBy,
@@ -229,6 +271,20 @@ class RevvRoute {
       mediumCurveKm: mediumCurveKm ?? this.mediumCurveKm,
       maxContinuousKm: maxContinuousKm ?? this.maxContinuousKm,
       isLoop: isLoop ?? this.isLoop,
+      routeRankScore: routeRankScore ?? this.routeRankScore,
+      funScore: funScore ?? this.funScore,
+      flowScore: flowScore ?? this.flowScore,
+      driveabilityPenalty: driveabilityPenalty ?? this.driveabilityPenalty,
+      stopSignCount: stopSignCount ?? this.stopSignCount,
+      trafficSignalCount: trafficSignalCount ?? this.trafficSignalCount,
+      stopControlDensity: stopControlDensity ?? this.stopControlDensity,
+      roadClassBucket: roadClassBucket ?? this.roadClassBucket,
+      isNamed: isNamed ?? this.isNamed,
+      isFacilityLike: isFacilityLike ?? this.isFacilityLike,
+      isBridgeLike: isBridgeLike ?? this.isBridgeLike,
+      isConnectorLike: isConnectorLike ?? this.isConnectorLike,
+      isMajorRoadLike: isMajorRoadLike ?? this.isMajorRoadLike,
+      isPrivateLike: isPrivateLike ?? this.isPrivateLike,
       elevationProfile: elevationProfile ?? this.elevationProfile,
       runCount: runCount ?? this.runCount,
       publishedBy: publishedBy ?? this.publishedBy,
@@ -254,6 +310,20 @@ class RevvRoute {
         'mediumCurveKm': mediumCurveKm,
         'maxContinuousKm': maxContinuousKm,
         'isLoop': isLoop,
+        'routeRankScore': routeRankScore,
+        'funScore': funScore,
+        'flowScore': flowScore,
+        'driveabilityPenalty': driveabilityPenalty,
+        'stopSignCount': stopSignCount,
+        'trafficSignalCount': trafficSignalCount,
+        'stopControlDensity': stopControlDensity,
+        'roadClassBucket': roadClassBucket,
+        'isNamed': isNamed,
+        'isFacilityLike': isFacilityLike,
+        'isBridgeLike': isBridgeLike,
+        'isConnectorLike': isConnectorLike,
+        'isMajorRoadLike': isMajorRoadLike,
+        'isPrivateLike': isPrivateLike,
         if (elevationProfile != null) 'elevationProfile': elevationProfile,
         if (runCount > 0) 'runCount': runCount,
         if (publishedBy != null) 'publishedBy': publishedBy,
@@ -282,6 +352,20 @@ class RevvRoute {
         mediumCurveKm: (j['mediumCurveKm'] as num?)?.toDouble() ?? 0,
         maxContinuousKm: (j['maxContinuousKm'] as num?)?.toDouble() ?? 0,
         isLoop: j['isLoop'] as bool? ?? false,
+        routeRankScore: (j['routeRankScore'] as num?)?.toDouble() ?? 0,
+        funScore: (j['funScore'] as num?)?.toDouble() ?? 0,
+        flowScore: (j['flowScore'] as num?)?.toDouble() ?? 0,
+        driveabilityPenalty: (j['driveabilityPenalty'] as num?)?.toDouble() ?? 0,
+        stopSignCount: (j['stopSignCount'] as num?)?.toInt() ?? 0,
+        trafficSignalCount: (j['trafficSignalCount'] as num?)?.toInt() ?? 0,
+        stopControlDensity: (j['stopControlDensity'] as num?)?.toDouble() ?? 0,
+        roadClassBucket: j['roadClassBucket'] as String? ?? '',
+        isNamed: j['isNamed'] as bool? ?? true,
+        isFacilityLike: j['isFacilityLike'] as bool? ?? false,
+        isBridgeLike: j['isBridgeLike'] as bool? ?? false,
+        isConnectorLike: j['isConnectorLike'] as bool? ?? false,
+        isMajorRoadLike: j['isMajorRoadLike'] as bool? ?? false,
+        isPrivateLike: j['isPrivateLike'] as bool? ?? false,
         elevationProfile: (j['elevationProfile'] as List?)
             ?.map((e) => (e as num).toDouble())
             .toList(),

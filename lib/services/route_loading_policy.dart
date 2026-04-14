@@ -2,9 +2,27 @@ import 'dart:math' as math;
 
 import '../models/revv_route.dart';
 
-const targetVisibleRoutes = 10;
-const minimumVisibleRoutes = 8;
-const maximumVisibleRoutes = 12;
+const targetVisibleRoutes = 8;
+const minimumVisibleRoutes = 6;
+const maximumVisibleRoutes = 10;
+
+final _facilityNamePattern = RegExp(
+  r'\b(kart|karting|drift|circuit|raceway|speedway|motorsport|autocross|pit\s?lane|paddock|test\s?track|trackday)\b',
+  caseSensitive: false,
+);
+final _bridgeNamePattern = RegExp(
+  r'\b(pont|bridge|viaduct|causeway)\b',
+  caseSensitive: false,
+);
+final _connectorNamePattern = RegExp(
+  r'\b(sortie|exit|ramp|bretelle|interchange|junction|connector)\b',
+  caseSensitive: false,
+);
+final _majorRoadNamePattern = RegExp(
+  r'\b(boulevard|autoroute|highway)\b',
+  caseSensitive: false,
+);
+final _numericOnlyRouteNamePattern = RegExp(r'^[\d\-\s_]+$');
 
 enum RouteSearchStage { strict, balanced, expanded }
 
@@ -103,7 +121,7 @@ List<RevvRoute> mergeDiversityRoutes(
       pool.add(route);
     }
   }
-  pool.sort((a, b) => b.windingScore.compareTo(a.windingScore));
+  pool.sort((a, b) => recommendationScore(b).compareTo(recommendationScore(a)));
   return pool.take(limit).toList();
 }
 
@@ -263,6 +281,108 @@ List<String> deriveRouteReasonTags(RevvRoute route) {
   return reasons;
 }
 
+double routeFunScore(RevvRoute route) {
+  if (route.funScore > 0) return route.funScore;
+
+  double score = route.windingScore;
+  if (route.tightCurveKm + route.mediumCurveKm >= 1.5) {
+    score *= 1.0 + ((route.tightCurveKm + route.mediumCurveKm) / route.distanceKm).clamp(0.0, 0.45);
+  }
+  if (route.maxContinuousKm >= 1.2) {
+    score *= 1.0 + (route.maxContinuousKm / 12).clamp(0.0, 0.18);
+  }
+  if (route.elevationDelta >= 40) {
+    score *= 1.0 + (route.elevationDelta / 250).clamp(0.0, 0.14);
+  }
+  if (route.isLoop) {
+    score *= 1.05;
+  }
+  return score;
+}
+
+double routeFlowScore(RevvRoute route) {
+  if (route.flowScore > 0) return route.flowScore;
+
+  final weightedStops =
+      route.stopSignCount + (route.trafficSignalCount * 1.5);
+  final density = route.stopControlDensity > 0
+      ? route.stopControlDensity
+      : weightedStops / math.max(route.distanceKm, 1.0);
+  final continuityBoost = route.maxContinuousKm >= 1.5 ? 0.08 : 0.0;
+  final inferred = (1.0 - (density * 0.35) + continuityBoost).clamp(0.15, 1.0);
+  return inferred;
+}
+
+double routeAccessPenalty(RevvRoute route) {
+  if (route.driveabilityPenalty > 0) return route.driveabilityPenalty;
+
+  double penalty = 1.0;
+  if (!route.isNamed) penalty *= 0.78;
+  if (route.isFacilityLike) penalty *= 0.08;
+  if (route.isConnectorLike) penalty *= 0.18;
+  if (route.isBridgeLike) penalty *= 0.28;
+  if (route.isMajorRoadLike) penalty *= 0.55;
+  if (route.isPrivateLike) penalty *= 0.18;
+  if (hasNumericOnlyName(route.name)) penalty *= 0.48;
+  return penalty.clamp(0.05, 1.0);
+}
+
+double routeContextAdjustment(RevvRoute route) {
+  double adjustment = 1.0;
+  if (route.distanceKm < 4.0) {
+    adjustment *= 0.05;
+  } else if (route.distanceKm < 8.0) {
+    adjustment *= 0.82;
+  }
+
+  if (route.distanceFromUser > 15) {
+    final distancePenalty = route.distanceFromUser >= 80
+        ? 0.45
+        : 1.0 - ((route.distanceFromUser - 15) / 65) * 0.55;
+    adjustment *= distancePenalty.clamp(0.45, 1.0);
+  }
+
+  if (route.stopSignCount >= 5 && route.distanceKm < 12) {
+    adjustment *= 0.15;
+  }
+  if (route.stopControlDensity >= 0.65 && route.maxContinuousKm < 1.2) {
+    adjustment *= 0.2;
+  }
+  return adjustment.clamp(0.05, 1.0);
+}
+
+double recommendationScore(RevvRoute route) {
+  if (route.routeRankScore > 0) {
+    return route.routeRankScore;
+  }
+
+  return routeFunScore(route) *
+      routeFlowScore(route) *
+      routeAccessPenalty(route) *
+      routeContextAdjustment(route);
+}
+
+bool isHardRejectedRecommendation(RevvRoute route) {
+  if (route.isFacilityLike) return true;
+  if (route.isConnectorLike) return true;
+  if (route.distanceKm < 4.0) return true;
+  if (hasNumericOnlyName(route.name) && route.distanceKm < 8.0) return true;
+  if (route.stopSignCount >= 5 && route.distanceKm < 12.0) return true;
+  if (route.stopControlDensity >= 0.65 && route.maxContinuousKm < 1.2) return true;
+  return false;
+}
+
+String recommendationTier(RevvRoute route) {
+  if (isHardRejectedRecommendation(route)) return 'reject';
+  if (route.isBridgeLike || route.isConnectorLike) return 'maybe';
+  if (route.isMajorRoadLike) return 'maybe';
+  if (routeFlowScore(route) < 0.45) return 'maybe';
+  if (recommendationScore(route) >= math.max(route.windingScore * 0.6, 3.0)) {
+    return 'keep';
+  }
+  return 'maybe';
+}
+
 bool hasCompellingRouteReason(RevvRoute route) {
   return deriveRouteReasonTags(route).isNotEmpty;
 }
@@ -291,6 +411,199 @@ String? primaryRouteReason(RevvRoute route) {
     return '와인딩 점수가 높은 검증된 드라이빙 코스예요.';
   }
   return null;
+}
+
+String normalizeRouteName(String name) {
+  return name.trim().replaceAll(RegExp(r'\s+'), ' ');
+}
+
+bool hasFacilityLikeName(String name) {
+  final normalized = normalizeRouteName(name);
+  if (normalized.isEmpty) return false;
+  return _facilityNamePattern.hasMatch(normalized);
+}
+
+bool hasNumericOnlyName(String name) {
+  final normalized = normalizeRouteName(name);
+  if (normalized.isEmpty) return true;
+  return normalized.length >= 5 && _numericOnlyRouteNamePattern.hasMatch(normalized);
+}
+
+bool isBridgeLikeRouteName(String name) {
+  final normalized = normalizeRouteName(name);
+  if (normalized.isEmpty) return false;
+  return _bridgeNamePattern.hasMatch(normalized);
+}
+
+bool isConnectorLikeRouteName(String name) {
+  final normalized = normalizeRouteName(name);
+  if (normalized.isEmpty) return false;
+  return _connectorNamePattern.hasMatch(normalized);
+}
+
+bool isMajorRoadLikeRouteName(String name) {
+  final normalized = normalizeRouteName(name);
+  if (normalized.isEmpty) return false;
+  return _majorRoadNamePattern.hasMatch(normalized) ||
+      isBridgeLikeRouteName(normalized) ||
+      isConnectorLikeRouteName(normalized);
+}
+
+double routeFootprintDiagonalKm(RevvRoute route) {
+  final nodes = route.nodes;
+  if (nodes.length < 2) return 0;
+  double minLat = nodes.first.lat;
+  double maxLat = nodes.first.lat;
+  double minLng = nodes.first.lng;
+  double maxLng = nodes.first.lng;
+  for (final node in nodes) {
+    if (node.lat < minLat) minLat = node.lat;
+    if (node.lat > maxLat) maxLat = node.lat;
+    if (node.lng < minLng) minLng = node.lng;
+    if (node.lng > maxLng) maxLng = node.lng;
+  }
+  return RevvRoute.haversineKm(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
+}
+
+bool isCompactFacilityLikeRoute(RevvRoute route) {
+  final diagonalKm = routeFootprintDiagonalKm(route);
+  final curvyKm = route.tightCurveKm + route.mediumCurveKm;
+  final curvyFraction = route.distanceKm > 0 ? curvyKm / route.distanceKm : 0.0;
+  return diagonalKm > 0 &&
+      diagonalKm < 1.35 &&
+      route.distanceKm < 10.5 &&
+      (route.isLoop || curvyFraction > 0.42 || route.sharpCurveCount >= 10);
+}
+
+bool isLowConfidenceShortRoute(RevvRoute route) {
+  return route.distanceKm < 7.5 &&
+      !hasCompellingRouteReason(route) &&
+      route.distanceFromUser > 2.0;
+}
+
+bool shouldRejectLowQualityRoute(RevvRoute route) {
+  if (hasFacilityLikeName(route.name)) return true;
+  if (isCompactFacilityLikeRoute(route)) return true;
+  if (route.isLoop && route.distanceKm < 7.0) return true;
+  if (hasNumericOnlyName(route.name) && route.distanceKm < 9.0) return true;
+  if (isLowConfidenceShortRoute(route)) return true;
+  return false;
+}
+
+bool isSegmentLikeCurvyRoad(RevvRoute route) {
+  if (route.distanceKm < 3.5) return true;
+  if (route.distanceKm < 5.0 && hasFacilityLikeName(route.name)) return true;
+  if (route.distanceKm < 5.0 && hasNumericOnlyName(route.name)) return true;
+  return false;
+}
+
+List<RevvRoute> filterSupabaseRouteCandidates(
+  List<RevvRoute> routes, {
+  int minimumCount = minimumVisibleRoutes,
+}) {
+  final filtered = routes.where((route) => !isSegmentLikeCurvyRoad(route)).toList();
+  if (filtered.isNotEmpty) return filtered;
+
+  final namedFallback = routes
+      .where(
+        (route) =>
+            route.distanceKm >= 2.0 &&
+            route.name.trim().isNotEmpty &&
+            !hasNumericOnlyName(route.name) &&
+            !hasFacilityLikeName(route.name),
+      )
+      .toList();
+  if (namedFallback.length >= minimumCount) {
+    return namedFallback;
+  }
+  if (namedFallback.isNotEmpty) {
+    return namedFallback;
+  }
+
+  return routes.where((route) => route.distanceKm >= 2.0).toList();
+}
+
+double routeDriveabilityMultiplier(RevvRoute route) {
+  if (route.driveabilityPenalty > 0) {
+    return route.driveabilityPenalty.clamp(0.05, 1.0);
+  }
+  double multiplier = 1.0;
+  if (hasNumericOnlyName(route.name)) {
+    multiplier *= 0.68;
+  }
+  if (route.name.trim().isEmpty) {
+    multiplier *= 0.6;
+  }
+  if (isCompactFacilityLikeRoute(route)) {
+    multiplier *= 0.45;
+  }
+  if (!hasCompellingRouteReason(route)) {
+    multiplier *= 0.82;
+  }
+  if (isMajorRoadLikeRouteName(route.name)) {
+    multiplier *= 0.7;
+  }
+  if (route.distanceKm < 9.0) {
+    multiplier *= 0.84;
+  }
+  return multiplier;
+}
+
+List<RevvRoute> applyQualityGuardrails(
+  List<RevvRoute> pool, {
+  int minimumCount = minimumVisibleRoutes,
+}) {
+  final cleaned = pool
+      .where((route) => !shouldRejectLowQualityRoute(route))
+      .where((route) => !isHardRejectedRecommendation(route))
+      .toList();
+  if (cleaned.isEmpty) return const [];
+
+  final keepRoutes = cleaned
+      .where((route) => recommendationTier(route) == 'keep')
+      .toList();
+  if (keepRoutes.length >= minimumCount) {
+    return keepRoutes;
+  }
+
+  final compelling = cleaned.where(hasCompellingRouteReason).toList();
+  if (compelling.length >= minimumCount) {
+    return compelling;
+  }
+
+  final preferred = cleaned
+      .where(
+        (route) =>
+            recommendationTier(route) == 'keep' ||
+            hasCompellingRouteReason(route) ||
+            (recommendationScore(route) >= 3.0 && !hasNumericOnlyName(route.name)),
+      )
+      .where((route) => !hasNumericOnlyName(route.name))
+      .toList();
+  final keepOnly = preferred
+      .where((route) => recommendationTier(route) == 'keep')
+      .where((route) => !route.isMajorRoadLike)
+      .toList();
+  if (keepOnly.length >= minimumCount) {
+    return keepOnly;
+  }
+  if (preferred.isNotEmpty) {
+    return preferred;
+  }
+
+  final namedFallback = cleaned
+      .where(
+        (route) =>
+            route.name.trim().isNotEmpty &&
+            !hasNumericOnlyName(route.name) &&
+            !hasFacilityLikeName(route.name),
+      )
+      .toList();
+  if (namedFallback.isNotEmpty) {
+    return namedFallback;
+  }
+
+  return cleaned;
 }
 
 List<RevvRoute> buildCompositeFallbackRoutes(
@@ -335,6 +648,7 @@ List<RevvRoute> buildCompositeFallbackRoutes(
       final best = pairings.first;
       final gapKm = best.gapKm;
       if (gapKm > maxGapKm) continue;
+      if (shouldRejectLowQualityRoute(a) || shouldRejectLowQualityRoute(b)) continue;
       if (!hasCompellingRouteReason(a) || !hasCompellingRouteReason(b)) continue;
       if (a.windingScore < 4.9 || b.windingScore < 4.9) continue;
       if (a.windingDensityPct < 0.18 || b.windingDensityPct < 0.18) continue;
@@ -377,6 +691,7 @@ List<RevvRoute> buildCompositeFallbackRoutes(
         maxContinuousKm: a.maxContinuousKm + b.maxContinuousKm,
         isLoop: false,
       );
+      if (shouldRejectLowQualityRoute(combo)) continue;
 
       final duplicate = pool.any(
         (route) =>

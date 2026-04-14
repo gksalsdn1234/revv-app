@@ -1,0 +1,117 @@
+rank_position,id,name,distance_km,distance_from_user_km,winding_score,route_rank_score,tight_curve_km,medium_curve_km,max_continuous_km,is_loop,region,is_numeric_name,is_facility_like,is_bridge_like,is_ramp_like,is_major_road_like,length_band,suggested_action,suggested_reason
+1,4d274e68b880c54a839acbb04ebfa917e819624f63cc50d0289aa783005b2fc7,Rang de la Rivière Nord (339),19.96,43.65,419.01,1257.02,2.30,12.16,3.13,false,quebec,false,false,false,false,true,long,keep,keep_candidate
+2,25c163ed72d1d8dcb92d70acd1020a40810b68bd19b13f9038254d16c72ca2a3,Chemin De Val-des-Lacs,12.94,48.14,452.02,975.17,2.78,6.79,1.58,false,quebec,false,false,false,false,true,long,keep,keep_candidate
+3,b29b407590a7ccf50329786fe167926c09c2efee8f224f4394bd7ab63b116fda,Chemin de la Petite-Côte,11.98,18.42,458.99,916.25,2.06,8.30,2.02,false,quebec,false,false,false,false,true,long,keep,keep_candidate
+4,0377f31fc0b3bdb4734855b64abc58ddd1a8bc565de18092ede4fd1aec295c46,Rue Main,12.63,40.49,314.65,662.38,1.40,7.49,0.73,false,quebec,false,false,false,false,false,long,keep,keep_candidate
+5,4e38996391eecd7627282b502cfe80b4ad3def62bd7753581536d72662b10199,Chemin du Fleuve,18.06,41.75,195.69,587.06,0.84,6.63,0.75,false,quebec,false,false,false,false,true,long,keep,keep_candidate
+6,f3faedd6b4e85ed514927f51efbad3282387c38912a3e2c37d42a782871885f3,Chemin du Lac-Saint-Louis,7.31,17.79,444.71,541.86,1.64,4.42,2.18,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+7,6fcfcbeeaf05429055c8050356a71889fc3f49d05fccc0e33657636dc0c8d2e3,Chemin Saint-Charles (344),9.18,26.00,348.73,533.49,1.16,4.32,0.89,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+8,63306d7b176877b705e91bd2fbe81ebe0d1965c627cfe54f3fbafb5d8c8348f8,Chemin de la Grande-Côte (344),13.27,22.96,238.23,526.98,1.15,6.65,0.64,false,quebec,false,false,false,false,true,long,keep,keep_candidate
+9,64606985be3e732e9bdc9fa3f8a2f643bd67b968a424af4ef0d4eec81f32e47f,Rang de la Rivière Sud (227),16.80,38.21,184.39,516.29,0.41,8.13,0.65,false,quebec,false,false,false,false,true,long,keep,keep_candidate
+10,73b2e877945bd108cca593b17464a55526fea92f909eb37ae8ce90b704260f36,Route Édouard-VII (217),12.94,17.49,238.43,514.15,1.37,5.03,0.51,false,quebec,false,false,false,false,false,long,keep,keep_candidate
+11,48f0efab963018500b57077ed44e097d53d29a968fed97554ce9d35897c3c941,Chemin des Patriotes (133),14.70,30.76,189.17,463.58,0.47,6.81,0.54,false,quebec,false,false,false,false,true,long,keep,keep_candidate
+12,3165b1b4c4c0783969c940e721e531224b82aad0ad1b4c4f9771590dd598cd6b,Chemin du Bord-du-Lac,6.48,11.08,396.55,428.34,1.80,3.25,0.76,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+13,e9b6bb6363fa33be3bebc991dd86e3111f690758bfae9de860e91796c07d9f35,Route 341 (341),6.47,47.03,396.20,427.29,1.47,3.09,1.09,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+14,a81098c9aa9adc3e949b9d97d88b8c9482103b29e8f969596616f94776b3e0e5,Boulevard Perrot,17.05,25.17,410.13,407.96,2.18,9.30,0.86,false,quebec,false,false,false,false,true,long,maybe,major_road_like
+15,3301ffa71082e40a3aa200ff07b7e8d9d53c7a73ee105fbd98bec03367174e75,Chemin de la Rivière-Châteauguay,10.85,37.88,219.35,396.48,0.79,5.40,0.50,false,quebec,false,false,false,false,true,long,keep,keep_candidate
+16,42df940ee865ee026355f29ae66a1df32392e864853609321fa363ca2de08b47,Chemin Principal,5.26,32.87,444.56,389.87,1.19,1.53,0.28,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+17,1ddc06d7bee98b5811ea2b6e90b09f7480adb576b7d9e707a173d41a5879358f,Chemin Bellerive,9.09,22.53,243.93,369.41,1.27,3.65,0.74,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+18,24997d7d57bd52f6dde1682d2165fb992958015ff044cfc0f5d10ad9fef95c2b,Montée Morel,8.19,48.77,261.28,356.72,1.05,2.20,0.60,false,quebec,false,false,false,false,false,medium,keep,keep_candidate
+19,387b0caf0a72261a087979c29c91a4fdcbdf967b523f99d6e5edea843131f0d3,Rang Saint-Régis Sud,5.44,11.35,355.59,322.36,1.40,2.94,0.98,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+20,940e6076ffcbf1d7b0acc827446f6ce7316d5712c189c72c5389b26eead7e3a3,Avenue Saint-Charles (340),4.61,32.44,410.55,315.67,0.92,2.28,0.47,false,quebec,false,false,false,false,false,short,reject,too_short
+21,7439839b99c26e03fbb3147acc70ae72f489a1655e19065b20b513a4a4092eb3,Chemin du Grand-Marais,7.85,28.28,232.64,304.50,0.80,5.06,1.73,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+22,489c114a3b26f0ff41baf72aa9abb3c3db5dd4dc113701b688ad22e6e6abf2dc,Chemin Saint-François-Xavier,8.29,13.34,215.22,297.39,0.98,3.32,0.53,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+23,1e8b3f072e4a5d16af07ecbd98798d61740e6476e397bb57598f38303cf5bacd,Chemin du Bord-du-Lac,6.65,22.09,263.82,292.44,1.21,3.01,0.48,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+24,478419463134cf7dd6a2c85493794372df3221e7255708325be2660d9c33ca25,Rue Principale,7.58,24.31,225.60,285.14,0.83,4.28,1.30,false,quebec,false,false,false,false,false,medium,keep,keep_candidate
+25,096f084d3b836818ccd1d740b6978ba3170c4092ec90118751f2ff73035f6c6b,Chemin de l'Achigan Ouest,4.56,47.57,373.08,283.64,1.43,2.29,0.65,false,quebec,false,false,false,false,true,short,reject,too_short
+26,8d3688bcb883213ce5d89e4b9cf8683254fee4e044dd345ad562396cdbfefb85,Chemin Senneville,6.64,26.20,243.55,269.66,1.01,3.34,0.66,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+27,55e525e571c5280e4c8760b71c6db0b6e23e92645c46712987dc7b4f714acbc4,Rang du Bas-de-L'Assomption Sud,5.80,41.93,275.99,266.90,0.70,3.19,0.51,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+28,dee02450f73fbffd6cec6abb60b4089e776ed8ebd1b9b3087d60debc80c4219e,Rang Saint-Joachim,8.12,36.74,193.01,261.13,0.62,3.64,0.46,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+29,d2d044fc3c04a71f8d72481b9cec30b88990fb576b33dbc3dfb1d1266e386243,Rang Touchette,5.78,29.80,260.81,251.38,0.95,2.87,1.37,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+30,68b78b20875519c92f868813ea9424ed0d01c8c795010ef10a52d29f5618b711,Rang Saint-Marc,6.50,19.38,229.19,248.36,0.90,2.69,0.29,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+31,abed21a0ce8b3f495ac7c2b93277de43dd1771c15931be5bd2ceb2d95c5fa871,Chemin des Anglais,5.23,30.28,281.84,245.87,1.01,1.76,0.39,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+32,7fc586a87df7263f15df728f55d31458c01e78cf81aa4c2c36d1bfe81d1c36c9,Chemin Salaberry,6.03,22.06,243.80,245.13,0.76,3.08,0.52,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+33,4a238279358a4ee57973ff0124ae49fb69682c3fece1aaa862b42553b2e9fc27,Chemin de la Savane,5.32,17.22,263.02,233.26,0.61,2.24,0.74,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+34,70fcd47ce2892c33fe672054e9ba911ed1c64fcf72e30ad41ebfcf65ed65d5ad,Chemin d'Oka (344),7.84,32.07,174.09,227.46,0.54,3.34,0.46,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+35,681dcf2960192012da237f28b828e59ec4198ac0c42d7d964a90faa24c0facec,Boulevard Gouin Ouest,12.50,19.56,308.17,224.76,1.47,5.51,0.55,false,quebec,false,false,false,false,true,long,maybe,major_road_like
+36,f7dbc80b893b508b96d1409f8f39b9c6d5959929cc4fad6a856d7ba0a8c2533e,Chemin Moore,4.29,42.65,305.69,218.47,0.69,1.54,0.70,false,quebec,false,false,false,false,true,short,reject,too_short
+37,dcfb8fafa455b1311ab296e4a1101365e11302d24016f212249d70e1f178d682,Chemin de l'Achigan Est,4.93,47.28,265.00,217.60,0.83,2.33,0.90,false,quebec,false,false,false,false,true,short,reject,too_short
+38,ff39adeca1e8d6cf0193ac41d620223f0ad0545f9fe12f35ee87788c61dde3e0,Rue Saint-Laurent,5.08,23.35,253.46,214.77,0.70,2.01,0.40,false,quebec,false,false,false,false,false,medium,keep,keep_candidate
+39,24453e247e458e1255752719c0210739c670833e055bb4b907b7164ff82efb91,Chemin du Golf,4.09,43.73,300.56,205.09,0.79,2.06,0.74,true,quebec,false,false,false,false,true,short,reject,too_short
+40,e7727e67dd96cbd7929d9512b5b81549f1225395dc0f515f9c24d687e068330d,Chemin de la Côte-de-Liesse,4.26,5.49,288.16,204.40,0.64,1.59,0.39,false,quebec,false,false,false,false,true,short,reject,too_short
+41,143cb358e72dd70719313c90f6f650b9dbd62b60f8f31f2d0b30d5dd9cedd025,Chemin de l'Achigan Sud,5.06,44.59,239.97,202.30,0.81,3.33,1.61,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+42,5d6a61b545cce2219884a3cd7c86b275ffc8df068e24a1baa09b16b73c5bdf95,Avenue des Perron,5.13,21.75,236.51,202.16,0.48,2.46,0.29,false,quebec,false,false,false,false,false,medium,keep,keep_candidate
+43,0f0cd444b847a1846e5b2bbc0430a7b72ef1e39bc9540941f712333ea07e0870,Rue Adoncour,4.10,15.09,294.26,200.85,0.94,1.86,0.39,false,quebec,false,false,false,false,false,short,reject,too_short
+44,b30c658b1ec5910348ef047ff42bcfae08a5b95130a4d343fac0dc14248ad4e4,Rang Saint-Simon,4.46,13.96,269.62,200.53,1.06,2.59,1.24,false,quebec,false,false,false,false,true,short,reject,too_short
+45,dbac2df36ce41e90aac6e87abca0e162098e89a4d5643e510ed7c33c98d85403,Rue Saint-Pierre (209),5.69,11.25,208.69,198.02,0.80,2.95,0.84,false,quebec,false,false,false,false,false,medium,keep,keep_candidate
+46,9f89d231fed7b56dfa3d95847fee53f0a10b0d81ac03712c9f64a069df289bc2,Chemin de la Rivière Delisle Nord,4.15,48.85,283.84,196.32,0.93,2.62,1.47,false,quebec,false,false,false,false,true,short,reject,too_short
+47,aec445e5fcd6c199da3d177f92d4f4717a27102fa685dc18e3a8dfcf2f3e28e4,Route Harwood (342),11.04,41.46,104.13,191.68,0.10,4.27,0.42,false,quebec,false,false,false,false,false,long,keep,keep_candidate
+48,b9dc826fb6c10e6968484c4d95f2f9427b291cf42cc5f84e25747c69ef1c0ec9,Rue Cherrier,4.21,19.34,272.79,191.39,0.88,2.35,0.76,false,quebec,false,false,false,false,false,short,reject,too_short
+49,8ee8b1219351deeacd63ca373b9105caa5b128f34b553404c24816b538c992da,Desserte sud Laval Est (A-440) (335),4.70,16.80,241.75,189.22,0.46,1.89,0.53,false,quebec,false,false,false,false,false,short,reject,too_short
+50,baca9f013e967d8b92b8c123d58a0d9430bd2b6fd2ed41c1a72a3894c2dee03f,Chemin de la Rivière-Du-Nord,4.00,45.76,279.79,186.69,0.93,2.64,2.17,false,quebec,false,false,false,false,true,short,reject,too_short
+51,7ce639ddd0ab3f0d82896bc47524e9affa5d2026ad670dea058bea9e20573c75,Rang des Soixante,6.79,40.39,162.02,183.44,0.55,2.83,0.58,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+52,ca60346bfc2a0954c23e5d3fbf3a1029e6b6ebb24012f263f61e67cd46b32043,Rang Saint-André,5.49,16.04,191.22,175.03,0.72,2.13,0.55,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+53,61258b2960e45c4cd5c35f6c4d9280e01f74adc2f00203e4609bf47395ef5221,Rue Sainte-Thérèse,4.40,30.47,237.35,174.24,0.57,2.37,0.44,false,quebec,false,false,false,false,false,short,reject,too_short
+54,cb4a356acccb984e089fa32c8de7b95900b4969bd4389ce3fa5c6523ceac4a1d,Rang de la Rivière Nord,4.81,37.36,216.80,173.73,0.58,2.72,1.11,false,quebec,false,false,false,false,true,short,reject,too_short
+55,a53826d5bb2e2a05e5a4ccca291002c511b3a9ff1e29d92a678304a965d1ac14,Rue Schulz,5.22,48.03,198.59,172.68,0.53,1.79,0.55,true,quebec,false,false,false,false,false,medium,keep,keep_candidate
+56,43e119a7dce40b3cf8ee801fcf1abb9216daf67eef23d943a807bc972e322e06,Chemin du Fer-à-Cheval,4.72,28.43,216.98,170.66,0.62,1.22,0.24,false,quebec,false,false,false,false,true,short,reject,too_short
+57,241b3fa713678067a502b6b6f3abfb584f89642fc005d459b210b02edfd16f5e,Chemin de Touraine,4.20,29.00,243.39,170.46,1.03,1.73,0.38,false,quebec,false,false,false,false,true,short,reject,too_short
+58,4ffbf38199e4f2560b2fb0d9b8be0c8562296699042c258ac214b2d3e22f4fa5,Boulevard Gouin Ouest,10.44,10.67,275.59,167.90,1.19,5.67,0.45,false,quebec,false,false,false,false,true,long,maybe,major_road_like
+59,40142da3d2964a6f7f413c6f43320fa26ede1c3a82ccca3c2f55bc06a22cf47b,Boulevard Saint-Joseph,6.20,5.43,463.82,167.83,1.68,2.92,0.62,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+60,d9ed708bea5b1527100d5926dbd58707e9fc211ff22f221c417db226e30f8853,Boulevard Salaberry,7.00,17.90,400.33,163.37,1.47,4.02,1.67,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+61,fc4302f9f6e2bf6e01c77492f6b10c66f5152c30444b80d787a272d2fe640eea,Chemin du Canal,4.30,49.50,214.42,153.56,0.71,0.69,0.54,true,quebec,false,false,false,false,true,short,reject,too_short
+62,389b43fe5ea58faab12daffc690535024bc6b617e6703ae7e873bece1d090dd3,Route de Havelock (203),4.63,47.21,192.12,148.26,0.52,1.79,0.99,false,quebec,false,false,false,false,false,short,reject,too_short
+63,ae1860fb9c615a5968ea2b8b80cd0cd41c2d0c44b450817a40af42bb7bb80a2d,Boulevard Gouin Est,9.27,16.30,264.85,143.18,0.99,4.60,0.39,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+64,8fbe44d57c166676776d6bb1111e09427653be5b457d1ac7036d2d23eda90ff5,Chemin de l'Industrie,4.15,32.93,206.48,142.84,0.50,0.73,0.27,false,quebec,false,false,false,false,true,short,reject,too_short
+65,3abde9390a6b41347af193e8f41ba25140567ca304b41a40b3be499028e587f1,Chemin de La Plaine (335),5.23,37.58,160.67,140.06,0.50,2.35,0.32,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+66,d0169193b8b728064cfa62712f0495dc061da1a51865567ee8988b95c6de61f3,Boulevard Lacombe (344),9.30,34.59,253.18,137.30,0.68,5.48,0.93,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+67,35735cc488e81695e710ee97716f5796508b3cf80ccb49d31bfc789792b01674,Boulevard Samson,10.60,14.45,219.48,135.70,0.54,4.47,0.54,false,quebec,false,false,false,false,true,long,maybe,major_road_like
+68,4a98faf7ff54b96cba4820f6a296e7931955155fd5382f8104fdaaf9fe88dba1,Rang Saint-Charles,4.77,20.73,167.49,133.07,0.51,2.35,0.67,false,quebec,false,false,false,false,true,short,reject,too_short
+69,769f75bb02ac69aa3b34cb490311fbefb8d60925b808bbdc935bf1eb07a8eb01,Boulevard Sainte-Rose,10.04,20.56,210.29,123.11,0.83,4.92,0.86,false,quebec,false,false,false,false,true,long,maybe,major_road_like
+70,f4a469bb371452e534b58759f7d0c9c5ef163d2fc238836f235ba29497646bf1,Rue Eiffel,4.20,22.83,175.39,122.65,0.72,0.85,0.46,false,quebec,false,false,false,false,false,short,reject,too_short
+71,fe0950afa63477e8235f56f36ca50c5a9c0c2bf7af88caa149949b08110676da,Chemin Ozias-Leduc,4.49,34.84,163.33,122.22,0.42,2.19,0.31,false,quebec,false,false,false,false,true,short,reject,too_short
+72,4e69232b5fe2761adb2e3b17995dd582c2a86480e51e7d69d9665945ed8535e1,Boulevard Gouin Est,6.57,26.42,315.14,120.84,1.25,4.09,0.68,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+73,882e4b013d40fb67fa4eb2a5967eb522d57ea7daa8d69fce13e64aa4df00edc5,Rang des Petits-Étangs,5.38,49.77,132.46,118.85,0.48,1.67,1.20,false,quebec,false,false,false,false,true,medium,keep,keep_candidate
+74,ed2c3ed4d0a2fc46db74149cabeda5c953b084cb5995f7dc5f4cfdedf89fd39c,Chemin de la Côte-Sud,4.78,27.86,147.35,117.37,0.40,2.11,0.22,false,quebec,false,false,false,false,true,short,reject,too_short
+75,dcfda34db1763797e18b45b60c86e268d2237859d8bd2b2eff92f688b8e33244,Rang du Ruisseau Norton Nord,4.21,35.97,165.88,116.32,0.29,1.48,0.44,false,quebec,false,false,false,false,true,short,reject,too_short
+76,a3e5138c34f1b7c755ec43bcba4f970397893dae89ac104302effe07908f9624,Chemin Bellerive (223),4.06,26.16,167.93,113.67,0.56,1.94,0.35,false,quebec,false,false,false,false,true,short,reject,too_short
+77,f4022fb5e1e69c4ed79eeef515edd345381d52028df8d5bffed93988c55c0cd9,Boulevard le Bourg-Neuf,7.73,36.53,248.63,112.10,0.70,2.06,0.37,true,quebec,false,false,false,false,true,medium,maybe,major_road_like
+78,cdc7ed67ab9dddb987ef2c3f97e697ac8e0dedc3614f51003e6eb410d2e115cd,Boulevard des Mille-Îles,5.41,24.90,349.08,110.14,1.25,3.33,0.81,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+79,5c0d7136f58827b8db8b19413a1bcf208c67ca860c352059aa1ddde5a116931a,Boulevard René-Laennec,8.83,18.61,211.81,109.05,0.62,2.78,0.44,true,quebec,false,false,false,false,true,medium,maybe,major_road_like
+80,4f8a8ede1093825e6cb3ddc91175842d3a939635d039ad5a4d2df7f8c964e91d,Rue Saint-Patrice (219),4.03,33.09,161.54,108.38,0.54,0.99,0.42,true,quebec,false,false,false,false,false,short,reject,too_short
+81,ca8c2f3506a83d94e1761e6f29bcc4a3b0a24aa546477049c3ca22f9345e9101,Chemin Lafrenière,4.37,17.63,147.70,107.47,0.43,0.75,0.56,true,quebec,false,false,false,false,true,short,reject,too_short
+82,0130a96a1c2b48f1af41665cacf93cde48d086421d7895dc45db854c4ccca0cc,Boulevard Marie-Victorin,5.89,19.36,309.08,106.17,0.84,2.38,0.33,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+83,2a2b9eb43b9a153fd7281f4ac06ea7a970ac25fec85e58bbef8230f6afc76ae3,Boulevard Robert Bourassa,4.38,17.32,406.66,103.79,1.11,2.39,0.30,true,quebec,false,false,false,false,true,short,reject,too_short
+84,fdb6f11d8e9fa4ada23b27be1760f6ee02f74e0a1ffc88a61887913c69492e7e,Chemin de la Rivière,4.93,32.56,122.09,100.28,0.35,0.99,0.32,false,quebec,false,false,false,false,true,short,reject,too_short
+85,93e6bf59d9c7fe3becb49f608ce00537a82c8180e75874589f2c1e2a06f767d3,Boulevard René-Gaultier,5.74,28.94,285.77,95.61,0.90,1.92,0.60,true,quebec,false,false,false,false,true,medium,maybe,major_road_like
+86,93ddb1fb32bd30556c50881e0dbdc9c030986c538c4cbb600086dbbd1f299fab,Rue de Lorraine,4.30,24.43,131.27,94.13,0.39,1.14,0.32,false,quebec,false,false,false,false,false,short,reject,too_short
+87,79ce777dfa3694a9df0f4d5f2d6ef7c1ecd810fdba9c6a9e7001c23773ed4ba6,Rang Sainte-Sophie,4.71,33.37,116.95,91.82,0.42,1.49,0.34,false,quebec,false,false,false,false,true,short,reject,too_short
+88,3ade973bfba2b357bd0db2007a9f4d23de9e7eb4dd5dc73f35dbb87996b7642e,Chemin de la Grande-Ligne,4.00,27.65,132.56,88.41,0.34,0.35,0.34,false,quebec,false,false,false,false,true,short,reject,too_short
+89,4ea0943360e3261f39f949f971a9dab13db4ae55a98670e5d2eefa5daba6bdd3,Boulevard LaSalle,5.05,4.91,292.15,86.07,1.11,2.30,0.48,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+90,b63c1236530c02f677dce10ee609dd0ae17c3faac5a918a1d5b49a206d03bffc,Chemin de la Côte-Georges,4.45,36.28,114.12,84.71,0.32,0.45,0.46,false,quebec,false,false,false,false,true,short,reject,too_short
+91,b69946de00e6625a495b7eb19210351a52797f79b660e0f4925c34e38f796266,Boulevard Gouin,4.96,32.86,266.03,77.02,0.71,0.86,0.56,true,quebec,false,false,false,false,true,short,reject,too_short
+92,ac79902beed55d22ab46799166dafee6b322b1ac35bfe974610eb168d28aa7c7,Boulevard Roi-René,4.97,17.51,263.03,76.19,0.89,0.97,0.27,true,quebec,false,false,false,false,true,short,reject,too_short
+93,3d2e8dcaacb0c79508f36fcc91abf6fa92f98183c02c389426e34b537f72c65d,Boulevard Henri-Bourassa Ouest,6.64,9.26,190.33,73.72,0.74,2.28,0.50,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+94,17bfb5019087183c6850679505c67a5a7dfc00dd256cf2e82fc23eb7097b8ef5,Boulevard de la Gare,5.11,33.75,243.23,72.47,0.59,2.04,0.23,true,quebec,false,false,false,false,true,medium,maybe,major_road_like
+95,641897f0695b96388f7411fe66b9a152e031bf682e0bee2579a99ac6ca0289ad,Boulevard Arthur-Sauvé (148),6.50,24.57,190.50,72.23,0.68,2.82,0.31,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+96,9331e7d68c0540542372981b2e60b5d43c4d69761c38fca75db0e8a2a990a748,Boulevard Beaconsfield,5.38,18.83,224.19,70.31,0.74,2.29,0.48,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+97,49a458f6285bebfe3fb1f47a3c778ba0f53ac7dc4c3b6393ada7d124f11f54a7,Boulevard de la Salette,4.56,48.73,256.41,68.24,1.00,1.41,0.57,false,quebec,false,false,false,false,true,short,reject,too_short
+98,4b21a675fccd306ddf6a407aec33852e5d333db633939e2595be83a350779aa4,Boulevard Cavendish,4.45,7.53,256.07,66.48,0.75,1.74,0.40,false,quebec,false,false,false,false,true,short,reject,too_short
+99,eccc750e7a8c35064785856de2f2dd2d694430c63eb029438c9033d0e267f40d,Boulevard Curé-Labelle (117),7.68,15.02,145.96,65.36,0.50,2.84,0.42,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+100,5ab748412ab6c41d2eb6d8db5bf34e3bbcea095f73872ec281bf374ab4507246,Boulevard de la Concorde Est,5.42,14.18,206.84,65.35,0.78,2.07,0.54,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+101,6afa1b6030d01f3d95622fabfd0533a077fca84a030848dfc1f367f3e3dd8de1,Boulevard Cadieux,4.09,25.84,267.86,63.87,0.78,1.55,0.70,true,quebec,false,false,false,false,true,short,reject,too_short
+102,495fb148de6474fc0c345656e85bb9044ee34f5c67bfc0b8f08ac96b85559d71,Boulevard Saint-Elzéar Ouest,5.92,16.66,180.71,62.39,0.56,2.99,0.44,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+103,39a7a8b6b496a61d634ff4e9dbc4312169fbba0de2178dde6c792a0a2a21f5f0,Boulevard des Seigneurs,5.03,28.04,196.17,57.53,0.45,1.87,1.03,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+104,c161d202944fb5b59c70b333cd0403feda688f7a31da17e1af058d3781fcf4b5,Boulevard des Entreprises,4.80,29.43,203.10,56.90,0.60,1.77,0.19,false,quebec,false,false,false,false,true,short,reject,too_short
+105,41781f720f814a922a1b730897aa91e9002e01fc7b11afe5359e46634687010a,Boulevard de L'Assomption,5.02,36.82,192.21,56.32,0.67,3.02,0.38,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+106,a04af642993b274043eb7aa8c789ef9ff764b08e6e53be1b35733e569bd02e2a,Boulevard du Séminaire Nord (223),5.83,32.41,165.65,56.29,0.44,2.50,0.26,false,quebec,false,false,false,false,true,medium,maybe,major_road_like
+107,123d8bbbd5be9848365a98656258f1ad964952508657acdb030e6cd356ff4bbe,Boulevard de Fontainebleau,4.52,26.89,212.17,55.95,0.80,2.31,0.77,true,quebec,false,false,false,false,true,short,reject,too_short
+108,a80fe1586e3b42059bb0db6798685e2656c578338abd8e479cf4ac089a733b3b,Boulevard René-Gaultier,4.66,28.77,205.53,55.85,0.63,1.69,0.50,true,quebec,false,false,false,false,true,short,reject,too_short
+109,342a68c509446affb79730ed26e1fea990f8a154c975640714e2b1cec01c49a7,Boulevard Arthur-Sauvé (148),4.47,24.62,205.27,53.51,0.71,1.83,0.43,false,quebec,false,false,false,false,true,short,reject,too_short
+110,be8418f000c73be820d8a7e2de7adb65dc42c0468a7e2ffc312b06924a03b2ad,Pont Victoria (112),7.93,9.56,455.70,48.17,1.08,1.23,0.40,true,quebec,false,false,true,false,true,medium,maybe,bridge_like
+111,8c4fb39d36af99b6d4c7a1d5c91bd3d81d1b41793a20182233b4344ce6e02fdf,Boulevard Industriel,4.12,13.14,194.44,46.72,0.67,1.31,0.34,false,quebec,false,false,false,false,true,short,reject,too_short
+112,15ca5bea2ae79c9d8a32380f51417dfa0dd339397ae4b04664e21daed9dee75a,Boulevard Cavendish,4.18,7.60,191.25,46.69,0.68,1.60,0.32,false,quebec,false,false,false,false,true,short,reject,too_short
+113,7319a774aabfcd84129acc868ce6605fadb60551f6e407817c3c83c450f41e33,Boulevard du Havre,4.53,45.86,165.29,43.68,0.40,1.61,0.31,false,quebec,false,false,false,false,true,short,reject,too_short
+114,ec8f4a2e4d2a79268d1e88553b622e30dbf6c1d214a7f22f1ca835d7314f620a,Boulevard de Saint-Canut,4.08,45.60,149.04,35.50,0.37,2.15,0.41,false,quebec,false,false,false,false,true,short,reject,too_short
+115,6084b4998ec0c59b2adb9844779707a62b27d423c01f3e87b6c62df381ac77f0,Circuit Gilles-Villeneuve,4.36,9.12,626.99,22.79,1.08,1.70,1.29,true,quebec,false,true,false,false,false,short,reject,track_or_facility
+116,c0f07b489fc1fa467bcf0244e1348e2f0aec88b378c91480e711715c18c0d4cb,Circuit Gilles-Villeneuve,4.06,9.08,635.55,21.49,1.03,1.69,1.08,true,quebec,false,true,false,false,false,short,reject,track_or_facility

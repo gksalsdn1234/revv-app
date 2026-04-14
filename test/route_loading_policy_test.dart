@@ -319,4 +319,302 @@ void main() {
     expect(hasCompellingRouteReason(weak), isFalse);
     expect(primaryRouteReason(weak), isNull);
   });
+
+  test('facility-like names are rejected as low quality driving routes', () {
+    final route = RevvRoute(
+      id: 'kart',
+      name: 'Karting',
+      nodes: [const LatLng(45.0, -73.0), const LatLng(45.01, -73.01)],
+      distanceKm: 4.2,
+      windingScore: 8.5,
+      starRating: 5,
+      sharpCurveCount: 14,
+      centerPoint: const LatLng(45.005, -73.005),
+      distanceFromUser: 8,
+      tightCurveKm: 1.7,
+      mediumCurveKm: 1.1,
+      maxContinuousKm: 0.6,
+      isLoop: true,
+    );
+
+    expect(hasFacilityLikeName(route.name), isTrue);
+    expect(shouldRejectLowQualityRoute(route), isTrue);
+  });
+
+  test('numeric-only short routes are rejected', () {
+    final route = RevvRoute(
+      id: 'num',
+      name: '1117718105',
+      nodes: [const LatLng(45.46, -73.62), const LatLng(45.47, -73.63)],
+      distanceKm: 6.8,
+      windingScore: 6.2,
+      starRating: 4,
+      sharpCurveCount: 8,
+      centerPoint: const LatLng(45.465, -73.625),
+      distanceFromUser: 5,
+      tightCurveKm: 1.0,
+      mediumCurveKm: 1.1,
+      maxContinuousKm: 0.8,
+      isLoop: false,
+    );
+
+    expect(hasNumericOnlyName(route.name), isTrue);
+    expect(shouldRejectLowQualityRoute(route), isTrue);
+  });
+
+  test('compact loop facilities are rejected even with high winding score', () {
+    final route = RevvRoute(
+      id: 'compact',
+      name: 'North Mini Loop',
+      nodes: const [
+        LatLng(45.0000, -73.0000),
+        LatLng(45.0020, -73.0020),
+        LatLng(45.0040, -73.0005),
+        LatLng(45.0020, -72.9980),
+        LatLng(45.0000, -73.0000),
+      ],
+      distanceKm: 5.5,
+      windingScore: 7.4,
+      starRating: 5,
+      sharpCurveCount: 13,
+      centerPoint: const LatLng(45.0020, -73.0000),
+      distanceFromUser: 9,
+      tightCurveKm: 1.6,
+      mediumCurveKm: 1.0,
+      maxContinuousKm: 0.7,
+      isLoop: true,
+    );
+
+    expect(routeFootprintDiagonalKm(route), lessThan(1.35));
+    expect(isCompactFacilityLikeRoute(route), isTrue);
+    expect(shouldRejectLowQualityRoute(route), isTrue);
+  });
+
+  test('driveability multiplier penalizes low-confidence numeric routes', () {
+    final weak = RevvRoute(
+      id: 'weak-num',
+      name: '1247366610',
+      nodes: [const LatLng(45.0, -73.0), const LatLng(45.04, -73.04)],
+      distanceKm: 8.5,
+      windingScore: 6.0,
+      starRating: 4,
+      sharpCurveCount: 6,
+      centerPoint: const LatLng(45.02, -73.02),
+      distanceFromUser: 10,
+      tightCurveKm: 0.8,
+      mediumCurveKm: 0.9,
+      maxContinuousKm: 0.6,
+      isLoop: false,
+    );
+    final good = RevvRoute(
+      id: 'good-road',
+      name: 'Belvedere Road',
+      nodes: [const LatLng(45.0, -73.0), const LatLng(45.08, -73.05)],
+      distanceKm: 14.0,
+      windingScore: 6.0,
+      starRating: 4,
+      sharpCurveCount: 9,
+      centerPoint: const LatLng(45.04, -73.025),
+      distanceFromUser: 10,
+      tightCurveKm: 1.2,
+      mediumCurveKm: 2.1,
+      maxContinuousKm: 1.3,
+      isLoop: false,
+    );
+
+    expect(routeDriveabilityMultiplier(weak), lessThan(0.7));
+    expect(routeDriveabilityMultiplier(good), greaterThan(0.9));
+  });
+
+  test('quality guardrails keep named fallback routes when compelling reasons are absent', () {
+    final routes = [
+      RevvRoute(
+        id: 'named-1',
+        name: 'Rue des Galets',
+        nodes: [const LatLng(45.50, -73.60), const LatLng(45.56, -73.54)],
+        distanceKm: 10.5,
+        windingScore: 5.4,
+        starRating: 3,
+        sharpCurveCount: 3,
+        centerPoint: const LatLng(45.53, -73.57),
+        distanceFromUser: 11,
+        tightCurveKm: 0.5,
+        mediumCurveKm: 0.6,
+        maxContinuousKm: 0.4,
+      ),
+      RevvRoute(
+        id: 'named-2',
+        name: 'Belvedere Road',
+        nodes: [const LatLng(45.48, -73.62), const LatLng(45.55, -73.57)],
+        distanceKm: 11.2,
+        windingScore: 5.1,
+        starRating: 3,
+        sharpCurveCount: 4,
+        centerPoint: const LatLng(45.515, -73.595),
+        distanceFromUser: 14,
+        tightCurveKm: 0.4,
+        mediumCurveKm: 0.7,
+        maxContinuousKm: 0.45,
+      ),
+      RevvRoute(
+        id: 'numeric',
+        name: '1216833929',
+        nodes: [const LatLng(45.46, -73.64), const LatLng(45.50, -73.61)],
+        distanceKm: 9.4,
+        windingScore: 5.7,
+        starRating: 3,
+        sharpCurveCount: 5,
+        centerPoint: const LatLng(45.48, -73.625),
+        distanceFromUser: 13,
+        tightCurveKm: 0.7,
+        mediumCurveKm: 0.7,
+        maxContinuousKm: 0.4,
+      ),
+    ];
+
+    final filtered = applyQualityGuardrails(routes);
+
+    expect(filtered.map((route) => route.id), containsAll(['named-1', 'named-2']));
+    expect(filtered.any((route) => route.id == 'numeric'), isFalse);
+  });
+
+  test('supabase candidate filter removes tiny segment rows before ranking', () {
+    final routes = [
+      RevvRoute(
+        id: 'kart',
+        name: 'Karting',
+        nodes: [const LatLng(45.40, -73.60), const LatLng(45.401, -73.601)],
+        distanceKm: 0.3,
+        windingScore: 1700,
+        starRating: 5,
+        sharpCurveCount: 12,
+        centerPoint: const LatLng(45.4005, -73.6005),
+        distanceFromUser: 20,
+      ),
+      RevvRoute(
+        id: 'numeric',
+        name: '1216833929',
+        nodes: [const LatLng(45.41, -73.61), const LatLng(45.412, -73.612)],
+        distanceKm: 0.6,
+        windingScore: 1500,
+        starRating: 5,
+        sharpCurveCount: 10,
+        centerPoint: const LatLng(45.411, -73.611),
+        distanceFromUser: 18,
+      ),
+      RevvRoute(
+        id: 'named-road',
+        name: 'Chemin de la Petite-Cote',
+        nodes: [const LatLng(45.42, -73.62), const LatLng(45.50, -73.54)],
+        distanceKm: 11.9,
+        windingScore: 459,
+        starRating: 4,
+        sharpCurveCount: 18,
+        centerPoint: const LatLng(45.46, -73.58),
+        distanceFromUser: 25,
+      ),
+    ];
+
+    final filtered = filterSupabaseRouteCandidates(routes);
+
+    expect(filtered.map((route) => route.id), ['named-road']);
+  });
+
+  test('quality guardrails prefer keep candidates over major-road-like routes when enough exist', () {
+    RevvRoute keepRoute(String id, String name) => RevvRoute(
+          id: id,
+          name: name,
+          nodes: [const LatLng(45.40, -73.60), const LatLng(45.48, -73.52)],
+          distanceKm: 11.0,
+          windingScore: 5.9,
+          starRating: 4,
+          sharpCurveCount: 5,
+          centerPoint: const LatLng(45.44, -73.56),
+          distanceFromUser: 20,
+          tightCurveKm: 0.7,
+          mediumCurveKm: 0.8,
+          maxContinuousKm: 0.5,
+        );
+    RevvRoute maybeRoute(String id, String name) => RevvRoute(
+          id: id,
+          name: name,
+          nodes: [const LatLng(45.42, -73.60), const LatLng(45.50, -73.54)],
+          distanceKm: 12.0,
+          windingScore: 6.4,
+          starRating: 4,
+          sharpCurveCount: 6,
+          centerPoint: const LatLng(45.46, -73.57),
+          distanceFromUser: 18,
+          tightCurveKm: 0.8,
+          mediumCurveKm: 0.9,
+          maxContinuousKm: 0.6,
+          isMajorRoadLike: true,
+        );
+
+    final routes = [
+      keepRoute('keep-1', 'Chemin de la Petite-Cote'),
+      keepRoute('keep-2', 'Chemin du Fleuve'),
+      keepRoute('keep-3', 'Rue Main'),
+      keepRoute('keep-4', 'Chemin Saint-Charles'),
+      keepRoute('keep-5', 'Rang de la Riviere Nord'),
+      keepRoute('keep-6', 'Chemin de la Grande-Cote'),
+      keepRoute('keep-7', 'Montee Morel'),
+      keepRoute('keep-8', 'Rang Saint-Marc'),
+      maybeRoute('maybe-1', 'Boulevard Perrot'),
+      maybeRoute('maybe-2', 'Boulevard Gouin Ouest'),
+    ];
+
+    final filtered = applyQualityGuardrails(routes);
+
+    expect(filtered.length, 8);
+    expect(filtered.every((route) => !isMajorRoadLikeRouteName(route.name)), isTrue);
+  });
+
+  test('recommendationScore prefers flow-aware score fields when present', () {
+    final route = RevvRoute(
+      id: 'scored',
+      name: 'North Ridge',
+      nodes: [const LatLng(45.0, -73.0), const LatLng(45.08, -73.05)],
+      distanceKm: 14.0,
+      windingScore: 6.0,
+      starRating: 4,
+      sharpCurveCount: 9,
+      centerPoint: const LatLng(45.04, -73.025),
+      distanceFromUser: 10,
+      routeRankScore: 7.7,
+      funScore: 8.3,
+      flowScore: 0.81,
+      driveabilityPenalty: 0.92,
+      stopSignCount: 2,
+      trafficSignalCount: 0,
+      stopControlDensity: 0.14,
+      roadClassBucket: 'rural_named',
+      isNamed: true,
+    );
+
+    expect(recommendationScore(route), 7.7);
+    expect(recommendationTier(route), 'keep');
+  });
+
+  test('hard reject recommendation catches stop-heavy short routes', () {
+    final route = RevvRoute(
+      id: 'stop-heavy',
+      name: 'Rue Saint Example',
+      nodes: [const LatLng(45.0, -73.0), const LatLng(45.04, -73.04)],
+      distanceKm: 8.0,
+      windingScore: 5.2,
+      starRating: 3,
+      sharpCurveCount: 4,
+      centerPoint: const LatLng(45.02, -73.02),
+      distanceFromUser: 9,
+      stopSignCount: 5,
+      trafficSignalCount: 1,
+      stopControlDensity: 0.85,
+      flowScore: 0.22,
+      isNamed: true,
+    );
+
+    expect(isHardRejectedRecommendation(route), isTrue);
+    expect(recommendationTier(route), 'reject');
+  });
 }

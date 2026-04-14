@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import argparse
+import re
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence
 
@@ -11,6 +12,19 @@ from typing import Iterable, Mapping, Sequence
 PointDict = dict[str, float]
 RoadInput = Mapping[str, object]
 RoadRecord = dict[str, object]
+
+FACILITY_PATTERN = re.compile(
+    r"\b(kart|karting|drift|circuit|raceway|speedway|motorsport|autocross|pit\s?lane|paddock|test\s?track|trackday)\b",
+    re.IGNORECASE,
+)
+BRIDGE_PATTERN = re.compile(r"\b(pont|bridge|viaduct|causeway)\b", re.IGNORECASE)
+CONNECTOR_PATTERN = re.compile(
+    r"\b(sortie|exit|ramp|bretelle|interchange|junction|connector)\b",
+    re.IGNORECASE,
+)
+MAJOR_ROAD_PATTERN = re.compile(r"\b(boulevard|autoroute|highway)\b", re.IGNORECASE)
+PRIVATE_PATTERN = re.compile(r"\b(private|service|access)\b", re.IGNORECASE)
+NUMERIC_NAME_PATTERN = re.compile(r"^[\d\-\s_]+$")
 
 
 @dataclass(frozen=True)
@@ -249,6 +263,67 @@ def analyze_road(road: RoadInput, max_points: int = 300) -> RoadRecord:
     score = winding_score(distance_km, curvature_density)
     rating = star_rating_for_score(score)
     curvature_score = float(road.get("curvature_score", 0.0) or 0.0)
+    is_named = bool(name)
+    is_facility_like = bool(FACILITY_PATTERN.search(name))
+    is_bridge_like = bool(BRIDGE_PATTERN.search(name))
+    is_connector_like = bool(CONNECTOR_PATTERN.search(name))
+    is_major_road_like = bool(MAJOR_ROAD_PATTERN.search(name))
+    is_private_like = bool(PRIVATE_PATTERN.search(name))
+    numeric_only_name = bool(NUMERIC_NAME_PATTERN.fullmatch(name)) if name else False
+    curvy_distance_km = profile["curvy_distance_km"]
+
+    fun_score = score
+    if distance_km > 0:
+        fun_score *= 1.0 + min(curvy_distance_km / distance_km, 0.45)
+    fun_score *= 1.0 + min(profile["max_continuous_km"] / 12.0, 0.18)
+    if float(road.get("elevation_delta", 0.0) or 0.0) >= 40:
+        fun_score *= min(1.0 + float(road.get("elevation_delta", 0.0) or 0.0) / 250.0, 1.14)
+    if is_loop(nodes):
+        fun_score *= 1.05
+
+    driveability_penalty = 1.0
+    if not is_named:
+        driveability_penalty *= 0.78
+    if is_facility_like:
+        driveability_penalty *= 0.08
+    if is_connector_like:
+        driveability_penalty *= 0.18
+    if is_bridge_like:
+        driveability_penalty *= 0.28
+    if is_major_road_like:
+        driveability_penalty *= 0.55
+    if is_private_like:
+        driveability_penalty *= 0.18
+    if numeric_only_name:
+        driveability_penalty *= 0.48
+    driveability_penalty = max(0.05, min(1.0, driveability_penalty))
+    flow_score = float(road.get("flow_score", 1.0) or 1.0)
+    stop_sign_count = int(road.get("stop_sign_count", 0) or 0)
+    traffic_signal_count = int(road.get("traffic_signal_count", 0) or 0)
+    stop_control_density = float(road.get("stop_control_density", 0.0) or 0.0)
+    context_adjustment = 1.0
+    if distance_km < 8.0:
+        context_adjustment *= 0.82
+    if stop_sign_count >= 5 and distance_km < 12.0:
+        context_adjustment *= 0.15
+    if stop_control_density >= 0.65 and profile["max_continuous_km"] < 1.2:
+        context_adjustment *= 0.20
+    route_rank_score = fun_score * flow_score * driveability_penalty * max(0.05, context_adjustment)
+
+    if is_facility_like:
+        road_class_bucket = "facility"
+    elif is_connector_like:
+        road_class_bucket = "connector"
+    elif is_bridge_like:
+        road_class_bucket = "bridge"
+    elif is_private_like:
+        road_class_bucket = "private_like"
+    elif is_major_road_like:
+        road_class_bucket = "major_connector"
+    elif is_named:
+        road_class_bucket = "rural_named"
+    else:
+        road_class_bucket = "unnamed"
 
     return {
         "id": stable_road_id(name, center["lat"], center["lng"]),
@@ -268,11 +343,25 @@ def analyze_road(road: RoadInput, max_points: int = 300) -> RoadRecord:
         "geohash4": encode_geohash(center["lat"], center["lng"], 4),
         "region": road.get("region") or "",
         "source": road.get("source") or "roadcurvature",
-        "curvy_distance_km": profile["curvy_distance_km"],
+        "curvy_distance_km": curvy_distance_km,
         "sharp_curve_count": int(profile["sharp_curve_count"]),
         "straight_fraction": profile["straight_fraction"],
         "curvature_integral_deg_km": profile["curvature_integral_deg_km"],
         "total_curvature_deg": profile["total_curvature_deg"],
+        "fun_score": fun_score,
+        "flow_score": flow_score,
+        "driveability_penalty": driveability_penalty,
+        "route_rank_score": route_rank_score,
+        "stop_sign_count": stop_sign_count,
+        "traffic_signal_count": traffic_signal_count,
+        "stop_control_density": stop_control_density,
+        "road_class_bucket": road_class_bucket,
+        "is_named": is_named,
+        "is_facility_like": is_facility_like,
+        "is_bridge_like": is_bridge_like,
+        "is_connector_like": is_connector_like,
+        "is_major_road_like": is_major_road_like,
+        "is_private_like": is_private_like,
     }
 
 

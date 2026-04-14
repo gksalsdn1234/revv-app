@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/colors.dart';
+import '../models/chain_candidate.dart';
+import '../models/composite_route.dart';
 import '../models/revv_route.dart';
 import '../widgets/map_widget.dart';
 import '../widgets/jarvis_panel.dart';
@@ -820,11 +822,15 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
 
   @override
   Widget build(BuildContext context) {
-    final connectingRoutes = context.select<RouteService, List<RevvRoute>>((r) => r.connectingRoutes);
+    final connectingRoutes =
+        context.select<RouteService, List<ChainCandidate>>((r) => r.connectingRoutes);
+    final selectedCompositeRoute = context.select<RouteService, CompositeRoute?>(
+      (r) => r.selectedCompositeRoute,
+    );
     final diffColor = _diffColor(widget.route.difficultyLevel);
     final hasChain = connectingRoutes.isNotEmpty;
-    final totalChainKm = widget.route.distanceKm +
-        connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm);
+    final totalChainKm =
+        selectedCompositeRoute?.totalDistanceKm ?? widget.route.distanceKm;
 
     return FadeTransition(
       opacity: _fade,
@@ -841,7 +847,7 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
   }
 
   Widget _buildCard(BuildContext context, Color diffColor, bool hasChain,
-      double totalChainKm, List<RevvRoute> connectingRoutes) {
+      double totalChainKm, List<ChainCandidate> connectingRoutes) {
     return Container(
       margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
       decoration: BoxDecoration(
@@ -952,14 +958,8 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                         GestureDetector(
                           onTap: () {
                             final rs = context.read<RouteService>();
-                            final allNodes = <LatLng>[...widget.route.nodes, ...rs.connectingRoutes.expand((r) => r.nodes)];
                             rs.requestSprint(
-                              route: widget.route.copyWith(
-                                id: '${widget.route.id}_chain',
-                                name: '${widget.route.name} +${rs.connectingRoutes.length}',
-                                nodes: allNodes,
-                                distanceKm: totalChainKm,
-                              ),
+                              route: rs.selectedCompositeRoute?.toRouteProjection(),
                             );
                           },
                           child: Container(

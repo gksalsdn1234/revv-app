@@ -537,7 +537,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
       builder: (_) => _ChainPickerSheet(
         selected: selected,
         allRoutes: svc.routes.where((r) => r.id != selected.id).toList(),
-        chained: svc.connectingRoutes,
+        chained: svc.manualChainedRoutes,
         onAdd: svc.addManualChain,
         onRemove: svc.removeFromChain,
       ),
@@ -1021,13 +1021,15 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       total: total,
                       searchRadiusKm: svc.searchRadiusKm,
                       connectingCount: svc.connectingRoutes.length,
-                      totalChainKm: (selected?.distanceKm ?? 0) +
-                          svc.connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm),
+                      totalChainKm:
+                          svc.selectedCompositeRoute?.totalDistanceKm ?? (selected?.distanceKm ?? 0),
                       heatmapActive: _heatmapMode,
                       brief: _currentBrief,
                       briefLoading: _briefLoading,
                       onSaved: selected != null ? () => _nameOnSave(selected) : null,
-                      onGo: () => svc.requestSprint(),
+                      onGo: () => svc.requestSprint(
+                        route: svc.selectedCompositeRoute?.toRouteProjection(),
+                      ),
                       onClose: () => svc.deselectRoute(),
                       onTrim: selected != null ? () => _startTrim(selected) : null,
                       onReverse: selected != null ? () => _reverseRoute(selected) : null,

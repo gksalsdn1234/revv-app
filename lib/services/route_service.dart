@@ -3,8 +3,12 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/chain_candidate.dart';
+import '../models/composite_route.dart';
 import '../models/revv_route.dart';
 import '../core/storage_keys.dart';
+import 'directions_service.dart';
+import 'route_chain_policy.dart';
 import 'route_loading_policy.dart';
 import 'supabase_service.dart';
 import 'waypoint_optimizer.dart';
@@ -684,9 +688,14 @@ class RouteService extends ChangeNotifier {
   int currentExpansionTotal = 1;
   int searchRadiusKm = 50; // 기본 50km
 
-  // 연결 루트 (선택 루트 끝점 기준)
-  List<RevvRoute> connectingRoutes = [];
+  // 추천형 체인 후보 (선택 루트 출구 기준)
+  List<ChainCandidate> connectingRoutes = [];
+  // 고급/수동 체인 경로는 별도로 유지
+  List<RevvRoute> manualChainedRoutes = [];
   bool isLoadingConnecting = false;
+  CompositeRoute? previewCompositeRoute;
+  ChainCandidate? previewCompositeCandidate;
+  CompositeRoute? selectedCompositeRoute;
 
   LatLng? _lastFetchLocation;
   int? _lastFetchRadius;
@@ -763,9 +772,12 @@ class RouteService extends ChangeNotifier {
   bool sprintRequested = false;
   RevvRoute? sprintRoute; // null이면 selectedRoute 사용
 
+  RevvRoute? get effectiveSprintRoute =>
+      selectedCompositeRoute?.toRouteProjection() ?? sprintRoute ?? selectedRoute;
+
   void requestSprint({RevvRoute? route}) {
     sprintRequested = true;
-    sprintRoute = route;
+    sprintRoute = route ?? selectedCompositeRoute?.toRouteProjection();
     notifyListeners();
   }
 
@@ -793,6 +805,7 @@ class RouteService extends ChangeNotifier {
     resetCache();
     routes = [];
     selectedRoute = null;
+    _clearCompositeState(notify: false);
     notifyListeners();
     await fetchRoutes(lat, lng);
   }
@@ -829,9 +842,11 @@ class RouteService extends ChangeNotifier {
       await loadExclusions();
 
       // ③-a 전역 DB 먼저 조회 (커뮤니티 루트)
-      final globalRoutes = await SupabaseService()
+      final globalRoutes = filterSupabaseRouteCandidates(
+        await SupabaseService()
           .fetchNearbyRoutes(lat, lng, searchRadiusKm.toDouble())
-          .timeout(const Duration(seconds: 6), onTimeout: () => <RevvRoute>[]);
+          .timeout(const Duration(seconds: 6), onTimeout: () => <RevvRoute>[]),
+      );
       final globalFiltered =
           globalRoutes.where((r) => !isExcluded(r)).toList();
 
@@ -846,18 +861,24 @@ class RouteService extends ChangeNotifier {
       if (fetchToken != _fetchToken) return;
       if (initial.isNotEmpty) {
         final guardedInitial = _withQualityGuardrails(initial);
-        _applyVisibleRoutes(
-          _withCompositeFallback(guardedInitial),
-          source: routes.isNotEmpty ? 'mixed' : 'supabase',
-          preserveSelection: true,
+        final visibleInitial = _withCompositeFallback(guardedInitial);
+        debugPrint(
+          '[RouteService] 초기 후보: initial=${initial.length}, guarded=${guardedInitial.length}, visible=${visibleInitial.length}',
         );
-        _saveToCache(routes, lat, lng);
-        _saveRoutesToFirestore(routes);
-        isLoading = false;
-        isLoadingInitial = false;
-        notifyListeners();
+        if (visibleInitial.isNotEmpty) {
+          _applyVisibleRoutes(
+            visibleInitial,
+            source: routes.isNotEmpty ? 'mixed' : 'supabase',
+            preserveSelection: true,
+          );
+          _saveToCache(routes, lat, lng);
+          _saveRoutesToFirestore(routes);
+          isLoading = false;
+          isLoadingInitial = false;
+          notifyListeners();
+        }
 
-        if (initial.length >= minimumVisibleRoutes) {
+        if (visibleInitial.length >= minimumVisibleRoutes) {
           final seed = math.Random().nextInt(0x7FFFFFFF);
           _refreshDiversityInBackground(
             lat: lat,
@@ -902,7 +923,7 @@ class RouteService extends ChangeNotifier {
       _lastFetchRadius = searchRadiusKm;
       debugPrint('[RouteService] 초기 루트 로드: ${routes.length}개');
       backgroundStatusMessage = routes.length < minimumVisibleRoutes
-          ? '근처에 와인딩 성향 루트가 적어 반경을 넓혀 찾았어요'
+          ? '근처에 흐름 좋은 와인딩이 적어 더 적은 수만 표시합니다'
           : '현재 위치 기준 루트를 준비했어요';
 
       // ⑤ 캐시 저장 (SharedPreferences + Firestore 비동기)
@@ -1042,18 +1063,13 @@ class RouteService extends ChangeNotifier {
 
   List<RevvRoute> _rankRoutes(List<RevvRoute> pool) {
     final boosted = pool.map((route) {
-      double score = route.windingScore;
+      double score = recommendationScore(route);
       if (route.runCount > 0) {
         score *= 1 + math.min(route.runCount, 10) * 0.04;
       }
-      final distancePenalty = route.distanceFromUser <= 15
-          ? 1.0
-          : route.distanceFromUser >= 80
-              ? 0.45
-              : 1.0 - ((route.distanceFromUser - 15) / 65) * 0.55;
-      return route.copyWith(windingScore: score * distancePenalty);
+      return route.copyWith(routeRankScore: score);
     }).toList();
-    boosted.sort((a, b) => b.windingScore.compareTo(a.windingScore));
+    boosted.sort((a, b) => b.routeRankScore.compareTo(a.routeRankScore));
     return boosted.take(maximumVisibleRoutes).toList();
   }
 
@@ -1067,13 +1083,7 @@ class RouteService extends ChangeNotifier {
   }
 
   List<RevvRoute> _withQualityGuardrails(List<RevvRoute> pool) {
-    final compelling = pool.where(hasCompellingRouteReason).toList();
-    if (compelling.length >= minimumVisibleRoutes) {
-      return compelling;
-    }
-    return pool
-        .where((route) => hasCompellingRouteReason(route) || route.windingScore >= 5.8)
-        .toList();
+    return applyQualityGuardrails(pool, minimumCount: minimumVisibleRoutes);
   }
 
   Future<_SearchRunResult> _runStagedRouteSearch({
@@ -1170,14 +1180,9 @@ class RouteService extends ChangeNotifier {
   /// Overpass 결과 중 Supabase에 없는 신규 루트 게시 (fire-and-forget)
   void _publishNewRoutes(
       List<RevvRoute> overpassRoutes, List<RevvRoute> globalRoutes) {
-    final globalIds = globalRoutes.map((r) => r.id).toSet();
-    for (final r in overpassRoutes) {
-      if (!globalIds.contains(r.id)) {
-        SupabaseService().publishRoute(r).catchError((e) {
-          debugPrint('[RouteService] 루트 게시 실패: $e');
-        });
-      }
-    }
+    // curvy_roads is canonical pipeline data and stays read-only for clients.
+    // Overpass enrichment remains local/user-scoped until ingested server-side.
+    return;
   }
 
   /// Supabase에서 루트 풀 사전 로드 (앱 시작 시)
@@ -1245,36 +1250,76 @@ class RouteService extends ChangeNotifier {
     isLoadingConnecting = true;
     connectingRoutes = [];
     notifyListeners();
-
-    final endpoint = fromRoute.nodes.last;
-    const maxDistKm = 15.0;
-
-    final candidates = routes
-        .where((r) => r.id != fromRoute.id)
-        .where((r) {
-          final dStart = RevvRoute.haversineKm(endpoint, r.nodes.first);
-          final dEnd = RevvRoute.haversineKm(endpoint, r.nodes.last);
-          return dStart < maxDistKm || dEnd < maxDistKm;
-        })
-        .toList();
-
-    candidates.sort((a, b) {
-      final da = math.min(
-        RevvRoute.haversineKm(endpoint, a.nodes.first),
-        RevvRoute.haversineKm(endpoint, a.nodes.last),
-      );
-      final db = math.min(
-        RevvRoute.haversineKm(endpoint, b.nodes.first),
-        RevvRoute.haversineKm(endpoint, b.nodes.last),
-      );
-      return da.compareTo(db);
-    });
-
-    connectingRoutes = candidates.take(3).toList();
-    debugPrint('[RouteService] CHAIN (캐시): ${connectingRoutes.length}개');
+    final hydratedRoutes = await ensureChainCandidateNodes(
+      baseRoute: fromRoute,
+      allRoutes: routes,
+      loadNodes: (routeId) => SupabaseService().fetchRouteNodes(routeId),
+    );
+    if (!listEquals(hydratedRoutes, routes)) {
+      routes = hydratedRoutes;
+      if (selectedRoute?.id == fromRoute.id) {
+        selectedRoute = routes.firstWhere(
+          (route) => route.id == fromRoute.id,
+          orElse: () => fromRoute,
+        );
+      }
+    }
+    final recommended = buildChainCandidates(
+      baseRoute: selectedRoute?.id == fromRoute.id ? selectedRoute! : fromRoute,
+      allRoutes: routes,
+      limit: 3,
+    );
+    connectingRoutes = recommended;
+    debugPrint('[RouteService] CHAIN (추천): ${connectingRoutes.length}개');
 
     isLoadingConnecting = false;
     notifyListeners();
+  }
+
+  Future<CompositeRoute?> previewChainCandidate(ChainCandidate candidate) async {
+    previewCompositeCandidate = candidate;
+    previewCompositeRoute = await _buildCompositeRouteFromCandidate(candidate);
+    notifyListeners();
+    return previewCompositeRoute;
+  }
+
+  Future<CompositeRoute?> commitCompositeRoute(ChainCandidate candidate) async {
+    final composite = previewCompositeCandidate == candidate && previewCompositeRoute != null
+        ? previewCompositeRoute
+        : await _buildCompositeRouteFromCandidate(candidate);
+    selectedCompositeRoute = composite;
+    previewCompositeCandidate = candidate;
+    previewCompositeRoute = composite;
+    notifyListeners();
+    return composite;
+  }
+
+  void clearCompositeRoute() {
+    _clearCompositeState();
+  }
+
+  Future<CompositeRoute?> _buildCompositeRouteFromCandidate(
+    ChainCandidate candidate,
+  ) async {
+    final base = selectedRoute;
+    if (base == null || base.nodes.length < 2 || candidate.route.nodes.length < 2) {
+      return null;
+    }
+    final oriented = candidate.orientedNodes();
+    final connectorPolyline = await DirectionsService.getRoute(
+      base.nodes.last,
+      oriented.first,
+    );
+    if (connectorPolyline.isEmpty) {
+      backgroundStatusMessage = '실도로 연결선을 만들 수 없어 체인을 건너뜁니다';
+      return null;
+    }
+    backgroundStatusMessage = null;
+    return buildCompositeRoute(
+      baseRoute: base,
+      candidate: candidate,
+      connectorPolyline: connectorPolyline,
+    );
   }
 
   /// Overpass 조회 → compute() isolate에서 파싱+스코어링
@@ -1499,6 +1544,8 @@ class RouteService extends ChangeNotifier {
       routes = result.routes.where((r) => !isExcluded(r)).toList();
       selectedRoute = routes.isNotEmpty ? routes.first : null;
       connectingRoutes = [];
+      manualChainedRoutes = [];
+      _clearCompositeState(notify: false);
     } finally {
       isLoading = false;
       notifyListeners();
@@ -1511,6 +1558,8 @@ class RouteService extends ChangeNotifier {
     }
     selectedRoute = route;
     connectingRoutes = [];
+    manualChainedRoutes = [];
+    _clearCompositeState(notify: false);
     notifyListeners();
     // 전역 DB에서 온 루트는 nodes=[] — 반드시 노드 로드 후 체인 탐색
     if (route.nodes.isEmpty) {
@@ -1543,19 +1592,29 @@ class RouteService extends ChangeNotifier {
   void deselectRoute() {
     selectedRoute = null;
     connectingRoutes = [];
+    manualChainedRoutes = [];
+    _clearCompositeState(notify: false);
     notifyListeners();
   }
 
   /// G. 수동 체인 — 사용자가 직접 연결할 루트 추가/제거
   void addManualChain(RevvRoute route) {
-    if (connectingRoutes.any((r) => r.id == route.id)) return;
-    connectingRoutes = [...connectingRoutes, route];
+    if (manualChainedRoutes.any((r) => r.id == route.id)) return;
+    manualChainedRoutes = [...manualChainedRoutes, route];
     notifyListeners();
   }
 
   void removeFromChain(String routeId) {
-    connectingRoutes = connectingRoutes.where((r) => r.id != routeId).toList();
+    manualChainedRoutes =
+        manualChainedRoutes.where((r) => r.id != routeId).toList();
     notifyListeners();
+  }
+
+  void _clearCompositeState({bool notify = true}) {
+    previewCompositeRoute = null;
+    previewCompositeCandidate = null;
+    selectedCompositeRoute = null;
+    if (notify) notifyListeners();
   }
 
   // ── 경유지 최적화 ──────────────────────────────────────────────

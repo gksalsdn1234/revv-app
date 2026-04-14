@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '../models/chain_candidate.dart';
 import '../theme/colors.dart';
-import '../models/revv_route.dart';
 import '../services/route_service.dart';
 import '../services/location_service.dart';
 import '../screens/route_preview_screen.dart';
@@ -240,8 +240,10 @@ class RouteInfoOverlay extends StatelessWidget {
 
         final diffColor = _diffColor(route.difficultyLevel);
         final hasChain = svc.connectingRoutes.isNotEmpty;
-        final totalChainKm = route.distanceKm +
-            svc.connectingRoutes.fold<double>(0, (s, r) => s + r.distanceKm);
+        final composite = svc.selectedCompositeRoute;
+        final previewComposite = svc.previewCompositeRoute;
+        final activeComposite = previewComposite ?? composite;
+        final totalChainKm = activeComposite?.totalDistanceKm ?? route.distanceKm;
 
         return Container(
           margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
@@ -335,7 +337,10 @@ class RouteInfoOverlay extends StatelessWidget {
                             onTap: () => Navigator.push(
                               ctx,
                               MaterialPageRoute(
-                                builder: (_) => RoutePreviewScreen(route: route),
+                                builder: (_) => RoutePreviewScreen(
+                                  route: activeComposite == null ? route : null,
+                                  compositeRoute: activeComposite,
+                                ),
                               ),
                             ),
                             child: Container(
@@ -364,7 +369,9 @@ class RouteInfoOverlay extends StatelessWidget {
                           // GO 버튼
                           _TapScale(
                             onTap: () {
-                              svc.requestSprint();
+                              svc.requestSprint(
+                                route: composite?.toRouteProjection(),
+                              );
                               Navigator.of(ctx).pop();
                             },
                             child: Container(
@@ -392,25 +399,11 @@ class RouteInfoOverlay extends StatelessWidget {
                               ),
                             ),
                           ),
-                          // CHAIN 버튼
+                          // APPLY 버튼
                           if (hasChain) ...[
                             const SizedBox(height: 5),
                             _TapScale(
-                              onTap: () {
-                                final allNodes = [
-                                  ...route.nodes,
-                                  ...svc.connectingRoutes.expand((r) => r.nodes),
-                                ];
-                                svc.requestSprint(
-                                  route: route.copyWith(
-                                    id: '${route.id}_chain',
-                                    name: '${route.name} +${svc.connectingRoutes.length}',
-                                    nodes: allNodes,
-                                    distanceKm: totalChainKm,
-                                  ),
-                                );
-                                Navigator.of(ctx).pop();
-                              },
+                              onTap: composite != null ? svc.clearCompositeRoute : null,
                               child: Container(
                                 width: 76,
                                 height: 28,
@@ -422,10 +415,14 @@ class RouteInfoOverlay extends StatelessWidget {
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    const Icon(Icons.link, size: 9, color: AppColors.red),
+                                    Icon(
+                                      composite != null ? Icons.layers_clear : Icons.link,
+                                      size: 9,
+                                      color: AppColors.red,
+                                    ),
                                     const SizedBox(width: 3),
                                     Text(
-                                      '${totalChainKm.toStringAsFixed(0)}km',
+                                      composite != null ? 'CLEAR' : 'CHAIN',
                                       style: GoogleFonts.rajdhani(
                                         fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white,
                                       ),
@@ -481,11 +478,155 @@ class RouteInfoOverlay extends StatelessWidget {
                 // ── 미니 고도 프로파일 ──────────────────────────
                 Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
                 MiniElevSection(route: route, lineColor: diffColor),
+                if (hasChain) ...[
+                  Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              '이어질 구간',
+                              style: GoogleFonts.rajdhani(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                letterSpacing: 1.5,
+                              ),
+                            ),
+                            const Spacer(),
+                            if (activeComposite != null)
+                              Text(
+                                '${totalChainKm.toStringAsFixed(1)} km',
+                                style: GoogleFonts.orbitron(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.red,
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        ...svc.connectingRoutes.map(
+                          (candidate) => Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _ChainCandidateTile(candidate: candidate),
+                          ),
+                        ),
+                        if (svc.connectingRoutes.isEmpty)
+                          Text(
+                            '이어서 달릴 만한 좋은 구간이 없습니다.',
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 13,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
         );
       },
+    );
+  }
+}
+
+class _ChainCandidateTile extends StatelessWidget {
+  final ChainCandidate candidate;
+  const _ChainCandidateTile({required this.candidate});
+
+  @override
+  Widget build(BuildContext context) {
+    final svc = context.read<RouteService>();
+    final isPreviewed = svc.previewCompositeCandidate?.route.id == candidate.route.id;
+    final isCommitted = svc.selectedCompositeRoute?.chainedSegments.any(
+          (segment) => segment.id == candidate.route.id,
+        ) ??
+        false;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isCommitted
+              ? AppColors.red.withValues(alpha: 0.6)
+              : Colors.white12,
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  candidate.route.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.orbitron(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'gap ${candidate.gapKm.toStringAsFixed(1)}km · heading ${candidate.headingDelta.toStringAsFixed(0)}° · flow ${candidate.mergedFlowScore.toStringAsFixed(2)}',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _TapScale(
+            onTap: () => svc.previewChainCandidate(candidate),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: isPreviewed ? AppColors.red.withValues(alpha: 0.18) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
+              ),
+              child: Text(
+                'PREVIEW',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          _TapScale(
+            onTap: () => svc.commitCompositeRoute(candidate),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.red,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                isCommitted ? 'APPLIED' : 'APPLY',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

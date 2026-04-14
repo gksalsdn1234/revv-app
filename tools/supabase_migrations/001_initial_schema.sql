@@ -79,11 +79,41 @@ CREATE OR REPLACE FUNCTION find_curvy_roads(
   min_score DOUBLE PRECISION DEFAULT 0,
   max_results INTEGER DEFAULT 30
 )
-RETURNS SETOF curvy_roads
+RETURNS TABLE (
+  id TEXT,
+  name TEXT,
+  center_lat DOUBLE PRECISION,
+  center_lng DOUBLE PRECISION,
+  center_point GEOGRAPHY(POINT, 4326),
+  route_line GEOGRAPHY(LINESTRING, 4326),
+  nodes JSONB,
+  distance_km DOUBLE PRECISION,
+  curvature_score DOUBLE PRECISION,
+  winding_score DOUBLE PRECISION,
+  star_rating SMALLINT,
+  sharp_curve_count INTEGER,
+  tight_curve_km DOUBLE PRECISION,
+  medium_curve_km DOUBLE PRECISION,
+  max_continuous_km DOUBLE PRECISION,
+  is_loop BOOLEAN,
+  elevation_delta DOUBLE PRECISION,
+  geohash4 TEXT,
+  region TEXT,
+  source TEXT,
+  run_count INTEGER,
+  published_by UUID,
+  created_at TIMESTAMPTZ,
+  distance_from_user_km DOUBLE PRECISION
+)
 LANGUAGE sql
 STABLE
 AS $$
-  SELECT *
+  SELECT
+    curvy_roads.*,
+    ST_Distance(
+      center_point,
+      ST_SetSRID(ST_MakePoint(user_lng, user_lat), 4326)::geography
+    ) / 1000.0 AS distance_from_user_km
   FROM curvy_roads
   WHERE ST_DWithin(
           center_point,
@@ -91,8 +121,34 @@ AS $$
           radius_m
         )
     AND winding_score >= min_score
-  ORDER BY winding_score DESC, distance_km ASC
+    AND distance_km >= 4.0
+  ORDER BY (
+      winding_score
+      * LEAST(GREATEST(distance_km, 4.0) / 6.0, 3.0)
+      * CASE
+          WHEN name ~* '\m(kart|karting|drift|circuit|raceway|speedway|motorsport|autocross|pit\s?lane|paddock|test\s?track|trackday)\M' THEN 0.05
+          WHEN name ~* '\m(pont|bridge|viaduct|causeway)\M' THEN 0.08
+          WHEN name ~* '\m(sortie|exit|ramp|bretelle|interchange|junction|connector)\M' THEN 0.15
+          WHEN name ~* '\m(boulevard|autoroute|highway)\M' THEN 0.35
+          WHEN name ~ '^[\d\-\s_]+$' THEN 0.25
+          ELSE 1.0
+        END
+    ) DESC,
+    distance_from_user_km ASC
   LIMIT max_results;
+$$;
+
+CREATE OR REPLACE FUNCTION increment_route_run_count(route_id_input TEXT)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE curvy_roads
+  SET run_count = COALESCE(run_count, 0) + 1
+  WHERE id = route_id_input;
+END;
 $$;
 
 CREATE TABLE IF NOT EXISTS runs (
@@ -155,6 +211,21 @@ CREATE POLICY saved_owner ON saved_routes
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+CREATE TABLE IF NOT EXISTS discovered_routes (
+  user_id UUID NOT NULL REFERENCES auth.users(id),
+  route_id TEXT NOT NULL,
+  route_data JSONB NOT NULL,
+  saved_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (user_id, route_id)
+);
+
+ALTER TABLE discovered_routes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS discovered_owner ON discovered_routes;
+CREATE POLICY discovered_owner ON discovered_routes
+  FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
 ALTER TABLE curvy_roads ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS curvy_public_read ON curvy_roads;
 CREATE POLICY curvy_public_read ON curvy_roads
@@ -163,14 +234,4 @@ CREATE POLICY curvy_public_read ON curvy_roads
   USING (true);
 
 DROP POLICY IF EXISTS curvy_authenticated_write ON curvy_roads;
-CREATE POLICY curvy_authenticated_write ON curvy_roads
-  FOR INSERT
-  TO authenticated
-  WITH CHECK (true);
-
 DROP POLICY IF EXISTS curvy_authenticated_update ON curvy_roads;
-CREATE POLICY curvy_authenticated_update ON curvy_roads
-  FOR UPDATE
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);

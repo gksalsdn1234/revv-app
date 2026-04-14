@@ -5,12 +5,12 @@ import 'package:revv_app/models/run_summary.dart';
 import 'package:revv_app/services/supabase_service.dart';
 
 void main() {
-  test('SupabaseConfig instance is configured', () {
+  test('SupabaseConfig instance defaults to disabled without dart-defines', () {
     final config = SupabaseConfig.instance;
 
-    expect(config.isConfigured, isTrue);
-    expect(config.url, isNotEmpty);
-    expect(config.anonKey, isNotEmpty);
+    expect(config.isConfigured, isFalse);
+    expect(config.url, isEmpty);
+    expect(config.anonKey, isEmpty);
   });
 
   test('RunSummary serializes into Supabase run payload columns', () {
@@ -54,6 +54,20 @@ void main() {
       'center_lat': 45.05,
       'center_lng': -73.05,
       'distance_from_user_km': 12.0,
+      'route_rank_score': 8.9,
+      'fun_score': 9.4,
+      'flow_score': 0.84,
+      'driveability_penalty': 0.72,
+      'stop_sign_count': 2,
+      'traffic_signal_count': 1,
+      'stop_control_density': 0.19,
+      'road_class_bucket': 'rural_named',
+      'is_named': true,
+      'is_facility_like': false,
+      'is_bridge_like': false,
+      'is_connector_like': false,
+      'is_major_road_like': false,
+      'is_private_like': false,
       'tight_curve_km': 3.1,
       'medium_curve_km': 4.4,
       'max_continuous_km': 1.8,
@@ -66,8 +80,37 @@ void main() {
     expect(route.nodes, hasLength(2));
     expect(route.isLoop, isTrue);
     expect(route.curveStyle, isNotEmpty);
+    expect(route.routeRankScore, 8.9);
+    expect(route.funScore, 9.4);
+    expect(route.flowScore, 0.84);
+    expect(route.driveabilityPenalty, 0.72);
+    expect(route.stopSignCount, 2);
+    expect(route.trafficSignalCount, 1);
     expect(route.runCount, 7);
     expect(route.publishedBy, 'user-1');
+  });
+
+  test('Route rows derive distance when rpc payload omits distance_from_user_km', () {
+    final route = SupabaseService.routeFromRow(
+      {
+        'id': 'route-2',
+        'name': 'North Ridge',
+        'nodes': [
+          {'lat': 45.46, 'lng': -73.62},
+          {'lat': 45.49, 'lng': -73.68},
+        ],
+        'distance_km': 11.2,
+        'winding_score': 5.8,
+        'star_rating': 4,
+        'sharp_curve_count': 8,
+        'center_lat': 45.49,
+        'center_lng': -73.68,
+      },
+      userLat: 45.4627,
+      userLng: -73.6266,
+    );
+
+    expect(route.distanceFromUser, greaterThan(0));
   });
 
   test('route payload only uses columns present in curvy_roads schema', () {
@@ -86,6 +129,15 @@ void main() {
         mediumCurveKm: 4.4,
         maxContinuousKm: 1.8,
         isLoop: true,
+        routeRankScore: 9.1,
+        funScore: 9.8,
+        flowScore: 0.88,
+        driveabilityPenalty: 0.91,
+        stopSignCount: 1,
+        trafficSignalCount: 0,
+        stopControlDensity: 0.08,
+        roadClassBucket: 'rural_named',
+        isNamed: true,
         runCount: 7,
         publishedBy: 'user-1',
       ),
@@ -94,6 +146,42 @@ void main() {
     expect(payload.containsKey('distance_from_user_km'), isFalse);
     expect(payload['curvature_score'], 6.3);
     expect(payload['sharp_curve_count'], 11);
+    expect(payload['route_rank_score'], 9.1);
+    expect(payload['flow_score'], 0.88);
+    expect(payload['stop_sign_count'], 1);
+    expect(payload['road_class_bucket'], 'rural_named');
     expect(payload['run_count'], 7);
+  });
+
+  test('discovered route cache rows are scoped to a user and stored as json', () {
+    final row = SupabaseService.discoveredRouteCacheRow(
+      const RevvRoute(
+        id: 'route-1',
+        name: 'Mountain Sweep',
+        nodes: [LatLng(45.0, -73.0), LatLng(45.1, -73.1)],
+        distanceKm: 18.4,
+        windingScore: 6.3,
+        starRating: 4,
+        sharpCurveCount: 11,
+        centerPoint: LatLng(45.05, -73.05),
+        distanceFromUser: 12.0,
+        tightCurveKm: 3.1,
+        mediumCurveKm: 4.4,
+        maxContinuousKm: 1.8,
+        isLoop: true,
+        runCount: 7,
+      ),
+      userId: 'user-1',
+    );
+
+    expect(row['user_id'], 'user-1');
+    expect(row['route_id'], 'route-1');
+    expect(row['route_data'], isA<Map<String, dynamic>>());
+  });
+
+  test('recordRouteRun uses rpc payload instead of read-then-write increment', () {
+    final payload = SupabaseService.recordRouteRunRpcParams('route-1');
+
+    expect(payload, {'route_id_input': 'route-1'});
   });
 }

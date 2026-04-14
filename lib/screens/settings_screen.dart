@@ -170,6 +170,8 @@ class SettingsScreen extends StatelessWidget {
                   );
                 },
               ),
+
+
               const SizedBox(height: 32),
               // ── 앱 정보 ──────────────────────────────────────────
               _SectionHeader(label: '앱 정보'),
@@ -468,3 +470,5 @@ class _InfoTile extends StatelessWidget {
     );
   }
 }
+
+
