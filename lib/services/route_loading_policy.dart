@@ -383,6 +383,115 @@ String recommendationTier(RevvRoute route) {
   return 'maybe';
 }
 
+String routeQualityLabel(RevvRoute route) {
+  if (route.qualityLabel.isNotEmpty) return route.qualityLabel;
+  return recommendationTier(route);
+}
+
+String? routeRejectReason(RevvRoute route) {
+  if (route.qualityRejectReason?.isNotEmpty ?? false) {
+    return route.qualityRejectReason;
+  }
+  if (route.isFacilityLike || hasFacilityLikeName(route.name)) {
+    return '시설/트랙 성격이 강해 추천 대상에서 제외';
+  }
+  if (route.isConnectorLike || isConnectorLikeRouteName(route.name)) {
+    return '연결도로 성격이 강해 추천 대상에서 제외';
+  }
+  if (route.isBridgeLike || isBridgeLikeRouteName(route.name)) {
+    return '브리지 중심 구간이라 추천 우선순위에서 제외';
+  }
+  if (route.distanceKm < 4.0) {
+    return '너무 짧은 세그먼트라 추천 대상에서 제외';
+  }
+  if (hasNumericOnlyName(route.name) && route.distanceKm < 8.0) {
+    return '설명력이 낮은 짧은 숫자형 구간이라 제외';
+  }
+  if (route.stopSignCount >= 5 && route.distanceKm < 12.0) {
+    return '짧은 거리 대비 stop sign가 많아 흐름이 끊김';
+  }
+  if (route.stopControlDensity >= 0.65 && route.maxContinuousKm < 1.2) {
+    return '정지 제어 밀도가 높고 연속 흐름이 짧음';
+  }
+  return null;
+}
+
+String routeCharacter(RevvRoute route) {
+  if (route.routeCharacter.isNotEmpty) return route.routeCharacter;
+  final curvyDistance = route.tightCurveKm + route.mediumCurveKm;
+  final tightRatio = curvyDistance > 0 ? route.tightCurveKm / curvyDistance : 0.0;
+  final mediumRatio = curvyDistance > 0 ? route.mediumCurveKm / curvyDistance : 0.0;
+  final rhythm = route.maxContinuousKm >= 1.35 && routeFlowScore(route) >= 0.8;
+
+  if (route.elevationDelta >= 90 && route.maxContinuousKm >= 1.2) {
+    return 'hill_climb';
+  }
+  if (tightRatio >= 0.62 && route.tightCurveKm >= 1.6) {
+    return 'tight_technical';
+  }
+  if (mediumRatio >= 0.68 && route.mediumCurveKm >= 2.2 && route.maxContinuousKm >= 1.4) {
+    return 'fast_sweeper';
+  }
+  if (rhythm && curvyDistance >= 2.0) {
+    return 'rhythmic_flow';
+  }
+  return 'mixed_touring';
+}
+
+String? routePrimaryReason(RevvRoute route) {
+  if (route.primaryReason?.isNotEmpty ?? false) {
+    return route.primaryReason;
+  }
+
+  switch (routeCharacter(route)) {
+    case 'tight_technical':
+      return '타이트한 코너 비중이 높아 기술적으로 재미있는 루트예요.';
+    case 'fast_sweeper':
+      return '길게 이어지는 스위퍼 코너가 리듬감 있게 이어지는 루트예요.';
+    case 'rhythmic_flow':
+      return '중간 정지가 적고 코너 리듬이 잘 이어지는 루트예요.';
+    case 'hill_climb':
+      return '고도 변화가 살아 있어 업힐 몰입감이 좋은 루트예요.';
+    case 'mixed_touring':
+      return primaryRouteReason(route) ??
+          '커브와 흐름의 균형이 괜찮은 투어링 성향 루트예요.';
+  }
+  return primaryRouteReason(route);
+}
+
+String? routeCautionNote(RevvRoute route) {
+  if (route.cautionNote?.isNotEmpty ?? false) {
+    return route.cautionNote;
+  }
+  if (route.stopSignCount > 0 || route.trafficSignalCount > 0) {
+    final parts = <String>[];
+    if (route.stopSignCount > 0) {
+      parts.add('stop sign ${route.stopSignCount}개');
+    }
+    if (route.trafficSignalCount > 0) {
+      parts.add('signal ${route.trafficSignalCount}개');
+    }
+    return '중간 ${parts.join(', ')}가 있어 흐름이 약간 끊길 수 있음';
+  }
+  if (route.isMajorRoadLike || isMajorRoadLikeRouteName(route.name)) {
+    return '일부 구간은 간선도로 성격이 섞일 수 있음';
+  }
+  if (route.isBridgeLike || isBridgeLikeRouteName(route.name)) {
+    return '브리지 연결 구간이 포함될 수 있음';
+  }
+  return null;
+}
+
+RevvRoute hydrateRouteMetadata(RevvRoute route) {
+  return route.copyWith(
+    qualityLabel: routeQualityLabel(route),
+    qualityRejectReason: routeRejectReason(route),
+    routeCharacter: routeCharacter(route),
+    primaryReason: routePrimaryReason(route),
+    cautionNote: routeCautionNote(route),
+  );
+}
+
 bool hasCompellingRouteReason(RevvRoute route) {
   return deriveRouteReasonTags(route).isNotEmpty;
 }

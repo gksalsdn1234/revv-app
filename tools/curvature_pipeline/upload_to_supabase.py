@@ -8,13 +8,39 @@ from typing import Iterable, Sequence
 
 from supabase import Client, create_client
 
-from .process_roads import RoadRecord, from_json
+if __package__:
+    from .process_roads import RoadRecord, from_json
+else:
+    import sys
+
+    sys.path.append(str(Path(__file__).resolve().parent))
+    from process_roads import RoadRecord, from_json
 
 
 TABLE_NAME = "curvy_roads"
 
 
+def _load_local_env() -> None:
+    current_dir = Path(__file__).resolve().parent
+    repo_root = current_dir.parents[1]
+    candidate_paths = [
+        current_dir / ".env",
+        repo_root / ".worktrees" / "codex-supabase-curvature" / "tools" / "curvature_pipeline" / ".env",
+    ]
+
+    for env_path in candidate_paths:
+        if not env_path.exists():
+            continue
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+
 def get_client() -> Client:
+    _load_local_env()
     url = os.environ.get("SUPABASE_URL", "").strip()
     key = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
     if not url or not key:
@@ -51,6 +77,26 @@ def normalize_record(record: RoadRecord) -> dict[str, object]:
         "is_connector_like": record.get("is_connector_like", False),
         "is_major_road_like": record.get("is_major_road_like", False),
         "is_private_like": record.get("is_private_like", False),
+        "stop_control_enriched_at": record.get("stop_control_enriched_at"),
+        "stop_control_version": record.get("stop_control_version", ""),
+        "stop_control_source": record.get("stop_control_source", ""),
+        "residential_ratio": record.get("residential_ratio", 0.0),
+        "service_ratio": record.get("service_ratio", 0.0),
+        "local_road_ratio": record.get("local_road_ratio", 0.0),
+        "intersection_density": record.get("intersection_density", 0.0),
+        "building_density": record.get("building_density", 0.0),
+        "housing_proximity_score": record.get("housing_proximity_score", 0.0),
+        "urban_friction_score": record.get("urban_friction_score", 0.0),
+        "residential_penalty": record.get("residential_penalty", 1.0),
+        "residential_version": record.get("residential_version", ""),
+        "residential_enriched_at": record.get("residential_enriched_at"),
+        "quality_label": record.get("quality_label", ""),
+        "quality_reject_reason": record.get("quality_reject_reason"),
+        "route_character": record.get("route_character", ""),
+        "primary_reason": record.get("primary_reason"),
+        "caution_note": record.get("caution_note"),
+        "quality_version": record.get("quality_version", ""),
+        "quality_enriched_at": record.get("quality_enriched_at"),
         "elevation_delta": record.get("elevation_delta", 0.0),
         "geohash4": record.get("geohash4", ""),
         "region": record.get("region", ""),

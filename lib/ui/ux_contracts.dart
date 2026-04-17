@@ -34,12 +34,22 @@ class RouteRecommendation {
 }
 
 RouteRecommendation buildRouteRecommendation(RevvRoute route) {
-  final reason = primaryRouteReason(route) ??
+  final reason = routePrimaryReason(route) ??
       (route.distanceKm <= 15 && route.windingDensityPct >= 0.2
           ? '가볍게 나서기 좋은 짧은 와인딩 드라이브예요.'
           : route.distanceKm >= 28
               ? '여유롭게 길게 달리기 좋은 드라이브 코스예요.'
               : '달리는 맛이 있는 드라이브 루트예요.');
+
+  final characterLabel = switch (route.routeCharacter.isNotEmpty
+      ? route.routeCharacter
+      : routeCharacter(route)) {
+    'tight_technical' => '타이트 코너',
+    'fast_sweeper' => '스위퍼 중심',
+    'rhythmic_flow' => '흐름 중심',
+    'hill_climb' => '업힐 성향',
+    _ => '투어링 밸런스',
+  };
 
   return RouteRecommendation(
     title: route.name,
@@ -47,7 +57,7 @@ RouteRecommendation buildRouteRecommendation(RevvRoute route) {
     primaryMetrics: [
       route.distanceDisplay,
       route.durationDisplay,
-      route.difficultyLabel,
+      characterLabel,
     ],
     primaryCta: '이 루트로 달리기',
     advancedActions: const [

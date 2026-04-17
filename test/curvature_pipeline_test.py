@@ -1,5 +1,27 @@
 import unittest
+import tempfile
+from pathlib import Path
 
+from tools.curvature_pipeline.enrich_stop_controls import (
+    TileControlCache,
+    build_bbox,
+    tile_keys_for_bbox,
+)
+from tools.curvature_pipeline.enrich_region_batch import (
+    load_regions,
+    should_skip_residential,
+    select_region,
+    should_skip_quality,
+    should_skip_route,
+)
+from tools.curvature_pipeline.quality_metadata import (
+    apply_quality_metadata,
+    route_character,
+)
+from tools.curvature_pipeline.residential_metadata import (
+    apply_residential_metadata,
+    compute_residential_penalty,
+)
 from tools.curvature_pipeline.process_roads import (
     compute_bearing_rate_profile,
     downsample_nodes,
@@ -67,6 +89,181 @@ class CurvaturePipelineTest(unittest.TestCase):
         self.assertGreaterEqual(analyzed["star_rating"], 1)
         self.assertLessEqual(analyzed["star_rating"], 5)
         self.assertIn("nodes", analyzed)
+
+    def test_tile_keys_for_bbox_collapses_nearby_routes_into_same_tiles(self) -> None:
+        first_bbox = build_bbox(
+            [
+                {"lat": 45.5000, "lng": -73.6000},
+                {"lat": 45.5030, "lng": -73.5950},
+            ],
+            0.0004,
+        )
+        second_bbox = build_bbox(
+            [
+                {"lat": 45.5010, "lng": -73.5990},
+                {"lat": 45.5040, "lng": -73.5940},
+            ],
+            0.0004,
+        )
+
+        first_tiles = tile_keys_for_bbox(first_bbox, tile_size_deg=0.01)
+        second_tiles = tile_keys_for_bbox(second_bbox, tile_size_deg=0.01)
+
+        self.assertGreater(len(first_tiles), 0)
+        self.assertTrue(first_tiles.issubset(second_tiles) or second_tiles.issubset(first_tiles))
+
+    def test_tile_control_cache_reuses_tile_fetches_for_overlapping_routes(self) -> None:
+        calls: list[tuple[float, float, float, float]] = []
+
+        def fake_loader(bbox: tuple[float, float, float, float], timeout_seconds: int) -> dict[str, object]:
+            calls.append(bbox)
+            return {
+                "elements": [
+                    {"lat": 45.5020, "lon": -73.5975, "tags": {"traffic_sign": "stop"}},
+                    {"lat": 45.5030, "lon": -73.5965, "tags": {"highway": "traffic_signals"}},
+                ]
+            }
+
+        cache = TileControlCache(loader=fake_loader, tile_size_deg=0.01)
+        route_a = [
+            {"lat": 45.5000, "lng": -73.6000},
+            {"lat": 45.5040, "lng": -73.5950},
+        ]
+        route_b = [
+            {"lat": 45.5010, "lng": -73.5995},
+            {"lat": 45.5050, "lng": -73.5945},
+        ]
+
+        first = cache.fetch_for_route(route_a, padding_deg=0.0004, timeout_seconds=8)
+        first_call_count = len(calls)
+        second = cache.fetch_for_route(route_b, padding_deg=0.0004, timeout_seconds=8)
+
+        self.assertEqual(first, second)
+        self.assertGreater(first_call_count, 0)
+        self.assertEqual(len(calls), first_call_count)
+
+    def test_tile_control_cache_persists_payloads_to_disk(self) -> None:
+        calls: list[tuple[float, float, float, float]] = []
+
+        def fake_loader(bbox: tuple[float, float, float, float], timeout_seconds: int) -> dict[str, object]:
+            calls.append(bbox)
+            return {"elements": [{"lat": 45.5, "lon": -73.6, "tags": {"traffic_sign": "stop"}}]}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first_cache = TileControlCache(
+                loader=fake_loader,
+                tile_size_deg=0.15,
+                cache_dir=Path(temp_dir),
+            )
+            tile_key = (303, -491)
+            first_cache.payload_for_tile(tile_key, timeout_seconds=8)
+
+            second_cache = TileControlCache(
+                loader=fake_loader,
+                tile_size_deg=0.15,
+                cache_dir=Path(temp_dir),
+            )
+            second_cache.payload_for_tile(tile_key, timeout_seconds=8)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(second_cache.cache_hits, 1)
+
+    def test_region_config_selects_requested_region(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "regions.json"
+            config_path.write_text(
+                '[{"region_name":"montreal","center_lat":45.5,"center_lng":-73.5,"radius_m":100000,"top_n":500,"priority":1}]',
+                encoding="utf-8",
+            )
+            regions = load_regions(config_path)
+            selected = select_region(regions, "montreal")
+
+        self.assertEqual(selected["top_n"], 500)
+
+    def test_skip_logic_uses_enrichment_version_metadata(self) -> None:
+        route = {"id": "route-1"}
+        existing = {
+            "id": "route-1",
+            "stop_control_enriched_at": "2026-04-15T00:00:00Z",
+            "stop_control_version": "stop-control-v1",
+        }
+
+        self.assertTrue(should_skip_route(route, existing, version="stop-control-v1"))
+        self.assertFalse(should_skip_route(route, existing, version="stop-control-v2"))
+
+    def test_skip_logic_uses_quality_version_metadata(self) -> None:
+        existing = {
+            "id": "route-1",
+            "quality_enriched_at": "2026-04-15T00:00:00Z",
+            "quality_version": "quality-v1",
+        }
+
+        self.assertTrue(should_skip_quality(existing, version="quality-v1"))
+        self.assertFalse(should_skip_quality(existing, version="quality-v2"))
+
+    def test_skip_logic_uses_residential_version_metadata(self) -> None:
+        existing = {
+            "id": "route-1",
+            "residential_enriched_at": "2026-04-15T00:00:00Z",
+            "residential_version": "residential-v1",
+        }
+
+        self.assertTrue(should_skip_residential(existing, version="residential-v1"))
+        self.assertFalse(should_skip_residential(existing, version="residential-v2"))
+
+    def test_quality_metadata_classifies_and_explains_route(self) -> None:
+        route = {
+            "id": "route-1",
+            "name": "North Ridge",
+            "distance_km": 12.0,
+            "winding_score": 6.4,
+            "tight_curve_km": 1.8,
+            "medium_curve_km": 0.8,
+            "max_continuous_km": 1.4,
+            "elevation_delta": 20.0,
+            "stop_sign_count": 1,
+            "traffic_signal_count": 0,
+            "stop_control_density": 0.08,
+            "flow_score": 0.97,
+            "fun_score": 8.0,
+            "driveability_penalty": 1.0,
+            "is_loop": False,
+            "is_named": True,
+            "is_facility_like": False,
+            "is_bridge_like": False,
+            "is_connector_like": False,
+            "is_major_road_like": False,
+            "is_private_like": False,
+        }
+
+        enriched = apply_quality_metadata(route, version="quality-v1")
+
+        self.assertEqual(route_character(route), "tight_technical")
+        self.assertEqual(enriched["quality_label"], "keep")
+        self.assertEqual(enriched["route_character"], "tight_technical")
+        self.assertIn("기술적으로 재미있는", enriched["primary_reason"])
+        self.assertIn("stop sign", enriched["caution_note"])
+        self.assertEqual(enriched["quality_version"], "quality-v1")
+
+    def test_residential_metadata_penalizes_urban_routes(self) -> None:
+        route = {
+            "distance_km": 8.0,
+            "max_continuous_km": 0.8,
+            "residential_ratio": 0.72,
+            "service_ratio": 0.18,
+            "local_road_ratio": 0.84,
+            "intersection_density": 5.5,
+            "building_density": 8.0,
+            "housing_proximity_score": 0.82,
+            "stop_control_density": 0.7,
+        }
+
+        scores = compute_residential_penalty(route)
+        enriched = apply_residential_metadata(route, version="residential-v1")
+
+        self.assertLess(scores["residential_penalty"], 0.5)
+        self.assertGreater(scores["urban_friction_score"], 0.5)
+        self.assertEqual(enriched["residential_version"], "residential-v1")
 
 
 if __name__ == "__main__":

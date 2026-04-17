@@ -324,6 +324,31 @@ class RouteInfoOverlay extends StatelessWidget {
                                 ],
                               ],
                             ),
+                            if (route.primaryReason?.isNotEmpty == true) ...[
+                              const SizedBox(height: 8),
+                              Text(
+                                route.primaryReason!,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                            ],
+                            if (route.cautionNote?.isNotEmpty == true) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                route.cautionNote!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),

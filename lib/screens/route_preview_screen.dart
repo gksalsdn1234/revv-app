@@ -71,6 +71,53 @@ class RoutePreviewScreen extends StatelessWidget {
                       : '와인딩 ${displayRoute.windingScore.toStringAsFixed(1)} / 커브 ${displayRoute.sharpCurveCount}개 / ${displayRoute.distanceFromUserDisplay}',
                   style: GoogleFonts.rajdhani(fontSize: 14, color: Colors.white70),
                 ),
+                if (compositeRoute == null && displayRoute.primaryReason?.isNotEmpty == true) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    displayRoute.primaryReason!,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+                if (compositeRoute == null) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _MetaChip(
+                        label: displayRoute.qualityLabel.toUpperCase(),
+                        color: displayRoute.qualityLabel == 'keep'
+                            ? const Color(0xFF22C55E)
+                            : displayRoute.qualityLabel == 'maybe'
+                                ? const Color(0xFFF59E0B)
+                                : const Color(0xFFEF4444),
+                      ),
+                      if (displayRoute.routeCharacter.isNotEmpty)
+                        _MetaChip(
+                          label: displayRoute.routeCharacter.replaceAll('_', ' ').toUpperCase(),
+                        ),
+                      if (displayRoute.stopSignCount > 0 || displayRoute.trafficSignalCount > 0)
+                        _MetaChip(
+                          label:
+                              'STOP ${displayRoute.stopSignCount} · SIGNAL ${displayRoute.trafficSignalCount}',
+                        ),
+                    ],
+                  ),
+                ],
+                if (compositeRoute == null && displayRoute.cautionNote?.isNotEmpty == true) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    displayRoute.cautionNote!,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 MiniElevSection(
                   route: displayRoute,
@@ -120,6 +167,40 @@ class RoutePreviewScreen extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MetaChip extends StatelessWidget {
+  final String label;
+  final Color? color;
+
+  const _MetaChip({
+    required this.label,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final chipColor = color ?? Colors.white.withValues(alpha: 0.18);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: chipColor.withValues(alpha: color == null ? 1 : 0.18),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: color ?? Colors.white24,
+        ),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.rajdhani(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color ?? Colors.white70,
+          letterSpacing: 1,
+        ),
       ),
     );
   }

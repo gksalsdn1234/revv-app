@@ -5,6 +5,7 @@ import '../core/supabase_config.dart';
 import '../core/supabase_tables.dart';
 import '../models/revv_route.dart';
 import '../models/run_summary.dart';
+import 'route_loading_policy.dart';
 
 enum SyncStatus { idle, syncing, done, error }
 
@@ -439,6 +440,11 @@ class SupabaseService extends ChangeNotifier {
       'is_connector_like': route.isConnectorLike,
       'is_major_road_like': route.isMajorRoadLike,
       'is_private_like': route.isPrivateLike,
+      'quality_label': route.qualityLabel,
+      'quality_reject_reason': route.qualityRejectReason,
+      'route_character': route.routeCharacter,
+      'primary_reason': route.primaryReason,
+      'caution_note': route.cautionNote,
       'elevation_delta': route.elevationDelta,
       'source': 'revv',
       if (route.runCount > 0) 'run_count': route.runCount,
@@ -485,7 +491,7 @@ class SupabaseService extends ChangeNotifier {
         ((userLat != null && userLng != null && centerLat != 0 && centerLng != 0)
             ? _distanceKmBetween(userLat, userLng, centerLat, centerLng)
             : 0);
-    return RevvRoute(
+    return hydrateRouteMetadata(RevvRoute(
       id: row['id'] as String,
       name: row['name'] as String? ?? '',
       nodes: nodes,
@@ -516,9 +522,14 @@ class SupabaseService extends ChangeNotifier {
       isConnectorLike: row['is_connector_like'] as bool? ?? false,
       isMajorRoadLike: row['is_major_road_like'] as bool? ?? false,
       isPrivateLike: row['is_private_like'] as bool? ?? false,
+      qualityLabel: row['quality_label'] as String? ?? '',
+      qualityRejectReason: row['quality_reject_reason'] as String?,
+      routeCharacter: row['route_character'] as String? ?? '',
+      primaryReason: row['primary_reason'] as String?,
+      cautionNote: row['caution_note'] as String?,
       runCount: (row['run_count'] as num?)?.toInt() ?? 0,
       publishedBy: row['published_by'] as String?,
-    );
+    ));
   }
 
   static LatLng? _pointFromRow(Map<String, dynamic> row, String prefix) {

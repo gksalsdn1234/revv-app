@@ -617,4 +617,99 @@ void main() {
     expect(isHardRejectedRecommendation(route), isTrue);
     expect(recommendationTier(route), 'reject');
   });
+
+  test('route quality label exposes keep maybe reject tiers explicitly', () {
+    final keep = RevvRoute(
+      id: 'keep',
+      name: 'Chemin des Pins',
+      nodes: [const LatLng(45.0, -73.0), const LatLng(45.1, -73.05)],
+      distanceKm: 14,
+      windingScore: 6.3,
+      starRating: 4,
+      sharpCurveCount: 8,
+      centerPoint: const LatLng(45.05, -73.025),
+      distanceFromUser: 8,
+      tightCurveKm: 1.4,
+      mediumCurveKm: 2.1,
+      maxContinuousKm: 1.5,
+    );
+    final maybe = keep.copyWith(
+      id: 'maybe',
+      name: 'Boulevard du Lac',
+      isMajorRoadLike: true,
+    );
+    final reject = keep.copyWith(
+      id: 'reject',
+      stopSignCount: 6,
+      stopControlDensity: 0.8,
+      distanceKm: 9,
+      flowScore: 0.2,
+    );
+
+    expect(routeQualityLabel(keep), 'keep');
+    expect(routeQualityLabel(maybe), 'maybe');
+    expect(routeQualityLabel(reject), 'reject');
+    expect(routeRejectReason(reject), isNotNull);
+  });
+
+  test('route character classifies switchback, sweeper, and hill climb styles', () {
+    final switchback = RevvRoute(
+      id: 'switch',
+      name: 'North Hairpin',
+      nodes: [const LatLng(45.0, -73.0), const LatLng(45.05, -73.03)],
+      distanceKm: 12,
+      windingScore: 6.8,
+      starRating: 4,
+      sharpCurveCount: 14,
+      centerPoint: const LatLng(45.025, -73.015),
+      distanceFromUser: 7,
+      tightCurveKm: 2.8,
+      mediumCurveKm: 0.8,
+      maxContinuousKm: 1.1,
+      elevationDelta: 10,
+    );
+    final sweeper = switchback.copyWith(
+      id: 'sweeper',
+      name: 'Valley Sweep',
+      tightCurveKm: 0.5,
+      mediumCurveKm: 3.2,
+      maxContinuousKm: 1.8,
+    );
+    final hill = switchback.copyWith(
+      id: 'hill',
+      name: 'Mont Rise',
+      tightCurveKm: 0.9,
+      mediumCurveKm: 1.7,
+      maxContinuousKm: 1.4,
+      elevationDelta: 120,
+    );
+
+    expect(routeCharacter(switchback), 'tight_technical');
+    expect(routeCharacter(sweeper), 'fast_sweeper');
+    expect(routeCharacter(hill), 'hill_climb');
+  });
+
+  test('route explanation includes core reason and caution note from route data', () {
+    final route = RevvRoute(
+      id: 'explained',
+      name: 'Rue de Test',
+      nodes: [const LatLng(45.0, -73.0), const LatLng(45.08, -73.04)],
+      distanceKm: 13,
+      windingScore: 6.0,
+      starRating: 4,
+      sharpCurveCount: 8,
+      centerPoint: const LatLng(45.04, -73.02),
+      distanceFromUser: 6,
+      tightCurveKm: 1.2,
+      mediumCurveKm: 2.0,
+      maxContinuousKm: 1.7,
+      stopSignCount: 2,
+      stopControlDensity: 0.2,
+      flowScore: 0.93,
+    );
+
+    expect(routePrimaryReason(route), isNotNull);
+    expect(routePrimaryReason(route), contains('루트'));
+    expect(routeCautionNote(route), contains('stop'));
+  });
 }

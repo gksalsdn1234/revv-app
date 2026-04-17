@@ -38,6 +38,11 @@ class RevvRoute {
   final bool isConnectorLike;
   final bool isMajorRoadLike;
   final bool isPrivateLike;
+  final String qualityLabel;
+  final String? qualityRejectReason;
+  final String routeCharacter;
+  final String? primaryReason;
+  final String? cautionNote;
 
   // ElevationService로 채워지는 고도 프로파일 (선택적)
   final List<double>? elevationProfile;
@@ -77,6 +82,11 @@ class RevvRoute {
     this.isConnectorLike = false,
     this.isMajorRoadLike = false,
     this.isPrivateLike = false,
+    this.qualityLabel = '',
+    this.qualityRejectReason,
+    this.routeCharacter = '',
+    this.primaryReason,
+    this.cautionNote,
     this.elevationProfile,
     this.runCount = 0,
     this.publishedBy,
@@ -252,6 +262,11 @@ class RevvRoute {
     bool? isConnectorLike,
     bool? isMajorRoadLike,
     bool? isPrivateLike,
+    String? qualityLabel,
+    String? qualityRejectReason,
+    String? routeCharacter,
+    String? primaryReason,
+    String? cautionNote,
     List<double>? elevationProfile,
     int? runCount,
     String? publishedBy,
@@ -285,6 +300,11 @@ class RevvRoute {
       isConnectorLike: isConnectorLike ?? this.isConnectorLike,
       isMajorRoadLike: isMajorRoadLike ?? this.isMajorRoadLike,
       isPrivateLike: isPrivateLike ?? this.isPrivateLike,
+      qualityLabel: qualityLabel ?? this.qualityLabel,
+      qualityRejectReason: qualityRejectReason ?? this.qualityRejectReason,
+      routeCharacter: routeCharacter ?? this.routeCharacter,
+      primaryReason: primaryReason ?? this.primaryReason,
+      cautionNote: cautionNote ?? this.cautionNote,
       elevationProfile: elevationProfile ?? this.elevationProfile,
       runCount: runCount ?? this.runCount,
       publishedBy: publishedBy ?? this.publishedBy,
@@ -324,6 +344,11 @@ class RevvRoute {
         'isConnectorLike': isConnectorLike,
         'isMajorRoadLike': isMajorRoadLike,
         'isPrivateLike': isPrivateLike,
+        'qualityLabel': qualityLabel,
+        if (qualityRejectReason != null) 'qualityRejectReason': qualityRejectReason,
+        'routeCharacter': routeCharacter,
+        if (primaryReason != null) 'primaryReason': primaryReason,
+        if (cautionNote != null) 'cautionNote': cautionNote,
         if (elevationProfile != null) 'elevationProfile': elevationProfile,
         if (runCount > 0) 'runCount': runCount,
         if (publishedBy != null) 'publishedBy': publishedBy,
@@ -366,6 +391,11 @@ class RevvRoute {
         isConnectorLike: j['isConnectorLike'] as bool? ?? false,
         isMajorRoadLike: j['isMajorRoadLike'] as bool? ?? false,
         isPrivateLike: j['isPrivateLike'] as bool? ?? false,
+        qualityLabel: j['qualityLabel'] as String? ?? '',
+        qualityRejectReason: j['qualityRejectReason'] as String?,
+        routeCharacter: j['routeCharacter'] as String? ?? '',
+        primaryReason: j['primaryReason'] as String?,
+        cautionNote: j['cautionNote'] as String?,
         elevationProfile: (j['elevationProfile'] as List?)
             ?.map((e) => (e as num).toDouble())
             .toList(),

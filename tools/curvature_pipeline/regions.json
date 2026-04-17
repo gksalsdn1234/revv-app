@@ -1,0 +1,42 @@
+[
+  {
+    "region_name": "montreal",
+    "center_lat": 45.5017,
+    "center_lng": -73.5673,
+    "radius_m": 100000,
+    "top_n": 500,
+    "priority": 1
+  },
+  {
+    "region_name": "quebec_city",
+    "center_lat": 46.8139,
+    "center_lng": -71.2080,
+    "radius_m": 100000,
+    "top_n": 300,
+    "priority": 2
+  },
+  {
+    "region_name": "toronto",
+    "center_lat": 43.6532,
+    "center_lng": -79.3832,
+    "radius_m": 120000,
+    "top_n": 500,
+    "priority": 3
+  },
+  {
+    "region_name": "vancouver",
+    "center_lat": 49.2827,
+    "center_lng": -123.1207,
+    "radius_m": 120000,
+    "top_n": 500,
+    "priority": 4
+  },
+  {
+    "region_name": "calgary",
+    "center_lat": 51.0447,
+    "center_lng": -114.0719,
+    "radius_m": 100000,
+    "top_n": 300,
+    "priority": 5
+  }
+]
