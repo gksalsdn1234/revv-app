@@ -13,6 +13,8 @@ import 'route_loading_policy.dart';
 import 'supabase_service.dart';
 import 'waypoint_optimizer.dart';
 
+enum SprintStartMode { auto, guideToStart, joinFromCurrent }
+
 // ─── compute() isolate 파라미터 / 결과 ────────────────────────────
 // 메인 스레드 → isolate 전달 데이터 (모두 primitive)
 class _IsolateParams {
@@ -79,8 +81,12 @@ _IsolateResult _processRoutes(_IsolateParams p) {
       final geom = el['geometry'] as List?;
       if (geom == null || geom.length < 10) continue;
       final nodes = geom
-          .map((g) => LatLng(
-              (g['lat'] as num).toDouble(), (g['lon'] as num).toDouble()))
+          .map(
+            (g) => LatLng(
+              (g['lat'] as num).toDouble(),
+              (g['lon'] as num).toDouble(),
+            ),
+          )
           .toList();
       final sampled = nodes.length > 400 ? _sampleNodes(nodes, 400) : nodes;
       final tags = el['tags'] as Map<String, dynamic>? ?? {};
@@ -91,10 +97,17 @@ _IsolateResult _processRoutes(_IsolateParams p) {
       final maxspeed = _parseMaxspeed(tags['maxspeed'] as String?);
       final lanes = int.tryParse(tags['lanes'] as String? ?? '') ?? 2;
       final id = el['id'].toString();
-      rawWays.add(_RawWay(
-        id: id, name: name, nodes: sampled, highwayType: highway,
-        surface: surface, maxspeedKmh: maxspeed, lanes: lanes,
-      ));
+      rawWays.add(
+        _RawWay(
+          id: id,
+          name: name,
+          nodes: sampled,
+          highwayType: highway,
+          surface: surface,
+          maxspeedKmh: maxspeed,
+          lanes: lanes,
+        ),
+      );
     }
   }
 
@@ -114,13 +127,16 @@ _IsolateResult _processRoutes(_IsolateParams p) {
 // ─── Top-level 헬퍼 함수들 ───────────────────────────────────────
 // (compute isolate에서 호출되므로 클래스 외부에 위치해야 함)
 
-const _stitchThresholdKm = 0.25;   // 250m (단편화 방지)
+const _stitchThresholdKm = 0.25; // 250m (단편화 방지)
 const _stitchMaxAngleDeg = 130.0; // U턴 방지: 방향 차이 130° 이상이면 연결 거부
 
 // chain 끝 진행 방향과 entry 시작 방향의 각도 차이 (0~180°)
 double _stitchAngle(List<LatLng> chainNodes, List<LatLng> entryNodes) {
   if (chainNodes.length < 2 || entryNodes.length < 2) return 0;
-  final exitB = _bearingDegTo(chainNodes[chainNodes.length - 2], chainNodes.last);
+  final exitB = _bearingDegTo(
+    chainNodes[chainNodes.length - 2],
+    chainNodes.last,
+  );
   final entryB = _bearingDegTo(entryNodes[0], entryNodes[1]);
   double d = (exitB - entryB).abs() % 360;
   return d > 180 ? 360 - d : d;
@@ -170,43 +186,63 @@ List<_RawWay> _stitchWays(List<_RawWay> ways) {
         final chainEnd = chain.last;
         final chainStart = chain.first;
 
-        void _mergeMetadata() {
+        void mergeMetadata() {
           if (chainName.isEmpty) chainName = other.name;
           if (chainSurface.isEmpty) chainSurface = other.surface;
           chainMaxspeed ??= other.maxspeedKmh;
           if (chainLanes < other.lanes) chainLanes = other.lanes;
         }
 
-        if (RevvRoute.haversineKm(chainEnd, other.nodes.first) < _stitchThresholdKm &&
+        if (RevvRoute.haversineKm(chainEnd, other.nodes.first) <
+                _stitchThresholdKm &&
             _stitchAngle(chain, other.nodes) < _stitchMaxAngleDeg) {
           chain.addAll(other.nodes.skip(1));
-          used.add(other.id); _mergeMetadata(); extended = true; break;
-        } else if (RevvRoute.haversineKm(chainEnd, other.nodes.last) < _stitchThresholdKm &&
-            _stitchAngle(chain, other.nodes.reversed.toList()) < _stitchMaxAngleDeg) {
+          used.add(other.id);
+          mergeMetadata();
+          extended = true;
+          break;
+        } else if (RevvRoute.haversineKm(chainEnd, other.nodes.last) <
+                _stitchThresholdKm &&
+            _stitchAngle(chain, other.nodes.reversed.toList()) <
+                _stitchMaxAngleDeg) {
           chain.addAll(other.nodes.reversed.skip(1));
-          used.add(other.id); _mergeMetadata(); extended = true; break;
-        } else if (RevvRoute.haversineKm(chainStart, other.nodes.last) < _stitchThresholdKm &&
+          used.add(other.id);
+          mergeMetadata();
+          extended = true;
+          break;
+        } else if (RevvRoute.haversineKm(chainStart, other.nodes.last) <
+                _stitchThresholdKm &&
             _stitchAngle(other.nodes, chain) < _stitchMaxAngleDeg) {
           chain = [...other.nodes, ...chain.skip(1)];
-          used.add(other.id); _mergeMetadata(); extended = true; break;
-        } else if (RevvRoute.haversineKm(chainStart, other.nodes.first) < _stitchThresholdKm &&
-            _stitchAngle(other.nodes.reversed.toList(), chain) < _stitchMaxAngleDeg) {
-          chain = [...other.nodes.reversed.toList(), ...chain.skip(1)];
-          used.add(other.id); _mergeMetadata(); extended = true; break;
+          used.add(other.id);
+          mergeMetadata();
+          extended = true;
+          break;
+        } else if (RevvRoute.haversineKm(chainStart, other.nodes.first) <
+                _stitchThresholdKm &&
+            _stitchAngle(other.nodes.reversed.toList(), chain) <
+                _stitchMaxAngleDeg) {
+          chain = [...other.nodes.reversed, ...chain.skip(1)];
+          used.add(other.id);
+          mergeMetadata();
+          extended = true;
+          break;
         }
       }
     }
 
     final sampled = chain.length > 600 ? _sampleNodes(chain, 600) : chain;
-    result.add(_RawWay(
-      id: chainId,
-      name: chainName,
-      nodes: sampled,
-      highwayType: chainHighway,
-      surface: chainSurface,
-      maxspeedKmh: chainMaxspeed,
-      lanes: chainLanes,
-    ));
+    result.add(
+      _RawWay(
+        id: chainId,
+        name: chainName,
+        nodes: sampled,
+        highwayType: chainHighway,
+        surface: chainSurface,
+        maxspeedKmh: chainMaxspeed,
+        lanes: chainLanes,
+      ),
+    );
   }
 
   return result;
@@ -221,7 +257,7 @@ bool _isLoop(List<LatLng> nodes) {
 // → 스위치백/헤어핀은 허용, stitching으로 생긴 진짜 꼬임만 차단
 bool _selfIntersects(List<LatLng> nodes) {
   const radius = 0.05; // 50m — 실제 교차점만 감지 (150m는 스위치백 오탈락)
-  const minGap = 80;   // 80노드 ≈ 2km — 스위치백 반경 확보
+  const minGap = 80; // 80노드 ≈ 2km — 스위치백 반경 확보
   for (int i = 0; i < nodes.length - minGap; i += 6) {
     for (int j = i + minGap; j < nodes.length; j += 6) {
       if (RevvRoute.haversineKm(nodes[i], nodes[j]) < radius) return true;
@@ -258,7 +294,8 @@ double _bearing(LatLng from, LatLng to) {
   final lat2 = _rad(to.lat);
   final dLng = _rad(to.lng - from.lng);
   final y = math.sin(dLng) * math.cos(lat2);
-  final x = math.cos(lat1) * math.sin(lat2) -
+  final x =
+      math.cos(lat1) * math.sin(lat2) -
       math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
   return math.atan2(y, x) * 180 / math.pi;
 }
@@ -269,14 +306,6 @@ double _bearingDiff(LatLng a, LatLng b, LatLng c) {
   double diff = (b2 - b1).abs();
   if (diff > 180) diff = 360 - diff;
   return diff;
-}
-
-double _curvatureRateDegPerKm(LatLng a, LatLng b, LatLng c) {
-  final d1 = RevvRoute.haversineKm(a, b);
-  final d2 = RevvRoute.haversineKm(b, c);
-  final pathLen = (d1 + d2) / 2;
-  if (pathLen < 0.0001) return 0;
-  return _bearingDiff(a, b, c) / pathLen;
 }
 
 // roadcurvature.com 방식:
@@ -313,11 +342,15 @@ _CurveResult _analyzeCurves(List<LatLng> nodes) {
       straightAccum = 0;
     } else {
       straightAccum += segLen;
-      if (currentContinuousKm > maxContinuousKm) maxContinuousKm = currentContinuousKm;
+      if (currentContinuousKm > maxContinuousKm) {
+        maxContinuousKm = currentContinuousKm;
+      }
       currentContinuousKm = 0;
     }
   }
-  if (currentContinuousKm > maxContinuousKm) maxContinuousKm = currentContinuousKm;
+  if (currentContinuousKm > maxContinuousKm) {
+    maxContinuousKm = currentContinuousKm;
+  }
   if (straightAccum > maxStraightRunKm) maxStraightRunKm = straightAccum;
 
   final curvyFraction = totalDist > 0 ? (tightKm + mediumKm) / totalDist : 0.0;
@@ -332,7 +365,10 @@ _CurveResult _analyzeCurves(List<LatLng> nodes) {
   );
 }
 
-int _countNearbyIntersections(List<LatLng> wayNodes, List<LatLng> intersections) {
+int _countNearbyIntersections(
+  List<LatLng> wayNodes,
+  List<LatLng> intersections,
+) {
   if (intersections.isEmpty) return 0;
   double minLat = wayNodes[0].lat, maxLat = wayNodes[0].lat;
   double minLng = wayNodes[0].lng, maxLng = wayNodes[0].lng;
@@ -343,12 +379,18 @@ int _countNearbyIntersections(List<LatLng> wayNodes, List<LatLng> intersections)
     if (n.lng > maxLng) maxLng = n.lng;
   }
   const buf = 0.001;
-  minLat -= buf; maxLat += buf;
-  minLng -= buf; maxLng += buf;
+  minLat -= buf;
+  maxLat += buf;
+  minLng -= buf;
+  maxLng += buf;
   int count = 0;
   for (final n in intersections) {
-    if (n.lat >= minLat && n.lat <= maxLat &&
-        n.lng >= minLng && n.lng <= maxLng) count++;
+    if (n.lat >= minLat &&
+        n.lat <= maxLat &&
+        n.lng >= minLng &&
+        n.lng <= maxLng) {
+      count++;
+    }
   }
   return count;
 }
@@ -365,12 +407,18 @@ int _countSignalsNearRoute(List<LatLng> wayNodes, List<LatLng> signalNodes) {
     if (n.lng > maxLng) maxLng = n.lng;
   }
   const buf = 0.001; // ~100m
-  minLat -= buf; maxLat += buf;
-  minLng -= buf; maxLng += buf;
+  minLat -= buf;
+  maxLat += buf;
+  minLng -= buf;
+  maxLng += buf;
   int count = 0;
   for (final signal in signalNodes) {
-    if (signal.lat < minLat || signal.lat > maxLat ||
-        signal.lng < minLng || signal.lng > maxLng) continue;
+    if (signal.lat < minLat ||
+        signal.lat > maxLat ||
+        signal.lng < minLng ||
+        signal.lng > maxLng) {
+      continue;
+    }
     for (final node in wayNodes) {
       if (RevvRoute.haversineKm(signal, node) < 0.08) {
         count++;
@@ -404,28 +452,33 @@ double _surfaceMultiplier(String surface) {
   switch (surface.toLowerCase()) {
     case 'asphalt':
     case 'paved':
-    case 'concrete':       return 1.0;
+    case 'concrete':
+      return 1.0;
     case 'compacted':
-    case 'fine_gravel':    return 0.85;
+    case 'fine_gravel':
+      return 0.85;
     case 'gravel':
     case 'unpaved':
-    case 'cobblestone':    return 0.5;
+    case 'cobblestone':
+      return 0.5;
     case 'dirt':
     case 'grass':
     case 'sand':
-    case 'mud':            return 0.2;
-    default:               return 1.0; // 태그 없으면 중립
+    case 'mud':
+      return 0.2;
+    default:
+      return 1.0; // 태그 없으면 중립
   }
 }
 
 // 제한속도 배수: 60-80 km/h = 지방 와인딩 도로 최적
 double _maxspeedMultiplier(int? kmh) {
   if (kmh == null) return 1.0;
-  if (kmh <= 30)  return 0.6;  // 주거지/보행 구역
-  if (kmh <= 50)  return 0.85; // 도심
-  if (kmh <= 80)  return 1.15; // 지방 도로 ★ 최적
-  if (kmh <= 90)  return 1.0;
-  return 0.65;                  // 100km/h+ = 고속도로형
+  if (kmh <= 30) return 0.6; // 주거지/보행 구역
+  if (kmh <= 50) return 0.85; // 도심
+  if (kmh <= 80) return 1.15; // 지방 도로 ★ 최적
+  if (kmh <= 90) return 1.0;
+  return 0.65; // 100km/h+ = 고속도로형
 }
 
 // 차선 수 배수: 1차선 좁은 시골길 > 2차선 > 넓은 다차선
@@ -438,12 +491,18 @@ double _lanesMultiplier(int lanes) {
 
 double _roadMultiplier(String highway) {
   switch (highway) {
-    case 'secondary':    return 1.3;
-    case 'tertiary':     return 1.2;
-    case 'unclassified': return 1.0;
-    case 'primary':      return 0.7;
-    case 'residential':  return 0.5;
-    default:             return 1.0;
+    case 'secondary':
+      return 1.3;
+    case 'tertiary':
+      return 1.2;
+    case 'unclassified':
+      return 1.0;
+    case 'primary':
+      return 0.7;
+    case 'residential':
+      return 0.5;
+    default:
+      return 1.0;
   }
 }
 
@@ -453,36 +512,67 @@ double _bearingDegTo(LatLng from, LatLng to) {
   final lat2 = _rad(to.lat);
   final dLng = _rad(to.lng - from.lng);
   final y = math.sin(dLng) * math.cos(lat2);
-  final x = math.cos(lat1) * math.sin(lat2) -
+  final x =
+      math.cos(lat1) * math.sin(lat2) -
       math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
   return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
 }
 
 _IsolateResult _selectTopRoutes(
-    List<_RawWay> ways, LatLng userPos, List<LatLng> intersections, List<LatLng> signalNodes,
-    {int seed = 0, RouteSearchStage stage = RouteSearchStage.strict}) {
+  List<_RawWay> ways,
+  LatLng userPos,
+  List<LatLng> intersections,
+  List<LatLng> signalNodes, {
+  int seed = 0,
+  RouteSearchStage stage = RouteSearchStage.strict,
+}) {
   final scored = <_ScoredWay>[];
   final thresholds = thresholdsForStage(stage);
   final hardSignalLimit = stage == RouteSearchStage.strict
       ? thresholds.signalHardLimit
       : thresholds.signalHardLimit + 1;
 
-  int cDist = 0, cResidential = 0, cSignal = 0, cCurvature = 0,
-      cContKm = 0, cStraight = 0, cCurvyFrac = 0, cSelfInt = 0,
-      cDensity = 0, cSpread = 0, cAspect = 0;
+  int cDist = 0,
+      cResidential = 0,
+      cSignal = 0,
+      cCurvature = 0,
+      cContKm = 0,
+      cStraight = 0,
+      cCurvyFrac = 0,
+      cSelfInt = 0,
+      cDensity = 0,
+      cSpread = 0,
+      cAspect = 0;
 
   for (final way in ways) {
     final dist = _totalDistance(way.nodes);
     final isLoopRoute = _isLoop(way.nodes);
-    if (isLoopRoute && dist < thresholds.minLoopDistanceKm) { cDist++; continue; }
-    if (!isLoopRoute && dist < thresholds.minLinearDistanceKm) { cDist++; continue; }
+    if (isLoopRoute && dist < thresholds.minLoopDistanceKm) {
+      cDist++;
+      continue;
+    }
+    if (!isLoopRoute && dist < thresholds.minLinearDistanceKm) {
+      cDist++;
+      continue;
+    }
 
-    if (way.highwayType == 'residential') { cResidential++; continue; }
+    if (way.highwayType == 'residential') {
+      cResidential++;
+      continue;
+    }
 
     final signalCount = _countSignalsNearRoute(way.nodes, signalNodes);
-    final signalDensity = dist > 0 ? signalCount / dist : signalCount.toDouble();
-    if (signalCount >= hardSignalLimit) { cSignal++; continue; }
-    if (signalDensity > thresholds.maxSignalPerKm) { cSignal++; continue; }
+    final signalDensity = dist > 0
+        ? signalCount / dist
+        : signalCount.toDouble();
+    if (signalCount >= hardSignalLimit) {
+      cSignal++;
+      continue;
+    }
+    if (signalDensity > thresholds.maxSignalPerKm) {
+      cSignal++;
+      continue;
+    }
 
     final curves = _analyzeCurves(way.nodes);
     final curvyDistanceKm = curves.tightKm + curves.mediumKm;
@@ -491,8 +581,14 @@ _IsolateResult _selectTopRoutes(
       maxStraightRunKm: curves.maxStraightRunKm,
     );
 
-    if (curves.totalCurvature < thresholds.totalCurvatureMin) { cCurvature++; continue; }
-    if (curves.maxContinuousKm < thresholds.maxContinuousKmMin) { cContKm++; continue; }
+    if (curves.totalCurvature < thresholds.totalCurvatureMin) {
+      cCurvature++;
+      continue;
+    }
+    if (curves.maxContinuousKm < thresholds.maxContinuousKmMin) {
+      cContKm++;
+      continue;
+    }
     if (straightShare > thresholds.maxStraightFractionMax * 0.92 &&
         curves.curvyFraction < thresholds.curvyFractionMin + 0.04) {
       cStraight++;
@@ -508,11 +604,20 @@ _IsolateResult _selectTopRoutes(
       cStraight++;
       continue;
     }
-    if (curves.curvyFraction < thresholds.curvyFractionMin) { cCurvyFrac++; continue; }
-    if (_selfIntersects(way.nodes)) { cSelfInt++; continue; }
+    if (curves.curvyFraction < thresholds.curvyFractionMin) {
+      cCurvyFrac++;
+      continue;
+    }
+    if (_selfIntersects(way.nodes)) {
+      cSelfInt++;
+      continue;
+    }
 
     final curvatureDensity = curves.totalCurvature / dist;
-    if (curvatureDensity < thresholds.curvatureDensityMin) { cDensity++; continue; }
+    if (curvatureDensity < thresholds.curvatureDensityMin) {
+      cDensity++;
+      continue;
+    }
 
     // Spread Ratio
     {
@@ -529,7 +634,10 @@ _IsolateResult _selectTopRoutes(
       final lngKm = (maxLng - minLng) * 111.0 * math.cos(_rad(avgLat));
       final bbDiagonal = math.sqrt(latKm * latKm + lngKm * lngKm);
       final spreadRatio = dist > 0 ? bbDiagonal / dist : 0;
-      if (spreadRatio < thresholds.spreadRatioMin) { cSpread++; continue; }
+      if (spreadRatio < thresholds.spreadRatioMin) {
+        cSpread++;
+        continue;
+      }
 
       // 종횡비 필터:
       // elongated(가늘고 길다) + 커브 적음 = rang 직선 도로 → 제거
@@ -545,48 +653,69 @@ _IsolateResult _selectTopRoutes(
     }
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
     final intersectCount = _countNearbyIntersections(way.nodes, intersections);
-    final intersectionDensity = dist > 0 ? intersectCount / dist : intersectCount.toDouble();
-    if (intersectionDensity > thresholds.maxIntersectionPerKm) { cSignal++; continue; }
+    final intersectionDensity = dist > 0
+        ? intersectCount / dist
+        : intersectCount.toDouble();
+    if (intersectionDensity > thresholds.maxIntersectionPerKm) {
+      cSignal++;
+      continue;
+    }
     final intersectPenalty = _intersectionPenalty(intersectCount, dist);
     final signalPenalty = signalCount == 0
         ? 1.0
         : signalCount == 1
-            ? 0.78
-            : signalCount == 2
-                ? 0.62
-                : 0.42;
+        ? 0.78
+        : signalCount == 2
+        ? 0.62
+        : 0.42;
     final roadMultiplier = _roadMultiplier(way.highwayType);
-    final surfaceMult   = _surfaceMultiplier(way.surface);
-    final speedMult     = _maxspeedMultiplier(way.maxspeedKmh);
-    final lanesMult     = _lanesMultiplier(way.lanes);
+    final surfaceMult = _surfaceMultiplier(way.surface);
+    final speedMult = _maxspeedMultiplier(way.maxspeedKmh);
+    final lanesMult = _lanesMultiplier(way.lanes);
     final loopBonus = isLoopRoute ? 1.25 : 1.0;
     final distPenalty = _distancePenalty(
-        RevvRoute.haversineKm(userPos, way.nodes.first));
+      RevvRoute.haversineKm(userPos, way.nodes.first),
+    );
 
     // roadcurvature.com 방식 + 지리 데이터 배수
     final straightPenalty = 1.0 - (straightShare * 0.8);
-    final curvyCoverageBonus = 0.9 + math.min(curvyDistanceKm / math.max(dist, 1.0), 0.45);
-    final score = curvatureDensity * math.sqrt(dist) *
-        continuityBonus * intersectPenalty * signalPenalty * roadMultiplier *
-        surfaceMult * speedMult * lanesMult *
-        loopBonus * distPenalty * straightPenalty * curvyCoverageBonus;
+    final curvyCoverageBonus =
+        0.9 + math.min(curvyDistanceKm / math.max(dist, 1.0), 0.45);
+    final score =
+        curvatureDensity *
+        math.sqrt(dist) *
+        continuityBonus *
+        intersectPenalty *
+        signalPenalty *
+        roadMultiplier *
+        surfaceMult *
+        speedMult *
+        lanesMult *
+        loopBonus *
+        distPenalty *
+        straightPenalty *
+        curvyCoverageBonus;
 
-    scored.add(_ScoredWay(
-      way: way,
-      score: score,
-      distKm: dist,
-      center: _centerPoint(way.nodes),
-      distFromUser: RevvRoute.haversineKm(userPos, way.nodes.first),
-      curves: curves,
-      isLoop: isLoopRoute,
-    ));
+    scored.add(
+      _ScoredWay(
+        way: way,
+        score: score,
+        distKm: dist,
+        center: _centerPoint(way.nodes),
+        distFromUser: RevvRoute.haversineKm(userPos, way.nodes.first),
+        curves: curves,
+        isLoop: isLoopRoute,
+      ),
+    );
   }
 
-  debugPrint('[Filter] 탈락: 거리=$cDist 주거지=$cResidential 신호=$cSignal '
-      '커브량=$cCurvature 연속커브=$cContKm 직선=$cStraight '
-      '커브비율=$cCurvyFrac 자기교차=$cSelfInt 밀도=$cDensity '
-      '스프레드=$cSpread 종횡비=$cAspect '
-      '→ 통과: ${scored.length}개 / 총 ${ways.length}개');
+  debugPrint(
+    '[Filter] 탈락: 거리=$cDist 주거지=$cResidential 신호=$cSignal '
+    '커브량=$cCurvature 연속커브=$cContKm 직선=$cStraight '
+    '커브비율=$cCurvyFrac 자기교차=$cSelfInt 밀도=$cDensity '
+    '스프레드=$cSpread 종횡비=$cAspect '
+    '→ 통과: ${scored.length}개 / 총 ${ways.length}개',
+  );
 
   scored.sort((a, b) => b.score.compareTo(a.score));
 
@@ -603,7 +732,10 @@ _IsolateResult _selectTopRoutes(
   final selected = <_ScoredWay>[];
 
   bool isTooClose(_ScoredWay candidate) => selected.any(
-      (sel) => RevvRoute.haversineKm(candidate.center, sel.center) < thresholds.dedupDistanceKm);
+    (sel) =>
+        RevvRoute.haversineKm(candidate.center, sel.center) <
+        thresholds.dedupDistanceKm,
+  );
 
   // 1라운드: 각 섹터 상위 5개 풀에서 랜덤 선택 (seed로 다양성 보장)
   final rng = math.Random(seed == 0 ? null : seed);
@@ -611,7 +743,10 @@ _IsolateResult _selectTopRoutes(
     final pool = sector.take(5).toList();
     if (seed != 0) pool.shuffle(rng);
     for (final candidate in pool) {
-      if (!isTooClose(candidate)) { selected.add(candidate); break; }
+      if (!isTooClose(candidate)) {
+        selected.add(candidate);
+        break;
+      }
     }
   }
   // 2라운드: 6km 간격 유지하며 나머지 채우기
@@ -631,20 +766,22 @@ _IsolateResult _selectTopRoutes(
     final label = s.score >= 8.0
         ? 'EXTREME'
         : s.score >= 5.5
-            ? 'HARD'
-            : s.score >= 3.5
-                ? 'MEDIUM'
-                : s.score >= 2.0
-                    ? 'EASY'
-                    : 'SCENIC';
-    logBuf.writeln('[#${i + 1}] '
-        '${(s.way.name.isEmpty ? "(이름없음)" : s.way.name).padRight(22)} | '
-        '${s.distKm.toStringAsFixed(1).padLeft(5)}km | '
-        '${label.padRight(7)} | '
-        'density=${density.toStringAsFixed(1).padLeft(4)} '
-        'curvy=${(s.curves.curvyFraction * 100).toStringAsFixed(0).padLeft(2)}% '
-        'straight=${s.curves.maxStraightRunKm.toStringAsFixed(2)}km '
-        'score=${s.score.toStringAsFixed(2)}');
+        ? 'HARD'
+        : s.score >= 3.5
+        ? 'MEDIUM'
+        : s.score >= 2.0
+        ? 'EASY'
+        : 'SCENIC';
+    logBuf.writeln(
+      '[#${i + 1}] '
+      '${(s.way.name.isEmpty ? "(이름없음)" : s.way.name).padRight(22)} | '
+      '${s.distKm.toStringAsFixed(1).padLeft(5)}km | '
+      '${label.padRight(7)} | '
+      'density=${density.toStringAsFixed(1).padLeft(4)} '
+      'curvy=${(s.curves.curvyFraction * 100).toStringAsFixed(0).padLeft(2)}% '
+      'straight=${s.curves.maxStraightRunKm.toStringAsFixed(2)}km '
+      'score=${s.score.toStringAsFixed(2)}',
+    );
   }
   logBuf.write('==============================');
 
@@ -721,10 +858,9 @@ class RouteService extends ChangeNotifier {
       if (raw == null) return;
       final list = jsonDecode(raw) as List;
       for (final item in list) {
-        _excludedCenters.add(LatLng(
-          (item[0] as num).toDouble(),
-          (item[1] as num).toDouble(),
-        ));
+        _excludedCenters.add(
+          LatLng((item[0] as num).toDouble(), (item[1] as num).toDouble()),
+        );
       }
       debugPrint('[RouteService] 배제 루트 로드: ${_excludedCenters.length}개');
     } catch (e) {
@@ -771,19 +907,27 @@ class RouteService extends ChangeNotifier {
   // ── Sprint 요청 ────────────────────────────────────────────
   bool sprintRequested = false;
   RevvRoute? sprintRoute; // null이면 selectedRoute 사용
+  SprintStartMode sprintStartMode = SprintStartMode.auto;
 
   RevvRoute? get effectiveSprintRoute =>
-      selectedCompositeRoute?.toRouteProjection() ?? sprintRoute ?? selectedRoute;
+      selectedCompositeRoute?.toRouteProjection() ??
+      sprintRoute ??
+      selectedRoute;
 
-  void requestSprint({RevvRoute? route}) {
+  void requestSprint({
+    RevvRoute? route,
+    SprintStartMode startMode = SprintStartMode.auto,
+  }) {
     sprintRequested = true;
     sprintRoute = route ?? selectedCompositeRoute?.toRouteProjection();
+    sprintStartMode = startMode;
     notifyListeners();
   }
 
   void clearSprintRequest() {
     sprintRequested = false;
     sprintRoute = null;
+    sprintStartMode = SprintStartMode.auto;
   }
 
   void resetCache() {
@@ -796,7 +940,7 @@ class RouteService extends ChangeNotifier {
         ? '현재 위치 기준 ${currentSearchRadiusKm}km'
         : '현재 위치 기준 탐색';
     if (currentExpansionTotal <= 1) return base;
-    return '$base · 반경 자동 확장 ${currentExpansionStep}/$currentExpansionTotal';
+    return '$base · 반경 자동 확장 $currentExpansionStep/$currentExpansionTotal';
   }
 
   /// 반경 변경 후 재검색
@@ -844,18 +988,22 @@ class RouteService extends ChangeNotifier {
       // ③-a 전역 DB 먼저 조회 (커뮤니티 루트)
       final globalRoutes = filterSupabaseRouteCandidates(
         await SupabaseService()
-          .fetchNearbyRoutes(lat, lng, searchRadiusKm.toDouble())
-          .timeout(const Duration(seconds: 6), onTimeout: () => <RevvRoute>[]),
+            .fetchNearbyRoutes(lat, lng, searchRadiusKm.toDouble())
+            .timeout(
+              const Duration(seconds: 6),
+              onTimeout: () => <RevvRoute>[],
+            ),
       );
-      final globalFiltered =
-          globalRoutes.where((r) => !isExcluded(r)).toList();
+      final globalFiltered = globalRoutes.where((r) => !isExcluded(r)).toList();
 
       final initial = _rankRoutes(
         mergeDiversityRoutes(
           routes,
           globalFiltered,
           limit: 25,
-          dedupeDistanceKm: thresholdsForStage(RouteSearchStage.strict).dedupDistanceKm,
+          dedupeDistanceKm: thresholdsForStage(
+            RouteSearchStage.strict,
+          ).dedupDistanceKm,
         ),
       );
       if (fetchToken != _fetchToken) return;
@@ -904,7 +1052,9 @@ class RouteService extends ChangeNotifier {
           globalFiltered,
           bootstrap,
           limit: 25,
-          dedupeDistanceKm: thresholdsForStage(stagedResult.stage).dedupDistanceKm,
+          dedupeDistanceKm: thresholdsForStage(
+            stagedResult.stage,
+          ).dedupDistanceKm,
         ),
       );
       fresh = _withQualityGuardrails(fresh);
@@ -916,7 +1066,7 @@ class RouteService extends ChangeNotifier {
       _publishNewRoutes(bootstrap, globalFiltered);
       _applyVisibleRoutes(
         fresh,
-          source: bootstrap.isNotEmpty ? 'overpass' : 'supabase',
+        source: bootstrap.isNotEmpty ? 'overpass' : 'supabase',
         preserveSelection: true,
       );
       _lastFetchLocation = LatLng(lat, lng);
@@ -1005,7 +1155,9 @@ class RouteService extends ChangeNotifier {
           routes,
           overpass,
           limit: 25,
-          dedupeDistanceKm: thresholdsForStage(RouteSearchStage.expanded).dedupDistanceKm,
+          dedupeDistanceKm: thresholdsForStage(
+            RouteSearchStage.expanded,
+          ).dedupDistanceKm,
         ),
       );
       enriched = _withQualityGuardrails(enriched);
@@ -1052,9 +1204,9 @@ class RouteService extends ChangeNotifier {
     selectedRoute = previousSelectionId == null
         ? (routes.isNotEmpty ? routes.first : null)
         : routes.cast<RevvRoute?>().firstWhere(
-              (route) => route?.id == previousSelectionId,
-              orElse: () => routes.isNotEmpty ? routes.first : null,
-            );
+            (route) => route?.id == previousSelectionId,
+            orElse: () => routes.isNotEmpty ? routes.first : null,
+          );
     lastDiversitySource = source;
     if (selectedRoute != null && selectedRoute!.nodes.isEmpty) {
       _ensureRouteNodes(selectedRoute!);
@@ -1165,11 +1317,6 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 기존 풀 + 새 루트 병합 — centerPoint 6km 이내 중복 제거
-  List<RevvRoute> _mergeRoutePools(List<RevvRoute> existing, List<RevvRoute> fresh) {
-    return mergeDiversityRoutes(existing, fresh, limit: 100);
-  }
-
   /// Supabase 캐시 저장 (preloadFromCloud용)
   void _saveRoutesToFirestore(List<RevvRoute> rs) {
     SupabaseService().saveDiscoveredRoutes(rs).catchError((e) {
@@ -1179,7 +1326,9 @@ class RouteService extends ChangeNotifier {
 
   /// Overpass 결과 중 Supabase에 없는 신규 루트 게시 (fire-and-forget)
   void _publishNewRoutes(
-      List<RevvRoute> overpassRoutes, List<RevvRoute> globalRoutes) {
+    List<RevvRoute> overpassRoutes,
+    List<RevvRoute> globalRoutes,
+  ) {
     // curvy_roads is canonical pipeline data and stays read-only for clients.
     // Overpass enrichment remains local/user-scoped until ingested server-side.
     return;
@@ -1276,7 +1425,9 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<CompositeRoute?> previewChainCandidate(ChainCandidate candidate) async {
+  Future<CompositeRoute?> previewChainCandidate(
+    ChainCandidate candidate,
+  ) async {
     previewCompositeCandidate = candidate;
     previewCompositeRoute = await _buildCompositeRouteFromCandidate(candidate);
     notifyListeners();
@@ -1284,7 +1435,8 @@ class RouteService extends ChangeNotifier {
   }
 
   Future<CompositeRoute?> commitCompositeRoute(ChainCandidate candidate) async {
-    final composite = previewCompositeCandidate == candidate && previewCompositeRoute != null
+    final composite =
+        previewCompositeCandidate == candidate && previewCompositeRoute != null
         ? previewCompositeRoute
         : await _buildCompositeRouteFromCandidate(candidate);
     selectedCompositeRoute = composite;
@@ -1302,7 +1454,9 @@ class RouteService extends ChangeNotifier {
     ChainCandidate candidate,
   ) async {
     final base = selectedRoute;
-    if (base == null || base.nodes.length < 2 || candidate.route.nodes.length < 2) {
+    if (base == null ||
+        base.nodes.length < 2 ||
+        candidate.route.nodes.length < 2) {
       return null;
     }
     final oriented = candidate.orientedNodes();
@@ -1337,20 +1491,29 @@ class RouteService extends ChangeNotifier {
       startIdx.add(points.length);
       final nodes = r.nodes;
       for (int i = 0; i < samplePer; i++) {
-        final idx = ((i / (samplePer - 1)) * (nodes.length - 1)).round()
-            .clamp(0, nodes.length - 1);
+        final idx = ((i / (samplePer - 1)) * (nodes.length - 1)).round().clamp(
+          0,
+          nodes.length - 1,
+        );
         points.add(nodes[idx]);
       }
     }
 
-    final locs = points.map((p) => '${p.lat.toStringAsFixed(5)},${p.lng.toStringAsFixed(5)}').join('|');
+    final locs = points
+        .map((p) => '${p.lat.toStringAsFixed(5)},${p.lng.toStringAsFixed(5)}')
+        .join('|');
     try {
-      final resp = await http.get(
-        Uri.parse('https://api.opentopodata.org/v1/srtm30m?locations=$locs'),
-      ).timeout(const Duration(seconds: 6));
+      final resp = await http
+          .get(
+            Uri.parse(
+              'https://api.opentopodata.org/v1/srtm30m?locations=$locs',
+            ),
+          )
+          .timeout(const Duration(seconds: 6));
 
       if (resp.statusCode != 200) return routes;
-      final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final data =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       final results = data['results'] as List;
 
       return List.generate(routes.length, (ri) {
@@ -1365,13 +1528,21 @@ class RouteService extends ChangeNotifier {
 
         // 고도 변화 → 배수 보정
         double mult;
-        if (elevRange >= 120)      mult = 1.6;  // 산악 (로렌시안, 아팔래치안)
-        else if (elevRange >= 60)  mult = 1.35; // 언덕
-        else if (elevRange >= 30)  mult = 1.1;  // 완만한 언덕
-        else if (elevRange >= 15)  mult = 1.0;  // 중간
-        else                       mult = 0.75; // 평지 (퀘벡 rang 지역)
+        if (elevRange >= 120) {
+          mult = 1.6; // 산악 (로렌시안, 아팔래치안)
+        } else if (elevRange >= 60) {
+          mult = 1.35; // 언덕
+        } else if (elevRange >= 30) {
+          mult = 1.1; // 완만한 언덕
+        } else if (elevRange >= 15) {
+          mult = 1.0; // 중간
+        } else {
+          mult = 0.75; // 평지 (퀘벡 rang 지역)
+        }
 
-        debugPrint('[Elev] ${routes[ri].name}: ${elevRange.toStringAsFixed(0)}m → ×${mult}');
+        debugPrint(
+          '[Elev] ${routes[ri].name}: ${elevRange.toStringAsFixed(0)}m → ×$mult',
+        );
         return routes[ri].copyWith(
           windingScore: routes[ri].windingScore * mult,
           elevationDelta: elevRange,
@@ -1390,7 +1561,8 @@ class RouteService extends ChangeNotifier {
     int seed = 0,
     RouteSearchStage stage = RouteSearchStage.strict,
   }) async {
-    final canReuseCachedJson = _lastJsonBody != null &&
+    final canReuseCachedJson =
+        _lastJsonBody != null &&
         _lastJsonLat == lat &&
         _lastJsonLng == lng &&
         _lastJsonRadiusM != null &&
@@ -1400,16 +1572,12 @@ class RouteService extends ChangeNotifier {
           requestedRadiusM: radiusM,
         );
     if (canReuseCachedJson && _lastJsonRadiusM == radiusM) {
-      debugPrint('[RouteService] ${routeStageLabel(stage)} 단계는 동일 반경 응답 JSON을 재사용합니다');
+      debugPrint(
+        '[RouteService] ${routeStageLabel(stage)} 단계는 동일 반경 응답 JSON을 재사용합니다',
+      );
       final cachedResult = await compute(
         _processRoutes,
-        _IsolateParams(
-          _lastJsonBody!,
-          lat,
-          lng,
-          seed: seed,
-          stage: stage,
-        ),
+        _IsolateParams(_lastJsonBody!, lat, lng, seed: seed, stage: stage),
       );
       debugPrint(cachedResult.log);
       debugPrint('[RouteService] compute() 완료: ${cachedResult.routes.length}개');
@@ -1426,7 +1594,9 @@ class RouteService extends ChangeNotifier {
       timeoutSeconds: relaxedQuery ? 18 : 12,
     );
 
-    debugPrint('[RouteService] _fetchAndScore ($lat, $lng, r=${radiusM}m, stage=${routeStageLabel(stage)})');
+    debugPrint(
+      '[RouteService] _fetchAndScore ($lat, $lng, r=${radiusM}m, stage=${routeStageLabel(stage)})',
+    );
 
     String? resBody = await _tryFetchOverpassBody(
       query,
@@ -1452,19 +1622,17 @@ class RouteService extends ChangeNotifier {
 
     if (resBody == null) {
       if (canReuseCachedJson) {
-        debugPrint('[RouteService] ${routeStageLabel(stage)} 단계는 더 좁은 반경 캐시 JSON으로 fallback합니다');
+        debugPrint(
+          '[RouteService] ${routeStageLabel(stage)} 단계는 더 좁은 반경 캐시 JSON으로 fallback합니다',
+        );
         final cachedResult = await compute(
           _processRoutes,
-          _IsolateParams(
-            _lastJsonBody!,
-            lat,
-            lng,
-            seed: seed,
-            stage: stage,
-          ),
+          _IsolateParams(_lastJsonBody!, lat, lng, seed: seed, stage: stage),
         );
         debugPrint(cachedResult.log);
-        debugPrint('[RouteService] compute() 완료: ${cachedResult.routes.length}개');
+        debugPrint(
+          '[RouteService] compute() 완료: ${cachedResult.routes.length}개',
+        );
         return cachedResult.routes;
       }
       debugPrint('[RouteService] 모든 서버 실패');
@@ -1496,10 +1664,9 @@ class RouteService extends ChangeNotifier {
   }) async {
     for (final url in endpoints) {
       try {
-        final r = await http.post(
-          Uri.parse(url),
-          body: {'data': query},
-        ).timeout(requestTimeout);
+        final r = await http
+            .post(Uri.parse(url), body: {'data': query})
+            .timeout(requestTimeout);
         if (r.statusCode == 200) {
           final body = utf8.decode(r.bodyBytes);
           // Overpass가 XML 에러 페이지를 200으로 반환하는 경우 방어
@@ -1605,8 +1772,9 @@ class RouteService extends ChangeNotifier {
   }
 
   void removeFromChain(String routeId) {
-    manualChainedRoutes =
-        manualChainedRoutes.where((r) => r.id != routeId).toList();
+    manualChainedRoutes = manualChainedRoutes
+        .where((r) => r.id != routeId)
+        .toList();
     notifyListeners();
   }
 
@@ -1659,7 +1827,7 @@ class _CurveResult {
   final double mediumKm;
   final double maxContinuousKm;
   final double maxStraightRunKm; // 최장 직선 구간
-  final double curvyFraction;    // 전체 거리 중 커브 비율 (0..1)
+  final double curvyFraction; // 전체 거리 중 커브 비율 (0..1)
   const _CurveResult({
     required this.totalCurvature,
     required this.tightKm,
@@ -1675,9 +1843,9 @@ class _RawWay {
   final String name;
   final List<LatLng> nodes;
   final String highwayType;
-  final String surface;    // asphalt/paved/gravel/dirt/unknown
-  final int? maxspeedKmh;  // 속도 제한 (km/h)
-  final int lanes;         // 차선 수
+  final String surface; // asphalt/paved/gravel/dirt/unknown
+  final int? maxspeedKmh; // 속도 제한 (km/h)
+  final int lanes; // 차선 수
   _RawWay({
     required this.id,
     required this.name,

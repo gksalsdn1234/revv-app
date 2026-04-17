@@ -33,6 +33,7 @@ import 'analysis_screen.dart';
 import 'ranking_screen.dart';
 import '../widgets/driver_level_card.dart';
 import 'garage_screen.dart';
+import 'saved_routes_screen.dart';
 import '../ui/ux_contracts.dart';
 
 PageRouteBuilder<T> _slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
@@ -40,8 +41,10 @@ PageRouteBuilder<T> _slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
   transitionDuration: const Duration(milliseconds: 320),
   reverseTransitionDuration: const Duration(milliseconds: 280),
   transitionsBuilder: (_, anim, __, child) => SlideTransition(
-    position: Tween(begin: const Offset(0, 1), end: Offset.zero)
-        .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+    position: Tween(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
     child: child,
   ),
 );
@@ -70,6 +73,7 @@ class _CruiseScreenState extends State<CruiseScreen>
   // ── Drive 오버레이 상태 ──
   bool _isDriveMode = false;
   RevvRoute? _driveRoute;
+  SprintStartMode _activeStartMode = SprintStartMode.auto;
 
   // ── 항상 듣기 상태 ──
   bool _alwaysListening = false;
@@ -78,17 +82,21 @@ class _CruiseScreenState extends State<CruiseScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.light,
-    ));
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+      ),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final loc = context.read<LocationService>();
       _locationService = loc;
       await loc.requestPermission();
       if (loc.hasPermission) {
         await loc.startTracking();
-        if (mounted) context.read<WeatherService>().fetchWeather(loc.lat, loc.lng);
+        if (mounted) {
+          context.read<WeatherService>().fetchWeather(loc.lat, loc.lng);
+        }
         loc.addListener(_onLocationChanged);
       } else {
         if (mounted) {
@@ -191,7 +199,10 @@ class _CruiseScreenState extends State<CruiseScreen>
       _fetchNavRoute(route);
     }
     final loc = context.read<LocationService>();
-    final dist = RevvRoute.haversineKm(LatLng(loc.lat, loc.lng), route.nodes.first);
+    final dist = RevvRoute.haversineKm(
+      LatLng(loc.lat, loc.lng),
+      route.nodes.first,
+    );
     final isNear = dist < 0.3;
     if (isNear != _nearRouteStart) {
       setState(() => _nearRouteStart = isNear);
@@ -212,13 +223,26 @@ class _CruiseScreenState extends State<CruiseScreen>
     if (_isSprinting || _isDriveMode) return;
     final routeSvc = context.read<RouteService>();
     final route = routeSvc.sprintRoute ?? routeSvc.selectedRoute;
+    final startMode = routeSvc.sprintStartMode;
 
-    // 루트 시작점까지 거리 계산 → 500m 이내면 DRIVE/NAV 선택 시트
     if (route != null) {
       final loc = context.read<LocationService>();
       final dist = RevvRoute.haversineKm(
-          LatLng(loc.lat, loc.lng), route.nodes.first);
-      if (dist <= 0.5) {
+        LatLng(loc.lat, loc.lng),
+        route.nodes.first,
+      );
+
+      if (startMode == SprintStartMode.joinFromCurrent) {
+        setState(() {
+          _isDriveMode = true;
+          _driveRoute = route;
+          _activeStartMode = startMode;
+        });
+        return;
+      }
+
+      // 루트 시작점까지 거리 계산 → auto일 때 500m 이내면 DRIVE/NAV 선택 시트
+      if (startMode == SprintStartMode.auto && dist <= 0.5) {
         _showDriveOrNavSheet(route);
         return;
       }
@@ -228,6 +252,7 @@ class _CruiseScreenState extends State<CruiseScreen>
       _isSprinting = true;
       _sprintRoute = route;
       _sprintNavPolyline = null;
+      _activeStartMode = startMode;
     });
   }
 
@@ -242,6 +267,7 @@ class _CruiseScreenState extends State<CruiseScreen>
           setState(() {
             _isDriveMode = true;
             _driveRoute = route;
+            _activeStartMode = SprintStartMode.auto;
           });
         },
         onNav: () {
@@ -250,6 +276,7 @@ class _CruiseScreenState extends State<CruiseScreen>
             _isSprinting = true;
             _sprintRoute = route;
             _sprintNavPolyline = null;
+            _activeStartMode = SprintStartMode.auto;
           });
         },
       ),
@@ -261,6 +288,7 @@ class _CruiseScreenState extends State<CruiseScreen>
       _isSprinting = false;
       _sprintRoute = null;
       _sprintNavPolyline = null;
+      _activeStartMode = SprintStartMode.auto;
     });
     if (session != null && mounted) {
       Navigator.push(
@@ -274,6 +302,7 @@ class _CruiseScreenState extends State<CruiseScreen>
     setState(() {
       _isDriveMode = false;
       _driveRoute = null;
+      _activeStartMode = SprintStartMode.auto;
     });
     if (session != null && mounted) {
       Navigator.push(
@@ -289,7 +318,10 @@ class _CruiseScreenState extends State<CruiseScreen>
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (_) => _MoreSheet(
-        onObd: () { Navigator.pop(context); OBDScreen.show(context); },
+        onObd: () {
+          Navigator.pop(context);
+          OBDScreen.show(context);
+        },
         onAi: () {
           Navigator.pop(context);
           showModalBottomSheet(
@@ -301,12 +333,33 @@ class _CruiseScreenState extends State<CruiseScreen>
             builder: (_) => const JarvisPanel(),
           );
         },
-        onDriverLevel: () { Navigator.pop(context); DriverLevelSheet.show(context); },
-        onAnalysis: () { Navigator.pop(context); AnalysisScreen.show(context); },
-        onSettings: () { Navigator.pop(context); SettingsScreen.show(context); },
-        onRanking: () { Navigator.pop(context); RankingScreen.show(context); },
-        onMic: () { Navigator.pop(context); },
-        onGarage: () { Navigator.pop(context); GarageScreen.show(context); },
+        onDriverLevel: () {
+          Navigator.pop(context);
+          DriverLevelSheet.show(context);
+        },
+        onAnalysis: () {
+          Navigator.pop(context);
+          AnalysisScreen.show(context);
+        },
+        onSettings: () {
+          Navigator.pop(context);
+          SettingsScreen.show(context);
+        },
+        onRanking: () {
+          Navigator.pop(context);
+          RankingScreen.show(context);
+        },
+        onMic: () {
+          Navigator.pop(context);
+        },
+        onGarage: () {
+          Navigator.pop(context);
+          GarageScreen.show(context);
+        },
+        onSavedRoutes: () {
+          Navigator.pop(context);
+          SavedRoutesScreen.show(context);
+        },
       ),
     );
   }
@@ -317,8 +370,12 @@ class _CruiseScreenState extends State<CruiseScreen>
     // watch는 RouteService의 모든 변경(loading, connecting 등)마다 CruiseScreen 전체 rebuild
     // → 스프린트 중 SprintScreen + MapWidget까지 연쇄 rebuild → platform view 충돌 유발
     // select는 필요한 속성만 감시 → 불필요한 rebuild 차단
-    final selectedRoute = context.select<RouteService, RevvRoute?>((r) => r.selectedRoute);
-    final sprintRequested = context.select<RouteService, bool>((r) => r.sprintRequested);
+    final selectedRoute = context.select<RouteService, RevvRoute?>(
+      (r) => r.selectedRoute,
+    );
+    final sprintRequested = context.select<RouteService, bool>(
+      (r) => r.sprintRequested,
+    );
     final uiState = resolveCruiseUiState(
       hasSelectedRoute: selectedRoute != null,
       nearRouteStart: _nearRouteStart,
@@ -356,13 +413,19 @@ class _CruiseScreenState extends State<CruiseScreen>
                   child: RepaintBoundary(
                     child: MapWidget(
                       isSprintMode: _isSprinting || _isDriveMode,
-                      navPolyline: _isSprinting ? _sprintNavPolyline : _navPolyline,
+                      navPolyline: _isSprinting
+                          ? _sprintNavPolyline
+                          : _navPolyline,
                       routePolyline: _isSprinting
                           ? _sprintRoute?.nodes
                           : _isDriveMode
-                              ? _driveRoute?.nodes
-                              : selectedRoute?.nodes,
-                      showCurveHeatmap: !_isSprinting && !_isDriveMode && _showCurveHeatmap && selectedRoute != null,
+                          ? _driveRoute?.nodes
+                          : selectedRoute?.nodes,
+                      showCurveHeatmap:
+                          !_isSprinting &&
+                          !_isDriveMode &&
+                          _showCurveHeatmap &&
+                          selectedRoute != null,
                     ),
                   ),
                 ),
@@ -427,6 +490,7 @@ class _CruiseScreenState extends State<CruiseScreen>
                 key: const ValueKey('sprint-overlay'),
                 child: SprintScreen(
                   selectedRoute: _sprintRoute,
+                  startMode: _activeStartMode,
                   onEnd: _onSprintEnd,
                   onNavPolylineChanged: (poly) {
                     if (mounted) setState(() => _sprintNavPolyline = poly);
@@ -440,6 +504,7 @@ class _CruiseScreenState extends State<CruiseScreen>
                 key: const ValueKey('drive-overlay'),
                 child: DriveScreen(
                   selectedRoute: _driveRoute,
+                  startMode: _activeStartMode,
                   onEnd: _onDriveEnd,
                 ),
               ),
@@ -454,7 +519,10 @@ class _CruiseScreenState extends State<CruiseScreen>
                 child: _IdleDrivePrompt(
                   onBrowseRoutes: () {
                     setState(() => _activeTab = 0);
-                    Navigator.push(context, _slideUpRoute(const RoutesScreen()));
+                    Navigator.push(
+                      context,
+                      _slideUpRoute(const RoutesScreen()),
+                    );
                   },
                 ),
               ),
@@ -468,7 +536,8 @@ class _CruiseScreenState extends State<CruiseScreen>
                 right: 14,
                 bottom: 84 + MediaQuery.of(context).padding.bottom,
                 child: _TapScale(
-                  onTap: () => setState(() => _showCurveHeatmap = !_showCurveHeatmap),
+                  onTap: () =>
+                      setState(() => _showCurveHeatmap = !_showCurveHeatmap),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 180),
                     width: 44,
@@ -485,7 +554,11 @@ class _CruiseScreenState extends State<CruiseScreen>
                       ),
                       boxShadow: const [],
                     ),
-                    child: const Icon(Icons.thermostat_rounded, size: 20, color: Colors.white),
+                    child: const Icon(
+                      Icons.thermostat_rounded,
+                      size: 20,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
@@ -510,19 +583,28 @@ class _CruiseScreenState extends State<CruiseScreen>
                   activeTab: _activeTab,
                   onRoutes: () {
                     setState(() => _activeTab = 0);
-                    Navigator.push(context, _slideUpRoute(const RoutesScreen()));
+                    Navigator.push(
+                      context,
+                      _slideUpRoute(const RoutesScreen()),
+                    );
                   },
                   onGo: () {
                     if (uiState == CruiseUiState.idle) {
                       setState(() => _activeTab = 0);
-                      Navigator.push(context, _slideUpRoute(const RoutesScreen()));
+                      Navigator.push(
+                        context,
+                        _slideUpRoute(const RoutesScreen()),
+                      );
                       return;
                     }
                     _goSprint();
                   },
                   onLog: () {
                     setState(() => _activeTab = 3);
-                    Navigator.push(context, _slideUpRoute(const HistoryScreen()));
+                    Navigator.push(
+                      context,
+                      _slideUpRoute(const HistoryScreen()),
+                    );
                   },
                   onMore: () {
                     setState(() => _activeTab = 4);
@@ -693,19 +775,23 @@ class _TopFloatingHudState extends State<_TopFloatingHud> {
                 Text(
                   w.tempDisplay,
                   style: GoogleFonts.rajdhani(
-                    fontSize: 12, fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                     color: AppColors.textSecondary,
                   ),
                 ),
                 Container(
-                  width: 1, height: 13,
+                  width: 1,
+                  height: 13,
                   color: Colors.white.withValues(alpha: 0.15),
                   margin: const EdgeInsets.symmetric(horizontal: 9),
                 ),
                 Text(
                   _time,
                   style: GoogleFonts.orbitron(
-                    fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
                   ),
                 ),
               ],
@@ -727,7 +813,9 @@ class _SpeedGauge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<LocationService>(
       builder: (_, loc, __) {
-        final speed = loc.hasPermission ? loc.speedKmh.toStringAsFixed(0) : '--';
+        final speed = loc.hasPermission
+            ? loc.speedKmh.toStringAsFixed(0)
+            : '--';
         return Container(
           width: 74,
           height: 74,
@@ -752,16 +840,20 @@ class _SpeedGauge extends StatelessWidget {
               Text(
                 speed,
                 style: GoogleFonts.orbitron(
-                  fontSize: 23, fontWeight: FontWeight.w900,
-                  color: Colors.white, height: 1.0,
+                  fontSize: 23,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                  height: 1.0,
                 ),
               ),
               const SizedBox(height: 1),
               Text(
                 'km/h',
                 style: GoogleFonts.rajdhani(
-                  fontSize: 8, fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary, letterSpacing: 1,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                  letterSpacing: 1,
                 ),
               ),
             ],
@@ -779,7 +871,11 @@ class _RouteSelectedCard extends StatefulWidget {
   final RevvRoute route;
   final VoidCallback onGo;
   final VoidCallback onDismiss;
-  const _RouteSelectedCard({required this.route, required this.onGo, required this.onDismiss});
+  const _RouteSelectedCard({
+    required this.route,
+    required this.onGo,
+    required this.onDismiss,
+  });
 
   @override
   State<_RouteSelectedCard> createState() => _RouteSelectedCardState();
@@ -798,8 +894,10 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
       duration: const Duration(milliseconds: 260),
       vsync: this,
     );
-    _slide = Tween(begin: const Offset(0, 0.3), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+    _slide = Tween(
+      begin: const Offset(0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
     _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
     _ctrl.forward();
   }
@@ -812,21 +910,26 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
 
   Color _diffColor(int level) {
     switch (level) {
-      case 4: return const Color(0xFFEF4444);
-      case 3: return const Color(0xFFF97316);
-      case 2: return const Color(0xFFF59E0B);
-      case 1: return const Color(0xFF22C55E);
-      default: return const Color(0xFF6B7280);
+      case 4:
+        return const Color(0xFFEF4444);
+      case 3:
+        return const Color(0xFFF97316);
+      case 2:
+        return const Color(0xFFF59E0B);
+      case 1:
+        return const Color(0xFF22C55E);
+      default:
+        return const Color(0xFF6B7280);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final connectingRoutes =
-        context.select<RouteService, List<ChainCandidate>>((r) => r.connectingRoutes);
-    final selectedCompositeRoute = context.select<RouteService, CompositeRoute?>(
-      (r) => r.selectedCompositeRoute,
+    final connectingRoutes = context.select<RouteService, List<ChainCandidate>>(
+      (r) => r.connectingRoutes,
     );
+    final selectedCompositeRoute = context
+        .select<RouteService, CompositeRoute?>((r) => r.selectedCompositeRoute);
     final diffColor = _diffColor(widget.route.difficultyLevel);
     final hasChain = connectingRoutes.isNotEmpty;
     final totalChainKm =
@@ -840,22 +943,40 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
           key: ValueKey('route-card-${widget.route.id}'),
           direction: DismissDirection.down,
           onDismissed: (_) => widget.onDismiss(),
-          child: _buildCard(context, diffColor, hasChain, totalChainKm, connectingRoutes),
+          child: _buildCard(
+            context,
+            diffColor,
+            hasChain,
+            totalChainKm,
+            connectingRoutes,
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildCard(BuildContext context, Color diffColor, bool hasChain,
-      double totalChainKm, List<ChainCandidate> connectingRoutes) {
+  Widget _buildCard(
+    BuildContext context,
+    Color diffColor,
+    bool hasChain,
+    double totalChainKm,
+    List<ChainCandidate> connectingRoutes,
+  ) {
     return Container(
       margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
       decoration: BoxDecoration(
         color: const Color(0xFF141416),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1.2),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.08),
+          width: 1.2,
+        ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.55), blurRadius: 24, offset: const Offset(0, 8)),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.55),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
       child: ClipRRect(
@@ -875,7 +996,10 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                         Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: diffColor.withValues(alpha: 0.16),
                                 borderRadius: BorderRadius.circular(999),
@@ -883,7 +1007,8 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                               child: Text(
                                 widget.route.difficultyLabel,
                                 style: GoogleFonts.rajdhani(
-                                  fontSize: 11, fontWeight: FontWeight.w800,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
                                   color: diffColor,
                                 ),
                               ),
@@ -893,7 +1018,9 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                               child: Text(
                                 widget.route.name,
                                 style: GoogleFonts.rajdhani(
-                                  fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -904,14 +1031,21 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                         const SizedBox(height: 7),
                         Row(
                           children: [
-                            _StatChip(icon: Icons.straighten, value: widget.route.distanceDisplay),
+                            _StatChip(
+                              icon: Icons.straighten,
+                              value: widget.route.distanceDisplay,
+                            ),
                             const SizedBox(width: 10),
-                            _StatChip(icon: Icons.schedule, value: widget.route.durationDisplay),
+                            _StatChip(
+                              icon: Icons.schedule,
+                              value: widget.route.durationDisplay,
+                            ),
                             if (widget.route.windingDensityPct > 0) ...[
                               const SizedBox(width: 10),
                               _StatChip(
                                 icon: Icons.turn_right,
-                                value: '${widget.route.windingDensityPct.toStringAsFixed(0)}%',
+                                value:
+                                    '${widget.route.windingDensityPct.toStringAsFixed(0)}%',
                                 color: diffColor,
                               ),
                             ],
@@ -946,7 +1080,8 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                             child: Text(
                               '시작',
                               style: GoogleFonts.rajdhani(
-                                fontSize: 17, fontWeight: FontWeight.w800,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
                                 color: Colors.white,
                               ),
                             ),
@@ -959,7 +1094,8 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                           onTap: () {
                             final rs = context.read<RouteService>();
                             rs.requestSprint(
-                              route: rs.selectedCompositeRoute?.toRouteProjection(),
+                              route: rs.selectedCompositeRoute
+                                  ?.toRouteProjection(),
                             );
                           },
                           child: Container(
@@ -968,17 +1104,25 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                             decoration: BoxDecoration(
                               color: AppColors.surface,
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.08),
+                              ),
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Icon(Icons.link, size: 10, color: AppColors.red),
+                                const Icon(
+                                  Icons.link,
+                                  size: 10,
+                                  color: AppColors.red,
+                                ),
                                 const SizedBox(width: 3),
                                 Text(
                                   '${totalChainKm.toStringAsFixed(0)}km',
                                   style: GoogleFonts.rajdhani(
-                                    fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
                                   ),
                                 ),
                               ],
@@ -992,13 +1136,20 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                   _TapScale(
                     onTap: widget.onDismiss,
                     child: Container(
-                      width: 36, height: 36,
+                      width: 36,
+                      height: 36,
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.18),
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.15),
+                        ),
                       ),
-                      child: const Icon(Icons.close, size: 16, color: Colors.white70),
+                      child: const Icon(
+                        Icons.close,
+                        size: 16,
+                        color: Colors.white70,
+                      ),
                     ),
                   ),
                 ],
@@ -1029,7 +1180,9 @@ class _StatChip extends StatelessWidget {
         Text(
           value,
           style: GoogleFonts.rajdhani(
-            fontSize: 12, fontWeight: FontWeight.w600, color: c,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: c,
           ),
         ),
       ],
@@ -1063,8 +1216,10 @@ class _NearStartBannerState extends State<_NearStartBanner>
       vsync: this,
     );
 
-    _slide = Tween(begin: const Offset(0, -0.4), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic));
+    _slide = Tween(
+      begin: const Offset(0, -0.4),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic));
     _fade = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOut);
 
     _entryCtrl.forward();
@@ -1087,7 +1242,10 @@ class _NearStartBannerState extends State<_NearStartBanner>
           decoration: BoxDecoration(
             color: const Color(0xF0141416),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1.2),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.08),
+              width: 1.2,
+            ),
           ),
           child: Row(
             children: [
@@ -1129,7 +1287,10 @@ class _NearStartBannerState extends State<_NearStartBanner>
               _TapScale(
                 onTap: widget.onSprint,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 9,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.red,
                     borderRadius: BorderRadius.circular(8),
@@ -1176,7 +1337,12 @@ class _BottomNavBar extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xF2101012),
-        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.07), width: 0.5)),
+        border: Border(
+          top: BorderSide(
+            color: Colors.white.withValues(alpha: 0.07),
+            width: 0.5,
+          ),
+        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.65),
@@ -1215,7 +1381,10 @@ class _BottomNavBar extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: AppColors.red,
                             shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xF2101012), width: 3),
+                            border: Border.all(
+                              color: const Color(0xF2101012),
+                              width: 3,
+                            ),
                             boxShadow: [
                               BoxShadow(
                                 color: AppColors.red.withValues(alpha: 0.65),
@@ -1233,12 +1402,18 @@ class _BottomNavBar extends StatelessWidget {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(Icons.navigation_rounded, size: 20, color: Colors.white),
+                              const Icon(
+                                Icons.navigation_rounded,
+                                size: 20,
+                                color: Colors.white,
+                              ),
                               Text(
                                 'GO',
                                 style: GoogleFonts.orbitron(
-                                  fontSize: 9, fontWeight: FontWeight.w900,
-                                  color: Colors.white, letterSpacing: 2,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.white,
+                                  letterSpacing: 2,
                                 ),
                               ),
                             ],
@@ -1309,7 +1484,8 @@ class _NavItem extends StatelessWidget {
               Text(
                 label,
                 style: GoogleFonts.rajdhani(
-                  fontSize: 8, fontWeight: FontWeight.w700,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w700,
                   color: active ? AppColors.red : Colors.white30,
                   letterSpacing: 1,
                 ),
@@ -1345,6 +1521,7 @@ class _MoreSheet extends StatelessWidget {
   final VoidCallback onRanking;
   final VoidCallback onMic;
   final VoidCallback onGarage;
+  final VoidCallback onSavedRoutes;
 
   const _MoreSheet({
     required this.onObd,
@@ -1355,6 +1532,7 @@ class _MoreSheet extends StatelessWidget {
     required this.onRanking,
     required this.onMic,
     required this.onGarage,
+    required this.onSavedRoutes,
   });
 
   @override
@@ -1369,7 +1547,8 @@ class _MoreSheet extends StatelessWidget {
         children: [
           const SizedBox(height: 10),
           Container(
-            width: 36, height: 4,
+            width: 36,
+            height: 4,
             decoration: BoxDecoration(
               color: Colors.white24,
               borderRadius: BorderRadius.circular(2),
@@ -1387,6 +1566,12 @@ class _MoreSheet extends StatelessWidget {
             label: 'Garage Pro',
             sub: '차량 프로필 · G포스 설정',
             onTap: onGarage,
+          ),
+          _MoreItem(
+            icon: Icons.favorite_rounded,
+            label: 'Saved Routes',
+            sub: '저장한 루트 다시 보기',
+            onTap: onSavedRoutes,
           ),
           _MoreItem(
             icon: Icons.settings_rounded,
@@ -1439,7 +1624,8 @@ class _MoreItem extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 44, height: 44,
+                width: 44,
+                height: 44,
                 decoration: BoxDecoration(
                   color: AppColors.red.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(11),
@@ -1453,13 +1639,16 @@ class _MoreItem extends StatelessWidget {
                   Text(
                     label,
                     style: GoogleFonts.rajdhani(
-                      fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
                     ),
                   ),
                   Text(
                     sub,
                     style: GoogleFonts.rajdhani(
-                      fontSize: 11, color: Colors.white38,
+                      fontSize: 11,
+                      color: Colors.white38,
                     ),
                   ),
                 ],
@@ -1496,7 +1685,11 @@ class _DriveOrNavSheet extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       padding: EdgeInsets.fromLTRB(
-          20, 16, 20, 20 + MediaQuery.of(context).padding.bottom),
+        20,
+        16,
+        20,
+        20 + MediaQuery.of(context).padding.bottom,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1650,9 +1843,10 @@ class _AlwaysListenDotState extends State<_AlwaysListenDot>
       vsync: this,
       duration: const Duration(milliseconds: 1000),
     )..repeat(reverse: true);
-    _pulse = Tween(begin: 0.4, end: 1.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
-    );
+    _pulse = Tween(
+      begin: 0.4,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
 
   @override

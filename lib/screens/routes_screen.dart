@@ -8,10 +8,8 @@ import '../theme/colors.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/mapbox_service.dart';
-import '../services/saved_route_service.dart';
 import '../services/home_location_service.dart';
 import '../services/loop_route_service.dart';
-import '../services/circuit_service.dart';
 import '../services/route_brief_service.dart';
 import '../services/weather_service.dart';
 import '../services/revv_ai_service.dart';
@@ -21,8 +19,9 @@ import '../models/revv_route.dart';
 import '../models/loop_route.dart';
 import 'route_wizard_screen.dart';
 import 'route_edit_screen.dart';
-import 'route_preview_screen.dart';
-import '../ui/ux_contracts.dart';
+import 'route_detail_screen.dart';
+import '../widgets/routes_selection_panel.dart';
+import '../widgets/routes_screen_support.dart';
 
 class RoutesScreen extends StatefulWidget {
   const RoutesScreen({super.key});
@@ -35,6 +34,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
   // ── 지도 ──────────────────────────────────────────────────────
   mbx.MapboxMap? _mapController;
   mbx.PolylineAnnotationManager? _polyManager;
+  mbx.Cancelable? _polyTapEvents;
   final List<mbx.PolylineAnnotation> _polylines = [];
   final Map<String, RevvRoute> _annotationToRoute = {};
   bool _styleLoaded = false;
@@ -62,10 +62,6 @@ class _RoutesScreenState extends State<RoutesScreen> {
   String? _loopBrief;
   bool _loopBriefLoading = false;
 
-  // ── CIRCUIT 탭 ────────────────────────────────────────────────
-  final CircuitService _circuitSvc = CircuitService();
-  int _circuitTarget = 40; // 20 / 40 / 60 km
-
   // ── AI 루트 브리핑 (화면 진입 후 최초 1회만) ──────────────────
   final RouteBriefService _briefSvc = RouteBriefService();
   String? _currentBrief;
@@ -91,6 +87,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
     _routeSvc?.removeListener(_onRouteServiceChanged);
     _locationSvc?.removeListener(_onLocationChanged);
     _loopSvc.removeListener(_onLoopServiceChanged);
+    _polyTapEvents?.cancel();
     _loopSvc.dispose();
     super.dispose();
   }
@@ -106,7 +103,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
     if (loc.hasPermission) {
       await loc.startTracking();
     }
-    final anchor = await loc.ensureLiveLocation(timeout: const Duration(seconds: 6));
+    final anchor = await loc.ensureLiveLocation(
+      timeout: const Duration(seconds: 6),
+    );
     if (!mounted || anchor == null || _initialRouteFetchRequested) return;
 
     _initialRouteFetchRequested = true;
@@ -125,7 +124,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
       return;
     }
 
-    if (!_initialMapCenteredOnLiveLocation && (_routeSvc?.routes.isEmpty ?? true)) {
+    if (!_initialMapCenteredOnLiveLocation &&
+        (_routeSvc?.routes.isEmpty ?? true)) {
       _centerMapOnLocation(anchor, animated: _styleLoaded);
     }
   }
@@ -139,10 +139,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
       pitch: 0,
     );
     if (animated) {
-      _mapController!.flyTo(
-        camera,
-        mbx.MapAnimationOptions(duration: 600),
-      );
+      _mapController!.flyTo(camera, mbx.MapAnimationOptions(duration: 600));
     } else {
       _mapController!.setCamera(camera);
     }
@@ -161,7 +158,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
 
   Future<void> _fetchLoopBrief(LoopRoute loop) async {
     if (!mounted) return;
-    setState(() { _loopBrief = null; _loopBriefLoading = true; });
+    setState(() {
+      _loopBrief = null;
+      _loopBriefLoading = true;
+    });
     final weather = context.read<WeatherService>();
     final brief = await RevvAiService().describeLoop(
       loop,
@@ -169,12 +169,22 @@ class _RoutesScreenState extends State<RoutesScreen> {
       roadCondition: weather.roadCondition,
       tempCelsius: weather.tempCelsius,
     );
-    if (mounted) setState(() { _loopBrief = brief; _loopBriefLoading = false; });
+    if (mounted) {
+      setState(() {
+        _loopBrief = brief;
+        _loopBriefLoading = false;
+      });
+    }
   }
 
   Future<void> _fetchBrief(RevvRoute route) async {
     if (_briefShownOnce) return; // 이미 1회 표시됨 → 재트리거 없음
-    if (mounted) setState(() { _briefLoading = true; _currentBrief = null; });
+    if (mounted) {
+      setState(() {
+        _briefLoading = true;
+        _currentBrief = null;
+      });
+    }
     final weather = context.read<WeatherService>();
     final brief = await _briefSvc.getBriefing(route: route, weather: weather);
     if (mounted) {
@@ -231,8 +241,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
       _annotationToRoute.clear();
       for (int i = 0; i < loop.segments.length; i++) {
         final seg = loop.segments[i];
-        final coords =
-            seg.nodes.map((n) => mbx.Position(n.lng, n.lat)).toList();
+        final coords = seg.nodes
+            .map((n) => mbx.Position(n.lng, n.lat))
+            .toList();
         final diffColor = _routeDiffColorInt(seg.difficultyLevel);
         final poly = await _polyManager!.create(
           mbx.PolylineAnnotationOptions(
@@ -276,7 +287,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
         _mapController?.flyTo(
           mbx.CameraOptions(
             center: mbx.Point(
-              coordinates: mbx.Position(sel.centerPoint.lng, sel.centerPoint.lat),
+              coordinates: mbx.Position(
+                sel.centerPoint.lng,
+                sel.centerPoint.lat,
+              ),
             ),
             zoom: 11.5,
             pitch: 0,
@@ -295,14 +309,19 @@ class _RoutesScreenState extends State<RoutesScreen> {
 
   Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
     _styleLoaded = true;
-    _polyManager =
-        await _mapController?.annotations.createPolylineAnnotationManager();
-    _polyManager?.addOnPolylineAnnotationClickListener(
-      _PolylineClickHandler(_annotationToRoute, (route) {
-        context.read<RouteService>().selectRoute(route);
-      }),
+    _polyManager = await _mapController?.annotations
+        .createPolylineAnnotationManager();
+    _polyTapEvents?.cancel();
+    _polyTapEvents = _polyManager?.tapEvents(
+      onTap: (annotation) {
+        final route = _annotationToRoute[annotation.id];
+        if (route != null && mounted) {
+          context.read<RouteService>().selectRoute(route);
+        }
+      },
     );
     await _applyCustomStyle();
+    if (!mounted) return;
     final svc = context.read<RouteService>();
     if (svc.routes.isNotEmpty) {
       await _drawRoutes(svc.routes, svc.selectedRoute);
@@ -320,8 +339,11 @@ class _RoutesScreenState extends State<RoutesScreen> {
       'lightPreset': 'night',
     }.entries) {
       try {
-        await map.style
-            .setStyleImportConfigProperty('basemap', entry.key, entry.value);
+        await map.style.setStyleImportConfigProperty(
+          'basemap',
+          entry.key,
+          entry.value,
+        );
       } catch (_) {}
     }
   }
@@ -337,8 +359,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
       final selectedList = routes.where((r) => r.id == selected?.id).toList();
       for (final route in [...unselected, ...selectedList]) {
         final isSel = route.id == selected?.id;
-        final coords =
-            route.nodes.map((n) => mbx.Position(n.lng, n.lat)).toList();
+        final coords = route.nodes
+            .map((n) => mbx.Position(n.lng, n.lat))
+            .toList();
         final diffColor = _routeDiffColorInt(route.difficultyLevel);
 
         // I. 히트맵 모드: 선택 루트는 세그먼트별 컬러로 그림
@@ -356,9 +379,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
           ),
         );
         _polylines.add(poly);
-        if (poly.id != null) {
-          _annotationToRoute[poly.id!] = route;
-        }
+        _annotationToRoute[poly.id] = route;
         if (isSel) {
           final overlay = await _polyManager!.create(
             mbx.PolylineAnnotationOptions(
@@ -444,38 +465,61 @@ class _RoutesScreenState extends State<RoutesScreen> {
       if (svc == null) return;
       // 비선택 루트
       for (final route in svc.routes.where((r) => r.id != base.id)) {
-        final coords = route.nodes.map((n) => mbx.Position(n.lng, n.lat)).toList();
-        await _polyManager!.create(mbx.PolylineAnnotationOptions(
-          geometry: mbx.LineString(coordinates: coords),
-          lineColor: _routeDiffColorInt(route.difficultyLevel),
-          lineWidth: 4.5, lineOpacity: 0.4,
-        ));
+        final coords = route.nodes
+            .map((n) => mbx.Position(n.lng, n.lat))
+            .toList();
+        await _polyManager!.create(
+          mbx.PolylineAnnotationOptions(
+            geometry: mbx.LineString(coordinates: coords),
+            lineColor: _routeDiffColorInt(route.difficultyLevel),
+            lineWidth: 4.5,
+            lineOpacity: 0.4,
+          ),
+        );
       }
-      final allCoords = base.nodes.map((n) => mbx.Position(n.lng, n.lat)).toList();
+      final allCoords = base.nodes
+          .map((n) => mbx.Position(n.lng, n.lat))
+          .toList();
       // 잘려나갈 앞 부분 (회색)
       if (s > 1) {
-        await _polyManager!.create(mbx.PolylineAnnotationOptions(
-          geometry: mbx.LineString(coordinates: allCoords.sublist(0, s + 1)),
-          lineColor: 0xFF444444, lineWidth: 4.0, lineOpacity: 0.5,
-        ));
+        await _polyManager!.create(
+          mbx.PolylineAnnotationOptions(
+            geometry: mbx.LineString(coordinates: allCoords.sublist(0, s + 1)),
+            lineColor: 0xFF444444,
+            lineWidth: 4.0,
+            lineOpacity: 0.5,
+          ),
+        );
       }
       // 살아남는 구간 (흰색+컬러)
       final kept = allCoords.sublist(s, e);
       final diffColor = _routeDiffColorInt(base.difficultyLevel);
-      await _polyManager!.create(mbx.PolylineAnnotationOptions(
-        geometry: mbx.LineString(coordinates: kept),
-        lineColor: 0xFFFFFFFF, lineWidth: 7.0, lineOpacity: 1.0,
-      ));
-      await _polyManager!.create(mbx.PolylineAnnotationOptions(
-        geometry: mbx.LineString(coordinates: kept),
-        lineColor: diffColor, lineWidth: 4.5, lineOpacity: 1.0,
-      ));
+      await _polyManager!.create(
+        mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: kept),
+          lineColor: 0xFFFFFFFF,
+          lineWidth: 7.0,
+          lineOpacity: 1.0,
+        ),
+      );
+      await _polyManager!.create(
+        mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: kept),
+          lineColor: diffColor,
+          lineWidth: 4.5,
+          lineOpacity: 1.0,
+        ),
+      );
       // 잘려나갈 뒷 부분 (회색)
       if (e < allCoords.length - 1) {
-        await _polyManager!.create(mbx.PolylineAnnotationOptions(
-          geometry: mbx.LineString(coordinates: allCoords.sublist(e)),
-          lineColor: 0xFF444444, lineWidth: 4.0, lineOpacity: 0.5,
-        ));
+        await _polyManager!.create(
+          mbx.PolylineAnnotationOptions(
+            geometry: mbx.LineString(coordinates: allCoords.sublist(e)),
+            lineColor: 0xFF444444,
+            lineWidth: 4.0,
+            lineOpacity: 0.5,
+          ),
+        );
       }
     } finally {
       _isDrawing = false;
@@ -484,15 +528,16 @@ class _RoutesScreenState extends State<RoutesScreen> {
 
   // ── 루트 편집 화면 진입 ───────────────────────────────────────────
   Future<void> _openRouteEdit(RevvRoute route, RouteService svc) async {
-    final result = await Navigator.push<({RevvRoute trimmed, RevvRoute branch})>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => RouteEditScreen(
-          route: route,
-          otherRoutes: svc.routes.where((r) => r.id != route.id).toList(),
-        ),
-      ),
-    );
+    final result =
+        await Navigator.push<({RevvRoute trimmed, RevvRoute branch})>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => RouteEditScreen(
+              route: route,
+              otherRoutes: svc.routes.where((r) => r.id != route.id).toList(),
+            ),
+          ),
+        );
     if (result == null || !mounted) return;
     // 트리밍된 루트 선택 + 분기 루트를 체인에 추가
     svc.selectRoute(result.trimmed);
@@ -560,7 +605,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
       final lat2 = b.lat * math.pi / 180;
       final dLng = (b.lng - a.lng) * math.pi / 180;
       final y = math.sin(dLng) * math.cos(lat2);
-      final x = math.cos(lat1) * math.sin(lat2) -
+      final x =
+          math.cos(lat1) * math.sin(lat2) -
           math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
       return math.atan2(y, x) * 180 / math.pi;
     }
@@ -570,7 +616,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
       return d > 180 ? 360 - d : d;
     }
 
-    int _color(double rate) {
+    int colorForRate(double rate) {
       if (rate < 30) return 0xFF3B82F6;
       if (rate < 100) return 0xFF22C55E;
       if (rate < 200) return 0xFFF59E0B;
@@ -584,23 +630,27 @@ class _RoutesScreenState extends State<RoutesScreen> {
 
     Future<void> flush() async {
       if (curGroup.length >= 2 && curColor != null) {
-        await _polyManager!.create(mbx.PolylineAnnotationOptions(
-          geometry: mbx.LineString(coordinates: curGroup),
-          lineColor: curColor!,
-          lineWidth: 5.5,
-          lineOpacity: 1.0,
-        ));
+        await _polyManager!.create(
+          mbx.PolylineAnnotationOptions(
+            geometry: mbx.LineString(coordinates: curGroup),
+            lineColor: curColor,
+            lineWidth: 5.5,
+            lineOpacity: 1.0,
+          ),
+        );
       }
     }
 
     for (int i = 0; i < nodes.length - 2; i++) {
       final d = RevvRoute.haversineKm(nodes[i], nodes[i + 1]);
       final rate = d > 0.0001
-          ? diff(bear(nodes[i], nodes[i + 1]),
-                  bear(nodes[i + 1], nodes[i + 2])) /
-              d
+          ? diff(
+                  bear(nodes[i], nodes[i + 1]),
+                  bear(nodes[i + 1], nodes[i + 2]),
+                ) /
+                d
           : 0.0;
-      final c = _color(rate);
+      final c = colorForRate(rate);
       if (curColor == null) {
         curColor = c;
         curGroup = [mbx.Position(nodes[i].lng, nodes[i].lat)];
@@ -650,15 +700,14 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   styleUri: MapboxService.cruiseStyle,
                   cameraOptions: mbx.CameraOptions(
                     center: mbx.Point(
-                        coordinates: mbx.Position(
-                          initialCenter?.lng ?? 0.0,
-                          initialCenter?.lat ?? 0.0,
-                        )),
+                      coordinates: mbx.Position(
+                        initialCenter?.lng ?? 0.0,
+                        initialCenter?.lat ?? 0.0,
+                      ),
+                    ),
                     zoom: 10.0,
                     pitch: 0,
                   ),
-                  androidHostingMode:
-                      mbx.AndroidPlatformViewHostingMode.TLHC_VD,
                   textureView: true,
                   onMapCreated: _onMapCreated,
                   onStyleLoadedListener: _onStyleLoaded,
@@ -675,7 +724,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
             child: Row(
               children: [
                 // 뒤로가기
-                _TapScale(
+                RoutesTapScale(
                   onTap: () => Navigator.pop(context),
                   child: ClipOval(
                     child: BackdropFilter(
@@ -687,10 +736,14 @@ class _RoutesScreenState extends State<RoutesScreen> {
                           color: Colors.black.withValues(alpha: 0.78),
                           shape: BoxShape.circle,
                           border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.25)),
+                            color: Colors.white.withValues(alpha: 0.25),
+                          ),
                         ),
-                        child: const Icon(Icons.arrow_back_ios_new_rounded,
-                            size: 15, color: Colors.white),
+                        child: const Icon(
+                          Icons.arrow_back_ios_new_rounded,
+                          size: 15,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
@@ -709,7 +762,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                     ),
                     child: Row(
                       children: [
-                        _TabBtn(
+                        RoutesTabButton(
                           label: 'ROUTES',
                           active: _activeTab == 0,
                           onTap: () {
@@ -721,7 +774,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                             }
                           },
                         ),
-                        _TabBtn(
+                        RoutesTabButton(
                           label: 'LOOP',
                           active: _activeTab == 1,
                           onTap: () {
@@ -739,7 +792,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                 ),
                 const SizedBox(width: 10),
                 // 루트 wizard
-                _TapScale(
+                RoutesTapScale(
                   onTap: () => RouteWizardSheet.show(context),
                   child: Container(
                     width: 40,
@@ -748,10 +801,14 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       color: Colors.black.withValues(alpha: 0.62),
                       shape: BoxShape.circle,
                       border: Border.all(
-                          color: AppColors.red.withValues(alpha: 0.5)),
+                        color: AppColors.red.withValues(alpha: 0.5),
+                      ),
                     ),
-                    child: const Icon(Icons.add_road_rounded,
-                        size: 18, color: AppColors.red),
+                    child: const Icon(
+                      Icons.add_road_rounded,
+                      size: 18,
+                      color: AppColors.red,
+                    ),
                   ),
                 ),
               ],
@@ -767,16 +824,19 @@ class _RoutesScreenState extends State<RoutesScreen> {
               builder: (_, svc, __) {
                 if (svc.isLoadingInitial) return const SizedBox.shrink();
                 return Center(
-                  child: _TapScale(
+                  child: RoutesTapScale(
                     onTap: _searchHere,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 7),
+                        horizontal: 14,
+                        vertical: 7,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.75),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                            color: AppColors.red.withValues(alpha: 0.6)),
+                          color: AppColors.red.withValues(alpha: 0.6),
+                        ),
                         boxShadow: [
                           BoxShadow(
                             color: AppColors.red.withValues(alpha: 0.25),
@@ -787,8 +847,11 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.search_rounded,
-                              size: 13, color: AppColors.red),
+                          const Icon(
+                            Icons.search_rounded,
+                            size: 13,
+                            color: AppColors.red,
+                          ),
                           const SizedBox(width: 6),
                           Text(
                             '이 지역 검색',
@@ -834,14 +897,16 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         key: const ValueKey('loading'),
                         child: IgnorePointer(
                           child: Container(
-                            color: Colors.black.withOpacity(0.45),
+                            color: Colors.black.withValues(alpha: 0.45),
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Text(
                                   'REVV가 주변 루트를 분석하고 있어요',
                                   style: GoogleFonts.rajdhani(
-                                      fontSize: 14, color: Colors.white),
+                                    fontSize: 14,
+                                    color: Colors.white,
+                                  ),
                                 ),
                                 const SizedBox(height: 16),
                                 const SizedBox(
@@ -874,12 +939,17 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   decoration: BoxDecoration(
                     color: AppColors.panel,
                     border: Border.all(
-                        color: AppColors.red.withOpacity(0.5)),
+                      color: AppColors.red.withValues(alpha: 0.5),
+                    ),
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: Text(svc.errorMessage!,
-                      style: GoogleFonts.rajdhani(
-                          fontSize: 13, color: Colors.white)),
+                  child: Text(
+                    svc.errorMessage!,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 13,
+                      color: Colors.white,
+                    ),
+                  ),
                 ),
               );
             },
@@ -900,11 +970,16 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 7,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.72),
                         borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.08),
+                        ),
                       ),
                       child: Text(
                         svc.searchStatusLabel,
@@ -918,11 +993,16 @@ class _RoutesScreenState extends State<RoutesScreen> {
                     if (statusMessage != null) const SizedBox(height: 8),
                     if (statusMessage != null)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 7,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.black.withValues(alpha: 0.72),
                           borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -936,7 +1016,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
                                   color: AppColors.red,
                                 ),
                               ),
-                            if (svc.isRefreshingDiversity) const SizedBox(width: 8),
+                            if (svc.isRefreshingDiversity)
+                              const SizedBox(width: 8),
                             Text(
                               statusMessage,
                               style: GoogleFonts.rajdhani(
@@ -965,15 +1046,21 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   if (svc.isLoadingInitial) {
                     return const Center(
                       child: SizedBox(
-                        width: 16, height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.red),
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.red,
+                        ),
                       ),
                     );
                   }
                   final total = svc.routes.length;
                   final idx = total == 0
                       ? 0
-                      : svc.routes.indexWhere((r) => r.id == svc.selectedRoute?.id).clamp(0, total - 1);
+                      : svc.routes
+                            .indexWhere((r) => r.id == svc.selectedRoute?.id)
+                            .clamp(0, total - 1);
                   final selected = svc.selectedRoute;
                   if (total == 0) {
                     return Container(
@@ -981,7 +1068,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       decoration: BoxDecoration(
                         color: const Color(0xF0141416),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.08),
+                        ),
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -1012,8 +1101,11 @@ class _RoutesScreenState extends State<RoutesScreen> {
                     behavior: HitTestBehavior.translucent,
                     onHorizontalDragEnd: (details) {
                       final v = details.primaryVelocity ?? 0;
-                      if (v < -200) _nextRoute(svc);
-                      else if (v > 200) _prevRoute(svc);
+                      if (v < -200) {
+                        _nextRoute(svc);
+                      } else if (v > 200) {
+                        _prevRoute(svc);
+                      }
                     },
                     child: _SwipeRouteCard(
                       selected: selected,
@@ -1022,29 +1114,48 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       searchRadiusKm: svc.searchRadiusKm,
                       connectingCount: svc.connectingRoutes.length,
                       totalChainKm:
-                          svc.selectedCompositeRoute?.totalDistanceKm ?? (selected?.distanceKm ?? 0),
+                          svc.selectedCompositeRoute?.totalDistanceKm ??
+                          (selected?.distanceKm ?? 0),
                       heatmapActive: _heatmapMode,
-                      brief: _currentBrief,
-                      briefLoading: _briefLoading,
-                      onSaved: selected != null ? () => _nameOnSave(selected) : null,
+                      onSaved: selected != null
+                          ? () => _nameOnSave(selected)
+                          : null,
                       onGo: () => svc.requestSprint(
                         route: svc.selectedCompositeRoute?.toRouteProjection(),
                       ),
                       onClose: () => svc.deselectRoute(),
-                      onTrim: selected != null ? () => _startTrim(selected) : null,
-                      onReverse: selected != null ? () => _reverseRoute(selected) : null,
-                      onFindSimilar: selected != null ? () => _findSimilar(selected) : null,
-                      onChain: selected != null ? () => _showChainPicker(selected) : null,
-                      onHeatmap: selected != null ? () => _toggleHeatmap(selected) : null,
-                      onEdit: selected != null ? () => _openRouteEdit(selected, svc) : null,
-                      onExclude: selected != null ? () => svc.excludeRoute(selected) : null,
+                      onTrim: selected != null
+                          ? () => _startTrim(selected)
+                          : null,
+                      onReverse: selected != null
+                          ? () => _reverseRoute(selected)
+                          : null,
+                      onFindSimilar: selected != null
+                          ? () => _findSimilar(selected)
+                          : null,
+                      onChain: selected != null
+                          ? () => _showChainPicker(selected)
+                          : null,
+                      onHeatmap: selected != null
+                          ? () => _toggleHeatmap(selected)
+                          : null,
+                      onEdit: selected != null
+                          ? () => _openRouteEdit(selected, svc)
+                          : null,
+                      onExclude: selected != null
+                          ? () => svc.excludeRoute(selected)
+                          : null,
                       onPreview: selected != null
                           ? () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => RoutePreviewScreen(route: selected),
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => RouteDetailScreen(
+                                  routeId: selected.id,
+                                  brief: _currentBrief,
+                                  briefLoading: _briefLoading,
                                 ),
-                              )
+                              ),
+                            )
                           : null,
                     ),
                   );
@@ -1058,7 +1169,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
               bottom: MediaQuery.of(context).padding.bottom + 8,
               left: 12,
               right: 12,
-              child: _LoopTabPanel(
+              child: RoutesLoopTabPanel(
                 loopSvc: _loopSvc,
                 loopIdx: _loopIdx,
                 loopFromHome: _loopFromHome,
@@ -1131,8 +1242,6 @@ class _SwipeRouteCard extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onExclude;
   final VoidCallback? onPreview;
-  final String? brief;
-  final bool briefLoading;
   final VoidCallback? onSaved; // 북마크 저장 시 (저장→해제 아님)
 
   const _SwipeRouteCard({
@@ -1153,8 +1262,6 @@ class _SwipeRouteCard extends StatelessWidget {
     this.onEdit,
     this.onExclude,
     this.onPreview,
-    this.brief,
-    this.briefLoading = false,
     this.onSaved,
   });
 
@@ -1164,10 +1271,6 @@ class _SwipeRouteCard extends StatelessWidget {
     final diffColor = route != null
         ? _routeDiffColor(route.difficultyLevel)
         : AppColors.red;
-    final savedSvc = context.watch<SavedRouteService>();
-    final isSaved = route != null && savedSvc.isSaved(route.id);
-    final recommendation =
-        route != null ? buildRouteRecommendation(route) : null;
 
     return AnimatedSize(
       duration: const Duration(milliseconds: 220),
@@ -1177,12 +1280,16 @@ class _SwipeRouteCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0xF0141416),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1.2),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.08),
+            width: 1.2,
+          ),
           boxShadow: [
             BoxShadow(
-                color: Colors.black.withValues(alpha: 0.6),
-                blurRadius: 20,
-                offset: const Offset(0, 6)),
+              color: Colors.black.withValues(alpha: 0.6),
+              blurRadius: 20,
+              offset: const Offset(0, 6),
+            ),
           ],
         ),
         child: ClipRRect(
@@ -1195,13 +1302,14 @@ class _SwipeRouteCard extends StatelessWidget {
               Container(height: 3, color: diffColor.withValues(alpha: 0.75)),
               // ── 헤더: 카운터 + 반경 버튼 ──
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 child: Row(
                   children: [
-                    const Icon(Icons.chevron_left_rounded, size: 16, color: Colors.white38),
-                    const SizedBox(width: 2),
                     Text(
-                      total == 0 ? '— / —' : '${displayIdx + 1} / $total',
+                      '추천 루트',
                       style: GoogleFonts.orbitron(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -1209,16 +1317,47 @@ class _SwipeRouteCard extends StatelessWidget {
                         letterSpacing: 1,
                       ),
                     ),
-                    const SizedBox(width: 2),
-                    const Icon(Icons.chevron_right_rounded, size: 16, color: Colors.white38),
-                    const Spacer(),
-                    _RadiusBtn(km: 30, active: searchRadiusKm == 30),
-                    _RadiusBtn(km: 50, active: searchRadiusKm == 50),
-                    _RadiusBtn(km: 100, active: searchRadiusKm == 100),
                     const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Text(
+                        total == 0 ? '— / —' : '${displayIdx + 1} / $total',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '탐색 반경',
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textHint,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    RoutesRadiusButton(km: 30, active: searchRadiusKm == 30),
+                    RoutesRadiusButton(km: 50, active: searchRadiusKm == 50),
+                    RoutesRadiusButton(km: 100, active: searchRadiusKm == 100),
+                    const SizedBox(width: 6),
                     GestureDetector(
                       onTap: () => context.read<RouteService>().shuffleRoutes(),
-                      child: const Icon(Icons.shuffle_rounded, size: 15, color: AppColors.textHint),
+                      child: const Icon(
+                        Icons.refresh_rounded,
+                        size: 15,
+                        color: AppColors.textHint,
+                      ),
                     ),
                   ],
                 ),
@@ -1229,339 +1368,42 @@ class _SwipeRouteCard extends StatelessWidget {
                 transitionBuilder: (child, anim) => FadeTransition(
                   opacity: anim,
                   child: SlideTransition(
-                    position: Tween(begin: const Offset(0, 0.06), end: Offset.zero)
-                        .animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+                    position:
+                        Tween(
+                          begin: const Offset(0, 0.06),
+                          end: Offset.zero,
+                        ).animate(
+                          CurvedAnimation(
+                            parent: anim,
+                            curve: Curves.easeOutCubic,
+                          ),
+                        ),
                     child: child,
                   ),
                 ),
                 child: route == null
                     ? const SizedBox.shrink(key: ValueKey('no-route'))
-                    : Column(
-                        key: ValueKey('route-${route.id}'),
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                Container(height: 1, color: Colors.white.withValues(alpha: 0.07)),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 10, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 루트 이름 + 북마크 + 닫기
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              recommendation?.title ?? route.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.rajdhani(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                          _TapScale(
-                            onTap: () {
-                              context.read<SavedRouteService>().toggle(route);
-                              if (!isSaved) onSaved?.call();
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.all(4),
-                              child: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 200),
-                                transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
-                                child: Icon(
-                                  isSaved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-                                  key: ValueKey(isSaved),
-                                  size: 18,
-                                  color: isSaved ? AppColors.red : Colors.white38,
-                                ),
-                              ),
-                            ),
-                          ),
-                          _TapScale(
-                            onTap: onClose,
-                            child: const Padding(
-                              padding: EdgeInsets.all(4),
-                              child: Icon(Icons.close, size: 16, color: Colors.white54),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        recommendation?.reason ?? '지금 달리기 좋은 루트예요.',
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 15,
-                          height: 1.35,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white.withValues(alpha: 0.76),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _TooltipChip(icon: Icons.straighten, label: route.distanceDisplay),
-                          _TooltipChip(icon: Icons.timer_outlined, label: route.durationDisplay),
-                          _TooltipChip(icon: Icons.route_rounded, label: route.difficultyLabel),
-                          if (route.curveStyle != 'MIXED')
-                            _TooltipChip(icon: Icons.turn_right_rounded, label: route.curveStyle),
-                          if (route.isLoop)
-                            _TooltipChip(icon: Icons.loop_rounded, label: 'LOOP'),
-                        ],
-                      ),
-                      // AI 루트 브리핑
-                      if (briefLoading || brief != null) ...[
-                        const SizedBox(height: 6),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.04),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
-                          ),
-                          child: briefLoading
-                              ? Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 9, height: 9,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 1.2, color: AppColors.red),
-                                    ),
-                                    const SizedBox(width: 7),
-                                    Text('추천 이유 정리 중...',
-                                        style: GoogleFonts.rajdhani(
-                                            fontSize: 12, color: Colors.white38)),
-                                  ],
-                                )
-                              : _BriefingText(brief!),
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      // CHAIN + GO
-                      Row(
-                        children: [
-                          if (connectingCount > 0)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: AppColors.surface,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.white12),
-                              ),
-                              child: Text(
-                                '+$connectingCount  ${totalChainKm.toStringAsFixed(0)}km',
-                                style: GoogleFonts.rajdhani(
-                                    fontSize: 12, fontWeight: FontWeight.w700,
-                                    color: AppColors.textSecondary),
-                              ),
-                            ),
-                          const Spacer(),
-                          _TapScale(
-                            onTap: () {
-                              showModalBottomSheet(
-                                context: context,
-                                backgroundColor: Colors.transparent,
-                                builder: (_) => _AdvancedRouteSheet(
-                                  onPreview: onPreview,
-                                  onReverse: onReverse,
-                                  onFindSimilar: onFindSimilar,
-                                  onChain: onChain,
-                                  onHeatmap: onHeatmap,
-                                  onEdit: onEdit,
-                                  onTrim: onTrim,
-                                  onExclude: onExclude,
-                                ),
-                              );
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                              decoration: BoxDecoration(
-                                color: Colors.white10,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.white24),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.tune_rounded, size: 15, color: Colors.white70),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '고급 옵션',
-                                    style: GoogleFonts.rajdhani(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          _TapScale(
-                            onTap: onGo,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: AppColors.red,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                recommendation?.primaryCta ?? '이 루트로 달리기',
-                                style: GoogleFonts.rajdhani(
-                                  fontSize: 14, fontWeight: FontWeight.w800,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                        ],
+                    : RoutesSelectionPanel(
+                        route: route,
+                        diffColor: diffColor,
+                        connectingCount: connectingCount,
+                        totalChainKm: totalChainKm,
+                        onGo: onGo,
+                        onClose: onClose,
+                        onTrim: onTrim,
+                        onReverse: onReverse,
+                        onFindSimilar: onFindSimilar,
+                        onChain: onChain,
+                        onHeatmap: onHeatmap,
+                        onEdit: onEdit,
+                        onExclude: onExclude,
+                        onPreview: onPreview,
+                        onSaved: onSaved,
                       ),
               ),
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-// 콤팩트 아이콘 버튼 (라벨 없음)
-class _IconBtn extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final String tooltip;
-  final bool active;
-  final bool isDestructive;
-  const _IconBtn({
-    required this.icon,
-    required this.onTap,
-    required this.tooltip,
-    this.active = false,
-    this.isDestructive = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = isDestructive
-        ? AppColors.red
-        : active
-            ? AppColors.red
-            : Colors.white54;
-    return _TapScale(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        width: 36,
-        height: 32,
-        margin: const EdgeInsets.only(right: 6),
-        decoration: BoxDecoration(
-          color: (active || isDestructive)
-              ? color.withValues(alpha: 0.15)
-              : Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: (active || isDestructive)
-                ? color.withValues(alpha: 0.5)
-                : Colors.white12,
-          ),
-        ),
-        child: Icon(icon, size: 15, color: color),
-      ),
-    );
-  }
-}
-
-class _AdvancedRouteSheet extends StatelessWidget {
-  final VoidCallback? onPreview;
-  final VoidCallback? onReverse;
-  final VoidCallback? onFindSimilar;
-  final VoidCallback? onChain;
-  final VoidCallback? onHeatmap;
-  final VoidCallback? onEdit;
-  final VoidCallback? onTrim;
-  final VoidCallback? onExclude;
-
-  const _AdvancedRouteSheet({
-    this.onPreview,
-    this.onReverse,
-    this.onFindSimilar,
-    this.onChain,
-    this.onHeatmap,
-    this.onEdit,
-    this.onTrim,
-    this.onExclude,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final items = <({IconData icon, String label, VoidCallback? onTap, bool destructive})>[
-      (icon: Icons.route_rounded, label: '미리 보기', onTap: onPreview, destructive: false),
-      (icon: Icons.swap_horiz_rounded, label: '방향 반전', onTap: onReverse, destructive: false),
-      (icon: Icons.travel_explore_rounded, label: '유사 루트 찾기', onTap: onFindSimilar, destructive: false),
-      (icon: Icons.add_link_rounded, label: '체인 연결', onTap: onChain, destructive: false),
-      (icon: Icons.thermostat_rounded, label: '히트맵 보기', onTap: onHeatmap, destructive: false),
-      (icon: Icons.edit_road_rounded, label: '루트 편집', onTap: onEdit, destructive: false),
-      (icon: Icons.content_cut_rounded, label: '구간 트림', onTap: onTrim, destructive: false),
-      (icon: Icons.block_rounded, label: '이 루트 제외', onTap: onExclude, destructive: true),
-    ].where((item) => item.onTap != null).toList();
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        16,
-        20,
-        MediaQuery.of(context).padding.bottom + 20,
-      ),
-      decoration: const BoxDecoration(
-        color: Color(0xFF131315),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.white24,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 18),
-          ...items.map(
-            (item) => ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(
-                item.icon,
-                color: item.destructive ? AppColors.red : Colors.white70,
-              ),
-              title: Text(
-                item.label,
-                style: GoogleFonts.rajdhani(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: item.destructive ? AppColors.red : Colors.white,
-                ),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                item.onTap?.call();
-              },
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -1589,7 +1431,8 @@ class _ChainPickerSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.55),
+        maxHeight: MediaQuery.of(context).size.height * 0.55,
+      ),
       decoration: const BoxDecoration(
         color: Color(0xFF141416),
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -1600,7 +1443,8 @@ class _ChainPickerSheet extends StatelessWidget {
         children: [
           // 핸들
           Container(
-            width: 36, height: 4,
+            width: 36,
+            height: 4,
             margin: const EdgeInsets.only(top: 10, bottom: 12),
             decoration: BoxDecoration(
               color: Colors.white24,
@@ -1611,23 +1455,30 @@ class _ChainPickerSheet extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
             child: Row(
               children: [
-                const Icon(Icons.add_link_rounded,
-                    size: 14, color: AppColors.red),
+                const Icon(
+                  Icons.add_link_rounded,
+                  size: 14,
+                  color: AppColors.red,
+                ),
                 const SizedBox(width: 8),
-                Text('체인 연결',
-                    style: GoogleFonts.rajdhani(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        letterSpacing: 1)),
+                Text(
+                  '체인 연결',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 1,
+                  ),
+                ),
                 const Spacer(),
                 if (chained.isNotEmpty)
                   Text(
                     '총 ${(selected.distanceKm + chained.fold<double>(0, (s, r) => s + r.distanceKm)).toStringAsFixed(0)}km',
                     style: GoogleFonts.orbitron(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.red),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.red,
+                    ),
                   ),
               ],
             ),
@@ -1636,7 +1487,8 @@ class _ChainPickerSheet extends StatelessWidget {
           Flexible(
             child: ListView.builder(
               padding: EdgeInsets.only(
-                  bottom: MediaQuery.of(context).padding.bottom + 8),
+                bottom: MediaQuery.of(context).padding.bottom + 8,
+              ),
               itemCount: allRoutes.length,
               itemBuilder: (_, i) {
                 final r = allRoutes[i];
@@ -1644,31 +1496,40 @@ class _ChainPickerSheet extends StatelessWidget {
                 final diffColor = _routeDiffColor(r.difficultyLevel);
                 return ListTile(
                   dense: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 2,
+                  ),
                   leading: Container(
-                    width: 4, height: 36,
+                    width: 4,
+                    height: 36,
                     decoration: BoxDecoration(
                       color: diffColor,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
-                  title: Text(r.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.rajdhani(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white)),
+                  title: Text(
+                    r.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
                   subtitle: Text(
-                      '${r.distanceDisplay}  ·  ${r.difficultyLabel}',
-                      style: GoogleFonts.rajdhani(
-                          fontSize: 10, color: AppColors.textHint)),
+                    '${r.distanceDisplay}  ·  ${r.difficultyLabel}',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 10,
+                      color: AppColors.textHint,
+                    ),
+                  ),
                   trailing: GestureDetector(
-                    onTap: () =>
-                        isChained ? onRemove(r.id) : onAdd(r),
+                    onTap: () => isChained ? onRemove(r.id) : onAdd(r),
                     child: Container(
-                      width: 32, height: 32,
+                      width: 32,
+                      height: 32,
                       decoration: BoxDecoration(
                         color: isChained
                             ? AppColors.red.withValues(alpha: 0.15)
@@ -1691,35 +1552,6 @@ class _ChainPickerSheet extends StatelessWidget {
               },
             ),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TooltipChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  const _TooltipChip({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 10, color: AppColors.textHint),
-          const SizedBox(width: 3),
-          Text(label,
-              style: GoogleFonts.rajdhani(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textSecondary)),
         ],
       ),
     );
@@ -1751,11 +1583,14 @@ class _TrimPanel extends StatelessWidget {
     final kept = (trimEnd - trimStart) * route.distanceKm;
     return Container(
       padding: EdgeInsets.fromLTRB(
-          16, 14, 16, MediaQuery.of(context).padding.bottom + 14),
+        16,
+        14,
+        16,
+        MediaQuery.of(context).padding.bottom + 14,
+      ),
       decoration: BoxDecoration(
         color: const Color(0xF2141416),
-        border: const Border(
-            top: BorderSide(color: AppColors.divider)),
+        border: const Border(top: BorderSide(color: AppColors.divider)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1763,24 +1598,29 @@ class _TrimPanel extends StatelessWidget {
           // 헤더
           Row(
             children: [
-              const Icon(Icons.content_cut_rounded,
-                  size: 14, color: AppColors.red),
+              const Icon(
+                Icons.content_cut_rounded,
+                size: 14,
+                color: AppColors.red,
+              ),
               const SizedBox(width: 8),
               Text(
                 '구간 조절',
                 style: GoogleFonts.rajdhani(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: 1),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  letterSpacing: 1,
+                ),
               ),
               const Spacer(),
               Text(
                 '${kept.toStringAsFixed(1)} km',
                 style: GoogleFonts.orbitron(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.red),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.red,
+                ),
               ),
             ],
           ),
@@ -1793,19 +1633,21 @@ class _TrimPanel extends StatelessWidget {
               thumbColor: Colors.white,
               overlayColor: AppColors.red.withValues(alpha: 0.2),
               trackHeight: 3,
-              thumbShape:
-                  const RoundSliderThumbShape(enabledThumbRadius: 8),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
             ),
             child: Column(
               children: [
                 // 시작 슬라이더
                 Row(
                   children: [
-                    Text('시작',
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 10,
-                            color: AppColors.textHint,
-                            letterSpacing: 1)),
+                    Text(
+                      '시작',
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 10,
+                        color: AppColors.textHint,
+                        letterSpacing: 1,
+                      ),
+                    ),
                     Expanded(
                       child: Slider(
                         value: trimStart,
@@ -1817,18 +1659,23 @@ class _TrimPanel extends StatelessWidget {
                     Text(
                       '${(trimStart * route.distanceKm).toStringAsFixed(1)}km',
                       style: GoogleFonts.rajdhani(
-                          fontSize: 10, color: AppColors.textSecondary),
+                        fontSize: 10,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
                 // 끝 슬라이더
                 Row(
                   children: [
-                    Text('  끝',
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 10,
-                            color: AppColors.textHint,
-                            letterSpacing: 1)),
+                    Text(
+                      '  끝',
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 10,
+                        color: AppColors.textHint,
+                        letterSpacing: 1,
+                      ),
+                    ),
                     Expanded(
                       child: Slider(
                         value: trimEnd,
@@ -1840,7 +1687,9 @@ class _TrimPanel extends StatelessWidget {
                     Text(
                       '${(trimEnd * route.distanceKm).toStringAsFixed(1)}km',
                       style: GoogleFonts.rajdhani(
-                          fontSize: 10, color: AppColors.textSecondary),
+                        fontSize: 10,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -1862,11 +1711,14 @@ class _TrimPanel extends StatelessWidget {
                       border: Border.all(color: AppColors.divider),
                     ),
                     child: Center(
-                      child: Text('취소',
-                          style: GoogleFonts.rajdhani(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textSecondary)),
+                      child: Text(
+                        '취소',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1883,17 +1735,21 @@ class _TrimPanel extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                       boxShadow: [
                         BoxShadow(
-                            color: AppColors.red.withValues(alpha: 0.4),
-                            blurRadius: 8)
+                          color: AppColors.red.withValues(alpha: 0.4),
+                          blurRadius: 8,
+                        ),
                       ],
                     ),
                     child: Center(
-                      child: Text('이 구간으로 설정',
-                          style: GoogleFonts.rajdhani(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                              letterSpacing: 0.5)),
+                      child: Text(
+                        '이 구간으로 설정',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -1903,534 +1759,5 @@ class _TrimPanel extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class _RadiusBtn extends StatelessWidget {
-  final int km;
-  final bool active;
-  const _RadiusBtn({required this.km, required this.active});
-
-  @override
-  Widget build(BuildContext context) {
-    return _TapScale(
-      onTap: () {
-        final loc = context.read<LocationService>();
-        context.read<RouteService>().changeRadius(km, loc.lat, loc.lng);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        margin: const EdgeInsets.only(left: 3),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        decoration: BoxDecoration(
-          color: active
-              ? AppColors.red.withValues(alpha: 0.9)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-              color: active ? AppColors.red : Colors.white24, width: 1),
-        ),
-        child: Text(
-          km == 30 ? 'NEAR' : km == 50 ? 'MID' : 'FAR',
-          style: GoogleFonts.rajdhani(
-            fontSize: 10,
-            fontWeight: FontWeight.w800,
-            color: active ? Colors.white : AppColors.textHint,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// AI 브리핑 텍스트 — 타이핑 애니메이션
-// ══════════════════════════════════════════════════════════════════
-class _BriefingText extends StatefulWidget {
-  final String text;
-  const _BriefingText(this.text);
-  @override
-  State<_BriefingText> createState() => _BriefingTextState();
-}
-
-class _BriefingTextState extends State<_BriefingText> {
-  String _displayed = '';
-  int _charIdx = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _startTyping();
-  }
-
-  @override
-  void didUpdateWidget(_BriefingText old) {
-    super.didUpdateWidget(old);
-    if (old.text != widget.text) {
-      _charIdx = 0;
-      _displayed = '';
-      _startTyping();
-    }
-  }
-
-  void _startTyping() {
-    Future.doWhile(() async {
-      if (!mounted) return false;
-      if (_charIdx >= widget.text.length) return false;
-      await Future.delayed(const Duration(milliseconds: 22));
-      if (!mounted) return false;
-      setState(() {
-        _charIdx++;
-        _displayed = widget.text.substring(0, _charIdx);
-      });
-      return true;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      _displayed,
-      style: GoogleFonts.rajdhani(
-        fontSize: 11.5,
-        color: Colors.white70,
-        height: 1.45,
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// 탭 스케일 피드백
-// ══════════════════════════════════════════════════════════════════
-class _TapScale extends StatefulWidget {
-  final Widget child;
-  final VoidCallback? onTap;
-  const _TapScale({required this.child, this.onTap});
-
-  @override
-  State<_TapScale> createState() => _TapScaleState();
-}
-
-class _TapScaleState extends State<_TapScale> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: widget.onTap,
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) => setState(() => _pressed = false),
-      onTapCancel: () => setState(() => _pressed = false),
-      child: AnimatedScale(
-        scale: _pressed ? 0.93 : 1.0,
-        duration: const Duration(milliseconds: 100),
-        curve: Curves.easeOut,
-        child: widget.child,
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// 탭 버튼 (ROUTES | LOOP)
-// ══════════════════════════════════════════════════════════════════
-class _TabBtn extends StatelessWidget {
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-  const _TabBtn({required this.label, required this.active, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: _TapScale(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          height: 40,
-          decoration: BoxDecoration(
-            color: active
-                ? AppColors.red.withValues(alpha: 0.85)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Center(
-            child: AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 200),
-              style: GoogleFonts.orbitron(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: active ? Colors.white : Colors.white38,
-                letterSpacing: 2.5,
-              ),
-              child: Text(label),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// LOOP 탭 하단 패널
-// ══════════════════════════════════════════════════════════════════
-class _LoopTabPanel extends StatelessWidget {
-  final LoopRouteService loopSvc;
-  final int loopIdx;
-  final bool loopFromHome;
-  final String? loopBrief;
-  final bool loopBriefLoading;
-  final void Function(int) onLoopSelected;
-  final void Function(bool) onHomeToggled;
-  final VoidCallback onGo;
-
-  const _LoopTabPanel({
-    required this.loopSvc,
-    required this.loopIdx,
-    required this.loopFromHome,
-    this.loopBrief,
-    this.loopBriefLoading = false,
-    required this.onLoopSelected,
-    required this.onHomeToggled,
-    required this.onGo,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final loops = loopSvc.loops;
-    final loop = loops.isNotEmpty ? loops[loopIdx.clamp(0, loops.length - 1)] : null;
-    final diffColor = loop != null ? _routeDiffColor(loop.difficultyLevel) : AppColors.red;
-
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-      alignment: Alignment.bottomCenter,
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xF0141416),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-              color: diffColor.withValues(alpha: 0.45), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.6),
-                blurRadius: 20,
-                offset: const Offset(0, 6)),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(15),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 난이도 컬러 밴드
-              Container(height: 3, color: diffColor),
-              // ── 헤더: 집 출발 토글 + 루프 선택 버튼 ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 10, 8),
-                child: Row(
-                  children: [
-                    const Icon(Icons.loop_rounded,
-                        size: 14, color: AppColors.red),
-                    const SizedBox(width: 6),
-                    Text(
-                      'LOOP',
-                      style: GoogleFonts.orbitron(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        letterSpacing: 2,
-                      ),
-                    ),
-                    const Spacer(),
-                    // 집에서 출발 토글
-                    GestureDetector(
-                      onTap: () => onHomeToggled(!loopFromHome),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: loopFromHome
-                              ? AppColors.red.withValues(alpha: 0.2)
-                              : Colors.white.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: loopFromHome
-                                ? AppColors.red.withValues(alpha: 0.6)
-                                : Colors.white12,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.home_rounded,
-                                size: 11,
-                                color: loopFromHome
-                                    ? AppColors.red
-                                    : Colors.white38),
-                            const SizedBox(width: 4),
-                            Text(
-                              '집 출발',
-                              style: GoogleFonts.rajdhani(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: loopFromHome
-                                    ? AppColors.red
-                                    : Colors.white38,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // ── 루프 목표 거리 선택 ──
-              if (loops.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-                  child: Row(
-                    children: List.generate(loops.length, (i) {
-                      final l = loops[i];
-                      final active = i == loopIdx;
-                      return GestureDetector(
-                        onTap: () => onLoopSelected(i),
-                        child: Container(
-                          margin: const EdgeInsets.only(right: 6),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: active
-                                ? AppColors.red.withValues(alpha: 0.85)
-                                : AppColors.surface,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: active
-                                  ? AppColors.red
-                                  : Colors.white12,
-                            ),
-                          ),
-                          child: Text(
-                            '${l.targetKm}km',
-                            style: GoogleFonts.orbitron(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: active
-                                  ? Colors.white
-                                  : AppColors.textHint,
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-              // ── 루프 상세 ──
-              if (loopSvc.isBuilding)
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(14, 4, 14, 14),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 12,
-                        height: 12,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 1.5, color: AppColors.red),
-                      ),
-                      SizedBox(width: 10),
-                      Text('루프 생성 중...',
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.white54)),
-                    ],
-                  ),
-                )
-              else if (loop != null) ...[
-                Container(height: 1, color: Colors.white.withValues(alpha: 0.07)),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 총 거리 + 세그먼트 수
-                      Row(
-                        children: [
-                          _TooltipChip(
-                              icon: Icons.route_rounded,
-                              label: loop.totalDisplay),
-                          const SizedBox(width: 8),
-                          _TooltipChip(
-                              icon: Icons.map_rounded,
-                              label:
-                                  '${loop.segments.length}개 구간'),
-                          const SizedBox(width: 8),
-                          _TooltipChip(
-                              icon: Icons.star_rounded,
-                              label: loop.scoreDisplay),
-                          const Spacer(),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: diffColor.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                  color:
-                                      diffColor.withValues(alpha: 0.4)),
-                            ),
-                            child: Text(
-                              loop.difficultyLabel,
-                              style: GoogleFonts.orbitron(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  color: diffColor,
-                                  letterSpacing: 1),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      // 세그먼트 이름 목록 (최대 3개)
-                      ...loop.segments.take(3).map((seg) => Padding(
-                            padding: const EdgeInsets.only(bottom: 3),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 3,
-                                  height: 12,
-                                  decoration: BoxDecoration(
-                                    color: _routeDiffColor(
-                                        seg.difficultyLevel),
-                                    borderRadius:
-                                        BorderRadius.circular(1.5),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    seg.name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: GoogleFonts.rajdhani(
-                                        fontSize: 11,
-                                        color: Colors.white70),
-                                  ),
-                                ),
-                                Text(
-                                  seg.distanceDisplay,
-                                  style: GoogleFonts.rajdhani(
-                                      fontSize: 10,
-                                      color: AppColors.textHint),
-                                ),
-                              ],
-                            ),
-                          )),
-                      if (loop.segments.length > 3)
-                        Text(
-                          '+${loop.segments.length - 3}개 더',
-                          style: GoogleFonts.rajdhani(
-                              fontSize: 10, color: AppColors.textHint),
-                        ),
-                      // AI 루프 설명
-                      if (loopBriefLoading || loopBrief != null) ...[
-                        const SizedBox(height: 6),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.04),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
-                          ),
-                          child: loopBriefLoading
-                              ? Row(children: [
-                                  SizedBox(
-                                    width: 9, height: 9,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 1.2, color: AppColors.red),
-                                  ),
-                                  const SizedBox(width: 7),
-                                  Text('AI 소개 생성 중...',
-                                      style: GoogleFonts.rajdhani(
-                                          fontSize: 10, color: Colors.white38)),
-                                ])
-                              : _BriefingText(loopBrief!),
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      // GO 버튼
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          GestureDetector(
-                            onTap: onGo,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 22, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: AppColors.red,
-                                borderRadius: BorderRadius.circular(8),
-                                boxShadow: [
-                                  BoxShadow(
-                                      color: AppColors.red
-                                          .withValues(alpha: 0.35),
-                                      blurRadius: 10),
-                                ],
-                              ),
-                              child: Text(
-                                'GO',
-                                style: GoogleFonts.orbitron(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w900,
-                                  color: Colors.white,
-                                  letterSpacing: 3,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ] else ...[
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
-                  child: Text(
-                    '루트를 먼저 탐색해주세요.',
-                    style: GoogleFonts.rajdhani(
-                        fontSize: 12, color: Colors.white38),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ── 폴리라인 탭 → 루트 선택 리스너 ────────────────────────────────
-class _PolylineClickHandler
-    extends mbx.OnPolylineAnnotationClickListener {
-  final Map<String, RevvRoute> annotationToRoute;
-  final void Function(RevvRoute) onSelect;
-
-  _PolylineClickHandler(this.annotationToRoute, this.onSelect);
-
-  @override
-  bool onPolylineAnnotationClick(mbx.PolylineAnnotation annotation) {
-    final route = annotationToRoute[annotation.id];
-    if (route != null) {
-      onSelect(route);
-      return true;
-    }
-    return false;
   }
 }

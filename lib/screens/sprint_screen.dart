@@ -20,20 +20,24 @@ import '../services/corner_briefing_service.dart';
 import '../services/obd_service.dart';
 import '../services/jarvis_service.dart';
 import '../services/jarvis_script.dart';
+import '../services/route_service.dart';
 import '../models/nav_step.dart';
 import '../models/run_session.dart';
+import '../ui/ux_contracts.dart';
 import 'run_card_screen.dart';
 
 class SprintScreen extends StatefulWidget {
   final RevvRoute? selectedRoute;
   final void Function(RunSession? session)? onEnd;
   final void Function(List<LatLng>? poly)? onNavPolylineChanged;
+  final SprintStartMode startMode;
 
   const SprintScreen({
     super.key,
     this.selectedRoute,
     this.onEnd,
     this.onNavPolylineChanged,
+    this.startMode = SprintStartMode.auto,
   });
 
   @override
@@ -62,12 +66,46 @@ class _SprintScreenState extends State<SprintScreen> {
 
   // 루트 진행률 (0.0 ~ 1.0)
   double _routeProgressPct = 0.0;
+  double _routeGapKm = 0.0;
 
   // 코너 브리핑
   CornerBriefingService? _cornerBriefing;
-  int _closestNodeIdx = 0;
   // 루트 전체 코너 분석 캐시 (didChangeDependencies에서 1회 계산)
   ({int hairpin, int sharp, int medium, double firstCornerM})? _routeAnalysis;
+  String _routeStateDetail = '진입 경로를 확인하는 중';
+
+  String _approachDetail(double distKm) {
+    if (widget.startMode == SprintStartMode.joinFromCurrent) {
+      if (distKm < 0.8) return '합류 지점이 가까워졌어요';
+      if (distKm < 2.0) return '현재 위치에서 합류 경로를 따라가는 중';
+      return '합류 지점까지 이동하며 진입 타이밍을 맞추는 중';
+    }
+    if (distKm < 0.4) return '시작점이 바로 앞에 있어요';
+    if (distKm < 1.5) return '시작점까지 짧게 안내하는 중';
+    return '시작점까지 이동 중';
+  }
+
+  String _routeProgressDetail({
+    required bool isOffRoute,
+    required bool wasOffRoute,
+    required double minDistKm,
+    required double progress,
+  }) {
+    if (isOffRoute) {
+      if (minDistKm > 1.0) return '루트와 거리가 꽤 벌어져 복귀 경로를 다시 계산하는 중';
+      if (minDistKm > 0.5) return '루트 바깥으로 벗어나 복귀 라인을 확인하는 중';
+      return '루트에서 살짝 벗어나 다시 합류하는 중';
+    }
+    if (wasOffRoute) return '루트로 복귀했어요. 흐름을 다시 이어가면 됩니다';
+    if (progress >= 0.95) return '마지막 구간을 주행 중';
+    if (progress >= 0.75) return '후반 구간에 들어왔어요';
+    if (progress >= 0.35) return '본 루트 흐름을 안정적으로 타는 중';
+    return '본 루트에 진입했어요';
+  }
+
+  String _routePhaseLabel(double progress) {
+    return describeRoutePhaseCompact(progress);
+  }
 
   @override
   void didChangeDependencies() {
@@ -93,7 +131,8 @@ class _SprintScreenState extends State<SprintScreen> {
         // 주행 시작 자동 브리핑 (거리 + 커브타입 + 첫 코너 거리 포함)
         if (!context.read<SettingsService>().ttsMuted) {
           final persona = context.read<SettingsService>().jarvisPersona;
-          final firstCornerKm = _routeAnalysis != null && _routeAnalysis!.firstCornerM > 0
+          final firstCornerKm =
+              _routeAnalysis != null && _routeAnalysis!.firstCornerM > 0
               ? _routeAnalysis!.firstCornerM / 1000.0
               : null;
           context.read<JarvisService>().speak(
@@ -129,7 +168,9 @@ class _SprintScreenState extends State<SprintScreen> {
         onSpeak: (text) {
           if (!_isMuted && mounted) context.read<JarvisService>().speak(text);
         },
-        onUpdate: () { if (mounted) setState(() {}); },
+        onUpdate: () {
+          if (mounted) setState(() {});
+        },
         persona: persona,
       );
 
@@ -151,7 +192,9 @@ class _SprintScreenState extends State<SprintScreen> {
       _tbtService?.stop();
       _tbtService = TurnByTurnService(
         steps: result.steps,
-        onUpdate: () { if (mounted) setState(() {}); },
+        onUpdate: () {
+          if (mounted) setState(() {});
+        },
         initialMuted: context.read<SettingsService>().ttsMuted,
       );
     }
@@ -167,6 +210,15 @@ class _SprintScreenState extends State<SprintScreen> {
     if (!_onRoute && widget.selectedRoute != null && _navPolyline != null) {
       final start = widget.selectedRoute!.nodes.first;
       final dist = RevvRoute.haversineKm(LatLng(loc.lat, loc.lng), start);
+      if (dist >= 0.2) {
+        final approach = _approachDetail(dist);
+        if (_routeStateDetail != approach || (_routeGapKm - dist).abs() > 0.1) {
+          setState(() {
+            _routeStateDetail = approach;
+            _routeGapKm = dist;
+          });
+        }
+      }
       if (dist < 0.2) {
         _tbtService?.stop();
         _tbtService = null;
@@ -174,6 +226,8 @@ class _SprintScreenState extends State<SprintScreen> {
           _onRoute = true;
           _navPolyline = null;
           _routeStatusMsg = '루트 진입!';
+          _routeStateDetail = '본 루트에 진입했어요';
+          _routeGapKm = 0;
         });
         Future.delayed(const Duration(seconds: 3), () {
           if (mounted) setState(() => _routeStatusMsg = null);
@@ -185,13 +239,15 @@ class _SprintScreenState extends State<SprintScreen> {
           final persona = context.read<SettingsService>().jarvisPersona;
           Future.delayed(const Duration(milliseconds: 1500), () {
             if (mounted) {
-              context.read<JarvisService>().speak(JarvisScript.routeEntry(
-                route.distanceKm,
-                analysis.hairpin,
-                analysis.sharp,
-                analysis.firstCornerM,
-                persona,
-              ));
+              context.read<JarvisService>().speak(
+                JarvisScript.routeEntry(
+                  route.distanceKm,
+                  analysis.hairpin,
+                  analysis.sharp,
+                  analysis.firstCornerM,
+                  persona,
+                ),
+              );
             }
           });
         }
@@ -206,23 +262,37 @@ class _SprintScreenState extends State<SprintScreen> {
       int closestIdx = 0;
       for (int i = 0; i < nodes.length; i++) {
         final d = RevvRoute.haversineKm(pos, nodes[i]);
-        if (d < minDist) { minDist = d; closestIdx = i; }
+        if (d < minDist) {
+          minDist = d;
+          closestIdx = i;
+        }
         if (minDist < 0.05) break;
       }
       final wasOff = _isOffRoute;
       final nowOff = minDist > 0.3;
       final newPct = nodes.length > 1 ? closestIdx / (nodes.length - 1) : 0.0;
-      if (wasOff != nowOff || (newPct - _routeProgressPct).abs() > 0.005) {
+      if (wasOff != nowOff ||
+          (newPct - _routeProgressPct).abs() > 0.005 ||
+          (_routeGapKm - minDist).abs() > 0.05) {
         // 이탈/복귀 전환 시 TTS
         if (wasOff != nowOff && !_isMuted) {
           final persona = context.read<SettingsService>().jarvisPersona;
           context.read<JarvisService>().speak(
-            nowOff ? JarvisScript.offRoute(persona) : JarvisScript.onRoute(persona),
+            nowOff
+                ? JarvisScript.offRoute(persona)
+                : JarvisScript.onRoute(persona),
           );
         }
         setState(() {
           _isOffRoute = nowOff;
           _routeProgressPct = newPct;
+          _routeGapKm = minDist;
+          _routeStateDetail = _routeProgressDetail(
+            isOffRoute: nowOff,
+            wasOffRoute: wasOff,
+            minDistKm: minDist,
+            progress: newPct,
+          );
           if (!nowOff && wasOff) {
             _routeStatusMsg = '루트로 복귀했어요!';
             Future.delayed(const Duration(seconds: 2), () {
@@ -234,7 +304,6 @@ class _SprintScreenState extends State<SprintScreen> {
 
       // 코너 브리핑 — 루트 이탈 중에는 비활성
       if (!nowOff) {
-        _closestNodeIdx = closestIdx;
         _cornerBriefing?.updateLocation(loc.lat, loc.lng, nodes, closestIdx);
       }
     }
@@ -251,9 +320,12 @@ class _SprintScreenState extends State<SprintScreen> {
     final mode = _drivingCtxService?.mode ?? DriveMode.cruise;
     if (mode != _driveMode) {
       // cruise/winding → sport 진입 시 TTS (60초 쿨다운)
-      if (mode == DriveMode.sport && _driveMode != DriveMode.sport && !_isMuted) {
+      if (mode == DriveMode.sport &&
+          _driveMode != DriveMode.sport &&
+          !_isMuted) {
         final now = DateTime.now();
-        if (_lastSportSpeak == null || now.difference(_lastSportSpeak!).inSeconds > 60) {
+        if (_lastSportSpeak == null ||
+            now.difference(_lastSportSpeak!).inSeconds > 60) {
           final persona = context.read<SettingsService>().jarvisPersona;
           context.read<JarvisService>().speak(JarvisScript.sportMode(persona));
           _lastSportSpeak = now;
@@ -295,7 +367,9 @@ class _SprintScreenState extends State<SprintScreen> {
     _locationService?.removeListener(_onLocation);
     _tbtService?.stop();
     _cornerBriefing?.stop();
-    try { context.read<ImuService>().removeListener(_onImu); } catch (_) {}
+    try {
+      context.read<ImuService>().removeListener(_onImu);
+    } catch (_) {}
     final imu = context.read<ImuService>();
     OBDRunSummary? obdSummary;
     try {
@@ -312,7 +386,11 @@ class _SprintScreenState extends State<SprintScreen> {
     if (session != null && !_isMuted) {
       final persona = context.read<SettingsService>().jarvisPersona;
       context.read<JarvisService>().speak(
-        JarvisScript.sessionEnd(session.distanceKm, session.sharpCorners.length, persona),
+        JarvisScript.sessionEnd(
+          session.distanceKm,
+          session.sharpCorners.length,
+          persona,
+        ),
       );
     }
     if (widget.onEnd != null) {
@@ -385,9 +463,7 @@ class _SprintScreenState extends State<SprintScreen> {
         Positioned.fill(
           key: const ValueKey('g-glow'),
           child: IgnorePointer(
-            child: CustomPaint(
-              painter: _GlowBorderPainter(g: _currentG),
-            ),
+            child: CustomPaint(painter: _GlowBorderPainter(g: _currentG)),
           ),
         ),
 
@@ -395,7 +471,9 @@ class _SprintScreenState extends State<SprintScreen> {
         if (_tbtService != null && _tbtService!.upcomingStep != null)
           Positioned(
             key: const ValueKey('nav-banner'),
-            top: 0, left: 0, right: 0,
+            top: 0,
+            left: 0,
+            right: 0,
             child: _NavBanner(
               step: _tbtService!.upcomingStep!,
               distanceM: _tbtDistM,
@@ -414,6 +492,19 @@ class _SprintScreenState extends State<SprintScreen> {
             child: _ModeBadge(mode: _driveMode),
           ),
 
+        if (_onRoute || widget.startMode != SprintStartMode.auto)
+          Positioned(
+            key: const ValueKey('start-mode-pill'),
+            top: tbtTop + (_driveMode != DriveMode.cruise ? 34 : 0),
+            right: 14,
+            child: _StartModePill(
+              onRoute: _onRoute,
+              isOffRoute: _isOffRoute,
+              startMode: widget.startMode,
+              detail: _routeStateDetail,
+            ),
+          ),
+
         // ── 상단 좌측: 경과/거리 pill ──
         Positioned(
           key: const ValueKey('live-stat'),
@@ -427,7 +518,8 @@ class _SprintScreenState extends State<SprintScreen> {
           Positioned(
             key: const ValueKey('nav-status'),
             bottom: 88,
-            left: 0, right: 0,
+            left: 0,
+            right: 0,
             child: Center(
               child: _StatusPill(
                 text: '🔵  ${widget.selectedRoute!.name} 으로 이동 중',
@@ -441,7 +533,8 @@ class _SprintScreenState extends State<SprintScreen> {
           Positioned(
             key: const ValueKey('route-msg'),
             bottom: 88,
-            left: 0, right: 0,
+            left: 0,
+            right: 0,
             child: Center(
               child: _StatusPill(
                 text: '🏁  $_routeStatusMsg',
@@ -454,8 +547,13 @@ class _SprintScreenState extends State<SprintScreen> {
         if (_isOffRoute)
           Positioned(
             key: const ValueKey('off-route'),
-            top: 0, left: 0, right: 0,
-            child: const _OffRouteBanner(),
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _OffRouteBanner(
+              detail: _routeStateDetail,
+              gapKm: _routeGapKm,
+            ),
           ),
 
         // ── 하단 좌측: 커브 예고 아이콘 (TBT 내비 중) ──
@@ -494,13 +592,18 @@ class _SprintScreenState extends State<SprintScreen> {
             bottom: 68,
             left: 0,
             right: 0,
-            child: _RouteProgressBar(pct: _routeProgressPct),
+            child: _RouteProgressBar(
+              pct: _routeProgressPct,
+              phaseLabel: _routePhaseLabel(_routeProgressPct),
+            ),
           ),
 
         // ── 하단 바: 음소거 + 마이크 + 런 종료 ──
         Positioned(
           key: const ValueKey('bottom-bar'),
-          bottom: 0, left: 0, right: 0,
+          bottom: 0,
+          left: 0,
+          right: 0,
           child: _SprintBottomBar(
             onEnd: _endRun,
             modeColor: _driveMode.color,
@@ -520,19 +623,14 @@ class _SprintScreenState extends State<SprintScreen> {
     // body Stack의 자식이 전부 Positioned → loose 환경에서 Stack 크기 = 0×0
     // → Positioned.fill이 0×0을 채우려 하면 RenderDecoratedBox layout 실패.
     // SizedBox.expand()는 loose constraints에서도 강제로 최대 크기(fullscreen)를 사용.
-    final body = SizedBox.expand(
-      child: _buildSprintBody(context),
-    );
+    final body = SizedBox.expand(child: _buildSprintBody(context));
 
     if (widget.onEnd != null) {
       // ⚠ Material(color: transparent) 제거:
       // _RenderInkFeatures.hitTestSelf()=true → 투명해도 모든 터치 흡수
       // → 아래 CruiseScreen MapWidget 터치 불가 + hit test "no size" 에러 유발.
       // RedGlowButton은 자체 로컬 Material 사용 → 상위 Material 불필요.
-      return PopScope(
-        canPop: false,
-        child: body,
-      );
+      return PopScope(canPop: false, child: body);
     }
     return PopScope(
       canPop: false,
@@ -553,6 +651,64 @@ class _LiveStatHUD extends StatefulWidget {
 
   @override
   State<_LiveStatHUD> createState() => _LiveStatHUDState();
+}
+
+class _StartModePill extends StatelessWidget {
+  final bool onRoute;
+  final bool isOffRoute;
+  final SprintStartMode startMode;
+  final String detail;
+
+  const _StartModePill({
+    required this.onRoute,
+    required this.isOffRoute,
+    required this.startMode,
+    required this.detail,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = switch ((onRoute, isOffRoute, startMode)) {
+      (true, false, _) => ('본 루트 주행 중', const Color(0xFF22C55E)),
+      (true, true, _) => ('복귀 경로 확인 필요', const Color(0xFFF59E0B)),
+      (false, _, SprintStartMode.joinFromCurrent) => (
+        '현재 위치 합류 중',
+        AppColors.cyan,
+      ),
+      (false, _, SprintStartMode.guideToStart) => ('시작점으로 이동 중', AppColors.red),
+      _ => ('자동 시작 경로 확인 중', Colors.white70),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.rajdhani(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+          Text(
+            detail,
+            style: GoogleFonts.rajdhani(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: Colors.white70,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _LiveStatHUDState extends State<_LiveStatHUD> {
@@ -604,13 +760,23 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
         mainAxisSize: MainAxisSize.min,
         children: [
           _Pill(icon: Icons.timer_outlined, value: _fmt(dur)),
-          Container(width: 1, height: 22, color: Colors.white12, margin: const EdgeInsets.symmetric(horizontal: 8)),
+          Container(
+            width: 1,
+            height: 22,
+            color: Colors.white12,
+            margin: const EdgeInsets.symmetric(horizontal: 8),
+          ),
           _Pill(icon: Icons.straighten, value: distStr),
           if (sharpCount > 0) ...[
-            Container(width: 1, height: 22, color: Colors.white12, margin: const EdgeInsets.symmetric(horizontal: 8)),
+            Container(
+              width: 1,
+              height: 22,
+              color: Colors.white12,
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+            ),
             _Pill(
               icon: Icons.bolt_rounded,
-              value: '${sharpCount}',
+              value: '$sharpCount',
               color: const Color(0xFFF59E0B),
             ),
           ],
@@ -680,31 +846,68 @@ class _StatusPill extends StatelessWidget {
 
 // ── 루트 이탈 경고 배너 ───────────────────────────────────────
 class _OffRouteBanner extends StatelessWidget {
-  const _OffRouteBanner();
+  final String detail;
+  final double gapKm;
+
+  const _OffRouteBanner({required this.detail, required this.gapKm});
+
+  String get _distanceText {
+    return describeRouteGap(gapKm);
+  }
+
+  Color get _bannerColor {
+    if (gapKm >= 1.0) return const Color(0xFFDC2626);
+    if (gapKm >= 0.5) return const Color(0xFFF97316);
+    return const Color(0xFFF59E0B);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.orange.withValues(alpha: 0.95),
+        color: _bannerColor.withValues(alpha: 0.95),
         border: Border(
-          bottom: BorderSide(color: Colors.orange.shade700, width: 1.5),
+          bottom: BorderSide(
+            color: _bannerColor.withValues(alpha: 0.82),
+            width: 1.5,
+          ),
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+          const Icon(
+            Icons.warning_amber_rounded,
+            color: Colors.white,
+            size: 18,
+          ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              '⚠️  루트를 벗어났어요 — 루트로 돌아가세요',
-              style: GoogleFonts.rajdhani(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-                letterSpacing: 0.5,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _distanceText.isEmpty
+                      ? '루트를 벗어났어요'
+                      : '루트를 벗어났어요 · $_distanceText',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail,
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white.withValues(alpha: 0.88),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -752,6 +955,83 @@ class _ModeBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── 루트 진행률 바 ────────────────────────────────────────────
+// 바텀바 바로 위 3px 슬림 바, 왼→오른쪽으로 채워짐
+// ⚠️ LayoutBuilder + AnimatedContainer 조합이 Flutter 3.x에서
+//    rapid rebuild 시 !_debugDoingThisLayout assertion을 유발할 수 있음.
+//    → CustomPainter로 교체: layout 단계 없이 paint 단계에서만 그림.
+class _RouteProgressBar extends StatelessWidget {
+  final double pct; // 0.0 ~ 1.0
+  final String phaseLabel;
+
+  const _RouteProgressBar({required this.pct, required this.phaseLabel});
+
+  Color get _color {
+    if (pct > 0.85) return AppColors.red;
+    if (pct > 0.5) return Colors.orange;
+    return Colors.lightBlueAccent;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 3,
+          width: double.infinity,
+          child: CustomPaint(
+            painter: _ProgressBarPainter(
+              pct: pct.clamp(0.0, 1.0),
+              color: _color,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Text(
+            '${(pct * 100).toStringAsFixed(0)}% · $phaseLabel',
+            style: GoogleFonts.rajdhani(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: Colors.white70,
+              letterSpacing: 1.2,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProgressBarPainter extends CustomPainter {
+  final double pct;
+  final Color color;
+  const _ProgressBarPainter({required this.pct, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // 배경 트랙
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = Colors.white.withValues(alpha: 0.08),
+    );
+    // 진행 바
+    if (pct > 0) {
+      canvas.drawRect(
+        Rect.fromLTWH(0, 0, size.width * pct, size.height),
+        Paint()..color = color,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ProgressBarPainter old) =>
+      old.pct != pct || old.color != color;
 }
 
 // ── 바텀 바 ──────────────────────────────────────────────────
@@ -912,7 +1192,9 @@ class _NavBanner extends StatelessWidget {
                         Text(
                           step.streetName,
                           style: GoogleFonts.rajdhani(
-                              fontSize: 11, color: AppColors.gray),
+                            fontSize: 11,
+                            color: AppColors.gray,
+                          ),
                           overflow: TextOverflow.ellipsis,
                         ),
                     ],
@@ -943,62 +1225,6 @@ class _NavBanner extends StatelessWidget {
   }
 }
 
-// ── 루트 진행률 바 ────────────────────────────────────────────
-// 바텀바 바로 위 3px 슬림 바, 왼→오른쪽으로 채워짐
-// ⚠️ LayoutBuilder + AnimatedContainer 조합이 Flutter 3.x에서
-//    rapid rebuild 시 !_debugDoingThisLayout assertion을 유발할 수 있음.
-//    → CustomPainter로 교체: layout 단계 없이 paint 단계에서만 그림.
-class _RouteProgressBar extends StatelessWidget {
-  final double pct; // 0.0 ~ 1.0
-  const _RouteProgressBar({required this.pct});
-
-  Color get _color {
-    if (pct > 0.85) return AppColors.red;
-    if (pct > 0.5)  return Colors.orange;
-    return Colors.lightBlueAccent;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 3,
-      width: double.infinity,
-      child: CustomPaint(
-        painter: _ProgressBarPainter(
-          pct: pct.clamp(0.0, 1.0),
-          color: _color,
-        ),
-      ),
-    );
-  }
-}
-
-class _ProgressBarPainter extends CustomPainter {
-  final double pct;
-  final Color color;
-  const _ProgressBarPainter({required this.pct, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // 배경 트랙
-    canvas.drawRect(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      Paint()..color = Colors.white.withValues(alpha: 0.08),
-    );
-    // 진행 바
-    if (pct > 0) {
-      canvas.drawRect(
-        Rect.fromLTWH(0, 0, size.width * pct, size.height),
-        Paint()..color = color,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_ProgressBarPainter old) =>
-      old.pct != pct || old.color != color;
-}
-
 // ── 커브 예고 아이콘 ──────────────────────────────────────────
 // TBT 배너 없을 때도 항상 표시 — 작은 원형에 방향 아이콘 + 거리 + 강도
 class _CurvePreviewIcon extends StatelessWidget {
@@ -1010,9 +1236,10 @@ class _CurvePreviewIcon extends StatelessWidget {
   static ({String label, Color color}) _severity(String? modifier) {
     return switch (modifier) {
       'sharp left' || 'sharp right' => (label: 'SHARP', color: AppColors.red),
-      'left' || 'right'             => (label: 'CURVE', color: Colors.orange),
-      'slight left' || 'slight right' => (label: 'EASY', color: Colors.lightBlueAccent),
-      _                             => (label: '', color: Colors.white38),
+      'left' || 'right' => (label: 'CURVE', color: Colors.orange),
+      'slight left' ||
+      'slight right' => (label: 'EASY', color: Colors.lightBlueAccent),
+      _ => (label: '', color: Colors.white38),
     };
   }
 
@@ -1030,13 +1257,16 @@ class _CurvePreviewIcon extends StatelessWidget {
     // 표시 안할 때: ignoring=true + opacity=0 → 보이지 않고 터치 무시.
     // IgnorePointer.ignoring=true → RenderIgnorePointer.hitTest()가 super 호출 없이
     // 즉시 false 반환 → 내부 render object의 size 검사 없음.
-    final bool show = s != null &&
+    final bool show =
+        s != null &&
         s.type != 'depart' &&
         s.type != 'arrive' &&
         s.modifier != null &&
         s.modifier != 'straight';
 
-    final sev = show ? _severity(s!.modifier) : (label: '', color: Colors.transparent);
+    final sev = show
+        ? _severity(s.modifier!)
+        : (label: '', color: Colors.transparent);
 
     return IgnorePointer(
       ignoring: !show,
@@ -1047,16 +1277,22 @@ class _CurvePreviewIcon extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.bg.withValues(alpha: 0.88),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: sev.color.withValues(alpha: 0.5), width: 1),
+            border: Border.all(
+              color: sev.color.withValues(alpha: 0.5),
+              width: 1,
+            ),
             boxShadow: [
-              BoxShadow(color: sev.color.withValues(alpha: 0.2), blurRadius: 10),
+              BoxShadow(
+                color: sev.color.withValues(alpha: 0.2),
+                blurRadius: 10,
+              ),
             ],
           ),
           child: show
               ? Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(s!.icon, color: sev.color, size: 28),
+                    Icon(s.icon, color: sev.color, size: 28),
                     if (sev.label.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(
@@ -1098,9 +1334,9 @@ class _CornerPreviewHUD extends StatelessWidget {
 
   // 강도별 색상
   static Color _intensityColor(CurveIntensity i) => switch (i) {
-    CurveIntensity.gentle  => Colors.lightBlueAccent,
-    CurveIntensity.medium  => Colors.orange,
-    CurveIntensity.sharp   => const Color(0xFFFF6B35),
+    CurveIntensity.gentle => Colors.lightBlueAccent,
+    CurveIntensity.medium => Colors.orange,
+    CurveIntensity.sharp => const Color(0xFFFF6B35),
     CurveIntensity.hairpin => AppColors.red,
   };
 
@@ -1205,17 +1441,29 @@ class _GlowBorderPainter extends CustomPainter {
     }
 
     // 상단
-    drawEdge(Rect.fromLTWH(0, 0, size.width, glowSize),
-        Alignment.topCenter, Alignment.bottomCenter);
+    drawEdge(
+      Rect.fromLTWH(0, 0, size.width, glowSize),
+      Alignment.topCenter,
+      Alignment.bottomCenter,
+    );
     // 하단
-    drawEdge(Rect.fromLTWH(0, size.height - glowSize, size.width, glowSize),
-        Alignment.bottomCenter, Alignment.topCenter);
+    drawEdge(
+      Rect.fromLTWH(0, size.height - glowSize, size.width, glowSize),
+      Alignment.bottomCenter,
+      Alignment.topCenter,
+    );
     // 좌측
-    drawEdge(Rect.fromLTWH(0, 0, glowSize, size.height),
-        Alignment.centerLeft, Alignment.centerRight);
+    drawEdge(
+      Rect.fromLTWH(0, 0, glowSize, size.height),
+      Alignment.centerLeft,
+      Alignment.centerRight,
+    );
     // 우측
-    drawEdge(Rect.fromLTWH(size.width - glowSize, 0, glowSize, size.height),
-        Alignment.centerRight, Alignment.centerLeft);
+    drawEdge(
+      Rect.fromLTWH(size.width - glowSize, 0, glowSize, size.height),
+      Alignment.centerRight,
+      Alignment.centerLeft,
+    );
   }
 
   @override
@@ -1271,20 +1519,23 @@ class _SpeedHUD extends StatelessWidget {
 
 class _RunCardRoute extends PageRouteBuilder {
   _RunCardRoute(Widget page)
-      : super(
-          pageBuilder: (_, __, ___) => page,
-          transitionDuration: const Duration(milliseconds: 500),
-          transitionsBuilder: (context, animation, _, child) {
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0, 0.3),
-                  end: Offset.zero,
-                ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOut)),
-                child: child,
-              ),
-            );
-          },
-        );
+    : super(
+        pageBuilder: (_, __, ___) => page,
+        transitionDuration: const Duration(milliseconds: 500),
+        transitionsBuilder: (context, animation, _, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position:
+                  Tween<Offset>(
+                    begin: const Offset(0, 0.3),
+                    end: Offset.zero,
+                  ).animate(
+                    CurvedAnimation(parent: animation, curve: Curves.easeOut),
+                  ),
+              child: child,
+            ),
+          );
+        },
+      );
 }

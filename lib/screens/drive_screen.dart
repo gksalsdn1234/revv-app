@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../models/revv_route.dart';
 import '../models/run_session.dart';
+import '../services/route_service.dart';
 import '../services/driving_context_service.dart';
 import '../services/imu_service.dart';
 import '../services/location_service.dart';
@@ -16,6 +17,7 @@ import '../services/run_session_service.dart';
 import '../services/settings_service.dart';
 import '../services/weather_service.dart';
 import '../theme/colors.dart';
+import '../ui/ux_contracts.dart';
 import 'run_card_screen.dart';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -26,8 +28,14 @@ import 'run_card_screen.dart';
 class DriveScreen extends StatefulWidget {
   final RevvRoute? selectedRoute;
   final void Function(RunSession?)? onEnd;
+  final SprintStartMode startMode;
 
-  const DriveScreen({super.key, this.selectedRoute, this.onEnd});
+  const DriveScreen({
+    super.key,
+    this.selectedRoute,
+    this.onEnd,
+    this.startMode = SprintStartMode.auto,
+  });
 
   @override
   State<DriveScreen> createState() => _DriveScreenState();
@@ -47,6 +55,7 @@ class _DriveScreenState extends State<DriveScreen>
   double _longitudinalG = 0;
   DriveMode _driveMode = DriveMode.cruise;
   double _routeProgressPct = 0;
+  double _routeGapKm = 0;
   bool _sessionStarted = false;
   DateTime? _startTime;
   Timer? _clockTimer;
@@ -62,10 +71,14 @@ class _DriveScreenState extends State<DriveScreen>
     super.initState();
 
     _entryCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 350));
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
     _entryFade = CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOut);
-    _entrySlide = Tween(begin: const Offset(0, 0.06), end: Offset.zero)
-        .animate(CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic));
+    _entrySlide = Tween(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _entryCtrl, curve: Curves.easeOutCubic));
 
     _entryCtrl.forward();
 
@@ -132,10 +145,13 @@ class _DriveScreenState extends State<DriveScreen>
         }
         if (minDist < 0.05) break;
       }
-      final newPct =
-          nodes.length > 1 ? closestIdx / (nodes.length - 1) : 0.0;
-      if ((newPct - _routeProgressPct).abs() > 0.005) {
-        setState(() => _routeProgressPct = newPct);
+      final newPct = nodes.length > 1 ? closestIdx / (nodes.length - 1) : 0.0;
+      if ((newPct - _routeProgressPct).abs() > 0.005 ||
+          (_routeGapKm - minDist).abs() > 0.05) {
+        setState(() {
+          _routeProgressPct = newPct;
+          _routeGapKm = minDist;
+        });
       }
     }
   }
@@ -240,6 +256,32 @@ class _DriveScreenState extends State<DriveScreen>
     }
   }
 
+  String get _routeStageLabel {
+    return describeRoutePhaseKorean(_routeProgressPct);
+  }
+
+  String get _routeProgressCaption {
+    final pct = (_routeProgressPct * 100).toStringAsFixed(0);
+    return '$pct% · $_routeStageLabel';
+  }
+
+  String get _startModeSummary {
+    switch (widget.startMode) {
+      case SprintStartMode.joinFromCurrent:
+        return _routeGapKm > 0.4
+            ? '현재 위치 기준으로 흐름에 합류하는 중'
+            : '현재 위치에서 루트 흐름을 이어가는 중';
+      case SprintStartMode.guideToStart:
+        return _routeProgressPct < 0.15
+            ? '시작점 진입 후 초반 리듬을 만드는 중'
+            : '시작점 안내 후 본 루트에 올라탔어요';
+      case SprintStartMode.auto:
+        return _routeProgressPct < 0.15
+            ? '자동 진입 후 루트 감각을 맞추는 중'
+            : '자동 시작 후 본 루트 흐름을 유지하는 중';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final imu = context.watch<ImuService>();
@@ -266,10 +308,15 @@ class _DriveScreenState extends State<DriveScreen>
                   modeLabel: _driveModeLabel(_driveMode),
                   modeColor: _driveModeColor(_driveMode),
                   routeName: widget.selectedRoute?.name,
+                  startMode: widget.startMode,
+                  startSummary: _startModeSummary,
                 ),
                 // ── Route progress ───────────────────────────────────
                 if (widget.selectedRoute != null)
-                  _RouteProgressBar(progress: _routeProgressPct),
+                  _RouteProgressBar(
+                    progress: _routeProgressPct,
+                    caption: _routeProgressCaption,
+                  ),
                 const SizedBox(height: 8),
                 // ── Speed ────────────────────────────────────────────
                 Expanded(
@@ -323,6 +370,8 @@ class _TopBar extends StatelessWidget {
   final String modeLabel;
   final Color modeColor;
   final String? routeName;
+  final SprintStartMode startMode;
+  final String startSummary;
 
   const _TopBar({
     required this.elapsed,
@@ -330,6 +379,8 @@ class _TopBar extends StatelessWidget {
     required this.modeLabel,
     required this.modeColor,
     this.routeName,
+    required this.startMode,
+    required this.startSummary,
   });
 
   @override
@@ -352,16 +403,39 @@ class _TopBar extends StatelessWidget {
           // Route name (truncated)
           if (routeName != null) ...[
             Flexible(
-              child: Text(
-                routeName!,
-                style: GoogleFonts.rajdhani(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textHint,
-                  letterSpacing: 1,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    routeName!,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textHint,
+                      letterSpacing: 1,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    describeSprintStartMode(startMode),
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  Text(
+                    startSummary,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white54,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
             ),
             const SizedBox(width: 10),
@@ -370,13 +444,11 @@ class _TopBar extends StatelessWidget {
           AnimatedContainer(
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeOutCubic,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
             decoration: BoxDecoration(
               color: modeColor.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(6),
-              border:
-                  Border.all(color: modeColor.withValues(alpha: 0.4)),
+              border: Border.all(color: modeColor.withValues(alpha: 0.4)),
             ),
             child: AnimatedDefaultTextStyle(
               duration: const Duration(milliseconds: 300),
@@ -397,7 +469,9 @@ class _TopBar extends StatelessWidget {
 
 class _RouteProgressBar extends StatelessWidget {
   final double progress;
-  const _RouteProgressBar({required this.progress});
+  final String caption;
+
+  const _RouteProgressBar({required this.progress, required this.caption});
 
   @override
   Widget build(BuildContext context) {
@@ -429,7 +503,7 @@ class _RouteProgressBar extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '${(progress * 100).toStringAsFixed(0)}% COMPLETE',
+            caption.toUpperCase(),
             style: GoogleFonts.rajdhani(
               fontSize: 9,
               fontWeight: FontWeight.w600,
@@ -647,11 +721,7 @@ class _GForcePainter extends CustomPainter {
     );
 
     // Dot
-    canvas.drawCircle(
-      Offset(dotX, dotY),
-      dotRadius,
-      Paint()..color = dotColor,
-    );
+    canvas.drawCircle(Offset(dotX, dotY), dotRadius, Paint()..color = dotColor);
   }
 
   @override
@@ -708,8 +778,11 @@ class _OBDStat extends StatelessWidget {
   final String value;
   final Color color;
 
-  const _OBDStat(
-      {required this.label, required this.value, required this.color});
+  const _OBDStat({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -769,7 +842,9 @@ class _EndButtonState extends State<_EndButton> {
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-                color: AppColors.red.withValues(alpha: 0.5), width: 1.5),
+              color: AppColors.red.withValues(alpha: 0.5),
+              width: 1.5,
+            ),
           ),
           child: Center(
             child: Text(
