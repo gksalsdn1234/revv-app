@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/revv_route.dart';
 import '../services/route_service.dart';
@@ -9,6 +10,7 @@ import '../services/saved_route_service.dart';
 import '../theme/colors.dart';
 import '../ui/ux_contracts.dart';
 import 'route_detail_screen.dart';
+import 'route_preview_screen.dart';
 
 enum _SavedSortMode { recent, quality, distance }
 
@@ -344,6 +346,8 @@ class _SavedRouteCard extends StatelessWidget {
     final characterLabel = describeRouteCharacter(
       route.routeCharacter.isNotEmpty ? route.routeCharacter : 'mixed_touring',
     );
+    final isComposite = _isCompositeRoute(route);
+    final libraryLabel = isComposite ? 'COMPOSITE' : 'SINGLE';
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -358,21 +362,67 @@ class _SavedRouteCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  route.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _SavedTypeBadge(
+                          label: libraryLabel,
+                          color: isComposite
+                              ? AppColors.cyan
+                              : const Color(0xFF22C55E),
+                        ),
+                        if (route.isLoop)
+                          const _SavedTypeBadge(
+                            label: 'LOOP',
+                            color: AppColors.red,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      route.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              IconButton(
-                onPressed: () =>
-                    context.read<SavedRouteService>().toggle(route),
-                icon: const Icon(Icons.favorite_rounded, color: AppColors.red),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    isComposite ? '여러 구간 저장' : '단일 루트 저장',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => _shareRoute(route),
+                    icon: const Icon(
+                      Icons.ios_share_rounded,
+                      color: Colors.white54,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () =>
+                        context.read<SavedRouteService>().toggle(route),
+                    icon: const Icon(
+                      Icons.favorite_rounded,
+                      color: AppColors.red,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -394,6 +444,7 @@ class _SavedRouteCard extends StatelessWidget {
             children: [
               _SavedChip(label: qualityLabel),
               _SavedChip(label: characterLabel),
+              _SavedChip(label: libraryLabel),
               _SavedChip(label: route.distanceDisplay),
               _SavedChip(label: route.durationDisplay),
               _SavedChip(label: '$visitCount회 주행'),
@@ -407,6 +458,30 @@ class _SavedRouteCard extends StatelessWidget {
                 child: OutlinedButton(
                   onPressed: () {
                     context.read<RouteService>().selectRoute(route);
+                    context.read<RouteService>().clearCompositeRoute();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => RoutePreviewScreen(route: route),
+                      ),
+                    );
+                  },
+                  child: Text(
+                    '미리 다시 열기',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white70,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () {
+                    context.read<RouteService>().selectRoute(route);
+                    context.read<RouteService>().clearCompositeRoute();
                     Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -424,36 +499,79 @@ class _SavedRouteCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.red,
-                  ),
-                  onPressed: () {
-                    context.read<RouteService>().selectRoute(route);
-                    context.read<RouteService>().requestSprint(route: route);
-                    Navigator.pop(context);
-                  },
-                  child: Text(
-                    '바로 달리기',
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+              onPressed: () {
+                context.read<RouteService>().selectRoute(route);
+                context.read<RouteService>().clearCompositeRoute();
+                context.read<RouteService>().requestSprint(route: route);
+                Navigator.pop(context);
+              },
+              child: Text(
+                isComposite ? '이 구성으로 바로 달리기' : '바로 달리기',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white,
                 ),
               ),
-            ],
+            ),
           ),
         ],
       ),
     );
   }
 
+  bool _isCompositeRoute(RevvRoute route) {
+    return route.id.startsWith('composite:') ||
+        route.roadClassBucket == 'composite';
+  }
+
   String _dateLabel(DateTime date) {
     return '최근 ${date.month}/${date.day}';
+  }
+
+  Future<void> _shareRoute(RevvRoute route) {
+    final text = StringBuffer()
+      ..writeln('REVV 저장 루트')
+      ..writeln(route.name)
+      ..writeln('${route.distanceDisplay} · ${route.durationDisplay}')
+      ..writeln(describeRouteCharacter(route.routeCharacter))
+      ..writeln(route.primaryReason ?? '다시 달리기 좋은 저장 루트예요.');
+    return Share.share(text.toString().trim());
+  }
+}
+
+class _SavedTypeBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _SavedTypeBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.16),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.45)),
+      ),
+      child: Text(
+        label,
+        style: GoogleFonts.orbitron(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: color,
+          letterSpacing: 1,
+        ),
+      ),
+    );
   }
 }
 

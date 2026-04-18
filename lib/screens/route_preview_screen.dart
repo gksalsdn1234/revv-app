@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/composite_route.dart';
 import '../models/revv_route.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
+import '../services/saved_route_service.dart';
 import '../theme/colors.dart';
 import '../ui/ux_contracts.dart';
 import '../widgets/mini_elev_chart.dart';
@@ -30,6 +32,7 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
   @override
   Widget build(BuildContext context) {
     final displayRoute = _displayRoute;
+    final isSaved = context.watch<SavedRouteService>().isSaved(displayRoute.id);
     final location = context.watch<LocationService>();
     final startNode = displayRoute.nodes.isNotEmpty
         ? displayRoute.nodes.first
@@ -52,6 +55,20 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
             color: Colors.white,
           ),
         ),
+        actions: [
+          IconButton(
+            onPressed: () =>
+                context.read<SavedRouteService>().toggle(displayRoute),
+            icon: Icon(
+              isSaved ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+              color: isSaved ? AppColors.red : Colors.white54,
+            ),
+          ),
+          IconButton(
+            onPressed: () => _shareRoute(displayRoute),
+            icon: const Icon(Icons.ios_share_rounded, color: Colors.white70),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -290,6 +307,16 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _shareRoute(RevvRoute route) {
+    final text = StringBuffer()
+      ..writeln('REVV 저장 루트')
+      ..writeln(route.name)
+      ..writeln('${route.distanceDisplay} · ${route.durationDisplay}')
+      ..writeln(describeRouteCharacter(route.routeCharacter))
+      ..writeln(route.primaryReason ?? '지금 달리기 좋은 루트예요.');
+    return Share.share(text.toString().trim());
   }
 }
 

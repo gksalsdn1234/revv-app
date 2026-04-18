@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/chain_candidate.dart';
 import '../models/composite_route.dart';
@@ -53,8 +54,11 @@ class RouteDetailScreen extends StatelessWidget {
 
         final activeComposite =
             svc.previewCompositeRoute ?? svc.selectedCompositeRoute;
+        final saveTarget = activeComposite?.toRouteProjection() ?? route;
         final location = context.watch<LocationService>();
-        final isSaved = context.watch<SavedRouteService>().isSaved(route.id);
+        final isSaved = context.watch<SavedRouteService>().isSaved(
+          saveTarget.id,
+        );
         final diffColor = _difficultyColor(route);
         final qualityLabel = describeRouteQuality(
           route.qualityLabel.isNotEmpty ? route.qualityLabel : 'keep',
@@ -81,12 +85,19 @@ class RouteDetailScreen extends StatelessWidget {
             actions: [
               IconButton(
                 onPressed: () =>
-                    context.read<SavedRouteService>().toggle(route),
+                    context.read<SavedRouteService>().toggle(saveTarget),
                 icon: Icon(
                   isSaved
                       ? Icons.favorite_rounded
                       : Icons.favorite_border_rounded,
                   color: isSaved ? AppColors.red : Colors.white54,
+                ),
+              ),
+              IconButton(
+                onPressed: () => _shareRoute(saveTarget),
+                icon: const Icon(
+                  Icons.ios_share_rounded,
+                  color: Colors.white70,
                 ),
               ),
             ],
@@ -339,6 +350,16 @@ class RouteDetailScreen extends StatelessWidget {
       default:
         return AppColors.cyan;
     }
+  }
+
+  Future<void> _shareRoute(RevvRoute route) {
+    final text = StringBuffer()
+      ..writeln('REVV 추천 루트')
+      ..writeln(route.name)
+      ..writeln('${route.distanceDisplay} · ${route.durationDisplay}')
+      ..writeln(describeRouteCharacter(route.routeCharacter))
+      ..writeln(route.primaryReason ?? '지금 달리기 좋은 루트예요.');
+    return Share.share(text.toString().trim());
   }
 }
 
