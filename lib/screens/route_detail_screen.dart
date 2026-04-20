@@ -10,8 +10,10 @@ import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/saved_route_service.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../ui/ux_contracts.dart';
 import '../widgets/mini_elev_chart.dart';
+import '../widgets/revv_ui.dart';
 import 'route_preview_screen.dart';
 
 class RouteDetailScreen extends StatelessWidget {
@@ -71,17 +73,9 @@ class RouteDetailScreen extends StatelessWidget {
 
         return Scaffold(
           backgroundColor: AppColors.bg,
-          appBar: AppBar(
-            backgroundColor: AppColors.panel,
-            title: Text(
-              'ROUTE DETAIL',
-              style: GoogleFonts.orbitron(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
-                letterSpacing: 1.5,
-              ),
-            ),
+          appBar: RevvTopBar(
+            title: 'Route Detail',
+            eyebrow: 'Decision Screen',
             actions: [
               IconButton(
                 onPressed: () =>
@@ -266,24 +260,14 @@ class RouteDetailScreen extends StatelessWidget {
           ),
           bottomNavigationBar: SafeArea(
             top: false,
-            child: Container(
+            child: RevvGlassCard(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              decoration: BoxDecoration(
-                color: AppColors.panel,
-                border: Border(
-                  top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-                ),
-              ),
+              color: AppColors.bg.withValues(alpha: 0.94),
               child: Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.2),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
+                    child: RevvGhostButton(
+                      label: '출발 방식 보기',
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -295,37 +279,18 @@ class RouteDetailScreen extends StatelessWidget {
                           ),
                         );
                       },
-                      child: Text(
-                        '출발 방식 보기',
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white70,
-                        ),
-                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.red,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
+                    child: RevvPrimaryButton(
+                      label: '이 루트로 달리기',
                       onPressed: () {
                         context.read<RouteService>().requestSprint(
                           route: activeComposite?.toRouteProjection(),
                         );
                         Navigator.pop(context);
                       },
-                      child: Text(
-                        '이 루트로 달리기',
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
                     ),
                   ),
                 ],
@@ -560,13 +525,8 @@ class _HeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: diffColor.withValues(alpha: 0.35)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -590,16 +550,12 @@ class _HeroCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             route.name,
-            style: GoogleFonts.rajdhani(
-              fontSize: 24,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-            ),
+            style: AppText.inter(size: 24, weight: FontWeight.w900),
           ),
           const SizedBox(height: 8),
           Text(
             '${route.distanceDisplay} · ${route.durationDisplay} · ${route.distanceFromUserDisplay}',
-            style: GoogleFonts.rajdhani(fontSize: 15, color: Colors.white70),
+            style: AppText.mono(size: 13, color: AppColors.textSecondary),
           ),
         ],
       ),
@@ -626,24 +582,14 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title.toUpperCase(),
-            style: GoogleFonts.orbitron(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
-              letterSpacing: 1.2,
-            ),
+            style: AppText.label(size: 11, color: AppColors.primaryContainer),
           ),
           const SizedBox(height: 12),
           child,
@@ -666,27 +612,10 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: outlined
-            ? color.withValues(alpha: 0.10)
-            : color.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: outlined
-              ? color.withValues(alpha: 0.45)
-              : color.withValues(alpha: 0.65),
-        ),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.rajdhani(
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          color: color,
-        ),
-      ),
+    return RevvPill(
+      label: label,
+      color: color,
+      backgroundColor: outlined ? color.withValues(alpha: 0.08) : null,
     );
   }
 }

@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../models/run_summary.dart';
 import '../services/run_history_service.dart';
 import '../services/supabase_service.dart';
+import '../widgets/revv_ui.dart';
 
 class HistoryScreen extends StatelessWidget {
   const HistoryScreen({super.key});
@@ -19,7 +21,7 @@ class HistoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0C0C0E),
+      backgroundColor: AppColors.bg,
       body: Consumer<RunHistoryService>(
         builder: (_, svc, __) {
           final history = svc.history; // 최신순
@@ -128,7 +130,7 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final topPad = MediaQuery.of(context).padding.top;
     return Container(
-      color: const Color(0xFF0C0C0E),
+      color: AppColors.bg,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -160,12 +162,7 @@ class _Header extends StatelessWidget {
                   children: [
                     Text(
                       'RUN LOG',
-                      style: GoogleFonts.orbitron(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                        color: Colors.white,
-                        letterSpacing: 3,
-                      ),
+                      style: AppText.inter(size: 24, weight: FontWeight.w900),
                     ),
                     Text(
                       '${svc.totalRuns}회 주행  ·  ${svc.totalDistanceKm.toStringAsFixed(0)} km',
@@ -219,7 +216,7 @@ class _StatsGrid extends StatelessWidget {
               label: 'TOTAL RUNS',
               value: '${svc.totalRuns}',
               unit: '회',
-              color: AppColors.red,
+              color: AppColors.primaryContainer,
             ),
           ),
           const SizedBox(width: 8),
@@ -276,13 +273,9 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
+      color: color.withValues(alpha: 0.08),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -295,11 +288,7 @@ class _StatCard extends StatelessWidget {
               Flexible(
                 child: Text(
                   value,
-                  style: GoogleFonts.orbitron(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
+                  style: AppText.mono(size: 18, weight: FontWeight.w800),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -345,18 +334,13 @@ class _MonthHeader extends StatelessWidget {
         children: [
           Text(
             label,
-            style: GoogleFonts.orbitron(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: AppColors.red,
-              letterSpacing: 2,
-            ),
+            style: AppText.label(size: 11, color: AppColors.primaryContainer),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Container(
               height: 1,
-              color: AppColors.red.withValues(alpha: 0.2),
+              color: AppColors.primaryContainer.withValues(alpha: 0.2),
             ),
           ),
         ],
@@ -415,18 +399,20 @@ class _TimelineRunCard extends StatelessWidget {
                 Container(
                   width: 1.5,
                   height: 20,
-                  color: AppColors.red.withValues(alpha: 0.25),
+                  color: AppColors.primaryContainer.withValues(alpha: 0.25),
                 ),
                 // 점
                 Container(
                   width: 10,
                   height: 10,
                   decoration: BoxDecoration(
-                    color: AppColors.red,
+                    color: AppColors.primaryContainer,
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.red.withValues(alpha: 0.5),
+                        color: AppColors.primaryContainer.withValues(
+                          alpha: 0.5,
+                        ),
                         blurRadius: 6,
                       ),
                     ],
@@ -438,7 +424,7 @@ class _TimelineRunCard extends StatelessWidget {
                     width: 1.5,
                     color: isLast
                         ? Colors.transparent
-                        : AppColors.red.withValues(alpha: 0.25),
+                        : AppColors.primaryContainer.withValues(alpha: 0.25),
                   ),
                 ),
               ],
@@ -448,24 +434,9 @@ class _TimelineRunCard extends StatelessWidget {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.only(right: 16, bottom: 8),
-              child: Container(
+              child: RevvGlassCard(
                 padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF141416),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: hasG
-                        ? gColor.withValues(alpha: 0.25)
-                        : Colors.white.withValues(alpha: 0.06),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
+                color: AppColors.panel2.withValues(alpha: 0.88),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -478,7 +449,9 @@ class _TimelineRunCard extends StatelessWidget {
                             vertical: 3,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.05),
+                            color: AppColors.surfaceHigh.withValues(
+                              alpha: 0.34,
+                            ),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -521,7 +494,7 @@ class _TimelineRunCard extends StatelessWidget {
                           style: GoogleFonts.orbitron(
                             fontSize: 34,
                             fontWeight: FontWeight.w900,
-                            color: Colors.white,
+                            color: AppColors.textPrimary,
                             height: 1.0,
                           ),
                         ),
@@ -606,18 +579,22 @@ class _TimelineRunCard extends StatelessWidget {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: AppColors.red.withValues(alpha: 0.12),
+                              color: AppColors.primaryContainer.withValues(
+                                alpha: 0.12,
+                              ),
                               borderRadius: BorderRadius.circular(4),
                               border: Border.all(
-                                color: AppColors.red.withValues(alpha: 0.35),
+                                color: AppColors.primaryContainer.withValues(
+                                  alpha: 0.35,
+                                ),
                               ),
                             ),
                             child: Text(
-                              '${visitCount}회차',
+                              '$visitCount회차',
                               style: GoogleFonts.rajdhani(
                                 fontSize: 9,
                                 fontWeight: FontWeight.w800,
-                                color: AppColors.red,
+                                color: AppColors.primaryContainer,
                                 letterSpacing: 1,
                               ),
                             ),
@@ -649,7 +626,7 @@ class _EmptyState extends StatelessWidget {
           Icon(
             Icons.flag_outlined,
             size: 52,
-            color: AppColors.red.withValues(alpha: 0.25),
+            color: AppColors.primaryContainer.withValues(alpha: 0.25),
           ),
           const SizedBox(height: 18),
           Text(

@@ -39,22 +39,19 @@ class _JarvisPanelState extends State<JarvisPanel>
     _typing = true;
     _cursor.repeat(reverse: true); // 타이핑 시작할 때만 커서 애니메이션
 
-    _typeTimer = Timer.periodic(
-      const Duration(milliseconds: 40),
-      (_) {
-        if (!mounted) return;
-        if (_charIndex < _currentLine.length) {
-          setState(() {
-            _displayText += _currentLine[_charIndex];
-            _charIndex++;
-          });
-        } else {
-          _typeTimer?.cancel();
-          setState(() => _typing = false);
-          _cursor.stop();
-        }
-      },
-    );
+    _typeTimer = Timer.periodic(const Duration(milliseconds: 40), (_) {
+      if (!mounted) return;
+      if (_charIndex < _currentLine.length) {
+        setState(() {
+          _displayText += _currentLine[_charIndex];
+          _charIndex++;
+        });
+      } else {
+        _typeTimer?.cancel();
+        setState(() => _typing = false);
+        _cursor.stop();
+      }
+    });
   }
 
   @override
@@ -71,7 +68,8 @@ class _JarvisPanelState extends State<JarvisPanel>
         if (jarvis.lastSpoken != null && jarvis.lastSpoken != _lastSpoken) {
           _lastSpoken = jarvis.lastSpoken;
           WidgetsBinding.instance.addPostFrameCallback(
-              (_) => _startTyping(jarvis.lastSpoken!));
+            (_) => _startTyping(jarvis.lastSpoken!),
+          );
         }
 
         return Container(
@@ -104,7 +102,7 @@ class _JarvisPanelState extends State<JarvisPanel>
                         height: 6,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: AppColors.red.withOpacity(_cursor.value),
+                          color: AppColors.red.withValues(alpha: _cursor.value),
                         ),
                       ),
                     ),
@@ -118,7 +116,7 @@ class _JarvisPanelState extends State<JarvisPanel>
                         '마이크 버튼을 누르고 말해보세요',
                         style: GoogleFonts.rajdhani(
                           fontSize: 14,
-                          color: Colors.white.withOpacity(0.25),
+                          color: Colors.white.withValues(alpha: 0.25),
                         ),
                       )
                     : AnimatedBuilder(
@@ -136,8 +134,9 @@ class _JarvisPanelState extends State<JarvisPanel>
                                 TextSpan(
                                   text: '|',
                                   style: TextStyle(
-                                    color: AppColors.red
-                                        .withOpacity(_cursor.value),
+                                    color: AppColors.red.withValues(
+                                      alpha: _cursor.value,
+                                    ),
                                   ),
                                 ),
                             ],

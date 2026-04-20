@@ -4,11 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/colors.dart';
 import '../models/poi.dart';
-import '../models/revv_route.dart';
 import '../services/location_service.dart';
 import '../services/home_location_service.dart';
 import '../services/poi_service.dart';
-import '../widgets/corner_brackets.dart';
 
 class TripPlannerScreen extends StatefulWidget {
   const TripPlannerScreen({super.key});
@@ -21,7 +19,6 @@ class _TripPlannerScreenState extends State<TripPlannerScreen> {
   PoiCategory _selectedCategory = PoiCategory.cafe;
   List<Poi> _pois = [];
   bool _loading = false;
-  Poi? _selectedPoi;
 
   @override
   void initState() {
@@ -32,7 +29,6 @@ class _TripPlannerScreenState extends State<TripPlannerScreen> {
   Future<void> _search() async {
     setState(() {
       _loading = true;
-      _selectedPoi = null;
       _pois = [];
     });
     final loc = context.read<LocationService>();
@@ -41,10 +37,12 @@ class _TripPlannerScreenState extends State<TripPlannerScreen> {
       loc.lng,
       _selectedCategory,
     );
-    if (mounted) setState(() {
-      _pois = results;
-      _loading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _pois = results;
+        _loading = false;
+      });
+    }
   }
 
   Future<void> _navigate(Poi poi) async {
@@ -54,13 +52,15 @@ class _TripPlannerScreenState extends State<TripPlannerScreen> {
     // Google Maps: origin → POI → home (if set)
     String url;
     if (home != null) {
-      url = 'https://www.google.com/maps/dir/?api=1'
+      url =
+          'https://www.google.com/maps/dir/?api=1'
           '&origin=${loc.lat},${loc.lng}'
           '&destination=${home.lat},${home.lng}'
           '&waypoints=${poi.lat},${poi.lng}'
           '&travelmode=driving';
     } else {
-      url = 'https://www.google.com/maps/dir/?api=1'
+      url =
+          'https://www.google.com/maps/dir/?api=1'
           '&origin=${loc.lat},${loc.lng}'
           '&destination=${poi.lat},${poi.lng}'
           '&travelmode=driving';
@@ -74,9 +74,10 @@ class _TripPlannerScreenState extends State<TripPlannerScreen> {
 
   Future<void> _setHomeHere() async {
     final loc = context.read<LocationService>();
-    await context
-        .read<HomeLocationService>()
-        .setHomeFromCurrentLocation(loc.lat, loc.lng);
+    await context.read<HomeLocationService>().setHomeFromCurrentLocation(
+      loc.lat,
+      loc.lng,
+    );
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -101,10 +102,7 @@ class _TripPlannerScreenState extends State<TripPlannerScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _Header(
-              homeSet: home.isSet,
-              onSetHome: _setHomeHere,
-            ),
+            _Header(homeSet: home.isSet, onSetHome: _setHomeHere),
             const SizedBox(height: 16),
             // 카테고리 칩 선택
             Padding(
@@ -121,16 +119,16 @@ class _TripPlannerScreenState extends State<TripPlannerScreen> {
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
-                          color: selected
-                              ? AppColors.red
-                              : AppColors.panel,
+                          color: selected ? AppColors.red : AppColors.panel,
                           borderRadius: BorderRadius.circular(4),
                           border: Border.all(
                             color: selected
                                 ? AppColors.red
-                                : AppColors.red.withOpacity(0.2),
+                                : AppColors.red.withValues(alpha: 0.2),
                           ),
                         ),
                         child: Text(
@@ -138,9 +136,7 @@ class _TripPlannerScreenState extends State<TripPlannerScreen> {
                           style: GoogleFonts.rajdhani(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: selected
-                                ? Colors.white
-                                : AppColors.gray,
+                            color: selected ? Colors.white : AppColors.gray,
                           ),
                         ),
                       ),
@@ -154,26 +150,27 @@ class _TripPlannerScreenState extends State<TripPlannerScreen> {
             Expanded(
               child: _loading
                   ? const Center(
-                      child: CircularProgressIndicator(color: AppColors.red))
+                      child: CircularProgressIndicator(color: AppColors.red),
+                    )
                   : _pois.isEmpty
-                      ? Center(
-                          child: Text(
-                            '근처에 ${_selectedCategory.label}을 찾지 못했어요',
-                            style: GoogleFonts.rajdhani(
-                              fontSize: 14,
-                              color: AppColors.gray,
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: _pois.length,
-                          itemBuilder: (_, i) => _PoiTile(
-                            poi: _pois[i],
-                            homeSet: home.isSet,
-                            onTap: () => _navigate(_pois[i]),
-                          ),
+                  ? Center(
+                      child: Text(
+                        '근처에 ${_selectedCategory.label}을 찾지 못했어요',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 14,
+                          color: AppColors.gray,
                         ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _pois.length,
+                      itemBuilder: (_, i) => _PoiTile(
+                        poi: _pois[i],
+                        homeSet: home.isSet,
+                        onTap: () => _navigate(_pois[i]),
+                      ),
+                    ),
             ),
           ],
         ),
@@ -226,10 +223,13 @@ class _Header extends StatelessWidget {
                     onTap: onSetHome,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
                       decoration: BoxDecoration(
                         border: Border.all(
-                            color: AppColors.red.withOpacity(0.4)),
+                          color: AppColors.red.withValues(alpha: 0.4),
+                        ),
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
@@ -244,8 +244,11 @@ class _Header extends StatelessWidget {
                 const SizedBox(width: 8),
                 GestureDetector(
                   onTap: () => Navigator.pop(context),
-                  child: const Icon(Icons.close,
-                      color: AppColors.gray, size: 20),
+                  child: const Icon(
+                    Icons.close,
+                    color: AppColors.gray,
+                    size: 20,
+                  ),
                 ),
               ],
             ),
@@ -260,8 +263,11 @@ class _PoiTile extends StatelessWidget {
   final Poi poi;
   final bool homeSet;
   final VoidCallback onTap;
-  const _PoiTile(
-      {required this.poi, required this.homeSet, required this.onTap});
+  const _PoiTile({
+    required this.poi,
+    required this.homeSet,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -273,12 +279,11 @@ class _PoiTile extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.panel,
           borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: AppColors.red.withOpacity(0.15)),
+          border: Border.all(color: AppColors.red.withValues(alpha: 0.15)),
         ),
         child: Row(
           children: [
-            Text(poi.category.emoji,
-                style: const TextStyle(fontSize: 20)),
+            Text(poi.category.emoji, style: const TextStyle(fontSize: 20)),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -307,7 +312,9 @@ class _PoiTile extends StatelessWidget {
               children: [
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.red,
                     borderRadius: BorderRadius.circular(3),

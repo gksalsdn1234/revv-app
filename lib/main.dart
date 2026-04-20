@@ -74,13 +74,20 @@ class RevvApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => LocationService()),
         ChangeNotifierProvider(create: (_) => WeatherService()),
-        ChangeNotifierProvider(create: (_) => JarvisService()),
         ChangeNotifierProvider(create: (_) => RouteService()),
         ChangeNotifierProvider(create: (_) => RunSessionService()),
         ChangeNotifierProvider<RunHistoryService>.value(value: history),
         ChangeNotifierProvider<HomeLocationService>.value(value: homeLocation),
         ChangeNotifierProvider<SavedRouteService>.value(value: savedRoutes),
         ChangeNotifierProvider<SettingsService>.value(value: settings),
+        ChangeNotifierProxyProvider<SettingsService, JarvisService>(
+          create: (_) => JarvisService(),
+          update: (_, settings, jarvis) {
+            jarvis ??= JarvisService();
+            jarvis.setMuted(settings.ttsMuted);
+            return jarvis;
+          },
+        ),
         ChangeNotifierProvider<GarageService>.value(value: garage),
         ChangeNotifierProvider.value(value: SupabaseService()),
         ChangeNotifierProvider(create: (_) => OBDService()),
@@ -105,10 +112,17 @@ class RevvApp extends StatelessWidget {
         theme: ThemeData(
           scaffoldBackgroundColor: AppColors.bg,
           colorScheme: const ColorScheme.dark(
-            primary: AppColors.red,
+            primary: AppColors.primaryContainer,
             surface: AppColors.panel,
           ),
-          splashColor: AppColors.red.withOpacity(0.2),
+          appBarTheme: AppBarTheme(
+            backgroundColor: AppColors.bg.withValues(alpha: 0.82),
+            foregroundColor: AppColors.textPrimary,
+            surfaceTintColor: Colors.transparent,
+          ),
+          cardColor: AppColors.panel2,
+          dividerColor: AppColors.outlineVariant,
+          splashColor: AppColors.primaryContainer.withValues(alpha: 0.16),
           highlightColor: Colors.transparent,
         ),
         home: const LoadingScreen(),
@@ -116,4 +130,3 @@ class RevvApp extends StatelessWidget {
     );
   }
 }
-

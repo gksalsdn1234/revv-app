@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -274,5 +274,5 @@ def apply_quality_metadata(
     updated["primary_reason"] = route_primary_reason(updated)
     updated["caution_note"] = route_caution_note(updated)
     updated["quality_version"] = version
-    updated["quality_enriched_at"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    updated["quality_enriched_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     return updated

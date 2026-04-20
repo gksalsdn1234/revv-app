@@ -48,7 +48,7 @@ class OBDService extends ChangeNotifier {
   }
 
   // 라이브 탭에 표시할 4개 채널 (PID)
-  List<String> _liveChannels = ['010C', '012F', '0111', '0105'];
+  final List<String> _liveChannels = ['010C', '012F', '0111', '0105'];
   List<String> get liveChannels => List.unmodifiable(_liveChannels);
 
   void setLiveChannel(int idx, String pid) {
@@ -485,7 +485,7 @@ class OBDService extends ChangeNotifier {
         _consecutiveFailures++;
         if (_consecutiveFailures >= _maxConsecutiveFailures) {
           _consecutiveFailures = 0;
-          debugPrint('[OBD] 연속 ${_maxConsecutiveFailures}회 응답 없음 → 자동 재연결');
+          debugPrint('[OBD] 연속 $_maxConsecutiveFailures회 응답 없음 → 자동 재연결');
           _autoReconnect();
         }
       }

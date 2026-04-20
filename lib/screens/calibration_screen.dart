@@ -7,6 +7,8 @@ import '../models/revv_route.dart';
 import '../services/route_service.dart';
 import '../services/location_service.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
+import '../widgets/revv_ui.dart';
 import 'cruise_screen.dart';
 
 // SharedPreferences 키 — 캘리브레이션 완료 여부
@@ -37,7 +39,9 @@ class _CalibrationScreenState extends State<CalibrationScreen>
     if (loc.hasPermission) {
       await loc.startTracking();
     }
-    final anchor = await loc.ensureLiveLocation(timeout: const Duration(seconds: 6));
+    final anchor = await loc.ensureLiveLocation(
+      timeout: const Duration(seconds: 6),
+    );
     if (!mounted) return;
     if (anchor == null) {
       setState(() => _fetchDone = true);
@@ -87,7 +91,10 @@ class _CalibrationScreenState extends State<CalibrationScreen>
   void _swipe(bool exclude) {
     if (_animating) return;
     final routes = _routes();
-    if (_index >= routes.length) { _finish(); return; }
+    if (_index >= routes.length) {
+      _finish();
+      return;
+    }
 
     if (exclude) {
       context.read<RouteService>().excludeRoute(routes[_index]);
@@ -137,7 +144,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
             height: 36,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: AppColors.red,
+              color: AppColors.primaryContainer,
             ),
           ),
           const SizedBox(height: 20),
@@ -159,7 +166,11 @@ class _CalibrationScreenState extends State<CalibrationScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.route, size: 40, color: AppColors.red.withOpacity(0.5)),
+          Icon(
+            Icons.route,
+            size: 40,
+            color: AppColors.primaryContainer.withValues(alpha: 0.5),
+          ),
           const SizedBox(height: 16),
           Text(
             '주변에 루트가 없어요',
@@ -197,30 +208,12 @@ class _CalibrationScreenState extends State<CalibrationScreen>
             ),
           ),
           const SizedBox(height: 24),
-          GestureDetector(
-            onTap: _finish,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
-              decoration: BoxDecoration(
-                color: AppColors.red,
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.redGlow,
-                    blurRadius: 20,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
-              ),
-              child: Text(
-                'REVV 시작',
-                style: GoogleFonts.orbitron(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                  letterSpacing: 2,
-                ),
-              ),
+          SizedBox(
+            width: 220,
+            child: RevvPrimaryButton(
+              label: 'REVV 시작',
+              icon: Icons.bolt_rounded,
+              onPressed: _finish,
             ),
           ),
         ],
@@ -261,10 +254,9 @@ class _CalibrationScreenState extends State<CalibrationScreen>
                       children: [
                         Text(
                           'CALIBRATION',
-                          style: GoogleFonts.orbitron(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.red,
+                          style: AppText.label(
+                            size: 11,
+                            color: AppColors.primaryContainer,
                             letterSpacing: 3,
                           ),
                         ),
@@ -290,7 +282,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
                   child: LinearProgressIndicator(
                     value: progress,
                     backgroundColor: AppColors.surface,
-                    color: AppColors.red,
+                    color: AppColors.primaryContainer,
                     minHeight: 3,
                   ),
                 ),
@@ -334,7 +326,8 @@ class _CalibrationScreenState extends State<CalibrationScreen>
                       if (_index + 1 < routes.length)
                         Positioned.fill(
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 24) +
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 24) +
                                 const EdgeInsets.only(bottom: 32),
                             child: Transform.scale(
                               scale: 0.94,
@@ -348,11 +341,15 @@ class _CalibrationScreenState extends State<CalibrationScreen>
                       // 현재 카드
                       Positioned.fill(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16) +
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 16) +
                               const EdgeInsets.only(bottom: 24),
                           child: Transform(
-                            transform: Matrix4.translationValues(totalDx, 0.0, 0.0)
-                              ..rotateZ(tiltRad),
+                            transform: Matrix4.translationValues(
+                              totalDx,
+                              0.0,
+                              0.0,
+                            )..rotateZ(tiltRad),
                             alignment: Alignment.bottomCenter,
                             child: Stack(
                               children: [
@@ -432,11 +429,16 @@ class _RouteCard extends StatelessWidget {
 
   Color _diffColor(int level) {
     switch (level) {
-      case 4: return const Color(0xFFEF4444);
-      case 3: return const Color(0xFFF97316);
-      case 2: return const Color(0xFFF59E0B);
-      case 1: return const Color(0xFF22C55E);
-      default: return const Color(0xFF6B7280);
+      case 4:
+        return const Color(0xFFEF4444);
+      case 3:
+        return const Color(0xFFF97316);
+      case 2:
+        return const Color(0xFFF59E0B);
+      case 1:
+        return const Color(0xFF22C55E);
+      default:
+        return const Color(0xFF6B7280);
     }
   }
 
@@ -447,7 +449,7 @@ class _RouteCard extends StatelessWidget {
       opacity: opacity,
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFF0E0E10),
+          color: AppColors.surfaceLowest,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(color: diff.withValues(alpha: 0.5), width: 1.5),
           boxShadow: [
@@ -487,7 +489,10 @@ class _RouteCard extends StatelessWidget {
                     top: 12,
                     left: 12,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: diff.withValues(alpha: 0.85),
                         borderRadius: BorderRadius.circular(6),
@@ -508,17 +513,25 @@ class _RouteCard extends StatelessWidget {
                     top: 12,
                     right: 12,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.65),
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.15),
+                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.home_rounded, size: 10,
-                              color: Colors.white.withValues(alpha: 0.7)),
+                          Icon(
+                            Icons.home_rounded,
+                            size: 10,
+                            color: Colors.white.withValues(alpha: 0.7),
+                          ),
                           const SizedBox(width: 4),
                           Text(
                             route.distanceFromUserDisplay,
@@ -565,26 +578,34 @@ class _RouteCard extends StatelessWidget {
                             const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
                               decoration: BoxDecoration(
                                 color: AppColors.cyan.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(4),
                                 border: Border.all(
-                                    color: AppColors.cyan.withValues(alpha: 0.5)),
+                                  color: AppColors.cyan.withValues(alpha: 0.5),
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.loop,
-                                      size: 9, color: AppColors.cyan),
+                                  const Icon(
+                                    Icons.loop,
+                                    size: 9,
+                                    color: AppColors.cyan,
+                                  ),
                                   const SizedBox(width: 3),
-                                  Text('LOOP',
-                                      style: GoogleFonts.rajdhani(
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.cyan,
-                                        letterSpacing: 1,
-                                      )),
+                                  Text(
+                                    'LOOP',
+                                    style: GoogleFonts.rajdhani(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.cyan,
+                                      letterSpacing: 1,
+                                    ),
+                                  ),
                                 ],
                               ),
                             ),
@@ -595,9 +616,11 @@ class _RouteCard extends StatelessWidget {
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.turn_right,
-                                    size: 10,
-                                    color: diff.withValues(alpha: 0.9)),
+                                Icon(
+                                  Icons.turn_right,
+                                  size: 10,
+                                  color: diff.withValues(alpha: 0.9),
+                                ),
                                 const SizedBox(width: 3),
                                 Text(
                                   '${route.windingDensityPct.toStringAsFixed(0)}%',
@@ -671,8 +694,10 @@ class _RouteMapPainter extends CustomPainter {
     if (range < 1e-7) return;
 
     // 종횡비 보정
-    final latScale = (size.height - pad * 2) / (latRange < 1e-7 ? range : latRange);
-    final lngScale = (size.width - pad * 2) / (lngRange < 1e-7 ? range : lngRange);
+    final latScale =
+        (size.height - pad * 2) / (latRange < 1e-7 ? range : latRange);
+    final lngScale =
+        (size.width - pad * 2) / (lngRange < 1e-7 ? range : lngRange);
     final scale = math.min(latScale, lngScale);
 
     final latOffset = (size.height - pad * 2 - latRange * scale) / 2;
@@ -684,8 +709,10 @@ class _RouteMapPainter extends CustomPainter {
     );
 
     // ── 배경 ─────────────────────────────────────────────────────
-    canvas.drawRect(Offset.zero & size,
-        Paint()..color = const Color(0xFF0A0A0D));
+    canvas.drawRect(
+      Offset.zero & size,
+      Paint()..color = const Color(0xFF0A0A0D),
+    );
 
     // ── 격자 (게임 맵 느낌) ────────────────────────────────────────
     final gridPaint = Paint()
@@ -732,23 +759,31 @@ class _RouteMapPainter extends CustomPainter {
 
     // ── 시작점 (녹색 원) ──────────────────────────────────────────
     final start = toCanvas(nodes.first);
-    canvas.drawCircle(start, 5,
-        Paint()..color = const Color(0xFF22C55E));
-    canvas.drawCircle(start, 5,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5
-          ..color = Colors.white.withValues(alpha: 0.8));
+    canvas.drawCircle(start, 5, Paint()..color = const Color(0xFF22C55E));
+    canvas.drawCircle(
+      start,
+      5,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = Colors.white.withValues(alpha: 0.8),
+    );
 
     // ── 끝점 (체크 깃발 느낌 — 흰 원) ────────────────────────────
     final end = toCanvas(nodes.last);
-    canvas.drawCircle(end, 5,
-        Paint()..color = Colors.white.withValues(alpha: 0.9));
-    canvas.drawCircle(end, 5,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 1.5
-          ..color = routeColor);
+    canvas.drawCircle(
+      end,
+      5,
+      Paint()..color = Colors.white.withValues(alpha: 0.9),
+    );
+    canvas.drawCircle(
+      end,
+      5,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..color = routeColor,
+    );
   }
 
   @override
@@ -771,12 +806,14 @@ class _MapStatChip extends StatelessWidget {
       children: [
         Icon(icon, size: 10, color: c),
         const SizedBox(width: 3),
-        Text(value,
-            style: GoogleFonts.rajdhani(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: c,
-            )),
+        Text(
+          value,
+          style: GoogleFonts.rajdhani(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: c,
+          ),
+        ),
       ],
     );
   }
@@ -819,7 +856,7 @@ class _CurveBar extends StatelessWidget {
                 ),
                 Expanded(
                   flex: (medRatio * 100).round(),
-                  child: Container(color: accentColor.withOpacity(0.45)),
+                  child: Container(color: accentColor.withValues(alpha: 0.45)),
                 ),
                 if (tightRatio + medRatio < 1.0)
                   Expanded(
@@ -835,7 +872,11 @@ class _CurveBar extends StatelessWidget {
           children: [
             _CurveChip('TIGHT', route.tightCurveKm, accentColor),
             const SizedBox(width: 8),
-            _CurveChip('MED', route.mediumCurveKm, accentColor.withOpacity(0.6)),
+            _CurveChip(
+              'MED',
+              route.mediumCurveKm,
+              accentColor.withValues(alpha: 0.6),
+            ),
           ],
         ),
       ],
@@ -874,14 +915,18 @@ class _HintBadge extends StatelessWidget {
   final String label;
   final Color color;
   final IconData icon;
-  const _HintBadge({required this.label, required this.color, required this.icon});
+  const _HintBadge({
+    required this.label,
+    required this.color,
+    required this.icon,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color, width: 2),
       ),
@@ -928,12 +973,15 @@ class _ActionButton extends StatelessWidget {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
+              color: color.withValues(alpha: 0.12),
               shape: BoxShape.circle,
-              border: Border.all(color: color.withOpacity(0.5), width: 1.5),
+              border: Border.all(
+                color: color.withValues(alpha: 0.5),
+                width: 1.5,
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: color.withOpacity(0.2),
+                  color: color.withValues(alpha: 0.2),
                   blurRadius: 16,
                   offset: const Offset(0, 4),
                 ),

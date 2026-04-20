@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element, unused_element_parameter
+
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -8,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../models/revv_route.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
@@ -16,6 +19,7 @@ import '../services/revv_ai_service.dart';
 import '../services/saved_route_service.dart';
 import '../services/obd_service.dart';
 import '../widgets/corner_brackets.dart';
+import '../widgets/revv_ui.dart';
 import '../widgets/sprint_toggle.dart';
 import '../services/mapbox_service.dart';
 import '../services/pr_service.dart';
@@ -112,7 +116,10 @@ class _RunCardScreenState extends State<RunCardScreen> {
     if (s == null) return;
     if (mounted) setState(() => _jarvisLoading = true);
     final obdConnected = context.read<OBDService>().isConnected;
-    final result = await RevvAiService().analyzeRun(s, useHighQuality: obdConnected);
+    final result = await RevvAiService().analyzeRun(
+      s,
+      useHighQuality: obdConnected,
+    );
     if (mounted) {
       setState(() {
         _jarvisAnalysis = result;
@@ -131,7 +138,8 @@ class _RunCardScreenState extends State<RunCardScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _DetailedAnalysisSheet(session: s, obdConnected: obdConnected),
+      builder: (_) =>
+          _DetailedAnalysisSheet(session: s, obdConnected: obdConnected),
     ).then((_) {
       if (mounted) setState(() => _detailSheetOpen = false);
     });
@@ -151,13 +159,13 @@ class _RunCardScreenState extends State<RunCardScreen> {
       if (_mapUrl != null) {
         await precacheImage(NetworkImage(_mapUrl!), context);
       }
-      final boundary = _summaryKey.currentContext
-          ?.findRenderObject() as RenderRepaintBoundary?;
+      final boundary =
+          _summaryKey.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
       if (boundary == null) return;
 
       final image = await boundary.toImage(pixelRatio: 3.0);
-      final byteData =
-          await image.toByteData(format: ui.ImageByteFormat.png);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData == null) return;
 
       final pngBytes = byteData.buffer.asUint8List();
@@ -166,10 +174,9 @@ class _RunCardScreenState extends State<RunCardScreen> {
       await file.writeAsBytes(pngBytes);
 
       final caption = await captionFuture;
-      await Share.shareXFiles(
-        [XFile(file.path, mimeType: 'image/png')],
-        text: caption,
-      );
+      await Share.shareXFiles([
+        XFile(file.path, mimeType: 'image/png'),
+      ], text: caption);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -184,11 +191,11 @@ class _RunCardScreenState extends State<RunCardScreen> {
   @override
   Widget build(BuildContext context) {
     final history = context.watch<RunHistoryService>();
-    final visitCount =
-        _saved != null ? history.visitCount(_saved!.routeId) : null;
+    final visitCount = _saved != null
+        ? history.visitCount(_saved!.routeId)
+        : null;
     final s = widget.session;
-    final reviewSummary =
-        s != null ? resolveRunReviewSummary(s) : null;
+    final reviewSummary = s != null ? resolveRunReviewSummary(s) : null;
 
     return PopScope(
       canPop: false,
@@ -263,10 +270,7 @@ class _RunReviewHeader extends StatelessWidget {
   final RunReviewSummary? summary;
   final String routeName;
 
-  const _RunReviewHeader({
-    required this.summary,
-    required this.routeName,
-  });
+  const _RunReviewHeader({required this.summary, required this.routeName});
 
   @override
   Widget build(BuildContext context) {
@@ -275,11 +279,7 @@ class _RunReviewHeader extends StatelessWidget {
       children: [
         Text(
           '오늘 주행 요약',
-          style: GoogleFonts.rajdhani(
-            fontSize: 28,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-          ),
+          style: AppText.inter(size: 28, weight: FontWeight.w900),
         ),
         const SizedBox(height: 4),
         Text(
@@ -318,13 +318,8 @@ class _HeroReviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = session;
 
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -343,11 +338,10 @@ class _HeroReviewCard extends StatelessWidget {
           ],
           Text(
             reviewSummary?.headline ?? '오늘 드라이브를 기록했어요.',
-            style: GoogleFonts.rajdhani(
-              fontSize: 24,
+            style: AppText.inter(
+              size: 24,
+              weight: FontWeight.w900,
               height: 1.15,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
             ),
           ),
           const SizedBox(height: 12),
@@ -412,20 +406,29 @@ class _QuickStatsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = session;
-    final stats = reviewSummary?.topStats ??
+    final stats =
+        reviewSummary?.topStats ??
         [
           s?.distanceKm.toStringAsFixed(1) ?? '—',
           s?.durationDisplay ?? '—',
-          s != null && s.maxSpeedKmh > 0 ? s.maxSpeedKmh.toStringAsFixed(0) : '—',
+          s != null && s.maxSpeedKmh > 0
+              ? s.maxSpeedKmh.toStringAsFixed(0)
+              : '—',
         ];
 
     return Row(
       children: [
-        Expanded(child: _MetricCard(label: 'DISTANCE', value: stats[0], unit: 'km')),
+        Expanded(
+          child: _MetricCard(label: 'DISTANCE', value: stats[0], unit: 'km'),
+        ),
         const SizedBox(width: 10),
-        Expanded(child: _MetricCard(label: 'DURATION', value: stats[1], unit: '')),
+        Expanded(
+          child: _MetricCard(label: 'DURATION', value: stats[1], unit: ''),
+        ),
         const SizedBox(width: 10),
-        Expanded(child: _MetricCard(label: 'TOP SPEED', value: stats[2], unit: 'km/h')),
+        Expanded(
+          child: _MetricCard(label: 'TOP SPEED', value: stats[2], unit: 'km/h'),
+        ),
       ],
     );
   }
@@ -444,34 +447,17 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: GoogleFonts.rajdhani(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Colors.white54,
-              letterSpacing: 1.2,
-            ),
+            style: AppText.label(size: 10, color: AppColors.textHint),
           ),
           const SizedBox(height: 8),
-          Text(
-            value,
-            style: GoogleFonts.orbitron(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-            ),
-          ),
+          Text(value, style: AppText.mono(size: 18, weight: FontWeight.w800)),
           if (unit.isNotEmpty) ...[
             const SizedBox(height: 2),
             Text(
@@ -495,21 +481,7 @@ class _Pill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.rajdhani(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: Colors.white70,
-        ),
-      ),
-    );
+    return RevvPill(label: label, color: AppColors.textSecondary);
   }
 }
 
@@ -517,20 +489,12 @@ class _SupportSection extends StatelessWidget {
   final String title;
   final Widget child;
 
-  const _SupportSection({
-    required this.title,
-    required this.child,
-  });
+  const _SupportSection({required this.title, required this.child});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -570,24 +534,7 @@ class _ReviewActions extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: AppColors.red,
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 15),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
-          onPressed: onPrimary,
-          child: Text(
-            primaryLabel,
-            style: GoogleFonts.rajdhani(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
+        RevvPrimaryButton(label: primaryLabel, onPressed: onPrimary),
         const SizedBox(height: 12),
         Wrap(
           spacing: 16,
@@ -619,20 +566,6 @@ class _ReviewActions extends StatelessWidget {
           ],
         ),
       ],
-    );
-  }
-}
-
-// 각 PageView 슬롯 — 카드를 수직 중앙 정렬 + 스크롤 가능
-class _PageSlot extends StatelessWidget {
-  final Widget child;
-  const _PageSlot({required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Center(child: child),
     );
   }
 }
@@ -702,16 +635,16 @@ class _CardHeader extends StatelessWidget {
 
 // 카드 공통 섹션 타이틀
 Widget _sectionTitle(String text) => Center(
-      child: Text(
-        text,
-        style: GoogleFonts.rajdhani(
-          fontSize: 10,
-          fontWeight: FontWeight.w500,
-          color: AppColors.gray,
-          letterSpacing: 5,
-        ),
-      ),
-    );
+  child: Text(
+    text,
+    style: GoogleFonts.rajdhani(
+      fontSize: 10,
+      fontWeight: FontWeight.w500,
+      color: AppColors.gray,
+      letterSpacing: 5,
+    ),
+  ),
+);
 
 // ══════════════════════════════════════════════════════════════════
 // Card 1 — Summary (기존 런카드)
@@ -739,7 +672,9 @@ class _SummaryCard extends StatelessWidget {
     final min = s.duration.inMinutes;
     final vc = visitCount;
     if (vc != null && vc >= 2) return '이 코스 $vc번째예요. 갈수록 익숙해지는 느낌 어때요?';
-    if (km >= 30) return '${km.toStringAsFixed(1)}km, $min분 — 오늘 꽤 긴 코스였네요. 수고했어요.';
+    if (km >= 30) {
+      return '${km.toStringAsFixed(1)}km, $min분 — 오늘 꽤 긴 코스였네요. 수고했어요.';
+    }
     if (km >= 10) return '${km.toStringAsFixed(1)}km 드라이브 완료. 이 코스, 마음에 드셨나요?';
     if (km > 0) return '짧지만 좋은 드라이브였어요. 다음엔 조금 더 멀리 나가봐요.';
     return '오늘 드라이브 어땠나요?';
@@ -777,11 +712,12 @@ class _SummaryCard extends StatelessWidget {
                       color: AppColors.surface,
                       child: Center(
                         child: SizedBox(
-                          width: 16, height: 16,
+                          width: 16,
+                          height: 16,
                           child: CircularProgressIndicator(
                             value: progress.expectedTotalBytes != null
                                 ? progress.cumulativeBytesLoaded /
-                                    progress.expectedTotalBytes!
+                                      progress.expectedTotalBytes!
                                 : null,
                             strokeWidth: 1.5,
                             color: AppColors.red,
@@ -793,8 +729,11 @@ class _SummaryCard extends StatelessWidget {
                   errorBuilder: (_, __, ___) => Container(
                     color: AppColors.surface,
                     child: const Center(
-                      child: Icon(Icons.map_outlined,
-                          color: AppColors.gray, size: 24),
+                      child: Icon(
+                        Icons.map_outlined,
+                        color: AppColors.gray,
+                        size: 24,
+                      ),
                     ),
                   ),
                 ),
@@ -846,11 +785,16 @@ class _SummaryCard extends StatelessWidget {
                 if (visitCount != null && visitCount! >= 2) ...[
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.red.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(2),
-                      border: Border.all(color: AppColors.red.withValues(alpha: 0.4)),
+                      border: Border.all(
+                        color: AppColors.red.withValues(alpha: 0.4),
+                      ),
                     ),
                     child: Text(
                       '$visitCount회차',
@@ -891,8 +835,10 @@ class _SummaryCard extends StatelessWidget {
                 _InfoChip('⏱ $durationDisplay'),
                 if (s != null && s.sharpCorners.isNotEmpty) ...[
                   _ChipDivider(),
-                  _InfoChip('⚡ ${s.sharpCorners.length}회',
-                      color: const Color(0xFFF59E0B)),
+                  _InfoChip(
+                    '⚡ ${s.sharpCorners.length}회',
+                    color: const Color(0xFFF59E0B),
+                  ),
                 ],
               ],
             ),
@@ -935,12 +881,16 @@ class _SummaryCard extends StatelessWidget {
               border: Border(left: BorderSide(color: AppColors.red, width: 2)),
             ),
             child: Text(
-              jarvisLoading ? '분석 중...' : (jarvisAnalysis ?? _fallbackComment()),
+              jarvisLoading
+                  ? '분석 중...'
+                  : (jarvisAnalysis ?? _fallbackComment()),
               style: GoogleFonts.rajdhani(
                 fontSize: 15,
                 fontWeight: FontWeight.w500,
                 fontStyle: FontStyle.italic,
-                color: Colors.white.withValues(alpha: jarvisLoading ? 0.3 : 0.65),
+                color: Colors.white.withValues(
+                  alpha: jarvisLoading ? 0.3 : 0.65,
+                ),
               ),
             ),
           ),
@@ -975,48 +925,52 @@ class _StatsCard extends StatelessWidget {
           const SizedBox(height: 16),
 
           // 2×2 스탯 그리드
-          Row(children: [
-            Expanded(
-              child: _StatBlock(
-                label: 'MAX SPEED',
-                value: s != null ? s.maxSpeedKmh.toStringAsFixed(0) : '—',
-                unit: 'km/h',
-                available: s != null && s.maxSpeedKmh > 0,
+          Row(
+            children: [
+              Expanded(
+                child: _StatBlock(
+                  label: 'MAX SPEED',
+                  value: s != null ? s.maxSpeedKmh.toStringAsFixed(0) : '—',
+                  unit: 'km/h',
+                  available: s != null && s.maxSpeedKmh > 0,
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _StatBlock(
-                label: 'AVG SPEED',
-                value: s != null ? s.avgSpeedKmh.toStringAsFixed(0) : '—',
-                unit: 'km/h',
-                available: s != null && s.avgSpeedKmh > 0,
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StatBlock(
+                  label: 'AVG SPEED',
+                  value: s != null ? s.avgSpeedKmh.toStringAsFixed(0) : '—',
+                  unit: 'km/h',
+                  available: s != null && s.avgSpeedKmh > 0,
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
           const SizedBox(height: 8),
-          Row(children: [
-            Expanded(
-              child: _StatBlock(
-                label: 'MAX 횡G',
-                value: s != null ? s.maxLateralG.toStringAsFixed(2) : '—',
-                unit: 'G',
-                available: s != null && s.maxLateralG > 0,
-                accentColor: s != null && s.maxLateralG >= 0.45
-                    ? AppColors.red
-                    : null,
+          Row(
+            children: [
+              Expanded(
+                child: _StatBlock(
+                  label: 'MAX 횡G',
+                  value: s != null ? s.maxLateralG.toStringAsFixed(2) : '—',
+                  unit: 'G',
+                  available: s != null && s.maxLateralG > 0,
+                  accentColor: s != null && s.maxLateralG >= 0.45
+                      ? AppColors.red
+                      : null,
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _StatBlock(
-                label: 'MAX 종G',
-                value: s != null ? s.maxLonG.toStringAsFixed(2) : '—',
-                unit: 'G',
-                available: s != null && s.maxLonG > 0,
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StatBlock(
+                  label: 'MAX 종G',
+                  value: s != null ? s.maxLonG.toStringAsFixed(2) : '—',
+                  unit: 'G',
+                  available: s != null && s.maxLonG > 0,
+                ),
               ),
-            ),
-          ]),
+            ],
+          ),
 
           // 드라이브 모드 분포 바
           if (s != null && s.driveModeSeconds.isNotEmpty) ...[
@@ -1061,9 +1015,7 @@ class _StatBlock extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: c.withValues(alpha: available ? 0.2 : 0.08),
-        ),
+        border: Border.all(color: c.withValues(alpha: available ? 0.2 : 0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1115,14 +1067,14 @@ class _DriveModeBar extends StatelessWidget {
   const _DriveModeBar({required this.driveModeSeconds});
 
   static const _colors = {
-    'cruise':  Color(0xFF78909C),
+    'cruise': Color(0xFF78909C),
     'winding': Color(0xFF00BCD4),
-    'sport':   Color(0xFFFFA726),
+    'sport': Color(0xFFFFA726),
   };
   static const _labels = {
-    'cruise':  'CRUISE',
+    'cruise': 'CRUISE',
     'winding': 'WINDING',
-    'sport':   'SPORT',
+    'sport': 'SPORT',
   };
 
   @override
@@ -1130,9 +1082,9 @@ class _DriveModeBar extends StatelessWidget {
     final total = driveModeSeconds.values.fold(0, (s, v) => s + v);
     if (total == 0) return const SizedBox.shrink();
 
-    final cruise  = driveModeSeconds['cruise']  ?? 0;
+    final cruise = driveModeSeconds['cruise'] ?? 0;
     final winding = driveModeSeconds['winding'] ?? 0;
-    final sport   = driveModeSeconds['sport']   ?? 0;
+    final sport = driveModeSeconds['sport'] ?? 0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1154,9 +1106,21 @@ class _DriveModeBar extends StatelessWidget {
             height: 6,
             child: Row(
               children: [
-                if (cruise  > 0) Expanded(flex: cruise,  child: Container(color: _colors['cruise'])),
-                if (winding > 0) Expanded(flex: winding, child: Container(color: _colors['winding'])),
-                if (sport   > 0) Expanded(flex: sport,   child: Container(color: _colors['sport'])),
+                if (cruise > 0)
+                  Expanded(
+                    flex: cruise,
+                    child: Container(color: _colors['cruise']),
+                  ),
+                if (winding > 0)
+                  Expanded(
+                    flex: winding,
+                    child: Container(color: _colors['winding']),
+                  ),
+                if (sport > 0)
+                  Expanded(
+                    flex: sport,
+                    child: Container(color: _colors['sport']),
+                  ),
               ],
             ),
           ),
@@ -1247,10 +1211,12 @@ class _ObdSection extends StatelessWidget {
           spacing: 8,
           runSpacing: 6,
           children: [
-            if (obd.maxRpm != null)
-              _ObdChip('MAX RPM', '${obd.maxRpm}'),
+            if (obd.maxRpm != null) _ObdChip('MAX RPM', '${obd.maxRpm}'),
             if (obd.avgFuelRateLph != null)
-              _ObdChip('AVG 연료', '${obd.avgFuelRateLph!.toStringAsFixed(1)} L/h'),
+              _ObdChip(
+                'AVG 연료',
+                '${obd.avgFuelRateLph!.toStringAsFixed(1)} L/h',
+              ),
             if (obd.maxCoolantTempC != null)
               _ObdChip('냉각수', '${obd.maxCoolantTempC}°C'),
             if (obd.startFuelLevelPct != null && obd.endFuelLevelPct != null)
@@ -1283,14 +1249,22 @@ class _ObdChip extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label,
-              style: GoogleFonts.rajdhani(
-                  fontSize: 8, color: AppColors.gray, letterSpacing: 1)),
-          Text(value,
-              style: GoogleFonts.orbitron(
-                  fontSize: 12,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600)),
+          Text(
+            label,
+            style: GoogleFonts.rajdhani(
+              fontSize: 8,
+              color: AppColors.gray,
+              letterSpacing: 1,
+            ),
+          ),
+          Text(
+            value,
+            style: GoogleFonts.orbitron(
+              fontSize: 12,
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );
@@ -1338,10 +1312,11 @@ class _GpsMapCard extends StatelessWidget {
                           color: AppColors.surface,
                           child: Center(
                             child: CircularProgressIndicator(
-                              strokeWidth: 1.5, color: AppColors.red,
+                              strokeWidth: 1.5,
+                              color: AppColors.red,
                               value: prog.expectedTotalBytes != null
                                   ? prog.cumulativeBytesLoaded /
-                                      prog.expectedTotalBytes!
+                                        prog.expectedTotalBytes!
                                   : null,
                             ),
                           ),
@@ -1357,13 +1332,13 @@ class _GpsMapCard extends StatelessWidget {
                           : _noGpsPlaceholder(),
                     )
                   : hasPath
-                      ? CustomPaint(
-                          painter: _GpsPathPainter(
-                            path: s.gpsPath,
-                            corners: s.sharpCorners,
-                          ),
-                        )
-                      : _noGpsPlaceholder(),
+                  ? CustomPaint(
+                      painter: _GpsPathPainter(
+                        path: s.gpsPath,
+                        corners: s.sharpCorners,
+                      ),
+                    )
+                  : _noGpsPlaceholder(),
             ),
           ),
 
@@ -1373,7 +1348,8 @@ class _GpsMapCard extends StatelessWidget {
             Wrap(
               spacing: 14,
               children: [
-                if (hasPath) _MapLegend(color: const Color(0xFF4CAF50), label: '출발'),
+                if (hasPath)
+                  _MapLegend(color: const Color(0xFF4CAF50), label: '출발'),
                 _MapLegend(color: AppColors.red, label: '경로'),
                 if (s != null && s.sharpCorners.isNotEmpty)
                   _MapLegend(
@@ -1399,8 +1375,10 @@ Widget _noGpsPlaceholder() => Container(
     children: [
       Icon(Icons.location_off_outlined, color: AppColors.gray, size: 28),
       const SizedBox(height: 6),
-      Text('GPS 경로 없음',
-          style: GoogleFonts.rajdhani(fontSize: 12, color: AppColors.gray)),
+      Text(
+        'GPS 경로 없음',
+        style: GoogleFonts.rajdhani(fontSize: 12, color: AppColors.gray),
+      ),
     ],
   ),
 );
@@ -1427,8 +1405,10 @@ class _PrBadge extends StatelessWidget {
         Text(
           '🏆  $label',
           style: GoogleFonts.rajdhani(
-            fontSize: 11, fontWeight: FontWeight.w700,
-            color: const Color(0xFFFFD700), letterSpacing: 0.5,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFFFFD700),
+            letterSpacing: 0.5,
           ),
         ),
       ],
@@ -1452,11 +1432,14 @@ class _MapLegend extends StatelessWidget {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 4),
-        Text(label,
-            style: GoogleFonts.rajdhani(
-                fontSize: 11,
-                color: Colors.white54,
-                fontWeight: FontWeight.w600)),
+        Text(
+          label,
+          style: GoogleFonts.rajdhani(
+            fontSize: 11,
+            color: Colors.white54,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ],
     );
   }
@@ -1512,9 +1495,9 @@ class _GpsPathPainter extends CustomPainter {
     final offY = pad + (h - drawH) / 2;
 
     Offset toOffset(LatLng p) => Offset(
-          offX + (p.lng - minLng) * scale,
-          size.height - (offY + (p.lat - minLat) * scale), // y-flip
-        );
+      offX + (p.lng - minLng) * scale,
+      size.height - (offY + (p.lat - minLat) * scale), // y-flip
+    );
 
     // 경로 선
     final pathObj = Path()
@@ -1540,10 +1523,12 @@ class _GpsPathPainter extends CustomPainter {
     }
 
     // 출발점 (초록), 도착점 (빨강) — 급코너 위에 그려 가시성 확보
-    canvas.drawCircle(toOffset(path.first), 5.5,
-        Paint()..color = const Color(0xFF4CAF50));
-    canvas.drawCircle(toOffset(path.last), 5.5,
-        Paint()..color = AppColors.red);
+    canvas.drawCircle(
+      toOffset(path.first),
+      5.5,
+      Paint()..color = const Color(0xFF4CAF50),
+    );
+    canvas.drawCircle(toOffset(path.last), 5.5, Paint()..color = AppColors.red);
   }
 
   @override
@@ -1588,23 +1573,23 @@ class _InfoChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Text(
-        text,
-        style: GoogleFonts.rajdhani(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: color ?? Colors.white.withValues(alpha: 0.6),
-        ),
-      );
+    text,
+    style: GoogleFonts.rajdhani(
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      color: color ?? Colors.white.withValues(alpha: 0.6),
+    ),
+  );
 }
 
 class _ChipDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
-        width: 1,
-        height: 14,
-        margin: const EdgeInsets.symmetric(horizontal: 12),
-        color: Colors.white.withValues(alpha: 0.15),
-      );
+    width: 1,
+    height: 14,
+    margin: const EdgeInsets.symmetric(horizontal: 12),
+    color: Colors.white.withValues(alpha: 0.15),
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1616,13 +1601,33 @@ class _DrivingStyleBadge extends StatelessWidget {
 
   ({String label, String emoji, String desc, Color color}) _style() {
     if (maxLateralG <= 0.0) {
-      return (label: 'DATA PENDING', emoji: '📡', desc: 'IMU 데이터 없음', color: const Color(0xFF6B7280));
+      return (
+        label: 'DATA PENDING',
+        emoji: '📡',
+        desc: 'IMU 데이터 없음',
+        color: const Color(0xFF6B7280),
+      );
     } else if (maxLateralG < 0.25) {
-      return (label: 'CRUISER', emoji: '🌊', desc: '부드럽고 여유있는 드라이빙', color: const Color(0xFF60A5FA));
+      return (
+        label: 'CRUISER',
+        emoji: '🌊',
+        desc: '부드럽고 여유있는 드라이빙',
+        color: const Color(0xFF60A5FA),
+      );
     } else if (maxLateralG < 0.45) {
-      return (label: 'SPORT', emoji: '⚡', desc: '활기차고 다이나믹한 드라이빙', color: const Color(0xFFF59E0B));
+      return (
+        label: 'SPORT',
+        emoji: '⚡',
+        desc: '활기차고 다이나믹한 드라이빙',
+        color: const Color(0xFFF59E0B),
+      );
     } else {
-      return (label: 'RACER', emoji: '🔥', desc: '한계를 즐기는 퍼포먼스 드라이빙', color: const Color(0xFFEF4444));
+      return (
+        label: 'RACER',
+        emoji: '🔥',
+        desc: '한계를 즐기는 퍼포먼스 드라이빙',
+        color: const Color(0xFFEF4444),
+      );
     }
   }
 
@@ -1684,7 +1689,10 @@ class _DrivingStyleBadge extends StatelessWidget {
                 ),
                 Text(
                   s.desc,
-                  style: GoogleFonts.rajdhani(fontSize: 10, color: Colors.white54),
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 10,
+                    color: Colors.white54,
+                  ),
                 ),
               ],
             ),
@@ -1721,11 +1729,7 @@ class _BottomButtons extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           if (onDetail != null) ...[
-            RedGlowButton(
-              label: '🤖 상세 AI 분석',
-              filled: false,
-              onTap: onDetail,
-            ),
+            RedGlowButton(label: '🤖 상세 AI 분석', filled: false, onTap: onDetail),
             const SizedBox(height: 10),
           ],
           RedGlowButton(
@@ -1750,7 +1754,10 @@ class _BottomButtons extends StatelessWidget {
 class _DetailedAnalysisSheet extends StatefulWidget {
   final RunSession session;
   final bool obdConnected;
-  const _DetailedAnalysisSheet({required this.session, this.obdConnected = false});
+  const _DetailedAnalysisSheet({
+    required this.session,
+    this.obdConnected = false,
+  });
 
   @override
   State<_DetailedAnalysisSheet> createState() => _DetailedAnalysisSheetState();
@@ -1771,7 +1778,12 @@ class _DetailedAnalysisSheetState extends State<_DetailedAnalysisSheet> {
       widget.session,
       useHighQuality: widget.obdConnected,
     );
-    if (mounted) setState(() { _report = result; _loading = false; });
+    if (mounted) {
+      setState(() {
+        _report = result;
+        _loading = false;
+      });
+    }
   }
 
   @override
@@ -1809,8 +1821,11 @@ class _DetailedAnalysisSheetState extends State<_DetailedAnalysisSheet> {
                     color: AppColors.red.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(Icons.auto_awesome_rounded,
-                      size: 16, color: AppColors.red),
+                  child: const Icon(
+                    Icons.auto_awesome_rounded,
+                    size: 16,
+                    color: AppColors.red,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Column(
@@ -1828,7 +1843,9 @@ class _DetailedAnalysisSheetState extends State<_DetailedAnalysisSheet> {
                     Text(
                       widget.session.routeName,
                       style: GoogleFonts.rajdhani(
-                          fontSize: 11, color: Colors.white38),
+                        fontSize: 11,
+                        color: Colors.white38,
+                      ),
                     ),
                   ],
                 ),
@@ -1845,7 +1862,9 @@ class _DetailedAnalysisSheetState extends State<_DetailedAnalysisSheet> {
                       child: Padding(
                         padding: EdgeInsets.all(32),
                         child: CircularProgressIndicator(
-                            color: AppColors.red, strokeWidth: 2),
+                          color: AppColors.red,
+                          strokeWidth: 2,
+                        ),
                       ),
                     )
                   : Text(

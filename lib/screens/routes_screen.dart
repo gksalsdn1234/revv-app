@@ -17,9 +17,11 @@ import '../services/jarvis_service.dart';
 import '../services/settings_service.dart';
 import '../models/revv_route.dart';
 import '../models/loop_route.dart';
+import '../theme/text_styles.dart';
 import 'route_wizard_screen.dart';
 import 'route_edit_screen.dart';
 import 'route_detail_screen.dart';
+import '../widgets/revv_ui.dart';
 import '../widgets/routes_selection_panel.dart';
 import '../widgets/routes_screen_support.dart';
 
@@ -733,11 +735,20 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         width: 40,
                         height: 40,
                         decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.78),
+                          color: AppColors.bg.withValues(alpha: 0.82),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.25),
+                            color: AppColors.outlineVariant.withValues(
+                              alpha: 0.55,
+                            ),
                           ),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x33000000),
+                              blurRadius: 18,
+                              offset: Offset(0, 8),
+                            ),
+                          ],
                         ),
                         child: const Icon(
                           Icons.arrow_back_ios_new_rounded,
@@ -754,11 +765,18 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   child: Container(
                     height: 40,
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
-                      borderRadius: BorderRadius.circular(20),
+                      color: AppColors.bg.withValues(alpha: 0.82),
+                      borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.08),
+                        color: AppColors.outlineVariant.withValues(alpha: 0.45),
                       ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x22000000),
+                          blurRadius: 20,
+                          offset: Offset(0, 8),
+                        ),
+                      ],
                     ),
                     child: Row(
                       children: [
@@ -798,16 +816,18 @@ class _RoutesScreenState extends State<RoutesScreen> {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.62),
+                      color: AppColors.bg.withValues(alpha: 0.82),
                       shape: BoxShape.circle,
                       border: Border.all(
-                        color: AppColors.red.withValues(alpha: 0.5),
+                        color: AppColors.primaryContainer.withValues(
+                          alpha: 0.5,
+                        ),
                       ),
                     ),
                     child: const Icon(
                       Icons.add_road_rounded,
                       size: 18,
-                      color: AppColors.red,
+                      color: AppColors.primaryContainer,
                     ),
                   ),
                 ),
@@ -832,15 +852,19 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         vertical: 7,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.75),
-                        borderRadius: BorderRadius.circular(20),
+                        color: AppColors.bg.withValues(alpha: 0.82),
+                        borderRadius: BorderRadius.circular(999),
                         border: Border.all(
-                          color: AppColors.red.withValues(alpha: 0.6),
+                          color: AppColors.primaryContainer.withValues(
+                            alpha: 0.58,
+                          ),
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: AppColors.red.withValues(alpha: 0.25),
-                            blurRadius: 10,
+                            color: AppColors.primaryContainer.withValues(
+                              alpha: 0.20,
+                            ),
+                            blurRadius: 18,
                           ),
                         ],
                       ),
@@ -850,16 +874,15 @@ class _RoutesScreenState extends State<RoutesScreen> {
                           const Icon(
                             Icons.search_rounded,
                             size: 13,
-                            color: AppColors.red,
+                            color: AppColors.primaryContainer,
                           ),
                           const SizedBox(width: 6),
                           Text(
                             '이 지역 검색',
-                            style: GoogleFonts.rajdhani(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                              letterSpacing: 1,
+                            style: AppText.label(
+                              size: 11,
+                              color: AppColors.textPrimary,
+                              letterSpacing: 1.4,
                             ),
                           ),
                         ],
@@ -912,7 +935,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                                 const SizedBox(
                                   width: 200,
                                   child: LinearProgressIndicator(
-                                    color: AppColors.red,
+                                    color: AppColors.primaryContainer,
                                     backgroundColor: AppColors.panel,
                                   ),
                                 ),
@@ -1063,15 +1086,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
                             .clamp(0, total - 1);
                   final selected = svc.selectedRoute;
                   if (total == 0) {
-                    return Container(
+                    return RevvGlassCard(
                       padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        color: const Color(0xF0141416),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.08),
-                        ),
-                      ),
+                      color: AppColors.bg.withValues(alpha: 0.90),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1276,24 +1293,11 @@ class _SwipeRouteCard extends StatelessWidget {
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOut,
       alignment: Alignment.bottomCenter,
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xF0141416),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: 0.08),
-            width: 1.2,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.6),
-              blurRadius: 20,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
+      child: RevvGlassCard(
+        padding: EdgeInsets.zero,
+        color: AppColors.bg.withValues(alpha: 0.88),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(15),
+          borderRadius: BorderRadius.circular(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1310,11 +1314,9 @@ class _SwipeRouteCard extends StatelessWidget {
                   children: [
                     Text(
                       '추천 루트',
-                      style: GoogleFonts.orbitron(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        letterSpacing: 1,
+                      style: AppText.label(
+                        size: 10,
+                        color: AppColors.primaryContainer,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1324,15 +1326,18 @@ class _SwipeRouteCard extends StatelessWidget {
                         vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.06),
+                        color: AppColors.surfaceHigh.withValues(alpha: 0.42),
                         borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.white10),
+                        border: Border.all(
+                          color: AppColors.outlineVariant.withValues(
+                            alpha: 0.38,
+                          ),
+                        ),
                       ),
                       child: Text(
                         total == 0 ? '— / —' : '${displayIdx + 1} / $total',
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
+                        style: AppText.mono(
+                          size: 10,
                           color: AppColors.textSecondary,
                         ),
                       ),
@@ -1340,10 +1345,10 @@ class _SwipeRouteCard extends StatelessWidget {
                     const Spacer(),
                     Text(
                       '탐색 반경',
-                      style: GoogleFonts.rajdhani(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                      style: AppText.label(
+                        size: 9,
                         color: AppColors.textHint,
+                        letterSpacing: 1.2,
                       ),
                     ),
                     const SizedBox(width: 6),

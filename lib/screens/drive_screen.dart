@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
+import '../constants/drive_thresholds.dart';
+import '../models/composite_route.dart';
 import '../models/revv_route.dart';
 import '../models/run_session.dart';
 import '../services/route_service.dart';
@@ -17,7 +19,9 @@ import '../services/run_session_service.dart';
 import '../services/settings_service.dart';
 import '../services/weather_service.dart';
 import '../theme/colors.dart';
+import '../ui/ride_state_describer.dart';
 import '../ui/ux_contracts.dart';
+import '../widgets/ride_context_card.dart';
 import 'run_card_screen.dart';
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -266,20 +270,11 @@ class _DriveScreenState extends State<DriveScreen>
   }
 
   String get _startModeSummary {
-    switch (widget.startMode) {
-      case SprintStartMode.joinFromCurrent:
-        return _routeGapKm > 0.4
-            ? '현재 위치 기준으로 흐름에 합류하는 중'
-            : '현재 위치에서 루트 흐름을 이어가는 중';
-      case SprintStartMode.guideToStart:
-        return _routeProgressPct < 0.15
-            ? '시작점 진입 후 초반 리듬을 만드는 중'
-            : '시작점 안내 후 본 루트에 올라탔어요';
-      case SprintStartMode.auto:
-        return _routeProgressPct < 0.15
-            ? '자동 진입 후 루트 감각을 맞추는 중'
-            : '자동 시작 후 본 루트 흐름을 유지하는 중';
-    }
+    return describeDriveStartSummary(
+      startMode: widget.startMode,
+      routeGapKm: _routeGapKm,
+      routeProgressPct: _routeProgressPct,
+    );
   }
 
   @override
@@ -287,6 +282,18 @@ class _DriveScreenState extends State<DriveScreen>
     final imu = context.watch<ImuService>();
     final obd = context.watch<OBDService>();
     final settings = context.watch<SettingsService>();
+    final composite = context.select<RouteService, CompositeRoute?>(
+      (svc) => svc.selectedCompositeRoute,
+    );
+    final rideContext = buildRideContextSummary(
+      route: widget.selectedRoute,
+      composite: composite,
+      startMode: widget.startMode,
+      routeProgressPct: _routeProgressPct,
+      routeGapKm: _routeGapKm,
+      isOffRoute: _routeGapKm > kOffRouteKm,
+      onRoute: _routeProgressPct > 0.02,
+    );
     final useImperial = settings.distUnit == 'imperial';
 
     final displaySpeed = useImperial ? (_speedKmh * 0.621371) : _speedKmh;
@@ -317,6 +324,17 @@ class _DriveScreenState extends State<DriveScreen>
                     progress: _routeProgressPct,
                     caption: _routeProgressCaption,
                   ),
+                if (rideContext != null) ...[
+                  const SizedBox(height: 8),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: RideContextCard(
+                      label: rideContext.label,
+                      detail: rideContext.detail,
+                      color: rideContext.color,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 // ── Speed ────────────────────────────────────────────
                 Expanded(
@@ -532,8 +550,14 @@ class _SpeedDisplay extends StatelessWidget {
           style: GoogleFonts.orbitron(
             fontSize: 96,
             fontWeight: FontWeight.w900,
-            color: Colors.white,
+            color: AppColors.primaryContainer,
             height: 1.0,
+            shadows: [
+              Shadow(
+                color: AppColors.primaryContainer.withValues(alpha: 0.32),
+                blurRadius: 22,
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 4),

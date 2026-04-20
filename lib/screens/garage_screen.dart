@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../services/garage_service.dart';
+import '../widgets/revv_ui.dart';
 
 class GarageScreen extends StatefulWidget {
   const GarageScreen({super.key});
@@ -20,11 +22,11 @@ class GarageScreen extends StatefulWidget {
 }
 
 class _GarageScreenState extends State<GarageScreen> {
-  final _nameFocus   = FocusNode();
-  final _nameCtrl    = TextEditingController();
-  final _hpCtrl      = TextEditingController();
-  final _weightCtrl  = TextEditingController();
-  final _tireCtrl    = TextEditingController();
+  final _nameFocus = FocusNode();
+  final _nameCtrl = TextEditingController();
+  final _hpCtrl = TextEditingController();
+  final _weightCtrl = TextEditingController();
+  final _tireCtrl = TextEditingController();
   String _fuel = FuelType.gasoline;
 
   // 타이어 폭 프리셋 (mm)
@@ -44,11 +46,11 @@ class _GarageScreenState extends State<GarageScreen> {
   void initState() {
     super.initState();
     final svc = context.read<GarageService>();
-    _nameCtrl.text   = svc.vehicleName;
-    _hpCtrl.text     = svc.horsepowerHp > 0 ? '${svc.horsepowerHp}' : '';
+    _nameCtrl.text = svc.vehicleName;
+    _hpCtrl.text = svc.horsepowerHp > 0 ? '${svc.horsepowerHp}' : '';
     _weightCtrl.text = svc.weightKg > 0 ? '${svc.weightKg}' : '';
-    _tireCtrl.text   = '${svc.tireWidth}';
-    _fuel            = svc.fuelType;
+    _tireCtrl.text = '${svc.tireWidth}';
+    _fuel = svc.fuelType;
 
     _tireCtrl.addListener(() => setState(() {}));
   }
@@ -66,11 +68,11 @@ class _GarageScreenState extends State<GarageScreen> {
   Future<void> _save() async {
     final svc = context.read<GarageService>();
     await svc.save(
-      name:   _nameCtrl.text.trim(),
-      hp:     int.tryParse(_hpCtrl.text) ?? 0,
+      name: _nameCtrl.text.trim(),
+      hp: int.tryParse(_hpCtrl.text) ?? 0,
       weight: int.tryParse(_weightCtrl.text) ?? 1400,
-      tire:   int.tryParse(_tireCtrl.text) ?? 225,
-      fuel:   _fuel,
+      tire: int.tryParse(_tireCtrl.text) ?? 225,
+      fuel: _fuel,
     );
     if (mounted) Navigator.pop(context);
   }
@@ -86,31 +88,35 @@ class _GarageScreenState extends State<GarageScreen> {
           Container(
             padding: EdgeInsets.fromLTRB(16, safePad.top + 12, 16, 14),
             decoration: BoxDecoration(
-              color: AppColors.panel,
-              border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.06))),
+              color: AppColors.bg.withValues(alpha: 0.86),
+              border: Border(
+                bottom: BorderSide(
+                  color: AppColors.outlineVariant.withValues(alpha: 0.42),
+                ),
+              ),
             ),
             child: Row(
               children: [
                 GestureDetector(
                   onTap: () => Navigator.pop(context),
-                  child: const Icon(Icons.arrow_back_ios_new, size: 16, color: Colors.white54),
+                  child: const Icon(
+                    Icons.arrow_back_ios_new,
+                    size: 16,
+                    color: Colors.white54,
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Text(
                   'GARAGE PRO',
-                  style: GoogleFonts.orbitron(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
+                  style: AppText.label(
+                    size: 13,
+                    color: AppColors.primaryContainer,
                     letterSpacing: 2,
                   ),
                 ),
                 const Spacer(),
                 // 차량 이모지
-                Text(
-                  _fuelEmoji(_fuel),
-                  style: const TextStyle(fontSize: 20),
-                ),
+                Text(_fuelEmoji(_fuel), style: const TextStyle(fontSize: 20)),
               ],
             ),
           ),
@@ -156,48 +162,54 @@ class _GarageScreenState extends State<GarageScreen> {
                 _SectionHeader('연료 타입'),
                 const SizedBox(height: 12),
                 Row(
-                  children: [
-                    FuelType.gasoline,
-                    FuelType.diesel,
-                    FuelType.ev,
-                  ].map((f) {
-                    final active = _fuel == f;
-                    return Expanded(
-                      child: GestureDetector(
-                        onTap: () => setState(() => _fuel = f),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 160),
-                          margin: const EdgeInsets.only(right: 8),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: active
-                                ? AppColors.red.withValues(alpha: 0.15)
-                                : AppColors.surface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: active ? AppColors.red : Colors.white12,
-                              width: active ? 1.5 : 1,
-                            ),
-                          ),
-                          child: Column(
-                            children: [
-                              Text(FuelType.emoji(f),
-                                  style: const TextStyle(fontSize: 18)),
-                              const SizedBox(height: 4),
-                              Text(
-                                FuelType.label(f),
-                                style: GoogleFonts.rajdhani(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: active ? AppColors.red : Colors.white54,
+                  children: [FuelType.gasoline, FuelType.diesel, FuelType.ev]
+                      .map((f) {
+                        final active = _fuel == f;
+                        return Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() => _fuel = f),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 160),
+                              margin: const EdgeInsets.only(right: 8),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              decoration: BoxDecoration(
+                                color: active
+                                    ? AppColors.primaryContainer.withValues(
+                                        alpha: 0.15,
+                                      )
+                                    : AppColors.surface,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: active
+                                      ? AppColors.primaryContainer
+                                      : Colors.white12,
+                                  width: active ? 1.5 : 1,
                                 ),
                               ),
-                            ],
+                              child: Column(
+                                children: [
+                                  Text(
+                                    FuelType.emoji(f),
+                                    style: const TextStyle(fontSize: 18),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    FuelType.label(f),
+                                    style: GoogleFonts.rajdhani(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: active
+                                          ? AppColors.primaryContainer
+                                          : Colors.white54,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
+                        );
+                      })
+                      .toList(),
                 ),
                 const SizedBox(height: 24),
 
@@ -223,14 +235,21 @@ class _GarageScreenState extends State<GarageScreen> {
                       },
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 140),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
                         decoration: BoxDecoration(
                           color: current
-                              ? AppColors.red.withValues(alpha: 0.18)
+                              ? AppColors.primaryContainer.withValues(
+                                  alpha: 0.18,
+                                )
                               : AppColors.surface,
                           borderRadius: BorderRadius.circular(6),
                           border: Border.all(
-                            color: current ? AppColors.red : Colors.white12,
+                            color: current
+                                ? AppColors.primaryContainer
+                                : Colors.white12,
                           ),
                         ),
                         child: Text(
@@ -254,34 +273,10 @@ class _GarageScreenState extends State<GarageScreen> {
                 const SizedBox(height: 28),
 
                 // 저장 버튼
-                GestureDetector(
-                  onTap: _save,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    decoration: BoxDecoration(
-                      color: AppColors.red,
-                      borderRadius: BorderRadius.circular(10),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.red.withValues(alpha: 0.45),
-                          blurRadius: 18,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Text(
-                        'SAVE',
-                        style: GoogleFonts.orbitron(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                          letterSpacing: 3,
-                        ),
-                      ),
-                    ),
-                  ),
+                RevvPrimaryButton(
+                  label: 'SAVE',
+                  icon: Icons.check_rounded,
+                  onPressed: _save,
                 ),
               ],
             ),
@@ -303,12 +298,7 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: GoogleFonts.rajdhani(
-        fontSize: 10,
-        fontWeight: FontWeight.w800,
-        color: AppColors.red,
-        letterSpacing: 2,
-      ),
+      style: AppText.label(size: 10, color: AppColors.primaryContainer),
     );
   }
 }
@@ -352,14 +342,19 @@ class _Field extends StatelessWidget {
               ? [FilteringTextInputFormatter.digitsOnly]
               : null,
           style: GoogleFonts.orbitron(fontSize: 13, color: Colors.white),
-          cursorColor: AppColors.red,
+          cursorColor: AppColors.primaryContainer,
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: GoogleFonts.rajdhani(fontSize: 13, color: Colors.white24),
+            hintStyle: GoogleFonts.rajdhani(
+              fontSize: 13,
+              color: Colors.white24,
+            ),
             filled: true,
             fillColor: AppColors.surface,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: Colors.white12),
@@ -370,7 +365,9 @@ class _Field extends StatelessWidget {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(color: AppColors.red.withValues(alpha: 0.7)),
+              borderSide: BorderSide(
+                color: AppColors.primaryContainer.withValues(alpha: 0.7),
+              ),
             ),
           ),
         ),
@@ -387,18 +384,17 @@ class _GThresholdCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white12),
-      ),
       child: Row(
         children: [
           _GVal(label: '횡G 한계', value: latG, color: const Color(0xFFF97316)),
-          Container(width: 1, height: 44, color: Colors.white12,
-              margin: const EdgeInsets.symmetric(horizontal: 16)),
+          Container(
+            width: 1,
+            height: 44,
+            color: Colors.white12,
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+          ),
           _GVal(label: '종G 한계', value: lonG, color: const Color(0xFF3B82F6)),
           const SizedBox(width: 16),
           Expanded(

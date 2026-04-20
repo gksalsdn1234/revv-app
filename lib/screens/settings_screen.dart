@@ -3,9 +3,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../services/settings_service.dart';
 import '../services/jarvis_script.dart';
 import '../services/route_service.dart';
+import '../widgets/revv_ui.dart';
 import 'calibration_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -22,25 +24,16 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(
-        backgroundColor: AppColors.panel,
-        elevation: 0,
+      appBar: RevvTopBar(
+        title: 'System Configuration',
+        eyebrow: 'Calibration // Performance // Sync',
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, size: 18, color: AppColors.textPrimary),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'SETTINGS',
-          style: GoogleFonts.rajdhani(
-            fontSize: 16,
-            fontWeight: FontWeight.w700,
+          icon: const Icon(
+            Icons.arrow_back_ios_new,
+            size: 18,
             color: AppColors.textPrimary,
-            letterSpacing: 3,
           ),
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(height: 1, color: AppColors.red.withOpacity(0.3)),
+          onPressed: () => Navigator.pop(context),
         ),
       ),
       body: Consumer<SettingsService>(
@@ -52,7 +45,9 @@ class SettingsScreen extends StatelessWidget {
               _SectionHeader(label: '음성 안내'),
               _ToggleTile(
                 icon: settings.ttsMuted ? Icons.volume_off : Icons.volume_up,
-                iconColor: settings.ttsMuted ? AppColors.gray : Colors.lightBlueAccent,
+                iconColor: settings.ttsMuted
+                    ? AppColors.gray
+                    : Colors.lightBlueAccent,
                 title: 'TTS 음성 안내',
                 subtitle: settings.ttsMuted ? '음소거 중' : '안내 음성 켜짐',
                 value: !settings.ttsMuted,
@@ -146,7 +141,9 @@ class SettingsScreen extends StatelessWidget {
                   if (!context.mounted) return;
                   Navigator.pushReplacement(
                     context,
-                    MaterialPageRoute(builder: (_) => const CalibrationScreen()),
+                    MaterialPageRoute(
+                      builder: (_) => const CalibrationScreen(),
+                    ),
                   );
                 },
               ),
@@ -162,15 +159,16 @@ class SettingsScreen extends StatelessWidget {
                   context.read<RouteService>().resetExclusions();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('배제 루트가 초기화됐어요',
-                          style: GoogleFonts.rajdhani(fontSize: 13)),
+                      content: Text(
+                        '배제 루트가 초기화됐어요',
+                        style: GoogleFonts.rajdhani(fontSize: 13),
+                      ),
                       backgroundColor: AppColors.panel,
                       duration: const Duration(seconds: 2),
                     ),
                   );
                 },
               ),
-
 
               const SizedBox(height: 32),
               // ── 앱 정보 ──────────────────────────────────────────
@@ -200,15 +198,15 @@ class _SectionHeader extends StatelessWidget {
         children: [
           Text(
             label.toUpperCase(),
-            style: GoogleFonts.rajdhani(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: AppColors.red,
-              letterSpacing: 2,
-            ),
+            style: AppText.label(size: 10, color: AppColors.primaryContainer),
           ),
           const SizedBox(width: 8),
-          Expanded(child: Container(height: 1, color: AppColors.red.withOpacity(0.2))),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: AppColors.primaryContainer.withValues(alpha: 0.2),
+            ),
+          ),
         ],
       ),
     );
@@ -234,20 +232,16 @@ class _ToggleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.divider),
-      ),
+      padding: EdgeInsets.zero,
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
         leading: Container(
           width: 36,
           height: 36,
           decoration: BoxDecoration(
-            color: iconColor.withOpacity(0.12),
+            color: iconColor.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(icon, size: 18, color: iconColor),
@@ -262,12 +256,15 @@ class _ToggleTile extends StatelessWidget {
         ),
         subtitle: Text(
           subtitle,
-          style: GoogleFonts.rajdhani(fontSize: 11, color: AppColors.textSecondary),
+          style: GoogleFonts.rajdhani(
+            fontSize: 11,
+            color: AppColors.textSecondary,
+          ),
         ),
         trailing: Switch(
           value: value,
           onChanged: onChanged,
-          activeColor: AppColors.red,
+          activeThumbColor: AppColors.red,
           inactiveTrackColor: AppColors.panel2,
           inactiveThumbColor: AppColors.gray,
         ),
@@ -303,21 +300,16 @@ class _RadioTile<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.divider),
-      ),
       child: Row(
         children: [
           Container(
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.12),
+              color: iconColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, size: 18, color: iconColor),
@@ -337,7 +329,10 @@ class _RadioTile<T> extends StatelessWidget {
                 ),
                 Text(
                   subtitle,
-                  style: GoogleFonts.rajdhani(fontSize: 11, color: AppColors.textSecondary),
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 11,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -352,7 +347,10 @@ class _RadioTile<T> extends StatelessWidget {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
                   margin: const EdgeInsets.only(left: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: isSelected ? AppColors.red : AppColors.surface,
                     borderRadius: BorderRadius.circular(6),
@@ -365,7 +363,9 @@ class _RadioTile<T> extends StatelessWidget {
                     style: GoogleFonts.rajdhani(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
-                      color: isSelected ? Colors.white : AppColors.textSecondary,
+                      color: isSelected
+                          ? Colors.white
+                          : AppColors.textSecondary,
                       letterSpacing: 0.5,
                     ),
                   ),
@@ -399,14 +399,9 @@ class _ActionTile extends StatelessWidget {
     final c = color ?? AppColors.red;
     return GestureDetector(
       onTap: onTap,
-      child: Container(
+      child: RevvGlassCard(
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppColors.divider),
-        ),
         child: Row(
           children: [
             Icon(icon, size: 16, color: c),
@@ -415,14 +410,21 @@ class _ActionTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label,
-                      style: GoogleFonts.rajdhani(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary)),
-                  Text(subtitle,
-                      style: GoogleFonts.rajdhani(
-                          fontSize: 11, color: AppColors.textHint)),
+                  Text(
+                    label,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 11,
+                      color: AppColors.textHint,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -442,19 +444,17 @@ class _InfoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.divider),
-      ),
       child: Row(
         children: [
           Text(
             label,
-            style: GoogleFonts.rajdhani(fontSize: 13, color: AppColors.textSecondary),
+            style: GoogleFonts.rajdhani(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
           ),
           const Spacer(),
           Text(
@@ -470,5 +470,3 @@ class _InfoTile extends StatelessWidget {
     );
   }
 }
-
-

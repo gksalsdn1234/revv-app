@@ -6,6 +6,8 @@ import '../services/challenge_service.dart';
 import '../services/run_history_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
+import '../widgets/revv_ui.dart';
 
 class RankingScreen extends StatefulWidget {
   const RankingScreen({super.key});
@@ -97,47 +99,41 @@ class _RankingScreenState extends State<RankingScreen>
                   const SizedBox(width: 14),
                   Text(
                     'RANKING',
-                    style: GoogleFonts.orbitron(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: 4,
-                    ),
+                    style: AppText.inter(size: 22, weight: FontWeight.w900),
                   ),
                   const Spacer(),
                   Icon(
                     Icons.emoji_events_rounded,
-                    color: AppColors.red,
+                    color: AppColors.primaryContainer,
                     size: 22,
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
-            Container(
+            RevvGlassCard(
               margin: const EdgeInsets.symmetric(horizontal: 20),
-              height: 36,
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: TabBar(
-                controller: _tab,
-                indicatorColor: AppColors.red,
-                indicatorSize: TabBarIndicatorSize.tab,
-                indicatorWeight: 2,
-                labelStyle: GoogleFonts.rajdhani(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 2,
-                  fontSize: 13,
+              padding: const EdgeInsets.all(4),
+              child: SizedBox(
+                height: 36,
+                child: TabBar(
+                  controller: _tab,
+                  indicatorColor: AppColors.primaryContainer,
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  indicatorWeight: 2,
+                  labelStyle: GoogleFonts.rajdhani(
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 2,
+                    fontSize: 13,
+                  ),
+                  unselectedLabelColor: AppColors.gray,
+                  labelColor: AppColors.textPrimary,
+                  dividerColor: Colors.transparent,
+                  tabs: const [
+                    Tab(text: 'ROUTES'),
+                    Tab(text: 'MY STATS'),
+                  ],
                 ),
-                unselectedLabelColor: AppColors.gray,
-                labelColor: Colors.white,
-                dividerColor: Colors.transparent,
-                tabs: const [
-                  Tab(text: 'ROUTES'),
-                  Tab(text: 'MY STATS'),
-                ],
               ),
             ),
             const SizedBox(height: 8),
@@ -179,7 +175,10 @@ class _RoutesTab extends StatelessWidget {
   Widget build(BuildContext context) {
     if (loading) {
       return const Center(
-        child: CircularProgressIndicator(color: AppColors.red, strokeWidth: 2),
+        child: CircularProgressIndicator(
+          color: AppColors.primaryContainer,
+          strokeWidth: 2,
+        ),
       );
     }
 
@@ -207,7 +206,7 @@ class _RoutesTab extends StatelessWidget {
                 '새로고침',
                 style: GoogleFonts.rajdhani(
                   fontSize: 13,
-                  color: AppColors.red,
+                  color: AppColors.primaryContainer,
                   fontWeight: FontWeight.w600,
                 ),
               ),

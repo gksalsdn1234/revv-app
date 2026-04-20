@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../widgets/corner_brackets.dart';
 import '../services/location_service.dart';
 import '../services/weather_service.dart';
@@ -37,22 +38,30 @@ class _LoadingScreenState extends State<LoadingScreen>
     super.initState();
 
     _scan = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1600));
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    );
     _line = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 700));
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
     _sub = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 500));
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
     _brackets = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 400));
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
     _cursor = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 500));
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
 
-    _scanAnim =
-        CurvedAnimation(parent: _scan, curve: Curves.easeInOut);
+    _scanAnim = CurvedAnimation(parent: _scan, curve: Curves.easeInOut);
     _lineWidth = CurvedAnimation(parent: _line, curve: Curves.easeOut);
     _subOpacity = CurvedAnimation(parent: _sub, curve: Curves.easeIn);
-    _bracketsOpacity =
-        CurvedAnimation(parent: _brackets, curve: Curves.easeIn);
+    _bracketsOpacity = CurvedAnimation(parent: _brackets, curve: Curves.easeIn);
 
     _scan.forward().then((_) async {
       _cursor.repeat(reverse: true);
@@ -82,9 +91,8 @@ class _LoadingScreenState extends State<LoadingScreen>
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => calibDone
-                ? const CruiseScreen()
-                : const CalibrationScreen(),
+            builder: (_) =>
+                calibDone ? const CruiseScreen() : const CalibrationScreen(),
           ),
         );
       }
@@ -149,7 +157,9 @@ class _LoadingScreenState extends State<LoadingScreen>
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
                                 colors: [
-                                  AppColors.red.withOpacity(0.04),
+                                  AppColors.primaryContainer.withValues(
+                                    alpha: 0.04,
+                                  ),
                                   Colors.transparent,
                                 ],
                               ),
@@ -169,10 +179,11 @@ class _LoadingScreenState extends State<LoadingScreen>
                               width: 2,
                               height: 80,
                               decoration: BoxDecoration(
-                                color: AppColors.red,
+                                color: AppColors.primaryContainer,
                                 boxShadow: [
                                   BoxShadow(
-                                    color: AppColors.red.withOpacity(0.6),
+                                    color: AppColors.primaryContainer
+                                        .withValues(alpha: 0.6),
                                     blurRadius: 20,
                                     spreadRadius: 2,
                                   ),
@@ -197,15 +208,12 @@ class _LoadingScreenState extends State<LoadingScreen>
                         gradient: LinearGradient(
                           colors: [
                             Colors.transparent,
-                            AppColors.red,
+                            AppColors.primaryContainer,
                             Colors.transparent,
                           ],
                         ),
                         boxShadow: [
-                          BoxShadow(
-                            color: AppColors.redGlow,
-                            blurRadius: 8,
-                          ),
+                          BoxShadow(color: AppColors.redGlow, blurRadius: 8),
                         ],
                       ),
                     );
@@ -217,10 +225,9 @@ class _LoadingScreenState extends State<LoadingScreen>
                   opacity: _subOpacity,
                   child: Text(
                     'AI CO-DRIVER',
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                      color: AppColors.white.withOpacity(0.25),
+                    style: AppText.label(
+                      size: 11,
+                      color: AppColors.textHint,
                       letterSpacing: 8,
                     ),
                   ),
@@ -236,10 +243,7 @@ class _LoadingScreenState extends State<LoadingScreen>
   Widget _buildLogo() {
     return RichText(
       text: TextSpan(
-        style: GoogleFonts.orbitron(
-          fontSize: 72,
-          fontWeight: FontWeight.w900,
-        ),
+        style: GoogleFonts.orbitron(fontSize: 72, fontWeight: FontWeight.w900),
         children: [
           const TextSpan(
             text: 'RE',
@@ -248,9 +252,9 @@ class _LoadingScreenState extends State<LoadingScreen>
           TextSpan(
             text: 'VV',
             style: TextStyle(
-              color: AppColors.red,
+              color: AppColors.primaryContainer,
               shadows: [
-                Shadow(color: AppColors.red, blurRadius: 30),
+                Shadow(color: AppColors.primaryContainer, blurRadius: 30),
                 Shadow(color: AppColors.redGlow, blurRadius: 60),
               ],
             ),

@@ -3,10 +3,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '../constants/drive_thresholds.dart';
 import '../theme/colors.dart';
 import '../widgets/map_widget.dart';
 import '../widgets/sprint_toggle.dart';
 import '../widgets/mic_button.dart';
+import '../models/composite_route.dart';
 import '../models/revv_route.dart';
 import '../services/location_service.dart';
 import '../services/weather_service.dart';
@@ -23,7 +25,9 @@ import '../services/jarvis_script.dart';
 import '../services/route_service.dart';
 import '../models/nav_step.dart';
 import '../models/run_session.dart';
+import '../ui/ride_state_describer.dart';
 import '../ui/ux_contracts.dart';
+import '../widgets/ride_context_card.dart';
 import 'run_card_screen.dart';
 
 class SprintScreen extends StatefulWidget {
@@ -91,16 +95,12 @@ class _SprintScreenState extends State<SprintScreen> {
     required double minDistKm,
     required double progress,
   }) {
-    if (isOffRoute) {
-      if (minDistKm > 1.0) return '루트와 거리가 꽤 벌어져 복귀 경로를 다시 계산하는 중';
-      if (minDistKm > 0.5) return '루트 바깥으로 벗어나 복귀 라인을 확인하는 중';
-      return '루트에서 살짝 벗어나 다시 합류하는 중';
-    }
-    if (wasOffRoute) return '루트로 복귀했어요. 흐름을 다시 이어가면 됩니다';
-    if (progress >= 0.95) return '마지막 구간을 주행 중';
-    if (progress >= 0.75) return '후반 구간에 들어왔어요';
-    if (progress >= 0.35) return '본 루트 흐름을 안정적으로 타는 중';
-    return '본 루트에 진입했어요';
+    return describeRideProgressDetail(
+      isOffRoute: isOffRoute,
+      wasOffRoute: wasOffRoute,
+      minDistKm: minDistKm,
+      progress: progress,
+    );
   }
 
   String _routePhaseLabel(double progress) {
@@ -129,21 +129,19 @@ class _SprintScreenState extends State<SprintScreen> {
           if (obd.isConnected) obd.startRunTracking();
         } catch (_) {}
         // 주행 시작 자동 브리핑 (거리 + 커브타입 + 첫 코너 거리 포함)
-        if (!context.read<SettingsService>().ttsMuted) {
-          final persona = context.read<SettingsService>().jarvisPersona;
-          final firstCornerKm =
-              _routeAnalysis != null && _routeAnalysis!.firstCornerM > 0
-              ? _routeAnalysis!.firstCornerM / 1000.0
-              : null;
-          context.read<JarvisService>().speak(
-            JarvisScript.sessionStart(
-              widget.selectedRoute,
-              weather.roadCondition,
-              persona,
-              firstCornerKm: firstCornerKm,
-            ),
-          );
-        }
+        final persona = context.read<SettingsService>().jarvisPersona;
+        final firstCornerKm =
+            _routeAnalysis != null && _routeAnalysis!.firstCornerM > 0
+            ? _routeAnalysis!.firstCornerM / 1000.0
+            : null;
+        context.read<JarvisService>().speak(
+          JarvisScript.sessionStart(
+            widget.selectedRoute,
+            weather.roadCondition,
+            persona,
+            firstCornerKm: firstCornerKm,
+          ),
+        );
       });
 
       _locationService!.addListener(_onLocation);
@@ -166,7 +164,12 @@ class _SprintScreenState extends State<SprintScreen> {
       final persona = context.read<SettingsService>().jarvisPersona;
       _cornerBriefing = CornerBriefingService(
         onSpeak: (text) {
-          if (!_isMuted && mounted) context.read<JarvisService>().speak(text);
+          if (mounted) {
+            context.read<JarvisService>().speak(
+              text,
+              priority: SpeechPriority.high,
+            );
+          }
         },
         onUpdate: () {
           if (mounted) setState(() {});
@@ -210,7 +213,7 @@ class _SprintScreenState extends State<SprintScreen> {
     if (!_onRoute && widget.selectedRoute != null && _navPolyline != null) {
       final start = widget.selectedRoute!.nodes.first;
       final dist = RevvRoute.haversineKm(LatLng(loc.lat, loc.lng), start);
-      if (dist >= 0.2) {
+      if (dist >= kRouteEntryKm) {
         final approach = _approachDetail(dist);
         if (_routeStateDetail != approach || (_routeGapKm - dist).abs() > 0.1) {
           setState(() {
@@ -219,7 +222,7 @@ class _SprintScreenState extends State<SprintScreen> {
           });
         }
       }
-      if (dist < 0.2) {
+      if (dist < kRouteEntryKm) {
         _tbtService?.stop();
         _tbtService = null;
         setState(() {
@@ -233,7 +236,7 @@ class _SprintScreenState extends State<SprintScreen> {
           if (mounted) setState(() => _routeStatusMsg = null);
         });
         // 루트 진입 코너 요약 브리핑
-        if (!_isMuted && _routeAnalysis != null) {
+        if (_routeAnalysis != null) {
           final analysis = _routeAnalysis!;
           final route = widget.selectedRoute!;
           final persona = context.read<SettingsService>().jarvisPersona;
@@ -247,6 +250,7 @@ class _SprintScreenState extends State<SprintScreen> {
                   analysis.firstCornerM,
                   persona,
                 ),
+                priority: SpeechPriority.normal,
               );
             }
           });
@@ -269,18 +273,21 @@ class _SprintScreenState extends State<SprintScreen> {
         if (minDist < 0.05) break;
       }
       final wasOff = _isOffRoute;
-      final nowOff = minDist > 0.3;
+      final nowOff = wasOff
+          ? minDist > kOffRouteReturnKm
+          : minDist > kOffRouteKm;
       final newPct = nodes.length > 1 ? closestIdx / (nodes.length - 1) : 0.0;
       if (wasOff != nowOff ||
           (newPct - _routeProgressPct).abs() > 0.005 ||
           (_routeGapKm - minDist).abs() > 0.05) {
         // 이탈/복귀 전환 시 TTS
-        if (wasOff != nowOff && !_isMuted) {
+        if (wasOff != nowOff) {
           final persona = context.read<SettingsService>().jarvisPersona;
           context.read<JarvisService>().speak(
             nowOff
                 ? JarvisScript.offRoute(persona)
                 : JarvisScript.onRoute(persona),
+            priority: SpeechPriority.critical,
           );
         }
         setState(() {
@@ -327,7 +334,10 @@ class _SprintScreenState extends State<SprintScreen> {
         if (_lastSportSpeak == null ||
             now.difference(_lastSportSpeak!).inSeconds > 60) {
           final persona = context.read<SettingsService>().jarvisPersona;
-          context.read<JarvisService>().speak(JarvisScript.sportMode(persona));
+          context.read<JarvisService>().speak(
+            JarvisScript.sportMode(persona),
+            priority: SpeechPriority.normal,
+          );
           _lastSportSpeak = now;
         }
       }
@@ -350,7 +360,7 @@ class _SprintScreenState extends State<SprintScreen> {
     final totalG = math.sqrt(lateral * lateral + lon * lon);
 
     // 급조작 감지 — 횡G 임계값(0.45G) 초과 시 현재 위치와 함께 기록
-    if (lateral.abs() >= 0.45) {
+    if (lateral.abs() >= kSharpCornerLateralG) {
       final loc = _locationService;
       if (loc != null) {
         _runSessionService?.recordSharpCorner(loc.lat, loc.lng, lateral.abs());
@@ -383,7 +393,7 @@ class _SprintScreenState extends State<SprintScreen> {
     imu.resetMaxG();
     if (!mounted) return;
     // 즉시 음성 요약 (AI 없음 — 로컬 생성)
-    if (session != null && !_isMuted) {
+    if (session != null) {
       final persona = context.read<SettingsService>().jarvisPersona;
       context.read<JarvisService>().speak(
         JarvisScript.sessionEnd(
@@ -391,6 +401,7 @@ class _SprintScreenState extends State<SprintScreen> {
           session.sharpCorners.length,
           persona,
         ),
+        priority: SpeechPriority.normal,
       );
     }
     if (widget.onEnd != null) {
@@ -416,6 +427,18 @@ class _SprintScreenState extends State<SprintScreen> {
   // Consumer<DrivingContextService> 완전 제거 — _driveMode 로컬 State 사용
   // (Consumer rebuild이 build/layout 충돌 유발 → !_debugDoingThisLayout 해결)
   Widget _buildSprintBody(BuildContext context) {
+    final composite = context.select<RouteService, CompositeRoute?>(
+      (svc) => svc.selectedCompositeRoute,
+    );
+    final rideContext = buildRideContextSummary(
+      route: widget.selectedRoute,
+      composite: composite,
+      startMode: widget.startMode,
+      routeProgressPct: _routeProgressPct,
+      routeGapKm: _routeGapKm,
+      isOffRoute: _isOffRoute,
+      onRoute: _onRoute,
+    );
     final tbtTop = (_tbtService?.upcomingStep != null) ? 76.0 : 16.0;
     // ⚠ ValueKey 필수:
     // Stack 자식 리스트에 if 조건부 위젯이 있으면 Flutter가 INDEX 기반으로 매칭.
@@ -512,6 +535,21 @@ class _SprintScreenState extends State<SprintScreen> {
           left: 14,
           child: const _LiveStatHUD(),
         ),
+
+        if (rideContext != null)
+          Positioned(
+            key: const ValueKey('ride-context'),
+            top: tbtTop + 52,
+            left: 14,
+            right: 14,
+            child: RideContextCard(
+              label: rideContext.label,
+              detail: rideContext.detail,
+              color: rideContext.color,
+              backgroundColor: AppColors.bg.withValues(alpha: 0.88),
+              borderOpacity: 0.4,
+            ),
+          ),
 
         // ── 루트 이동 중 안내 ──
         if (!_onRoute && _navPolyline != null && widget.selectedRoute != null)
@@ -1402,7 +1440,7 @@ class _GlowBorderPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const threshold = 0.12;
+    const threshold = kGlowStartG;
     if (g < threshold) return;
 
     final t = ((g - threshold) / 0.63).clamp(0.0, 1.0);
@@ -1483,10 +1521,15 @@ class _SpeedHUD extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.bg.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white12),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.28),
+        ),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 8),
+          BoxShadow(
+            color: AppColors.primaryContainer.withValues(alpha: 0.16),
+            blurRadius: 18,
+          ),
         ],
       ),
       child: Column(
@@ -1497,7 +1540,7 @@ class _SpeedHUD extends StatelessWidget {
             style: GoogleFonts.orbitron(
               fontSize: 34,
               fontWeight: FontWeight.w700,
-              color: Colors.white,
+              color: AppColors.primaryContainer,
               height: 1.0,
             ),
           ),
@@ -1507,7 +1550,7 @@ class _SpeedHUD extends StatelessWidget {
             style: GoogleFonts.rajdhani(
               fontSize: 10,
               fontWeight: FontWeight.w600,
-              color: AppColors.gray,
+              color: AppColors.textHint,
               letterSpacing: 1.5,
             ),
           ),

@@ -33,9 +33,13 @@ class TurnByTurnService {
       if (m == 'left' || m == 'right' ||
           m == 'slight left' || m == 'slight right' ||
           m == 'sharp left' || m == 'sharp right' ||
-          m == 'uturn') return false;
+          m == 'uturn') {
+        return false;
+      }
       if (s.type == 'roundabout' || s.type == 'rotary' ||
-          s.type == 'fork' || s.type == 'end of road') return false;
+          s.type == 'fork' || s.type == 'end of road') {
+        return false;
+      }
     }
     return true;
   }

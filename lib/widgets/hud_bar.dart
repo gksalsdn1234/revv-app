@@ -44,9 +44,7 @@ class _HudBarState extends State<HudBar> {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: AppColors.bg,
-        border: Border(
-          bottom: BorderSide(color: AppColors.divider),
-        ),
+        border: Border(bottom: BorderSide(color: AppColors.divider)),
       ),
       child: Row(
         children: [
@@ -54,8 +52,11 @@ class _HudBarState extends State<HudBar> {
           const Spacer(),
           Row(
             children: [
-              Icon(Icons.wb_sunny_outlined,
-                  size: 13, color: AppColors.textSecondary),
+              Icon(
+                Icons.wb_sunny_outlined,
+                size: 13,
+                color: AppColors.textSecondary,
+              ),
               const SizedBox(width: 4),
               Text(
                 '-2°C',
@@ -172,7 +173,7 @@ class _SprintHudBarState extends State<SprintHudBar> {
             style: GoogleFonts.orbitron(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: AppColors.white.withOpacity(0.5),
+              color: AppColors.white.withValues(alpha: 0.5),
             ),
           ),
         ],

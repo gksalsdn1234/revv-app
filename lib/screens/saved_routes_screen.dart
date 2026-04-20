@@ -8,7 +8,9 @@ import '../services/route_service.dart';
 import '../services/run_history_service.dart';
 import '../services/saved_route_service.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../ui/ux_contracts.dart';
+import '../widgets/revv_ui.dart';
 import 'route_detail_screen.dart';
 import 'route_preview_screen.dart';
 
@@ -39,18 +41,7 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(
-        backgroundColor: AppColors.panel,
-        title: Text(
-          'SAVED ROUTES',
-          style: GoogleFonts.orbitron(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-            letterSpacing: 1.5,
-          ),
-        ),
-      ),
+      appBar: const RevvTopBar(title: 'Archive', eyebrow: 'Telemetry Library'),
       body: Consumer2<SavedRouteService, RunHistoryService>(
         builder: (context, saved, history, _) {
           final routes = _visibleRoutes(saved.routes, history);
@@ -169,13 +160,8 @@ class _SavedHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -187,16 +173,12 @@ class _SavedHeader extends StatelessWidget {
                   children: [
                     Text(
                       '$count개 저장됨',
-                      style: GoogleFonts.rajdhani(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
+                      style: AppText.inter(size: 18, weight: FontWeight.w800),
                     ),
                     Text(
                       '커뮤니티 피드 없이, 다시 열어보기 쉬운 내 루트 라이브러리예요.',
-                      style: GoogleFonts.rajdhani(
-                        fontSize: 12,
+                      style: AppText.inter(
+                        size: 12,
                         color: AppColors.textSecondary,
                       ),
                     ),
@@ -349,13 +331,8 @@ class _SavedRouteCard extends StatelessWidget {
     final isComposite = _isCompositeRoute(route);
     final libraryLabel = isComposite ? 'COMPOSITE' : 'SINGLE';
 
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -387,11 +364,7 @@ class _SavedRouteCard extends StatelessWidget {
                       route.name,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.rajdhani(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
+                      style: AppText.inter(size: 20, weight: FontWeight.w900),
                     ),
                   ],
                 ),
@@ -455,7 +428,8 @@ class _SavedRouteCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
+                child: RevvGhostButton(
+                  label: '미리 다시 열기',
                   onPressed: () {
                     context.read<RouteService>().selectRoute(route);
                     context.read<RouteService>().clearCompositeRoute();
@@ -466,19 +440,12 @@ class _SavedRouteCard extends StatelessWidget {
                       ),
                     );
                   },
-                  child: Text(
-                    '미리 다시 열기',
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white70,
-                    ),
-                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: OutlinedButton(
+                child: RevvGhostButton(
+                  label: '자세히 보기',
                   onPressed: () {
                     context.read<RouteService>().selectRoute(route);
                     context.read<RouteService>().clearCompositeRoute();
@@ -489,14 +456,6 @@ class _SavedRouteCard extends StatelessWidget {
                       ),
                     );
                   },
-                  child: Text(
-                    '자세히 보기',
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white70,
-                    ),
-                  ),
                 ),
               ),
             ],
@@ -504,22 +463,14 @@ class _SavedRouteCard extends StatelessWidget {
           const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+            child: RevvPrimaryButton(
+              label: isComposite ? '이 구성으로 바로 달리기' : '바로 달리기',
               onPressed: () {
                 context.read<RouteService>().selectRoute(route);
                 context.read<RouteService>().clearCompositeRoute();
                 context.read<RouteService>().requestSprint(route: route);
                 Navigator.pop(context);
               },
-              child: Text(
-                isComposite ? '이 구성으로 바로 달리기' : '바로 달리기',
-                style: GoogleFonts.rajdhani(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                ),
-              ),
             ),
           ),
         ],

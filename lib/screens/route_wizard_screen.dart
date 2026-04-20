@@ -11,6 +11,8 @@ import '../services/poi_service.dart';
 import '../services/home_location_service.dart';
 import '../services/directions_service.dart';
 import '../services/waypoint_optimizer.dart';
+import '../theme/text_styles.dart';
+import '../widgets/revv_ui.dart';
 
 /// 루트 계획 마법사 — Tesla-style 트립 플래너
 class RouteWizardSheet extends StatefulWidget {
@@ -20,7 +22,7 @@ class RouteWizardSheet extends StatefulWidget {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppColors.panel,
+      backgroundColor: Colors.transparent,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
@@ -50,19 +52,19 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
   List<Poi> _preStopCandidates = [];
   List<Poi> _postStopCandidates = [];
   List<Poi> _routePois = [];
-  int _preStopIdx = -1;  // -1 = 없음
+  int _preStopIdx = -1; // -1 = 없음
   int _postStopIdx = -1; // -1 = 없음
   String? _error;
 
   Poi? get _preStop =>
       _preStopIdx >= 0 && _preStopIdx < _preStopCandidates.length
-          ? _preStopCandidates[_preStopIdx]
-          : null;
+      ? _preStopCandidates[_preStopIdx]
+      : null;
 
   Poi? get _postStop =>
       _postStopIdx >= 0 && _postStopIdx < _postStopCandidates.length
-          ? _postStopCandidates[_postStopIdx]
-          : null;
+      ? _postStopCandidates[_postStopIdx]
+      : null;
 
   // ── 플랜 생성 ────────────────────────────────────────────
 
@@ -104,7 +106,8 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
 
     // 2. 출발 전 POI (현재 위치 주변 — 카페·맛집 중심)
     final preF = PoiService.searchNearby(
-      loc.lat, loc.lng,
+      loc.lat,
+      loc.lng,
       radiusM: 5000,
       maxTotal: 6,
     );
@@ -112,7 +115,8 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
     // 3. 루트 후 POI (루트 끝점 주변 — 뷰포인트·카페 중심)
     final end = route.nodes.isNotEmpty ? route.nodes.last : center;
     final postF = PoiService.searchNearby(
-      end.lat, end.lng,
+      end.lat,
+      end.lng,
       radiusM: 8000,
       maxTotal: 6,
     );
@@ -121,7 +125,8 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
     final midIdx = route.nodes.length ~/ 2;
     final mid = midIdx < route.nodes.length ? route.nodes[midIdx] : center;
     final midF = PoiService.searchNearby(
-      mid.lat, mid.lng,
+      mid.lat,
+      mid.lng,
       radiusM: 5000,
       maxTotal: 10,
     );
@@ -188,7 +193,10 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
     switch (_step) {
       case _Step.routeType:
         if (_isMulti) {
-          setState(() { _selectedIds.clear(); _step = _Step.multiSelect; });
+          setState(() {
+            _selectedIds.clear();
+            _step = _Step.multiSelect;
+          });
         } else {
           setState(() => _step = _Step.distance);
         }
@@ -235,7 +243,10 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
       return;
     }
 
-    setState(() { _step = _Step.building; _error = null; });
+    setState(() {
+      _step = _Step.building;
+      _error = null;
+    });
 
     final result = await routeSvc.optimizeWaypoints(
       userPos: LatLng(loc.lat, loc.lng),
@@ -246,7 +257,10 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
     if (!mounted) return;
 
     if (result == null) {
-      setState(() { _error = '최적화에 실패했어요. 다시 시도해주세요.'; _step = _Step.multiSelect; });
+      setState(() {
+        _error = '최적화에 실패했어요. 다시 시도해주세요.';
+        _step = _Step.multiSelect;
+      });
       return;
     }
 
@@ -277,17 +291,29 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
 
     final merged = RevvRoute(
       id: 'multi_${DateTime.now().millisecondsSinceEpoch}',
-      name: names.take(2).join(' → ') + (names.length > 2 ? ' +${names.length - 2}' : ''),
+      name:
+          names.take(2).join(' → ') +
+          (names.length > 2 ? ' +${names.length - 2}' : ''),
       nodes: finalNodes,
       distanceKm: totalKm,
       windingScore: totalScore / result.orderedSegments.length,
-      starRating: RevvRoute.toStarRating(totalScore / result.orderedSegments.length),
+      starRating: RevvRoute.toStarRating(
+        totalScore / result.orderedSegments.length,
+      ),
       sharpCurveCount: 0,
       centerPoint: finalNodes[finalNodes.length ~/ 2],
       distanceFromUser: 0,
-      tightCurveKm: result.orderedSegments.fold(0.0, (s, r) => s + r.tightCurveKm),
-      mediumCurveKm: result.orderedSegments.fold(0.0, (s, r) => s + r.mediumCurveKm),
-      maxContinuousKm: result.orderedSegments.map((r) => r.maxContinuousKm).reduce((a, b) => a > b ? a : b),
+      tightCurveKm: result.orderedSegments.fold(
+        0.0,
+        (s, r) => s + r.tightCurveKm,
+      ),
+      mediumCurveKm: result.orderedSegments.fold(
+        0.0,
+        (s, r) => s + r.mediumCurveKm,
+      ),
+      maxContinuousKm: result.orderedSegments
+          .map((r) => r.maxContinuousKm)
+          .reduce((a, b) => a > b ? a : b),
       elevationDelta: 0,
     );
 
@@ -297,15 +323,17 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
 
   void _cyclePreStop() {
     setState(() {
-      _preStopIdx =
-          _preStopIdx >= _preStopCandidates.length - 1 ? -1 : _preStopIdx + 1;
+      _preStopIdx = _preStopIdx >= _preStopCandidates.length - 1
+          ? -1
+          : _preStopIdx + 1;
     });
   }
 
   void _cyclePostStop() {
     setState(() {
-      _postStopIdx =
-          _postStopIdx >= _postStopCandidates.length - 1 ? -1 : _postStopIdx + 1;
+      _postStopIdx = _postStopIdx >= _postStopCandidates.length - 1
+          ? -1
+          : _postStopIdx + 1;
     });
   }
 
@@ -334,7 +362,7 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 20),
                 decoration: BoxDecoration(
-                  color: Colors.white24,
+                  color: AppColors.outline,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -343,7 +371,10 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
             if (_step == _Step.planning || _step == _Step.building) ...[
               const SizedBox(height: 40),
               const Center(
-                  child: CircularProgressIndicator(color: AppColors.red)),
+                child: CircularProgressIndicator(
+                  color: AppColors.primaryContainer,
+                ),
+              ),
               const SizedBox(height: 16),
               Center(
                 child: Text(
@@ -351,21 +382,25 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
                       ? '최적의 여정을 구성하고 있어요...'
                       : '루트를 계획하고 있어요...',
                   style: GoogleFonts.rajdhani(
-                      fontSize: 14, color: AppColors.gray),
+                    fontSize: 14,
+                    color: AppColors.gray,
+                  ),
                 ),
               ),
               const SizedBox(height: 40),
             ] else ...[
               _buildTitle(),
               const SizedBox(height: 16),
-              Flexible(
-                child: SingleChildScrollView(child: _buildContent()),
-              ),
+              Flexible(child: SingleChildScrollView(child: _buildContent())),
               if (_error != null) ...[
                 const SizedBox(height: 8),
-                Text(_error!,
-                    style: GoogleFonts.rajdhani(
-                        fontSize: 12, color: AppColors.red)),
+                Text(
+                  _error!,
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 12,
+                    color: AppColors.primaryContainer,
+                  ),
+                ),
               ],
               const SizedBox(height: 16),
               _buildNavButtons(),
@@ -383,16 +418,12 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
         children: [
           Text(
             '오늘의 드라이브 플랜',
-            style: GoogleFonts.orbitron(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: Colors.white),
+            style: AppText.inter(size: 20, weight: FontWeight.w900),
           ),
           const SizedBox(height: 4),
           Text(
             '슬롯을 탭해서 장소를 바꿀 수 있어요',
-            style:
-                GoogleFonts.rajdhani(fontSize: 12, color: AppColors.gray),
+            style: GoogleFonts.rajdhani(fontSize: 12, color: AppColors.gray),
           ),
         ],
       );
@@ -404,8 +435,7 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
     };
     return Text(
       titles[_step] ?? '',
-      style: GoogleFonts.orbitron(
-          fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
+      style: AppText.inter(size: 20, weight: FontWeight.w900),
     );
   }
 
@@ -428,27 +458,41 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
                   margin: const EdgeInsets.symmetric(horizontal: 4),
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   decoration: BoxDecoration(
-                    color: sel ? AppColors.red : AppColors.bg,
-                    borderRadius: BorderRadius.circular(4),
+                    color: sel
+                        ? AppColors.primaryContainer
+                        : AppColors.surfaceHigh.withValues(alpha: 0.32),
+                    borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                        color: sel ? AppColors.red : Colors.white12),
+                      color: sel
+                          ? AppColors.primaryContainer
+                          : AppColors.outlineVariant,
+                    ),
                   ),
                   child: Column(
                     children: [
-                      Text('${km}km',
-                          style: GoogleFonts.orbitron(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white)),
                       Text(
-                          km == 30
-                              ? '가볍게'
-                              : km == 50
-                                  ? '적당히'
-                                  : '롱 크루즈',
-                          style: GoogleFonts.rajdhani(
-                              fontSize: 11,
-                              color: sel ? Colors.white70 : AppColors.gray)),
+                        '${km}km',
+                        style: GoogleFonts.orbitron(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: sel
+                              ? AppColors.onPrimary
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        km == 30
+                            ? '가볍게'
+                            : km == 50
+                            ? '적당히'
+                            : '롱 크루즈',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 11,
+                          color: sel
+                              ? AppColors.onPrimary.withValues(alpha: 0.72)
+                              : AppColors.gray,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -540,9 +584,10 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
           Text(
             label,
             style: GoogleFonts.rajdhani(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.white),
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
           ),
         ],
       ),
@@ -558,27 +603,19 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
     final hasSelection = poi != null;
     return GestureDetector(
       onTap: hasAny ? onTap : null,
-      child: Container(
+      child: RevvGlassCard(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: hasSelection
-              ? AppColors.red.withOpacity(0.08)
-              : AppColors.bg,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: hasSelection
-                ? AppColors.red.withOpacity(0.4)
-                : Colors.white12,
-            width: hasSelection ? 1.2 : 1,
-          ),
-        ),
+        color: hasSelection
+            ? AppColors.primaryContainer.withValues(alpha: 0.08)
+            : AppColors.bg.withValues(alpha: 0.74),
         child: Row(
           children: [
             Text(
               poi != null ? poi.category.emoji : '➕',
               style: TextStyle(
-                  fontSize: 20,
-                  color: hasSelection ? null : Colors.white38),
+                fontSize: 20,
+                color: hasSelection ? null : Colors.white38,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -597,13 +634,17 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
                     Text(
                       '${(poi.distanceKm * 10).round() / 10}km · ${poi.category.label}',
                       style: GoogleFonts.rajdhani(
-                          fontSize: 11, color: AppColors.gray),
+                        fontSize: 11,
+                        color: AppColors.gray,
+                      ),
                     )
                   else if (hasAny)
                     Text(
                       '탭해서 추가',
                       style: GoogleFonts.rajdhani(
-                          fontSize: 11, color: Colors.white24),
+                        fontSize: 11,
+                        color: Colors.white24,
+                      ),
                     ),
                 ],
               ),
@@ -621,20 +662,9 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
       route.starRating.round().clamp(1, 5),
       (_) => '⭐',
     ).join();
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppColors.red.withOpacity(0.18),
-            AppColors.red.withOpacity(0.04),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppColors.red.withOpacity(0.45)),
-      ),
+      color: AppColors.primaryContainer.withValues(alpha: 0.08),
       child: Row(
         children: [
           const Text('🛣', style: TextStyle(fontSize: 26)),
@@ -645,10 +675,11 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
               children: [
                 Text(
                   route.name,
-                  style: GoogleFonts.orbitron(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white),
+                  style: AppText.inter(
+                    size: 14,
+                    weight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -658,14 +689,13 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
                     Text(
                       '${route.distanceKm.toStringAsFixed(1)}km',
                       style: GoogleFonts.rajdhani(
-                          fontSize: 12, color: AppColors.gray),
+                        fontSize: 12,
+                        color: AppColors.gray,
+                      ),
                     ),
                     if (stars.isNotEmpty) ...[
                       const SizedBox(width: 8),
-                      Text(
-                        stars,
-                        style: const TextStyle(fontSize: 10),
-                      ),
+                      Text(stars, style: const TextStyle(fontSize: 10)),
                     ],
                   ],
                 ),
@@ -683,8 +713,11 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
       child: Column(
         children: [
           Container(width: 1, height: 10, color: Colors.white12),
-          const Icon(Icons.keyboard_arrow_down,
-              color: Colors.white24, size: 14),
+          const Icon(
+            Icons.keyboard_arrow_down,
+            color: Colors.white24,
+            size: 14,
+          ),
         ],
       ),
     );
@@ -716,15 +749,15 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(poi.category.emoji,
-              style: const TextStyle(fontSize: 16)),
+          Text(poi.category.emoji, style: const TextStyle(fontSize: 16)),
           const SizedBox(height: 4),
           Text(
             poi.name,
             style: GoogleFonts.rajdhani(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: Colors.white),
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
@@ -749,15 +782,18 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
           GestureDetector(
             onTap: _back,
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: Colors.white12),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: AppColors.outlineVariant),
               ),
-              child: Text('이전',
-                  style: GoogleFonts.rajdhani(
-                      fontSize: 13, color: AppColors.gray)),
+              child: Text(
+                '이전',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 13,
+                  color: AppColors.gray,
+                ),
+              ),
             ),
           ),
         const SizedBox(width: 10),
@@ -767,21 +803,22 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 14),
               decoration: BoxDecoration(
-                color: AppColors.red,
-                borderRadius: BorderRadius.circular(4),
+                color: AppColors.primaryContainer,
+                borderRadius: BorderRadius.circular(999),
               ),
               child: Center(
                 child: Text(
                   _step == _Step.multiSelect
                       ? '최적 경로 생성  ✨'
                       : isLast
-                          ? '출발하기  🚗'
-                          : '다음',
+                      ? '출발하기  🚗'
+                      : '다음',
                   style: GoogleFonts.rajdhani(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      letterSpacing: 2),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.onPrimary,
+                    letterSpacing: 2,
+                  ),
                 ),
               ),
             ),
@@ -797,7 +834,12 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
     final modes = [
       (icon: '🛣', label: '단독 파편\n재밌는 도로 하나', isLoop: false, isMulti: false),
       (icon: '🔄', label: '루프 만들기\n여러 구간 이어달리기', isLoop: true, isMulti: false),
-      (icon: '🗺', label: '구간 이어달리기\n최적 경로 자동 계획', isLoop: false, isMulti: true),
+      (
+        icon: '🗺',
+        label: '구간 이어달리기\n최적 경로 자동 계획',
+        isLoop: false,
+        isMulti: true,
+      ),
     ];
     return Row(
       children: modes.map((m) {
@@ -812,10 +854,12 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
               margin: const EdgeInsets.symmetric(horizontal: 3),
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
               decoration: BoxDecoration(
-                color: sel ? AppColors.red.withOpacity(0.15) : AppColors.bg,
-                borderRadius: BorderRadius.circular(4),
+                color: sel
+                    ? AppColors.primaryContainer.withValues(alpha: 0.15)
+                    : AppColors.bg,
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: sel ? AppColors.red : Colors.white12,
+                  color: sel ? AppColors.primaryContainer : Colors.white12,
                   width: sel ? 1.5 : 1,
                 ),
               ),
@@ -829,7 +873,7 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
                     style: GoogleFonts.rajdhani(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
-                      color: sel ? Colors.white : AppColors.gray,
+                      color: sel ? AppColors.primaryContainer : AppColors.gray,
                     ),
                   ),
                 ],
@@ -879,10 +923,14 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
               margin: const EdgeInsets.only(bottom: 6),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: selected ? AppColors.red.withOpacity(0.1) : AppColors.bg,
-                borderRadius: BorderRadius.circular(6),
+                color: selected
+                    ? AppColors.primaryContainer.withValues(alpha: 0.1)
+                    : AppColors.bg,
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: selected ? AppColors.red.withOpacity(0.6) : Colors.white12,
+                  color: selected
+                      ? AppColors.primaryContainer.withValues(alpha: 0.6)
+                      : Colors.white12,
                   width: selected ? 1.2 : 1,
                 ),
               ),
@@ -921,7 +969,9 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
                         Text(
                           '${r.distanceKm.toStringAsFixed(1)}km  ·  ★${r.windingScore.toStringAsFixed(1)}',
                           style: GoogleFonts.rajdhani(
-                              fontSize: 10, color: AppColors.gray),
+                            fontSize: 10,
+                            color: AppColors.gray,
+                          ),
                         ),
                       ],
                     ),
@@ -929,8 +979,10 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
                   const SizedBox(width: 6),
                   // 거리 배지
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.panel,
                       borderRadius: BorderRadius.circular(3),
@@ -938,7 +990,9 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
                     child: Text(
                       '${r.distanceFromUser.toStringAsFixed(0)}km',
                       style: GoogleFonts.rajdhani(
-                          fontSize: 9, color: AppColors.gray),
+                        fontSize: 9,
+                        color: AppColors.gray,
+                      ),
                     ),
                   ),
                 ],
@@ -949,5 +1003,4 @@ class _RouteWizardSheetState extends State<RouteWizardSheet> {
       ],
     );
   }
-
 }

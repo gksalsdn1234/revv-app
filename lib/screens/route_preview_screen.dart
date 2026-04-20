@@ -9,8 +9,10 @@ import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/saved_route_service.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../ui/ux_contracts.dart';
 import '../widgets/mini_elev_chart.dart';
+import '../widgets/revv_ui.dart';
 
 class RoutePreviewScreen extends StatefulWidget {
   final RevvRoute? route;
@@ -45,16 +47,9 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(
-        backgroundColor: AppColors.panel,
-        title: Text(
-          displayRoute.name,
-          style: GoogleFonts.orbitron(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
-          ),
-        ),
+      appBar: RevvTopBar(
+        title: displayRoute.name,
+        eyebrow: 'Pre-drive Setup',
         actions: [
           IconButton(
             onPressed: () =>
@@ -73,13 +68,8 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Container(
+          RevvGlassCard(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.panel,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.red.withValues(alpha: 0.25)),
-            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -87,21 +77,15 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
                   widget.compositeRoute != null
                       ? 'COMPOSITE ROUTE'
                       : displayRoute.difficultyLabel,
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.red,
-                    letterSpacing: 2,
+                  style: AppText.label(
+                    size: 10,
+                    color: AppColors.primaryContainer,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   '${displayRoute.distanceKm.toStringAsFixed(1)} km',
-                  style: GoogleFonts.orbitron(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                  ),
+                  style: AppText.mono(size: 28, weight: FontWeight.w800),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -116,11 +100,9 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
                 const SizedBox(height: 16),
                 Text(
                   '출발 방식',
-                  style: GoogleFonts.orbitron(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textSecondary,
-                    letterSpacing: 1.2,
+                  style: AppText.label(
+                    size: 11,
+                    color: AppColors.primaryContainer,
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -151,20 +133,13 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                Container(
+                SizedBox(
                   width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.white10),
-                  ),
-                  child: Text(
-                    startSummary,
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 14,
-                      height: 1.35,
-                      color: Colors.white,
+                  child: RevvGlassCard(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      startSummary,
+                      style: AppText.inter(size: 14, height: 1.35),
                     ),
                   ),
                 ),
@@ -274,19 +249,11 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
       ),
       bottomNavigationBar: SafeArea(
         top: false,
-        child: Container(
+        child: RevvGlassCard(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          decoration: BoxDecoration(
-            color: AppColors.panel,
-            border: Border(
-              top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
-            ),
-          ),
-          child: ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.red,
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
+          color: AppColors.bg.withValues(alpha: 0.94),
+          child: RevvPrimaryButton(
+            label: sprintStartCtaLabel(_startMode),
             onPressed: () {
               context.read<RouteService>().requestSprint(
                 route:
@@ -295,14 +262,6 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
               );
               Navigator.pop(context);
             },
-            child: Text(
-              sprintStartCtaLabel(_startMode),
-              style: GoogleFonts.rajdhani(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
           ),
         ),
       ),
@@ -337,60 +296,52 @@ class _PreviewDecisionPanel extends StatelessWidget {
       if (route.cautionNote?.isNotEmpty == true) route.cautionNote!,
     ];
 
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '지금 선택 포인트',
-            style: GoogleFonts.orbitron(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textSecondary,
-              letterSpacing: 1.2,
+      child: RevvGlassCard(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '지금 선택 포인트',
+              style: AppText.label(size: 10, color: AppColors.primaryContainer),
             ),
-          ),
-          const SizedBox(height: 8),
-          ...bullets
-              .take(3)
-              .map(
-                (line) => Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 5,
-                        height: 5,
-                        margin: const EdgeInsets.only(top: 7),
-                        decoration: const BoxDecoration(
-                          color: AppColors.red,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          line,
-                          style: GoogleFonts.rajdhani(
-                            fontSize: 13,
-                            height: 1.35,
-                            color: Colors.white70,
+            const SizedBox(height: 8),
+            ...bullets
+                .take(3)
+                .map(
+                  (line) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 5,
+                          height: 5,
+                          margin: const EdgeInsets.only(top: 7),
+                          decoration: const BoxDecoration(
+                            color: AppColors.red,
+                            shape: BoxShape.circle,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            line,
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 13,
+                              height: 1.35,
+                              color: Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-        ],
+          ],
+        ),
       ),
     );
   }

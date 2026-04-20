@@ -33,9 +33,10 @@ class _MicButtonState extends State<MicButton> with TickerProviderStateMixin {
       );
     });
     _barAnims = _barControllers.map((ctrl) {
-      return Tween<double>(begin: 4, end: 24).animate(
-        CurvedAnimation(parent: ctrl, curve: Curves.easeInOut),
-      );
+      return Tween<double>(
+        begin: 4,
+        end: 24,
+      ).animate(CurvedAnimation(parent: ctrl, curve: Curves.easeInOut));
     }).toList();
   }
 
@@ -117,32 +118,34 @@ class _MicButtonState extends State<MicButton> with TickerProviderStateMixin {
           shape: BoxShape.circle,
           color: isActive ? AppColors.red : AppColors.panel,
           border: Border.all(
-            color: isActive ? AppColors.red : AppColors.red.withOpacity(0.5),
+            color: isActive
+                ? AppColors.red
+                : AppColors.red.withValues(alpha: 0.5),
             width: 1.5,
           ),
           boxShadow: isActive
               ? [
                   BoxShadow(
-                    color: AppColors.red.withOpacity(0.5),
+                    color: AppColors.red.withValues(alpha: 0.5),
                     blurRadius: 16,
                     spreadRadius: 2,
-                  )
+                  ),
                 ]
               : null,
         ),
         child: isActive
             ? (_isListening
-                ? _WaveformBars(barAnims: _barAnims)
-                : const Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
+                  ? _WaveformBars(barAnims: _barAnims)
+                  : const Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
                       ),
-                    ),
-                  ))
+                    ))
             : const Icon(Icons.mic, color: AppColors.red, size: 24),
       ),
     );

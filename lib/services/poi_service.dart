@@ -13,7 +13,8 @@ class PoiService {
     int radiusM = 5000,
     int maxResults = 8,
   }) async {
-    final q = '''
+    final q =
+        '''
 [out:json][timeout:15];
 (
   node["${category.osmKey}"="${category.osmValue}"](around:$radiusM,$lat,$lng);
@@ -34,7 +35,8 @@ out body $maxResults;
         final eLat = (e['lat'] as num).toDouble();
         final eLng = (e['lon'] as num).toDouble();
         final tags = e['tags'] as Map<String, dynamic>? ?? {};
-        final name = (tags['name'] as String?) ??
+        final name =
+            (tags['name'] as String?) ??
             (tags['name:en'] as String?) ??
             category.label;
         return Poi(
@@ -57,7 +59,8 @@ out body $maxResults;
     const r = 6371.0;
     final dLat = _rad(lat2 - lat1);
     final dLng = _rad(lng2 - lng1);
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
         math.cos(_rad(lat1)) *
             math.cos(_rad(lat2)) *
             math.sin(dLng / 2) *
@@ -72,7 +75,8 @@ out body $maxResults;
     int radiusM = 6000,
     int maxTotal = 20,
   }) async {
-    final q = '''
+    final q =
+        '''
 [out:json][timeout:20];
 (
   node["amenity"="cafe"](around:$radiusM,$lat,$lng);
@@ -100,22 +104,30 @@ out body $maxTotal;
         final tourism = tags['tourism'] as String?;
 
         PoiCategory? cat;
-        if (amenity == 'cafe') cat = PoiCategory.cafe;
-        else if (amenity == 'restaurant') cat = PoiCategory.restaurant;
-        else if (amenity == 'fast_food') cat = PoiCategory.fastFood;
-        else if (tourism == 'viewpoint') cat = PoiCategory.viewpoint;
+        if (amenity == 'cafe') {
+          cat = PoiCategory.cafe;
+        } else if (amenity == 'restaurant') {
+          cat = PoiCategory.restaurant;
+        } else if (amenity == 'fast_food') {
+          cat = PoiCategory.fastFood;
+        } else if (tourism == 'viewpoint') {
+          cat = PoiCategory.viewpoint;
+        }
         if (cat == null) continue;
 
-        final name = (tags['name'] as String?) ??
+        final name =
+            (tags['name'] as String?) ??
             (tags['name:en'] as String?) ??
             cat.label;
-        pois.add(Poi(
-          name: name,
-          lat: eLat,
-          lng: eLng,
-          category: cat,
-          distanceKm: _haversine(lat, lng, eLat, eLng),
-        ));
+        pois.add(
+          Poi(
+            name: name,
+            lat: eLat,
+            lng: eLng,
+            category: cat,
+            distanceKm: _haversine(lat, lng, eLat, eLng),
+          ),
+        );
       }
       pois.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
       return pois;

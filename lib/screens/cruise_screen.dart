@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
+import '../constants/drive_thresholds.dart';
 import '../theme/colors.dart';
 import '../models/chain_candidate.dart';
 import '../models/composite_route.dart';
@@ -32,9 +33,9 @@ import 'settings_screen.dart';
 import 'analysis_screen.dart';
 import 'ranking_screen.dart';
 import '../widgets/driver_level_card.dart';
+import '../widgets/revv_ui.dart';
 import 'garage_screen.dart';
 import 'saved_routes_screen.dart';
-import '../ui/ux_contracts.dart';
 
 PageRouteBuilder<T> _slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
   pageBuilder: (_, __, ___) => page,
@@ -49,6 +50,41 @@ PageRouteBuilder<T> _slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
   ),
 );
 
+TextStyle _koreanUiStyle({
+  double fontSize = 14,
+  FontWeight fontWeight = FontWeight.w600,
+  Color color = Colors.white,
+  double? height,
+  double? letterSpacing,
+}) {
+  return GoogleFonts.notoSansKr(
+    fontSize: fontSize,
+    fontWeight: fontWeight,
+    color: color,
+    height: height,
+    letterSpacing: letterSpacing,
+  );
+}
+
+TextStyle _techUiStyle({
+  double fontSize = 14,
+  FontWeight fontWeight = FontWeight.w700,
+  Color color = Colors.white,
+  double? height,
+  double? letterSpacing,
+}) {
+  return GoogleFonts.orbitron(
+    textStyle: TextStyle(
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      color: color,
+      height: height,
+      letterSpacing: letterSpacing,
+      fontFamilyFallback: const ['Noto Sans KR', 'Apple SD Gothic Neo'],
+    ),
+  );
+}
+
 class CruiseScreen extends StatefulWidget {
   const CruiseScreen({super.key});
 
@@ -56,27 +92,26 @@ class CruiseScreen extends StatefulWidget {
   State<CruiseScreen> createState() => _CruiseScreenState();
 }
 
+enum _RidePhase { idle, routeSelected, nearStart, sprinting, driving }
+
 class _CruiseScreenState extends State<CruiseScreen>
     with WidgetsBindingObserver {
   List<LatLng>? _navPolyline;
   RevvRoute? _lastFetchedRoute;
-  bool _nearRouteStart = false;
+  _RidePhase _phase = _RidePhase.idle;
   LocationService? _locationService;
   int _activeTab = 0;
 
-  // ── Sprint 오버레이 상태 ──
-  bool _isSprinting = false;
   bool _showCurveHeatmap = false;
   RevvRoute? _sprintRoute;
   List<LatLng>? _sprintNavPolyline;
 
-  // ── Drive 오버레이 상태 ──
-  bool _isDriveMode = false;
   RevvRoute? _driveRoute;
   SprintStartMode _activeStartMode = SprintStartMode.auto;
 
   // ── 항상 듣기 상태 ──
   bool _alwaysListening = false;
+  bool _hasShownAiOfflineSnack = false;
 
   @override
   void initState() {
@@ -151,7 +186,8 @@ class _CruiseScreenState extends State<CruiseScreen>
     final routeSvc = context.read<RouteService>();
     final imu = context.read<ImuService>();
     final obd = context.read<OBDService>();
-    final response = await RevvAiService().ask(
+    final ai = RevvAiService();
+    final response = await ai.ask(
       text,
       speedKmh: loc.speedKmh,
       weather: weather.weatherDesc,
@@ -164,7 +200,15 @@ class _CruiseScreenState extends State<CruiseScreen>
       coolantTempC: obd.data?.coolantTempC,
       throttlePct: obd.data?.throttlePct,
     );
-    if (mounted) jarvis.speak(response);
+    if (mounted) {
+      if (ai.lastRequestFailed && !_hasShownAiOfflineSnack) {
+        _hasShownAiOfflineSnack = true;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('AI 연결 안 됨')));
+      }
+      jarvis.speak(response);
+    }
     SttService().setProcessing(false);
   }
 
@@ -193,7 +237,10 @@ class _CruiseScreenState extends State<CruiseScreen>
 
   void _onLocationChanged() {
     final route = context.read<RouteService>().selectedRoute;
-    if (route == null) return;
+    if (route == null) {
+      _syncBrowsePhase(null);
+      return;
+    }
     if (route != _lastFetchedRoute) {
       _lastFetchedRoute = route;
       _fetchNavRoute(route);
@@ -203,10 +250,33 @@ class _CruiseScreenState extends State<CruiseScreen>
       LatLng(loc.lat, loc.lng),
       route.nodes.first,
     );
-    final isNear = dist < 0.3;
-    if (isNear != _nearRouteStart) {
-      setState(() => _nearRouteStart = isNear);
+    final isNear = dist < kRouteStartNearKm;
+    _syncBrowsePhase(route, isNearOverride: isNear);
+  }
+
+  void _syncBrowsePhase(RevvRoute? route, {bool? isNearOverride}) {
+    if (_phase == _RidePhase.sprinting || _phase == _RidePhase.driving) return;
+    final nextPhase = route == null
+        ? _RidePhase.idle
+        : (isNearOverride ?? _phase == _RidePhase.nearStart)
+        ? _RidePhase.nearStart
+        : _RidePhase.routeSelected;
+    if (nextPhase != _phase && mounted) {
+      setState(() => _phase = nextPhase);
     }
+  }
+
+  void _enterSprint() {
+    _phase = _RidePhase.sprinting;
+  }
+
+  void _enterDrive() {
+    _phase = _RidePhase.driving;
+  }
+
+  void _exitRide() {
+    final selectedRoute = context.read<RouteService>().selectedRoute;
+    _phase = selectedRoute == null ? _RidePhase.idle : _RidePhase.routeSelected;
   }
 
   Future<void> _fetchNavRoute(RevvRoute route) async {
@@ -220,7 +290,7 @@ class _CruiseScreenState extends State<CruiseScreen>
   }
 
   void _goSprint() {
-    if (_isSprinting || _isDriveMode) return;
+    if (_phase == _RidePhase.sprinting || _phase == _RidePhase.driving) return;
     final routeSvc = context.read<RouteService>();
     final route = routeSvc.sprintRoute ?? routeSvc.selectedRoute;
     final startMode = routeSvc.sprintStartMode;
@@ -234,7 +304,7 @@ class _CruiseScreenState extends State<CruiseScreen>
 
       if (startMode == SprintStartMode.joinFromCurrent) {
         setState(() {
-          _isDriveMode = true;
+          _enterDrive();
           _driveRoute = route;
           _activeStartMode = startMode;
         });
@@ -242,14 +312,14 @@ class _CruiseScreenState extends State<CruiseScreen>
       }
 
       // 루트 시작점까지 거리 계산 → auto일 때 500m 이내면 DRIVE/NAV 선택 시트
-      if (startMode == SprintStartMode.auto && dist <= 0.5) {
+      if (startMode == SprintStartMode.auto && dist <= kAutoSprintTriggerKm) {
         _showDriveOrNavSheet(route);
         return;
       }
     }
 
     setState(() {
-      _isSprinting = true;
+      _enterSprint();
       _sprintRoute = route;
       _sprintNavPolyline = null;
       _activeStartMode = startMode;
@@ -265,7 +335,7 @@ class _CruiseScreenState extends State<CruiseScreen>
         onDrive: () {
           Navigator.pop(context);
           setState(() {
-            _isDriveMode = true;
+            _enterDrive();
             _driveRoute = route;
             _activeStartMode = SprintStartMode.auto;
           });
@@ -273,7 +343,7 @@ class _CruiseScreenState extends State<CruiseScreen>
         onNav: () {
           Navigator.pop(context);
           setState(() {
-            _isSprinting = true;
+            _enterSprint();
             _sprintRoute = route;
             _sprintNavPolyline = null;
             _activeStartMode = SprintStartMode.auto;
@@ -285,7 +355,7 @@ class _CruiseScreenState extends State<CruiseScreen>
 
   void _onSprintEnd(RunSession? session) {
     setState(() {
-      _isSprinting = false;
+      _exitRide();
       _sprintRoute = null;
       _sprintNavPolyline = null;
       _activeStartMode = SprintStartMode.auto;
@@ -300,7 +370,7 @@ class _CruiseScreenState extends State<CruiseScreen>
 
   void _onDriveEnd(RunSession? session) {
     setState(() {
-      _isDriveMode = false;
+      _exitRide();
       _driveRoute = null;
       _activeStartMode = SprintStartMode.auto;
     });
@@ -376,15 +446,27 @@ class _CruiseScreenState extends State<CruiseScreen>
     final sprintRequested = context.select<RouteService, bool>(
       (r) => r.sprintRequested,
     );
-    final uiState = resolveCruiseUiState(
-      hasSelectedRoute: selectedRoute != null,
-      nearRouteStart: _nearRouteStart,
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final loc = _locationService;
+      final isNear =
+          selectedRoute != null &&
+          loc != null &&
+          selectedRoute.nodes.isNotEmpty &&
+          RevvRoute.haversineKm(
+                LatLng(loc.lat, loc.lng),
+                selectedRoute.nodes.first,
+              ) <
+              kRouteStartNearKm;
+      _syncBrowsePhase(selectedRoute, isNearOverride: isNear);
+    });
     // 항상듣기 설정 변화 감지 → 즉시 동기화
     context.select<SettingsService, bool>((s) => s.alwaysListen);
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncAlwaysListen());
 
-    if (sprintRequested && !_isSprinting && !_isDriveMode) {
+    if (sprintRequested &&
+        _phase != _RidePhase.sprinting &&
+        _phase != _RidePhase.driving) {
       context.read<RouteService>().clearSprintRequest();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _goSprint();
@@ -412,18 +494,20 @@ class _CruiseScreenState extends State<CruiseScreen>
                 child: SizedBox.expand(
                   child: RepaintBoundary(
                     child: MapWidget(
-                      isSprintMode: _isSprinting || _isDriveMode,
-                      navPolyline: _isSprinting
+                      isSprintMode:
+                          _phase == _RidePhase.sprinting ||
+                          _phase == _RidePhase.driving,
+                      navPolyline: _phase == _RidePhase.sprinting
                           ? _sprintNavPolyline
                           : _navPolyline,
-                      routePolyline: _isSprinting
+                      routePolyline: _phase == _RidePhase.sprinting
                           ? _sprintRoute?.nodes
-                          : _isDriveMode
+                          : _phase == _RidePhase.driving
                           ? _driveRoute?.nodes
                           : selectedRoute?.nodes,
                       showCurveHeatmap:
-                          !_isSprinting &&
-                          !_isDriveMode &&
+                          _phase != _RidePhase.sprinting &&
+                          _phase != _RidePhase.driving &&
                           _showCurveHeatmap &&
                           selectedRoute != null,
                     ),
@@ -433,7 +517,7 @@ class _CruiseScreenState extends State<CruiseScreen>
             ),
 
             // ── 상단 플로팅 HUD ──
-            if (!_isSprinting && !_isDriveMode)
+            if (_phase != _RidePhase.sprinting && _phase != _RidePhase.driving)
               Positioned(
                 key: const ValueKey('top-hud'),
                 top: MediaQuery.of(context).padding.top + 10,
@@ -443,7 +527,7 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── 속도 게이지 (좌하단 플로팅) ──
-            if (!_isSprinting && !_isDriveMode)
+            if (_phase == _RidePhase.idle)
               Positioned(
                 key: const ValueKey('speed-gauge'),
                 bottom: 80 + MediaQuery.of(context).padding.bottom + 18,
@@ -452,10 +536,7 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── 루트 시작 근접 배너 ──
-            if (!_isSprinting &&
-                !_isDriveMode &&
-                uiState == CruiseUiState.readyToStart &&
-                selectedRoute != null)
+            if (_phase == _RidePhase.nearStart && selectedRoute != null)
               Positioned(
                 key: const ValueKey('near-start'),
                 top: MediaQuery.of(context).padding.top + 70,
@@ -468,15 +549,12 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── 루트 선택 카드 (하단 탭바 바로 위) ──
-            if (!_isSprinting &&
-                !_isDriveMode &&
-                uiState == CruiseUiState.routeSelected &&
-                selectedRoute != null)
+            if (_phase == _RidePhase.routeSelected && selectedRoute != null)
               Positioned(
                 key: const ValueKey('route-card'),
-                bottom: 74 + MediaQuery.of(context).padding.bottom,
-                left: 0,
-                right: 0,
+                bottom: 96 + MediaQuery.of(context).padding.bottom,
+                left: 12,
+                right: 12,
                 child: _RouteSelectedCard(
                   route: selectedRoute,
                   onGo: _goSprint,
@@ -485,7 +563,7 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── Sprint 오버레이 ──
-            if (_isSprinting)
+            if (_phase == _RidePhase.sprinting)
               Positioned.fill(
                 key: const ValueKey('sprint-overlay'),
                 child: SprintScreen(
@@ -499,7 +577,7 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── Drive 오버레이 (미니멀 HUD) ──
-            if (_isDriveMode)
+            if (_phase == _RidePhase.driving)
               Positioned.fill(
                 key: const ValueKey('drive-overlay'),
                 child: DriveScreen(
@@ -510,7 +588,7 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── 커브 히트맵 토글 버튼 ──
-            if (!_isSprinting && !_isDriveMode && uiState == CruiseUiState.idle)
+            if (_phase == _RidePhase.idle)
               Positioned(
                 key: const ValueKey('idle-prompt'),
                 left: 14,
@@ -527,14 +605,11 @@ class _CruiseScreenState extends State<CruiseScreen>
                 ),
               ),
 
-            if (!_isSprinting &&
-                !_isDriveMode &&
-                uiState == CruiseUiState.routeSelected &&
-                selectedRoute != null)
+            if (_phase == _RidePhase.routeSelected && selectedRoute != null)
               Positioned(
                 key: const ValueKey('heatmap-btn'),
                 right: 14,
-                bottom: 84 + MediaQuery.of(context).padding.bottom,
+                bottom: 214 + MediaQuery.of(context).padding.bottom,
                 child: _TapScale(
                   onTap: () =>
                       setState(() => _showCurveHeatmap = !_showCurveHeatmap),
@@ -564,7 +639,9 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── 항상듣기 인디케이터 ──
-            if (!_isSprinting && !_isDriveMode && _alwaysListening)
+            if (_phase != _RidePhase.sprinting &&
+                _phase != _RidePhase.driving &&
+                _alwaysListening)
               Positioned(
                 key: const ValueKey('always-listen-dot'),
                 top: MediaQuery.of(context).padding.top + 14,
@@ -573,7 +650,7 @@ class _CruiseScreenState extends State<CruiseScreen>
               ),
 
             // ── 하단 탭바 ──
-            if (!_isSprinting && !_isDriveMode)
+            if (_phase != _RidePhase.sprinting && _phase != _RidePhase.driving)
               Positioned(
                 key: const ValueKey('bottom-nav'),
                 bottom: 0,
@@ -589,7 +666,7 @@ class _CruiseScreenState extends State<CruiseScreen>
                     );
                   },
                   onGo: () {
-                    if (uiState == CruiseUiState.idle) {
+                    if (_phase == _RidePhase.idle) {
                       setState(() => _activeTab = 0);
                       Navigator.push(
                         context,
@@ -657,20 +734,9 @@ class _IdleDrivePrompt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-      decoration: BoxDecoration(
-        color: const Color(0xF0141416),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.45),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+      color: AppColors.bg.withValues(alpha: 0.90),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -679,8 +745,8 @@ class _IdleDrivePrompt extends StatelessWidget {
             '어디로 달릴까?',
             style: GoogleFonts.rajdhani(
               fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 6),
@@ -693,26 +759,10 @@ class _IdleDrivePrompt extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.red,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onPressed: onBrowseRoutes,
-              child: Text(
-                '루트 보기',
-                style: GoogleFonts.rajdhani(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
+          RevvPrimaryButton(
+            label: '루트 보기',
+            icon: Icons.alt_route_rounded,
+            onPressed: onBrowseRoutes,
           ),
         ],
       ),
@@ -763,9 +813,11 @@ class _TopFloatingHudState extends State<_TopFloatingHud> {
           builder: (_, w, __) => Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              color: AppColors.bg.withValues(alpha: 0.82),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: AppColors.outlineVariant.withValues(alpha: 0.42),
+              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -788,10 +840,9 @@ class _TopFloatingHudState extends State<_TopFloatingHud> {
                 ),
                 Text(
                   _time,
-                  style: GoogleFonts.orbitron(
+                  style: _techUiStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: Colors.white,
                   ),
                 ),
               ],
@@ -820,15 +871,15 @@ class _SpeedGauge extends StatelessWidget {
           width: 74,
           height: 74,
           decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.72),
+            color: AppColors.bg.withValues(alpha: 0.82),
             shape: BoxShape.circle,
             border: Border.all(
-              color: AppColors.red.withValues(alpha: 0.55),
+              color: AppColors.primaryContainer.withValues(alpha: 0.55),
               width: 1.5,
             ),
             boxShadow: [
               BoxShadow(
-                color: AppColors.red.withValues(alpha: 0.18),
+                color: AppColors.primaryContainer.withValues(alpha: 0.18),
                 blurRadius: 20,
                 spreadRadius: 3,
               ),
@@ -842,14 +893,14 @@ class _SpeedGauge extends StatelessWidget {
                 style: GoogleFonts.orbitron(
                   fontSize: 23,
                   fontWeight: FontWeight.w900,
-                  color: Colors.white,
+                  color: AppColors.primaryContainer,
                   height: 1.0,
                 ),
               ),
               const SizedBox(height: 1),
               Text(
                 'km/h',
-                style: GoogleFonts.rajdhani(
+                style: _koreanUiStyle(
                   fontSize: 8,
                   fontWeight: FontWeight.w600,
                   color: AppColors.textSecondary,
@@ -962,25 +1013,11 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
     double totalChainKm,
     List<ChainCandidate> connectingRoutes,
   ) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF141416),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.08),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.55),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+    return RevvGlassCard(
+      padding: EdgeInsets.zero,
+      color: AppColors.bg.withValues(alpha: 0.90),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1019,8 +1056,8 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                                 widget.route.name,
                                 style: GoogleFonts.rajdhani(
                                   fontSize: 20,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textPrimary,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -1054,7 +1091,7 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                         const SizedBox(height: 8),
                         Text(
                           '이 루트로 시작할까?',
-                          style: GoogleFonts.rajdhani(
+                          style: _koreanUiStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
                             color: Colors.white.withValues(alpha: 0.68),
@@ -1073,16 +1110,24 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                           width: 92,
                           height: 46,
                           decoration: BoxDecoration(
-                            color: AppColors.red,
-                            borderRadius: BorderRadius.circular(12),
+                            color: AppColors.primaryContainer,
+                            borderRadius: BorderRadius.circular(999),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.primaryContainer.withValues(
+                                  alpha: 0.24,
+                                ),
+                                blurRadius: 18,
+                              ),
+                            ],
                           ),
                           child: Center(
                             child: Text(
                               '시작',
-                              style: GoogleFonts.rajdhani(
+                              style: _koreanUiStyle(
                                 fontSize: 17,
                                 fontWeight: FontWeight.w800,
-                                color: Colors.white,
+                                color: AppColors.onPrimary,
                               ),
                             ),
                           ),
@@ -1114,7 +1159,7 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                                 const Icon(
                                   Icons.link,
                                   size: 10,
-                                  color: AppColors.red,
+                                  color: AppColors.primaryContainer,
                                 ),
                                 const SizedBox(width: 3),
                                 Text(
@@ -1264,7 +1309,7 @@ class _NearStartBannerState extends State<_NearStartBanner>
                   children: [
                     Text(
                       '시작 지점 근처',
-                      style: GoogleFonts.rajdhani(
+                      style: _koreanUiStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         color: AppColors.red,
@@ -1297,7 +1342,7 @@ class _NearStartBannerState extends State<_NearStartBanner>
                   ),
                   child: Text(
                     '시작',
-                    style: GoogleFonts.rajdhani(
+                    style: _koreanUiStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
@@ -1585,7 +1630,7 @@ class _MoreSheet extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 'AI 분석, 랭킹, 음성 명령은 주행 흐름 안에서 필요할 때만 다시 꺼내는 방향으로 정리 중이에요.',
-                style: GoogleFonts.rajdhani(
+                style: _koreanUiStyle(
                   fontSize: 13,
                   height: 1.35,
                   color: Colors.white.withValues(alpha: 0.45),
@@ -1638,7 +1683,7 @@ class _MoreItem extends StatelessWidget {
                 children: [
                   Text(
                     label,
-                    style: GoogleFonts.rajdhani(
+                    style: _koreanUiStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
                       color: Colors.white,
@@ -1646,10 +1691,7 @@ class _MoreItem extends StatelessWidget {
                   ),
                   Text(
                     sub,
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 11,
-                      color: Colors.white38,
-                    ),
+                    style: _koreanUiStyle(fontSize: 11, color: Colors.white38),
                   ),
                 ],
               ),
@@ -1704,21 +1746,14 @@ class _DriveOrNavSheet extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             route.name,
-            style: GoogleFonts.orbitron(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
-            ),
+            style: _techUiStyle(fontSize: 13, fontWeight: FontWeight.w700),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 4),
           Text(
             '루트 시작점 근처예요. 어떻게 시작할까요?',
-            style: GoogleFonts.rajdhani(
-              fontSize: 12,
-              color: AppColors.textSecondary,
-            ),
+            style: _koreanUiStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 20),
           Row(

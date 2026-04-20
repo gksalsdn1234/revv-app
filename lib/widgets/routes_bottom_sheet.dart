@@ -85,42 +85,53 @@ class _RoutesBottomSheetState extends State<RoutesBottomSheet> {
                       width: 10,
                       height: 10,
                       child: CircularProgressIndicator(
-                          strokeWidth: 1.5, color: AppColors.red),
+                        strokeWidth: 1.5,
+                        color: AppColors.red,
+                      ),
                     ),
                     const SizedBox(width: 8),
-                    Text('탐색 중',
-                        style: GoogleFonts.rajdhani(
-                            fontSize: 11, color: AppColors.gray)),
+                    Text(
+                      '탐색 중',
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 11,
+                        color: AppColors.gray,
+                      ),
+                    ),
                   ],
                 )
               else
                 RichText(
-                  text: TextSpan(children: [
-                    TextSpan(
-                      text: '${svc.routes.length}',
-                      style: GoogleFonts.orbitron(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '${svc.routes.length}',
+                        style: GoogleFonts.orbitron(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.red),
-                    ),
-                    TextSpan(
-                      text: '  ROUTES',
-                      style: GoogleFonts.rajdhani(
+                          color: AppColors.red,
+                        ),
+                      ),
+                      TextSpan(
+                        text: '  ROUTES',
+                        style: GoogleFonts.rajdhani(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
                           color: AppColors.textSecondary,
-                          letterSpacing: 3),
-                    ),
-                  ]),
+                          letterSpacing: 3,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               const Spacer(),
               // 정렬 토글
               _TapScale(
-                onTap: () =>
-                    setState(() => _sortMode = _sortMode == 0 ? 1 : 0),
+                onTap: () => setState(() => _sortMode = _sortMode == 0 ? 1 : 0),
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.surface,
                     borderRadius: BorderRadius.circular(6),
@@ -145,10 +156,11 @@ class _RoutesBottomSheetState extends State<RoutesBottomSheet> {
                           _sortMode == 0 ? '점수순' : '거리순',
                           key: ValueKey(_sortMode),
                           style: GoogleFonts.rajdhani(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textSecondary,
-                              letterSpacing: 1),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textSecondary,
+                            letterSpacing: 1,
+                          ),
                         ),
                       ),
                     ],
@@ -194,7 +206,9 @@ class _RadiusSelector extends StatelessWidget {
               color: active ? AppColors.red : Colors.transparent,
               borderRadius: BorderRadius.circular(4),
               border: Border.all(
-                color: active ? AppColors.red : AppColors.gray.withOpacity(0.4),
+                color: active
+                    ? AppColors.red
+                    : AppColors.gray.withValues(alpha: 0.4),
               ),
             ),
             child: Text(
@@ -223,11 +237,16 @@ class RouteInfoOverlay extends StatelessWidget {
 
   Color _diffColor(int level) {
     switch (level) {
-      case 4: return const Color(0xFFEF4444);
-      case 3: return const Color(0xFFF97316);
-      case 2: return const Color(0xFFF59E0B);
-      case 1: return const Color(0xFF22C55E);
-      default: return const Color(0xFF6B7280);
+      case 4:
+        return const Color(0xFFEF4444);
+      case 3:
+        return const Color(0xFFF97316);
+      case 2:
+        return const Color(0xFFF59E0B);
+      case 1:
+        return const Color(0xFF22C55E);
+      default:
+        return const Color(0xFF6B7280);
     }
   }
 
@@ -243,23 +262,29 @@ class RouteInfoOverlay extends StatelessWidget {
         final composite = svc.selectedCompositeRoute;
         final previewComposite = svc.previewCompositeRoute;
         final activeComposite = previewComposite ?? composite;
-        final totalChainKm = activeComposite?.totalDistanceKm ?? route.distanceKm;
+        final totalChainKm =
+            activeComposite?.totalDistanceKm ?? route.distanceKm;
 
         return Container(
           margin: const EdgeInsets.fromLTRB(10, 0, 10, 6),
           decoration: BoxDecoration(
             color: const Color(0xFF141416),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: diffColor.withValues(alpha: 0.45), width: 1.5),
+            border: Border.all(
+              color: diffColor.withValues(alpha: 0.45),
+              width: 1.5,
+            ),
             boxShadow: [
               BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.7),
-                  blurRadius: 28,
-                  offset: const Offset(0, 8)),
+                color: Colors.black.withValues(alpha: 0.7),
+                blurRadius: 28,
+                offset: const Offset(0, 8),
+              ),
               BoxShadow(
-                  color: diffColor.withValues(alpha: 0.1),
-                  blurRadius: 24,
-                  spreadRadius: 2),
+                color: diffColor.withValues(alpha: 0.1),
+                blurRadius: 24,
+                spreadRadius: 2,
+              ),
             ],
           ),
           child: ClipRRect(
@@ -282,7 +307,10 @@ class RouteInfoOverlay extends StatelessWidget {
                             Row(
                               children: [
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: diffColor.withValues(alpha: 0.18),
                                     borderRadius: BorderRadius.circular(4),
@@ -290,8 +318,10 @@ class RouteInfoOverlay extends StatelessWidget {
                                   child: Text(
                                     route.difficultyLabel,
                                     style: GoogleFonts.rajdhani(
-                                      fontSize: 9, fontWeight: FontWeight.w800,
-                                      color: diffColor, letterSpacing: 1,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      color: diffColor,
+                                      letterSpacing: 1,
                                     ),
                                   ),
                                 ),
@@ -300,7 +330,9 @@ class RouteInfoOverlay extends StatelessWidget {
                                   child: Text(
                                     route.name,
                                     style: GoogleFonts.orbitron(
-                                      fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.white,
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -311,14 +343,21 @@ class RouteInfoOverlay extends StatelessWidget {
                             const SizedBox(height: 7),
                             Row(
                               children: [
-                                _OvStatChip(icon: Icons.straighten, value: route.distanceDisplay),
+                                _OvStatChip(
+                                  icon: Icons.straighten,
+                                  value: route.distanceDisplay,
+                                ),
                                 const SizedBox(width: 12),
-                                _OvStatChip(icon: Icons.schedule, value: route.durationDisplay),
+                                _OvStatChip(
+                                  icon: Icons.schedule,
+                                  value: route.durationDisplay,
+                                ),
                                 if (route.windingDensityPct > 0) ...[
                                   const SizedBox(width: 12),
                                   _OvStatChip(
                                     icon: Icons.turn_right,
-                                    value: '${route.windingDensityPct.toStringAsFixed(0)}%',
+                                    value:
+                                        '${route.windingDensityPct.toStringAsFixed(0)}%',
                                     color: diffColor,
                                   ),
                                 ],
@@ -375,7 +414,8 @@ class RouteInfoOverlay extends StatelessWidget {
                                 color: AppColors.surface,
                                 borderRadius: BorderRadius.circular(6),
                                 border: Border.all(
-                                    color: AppColors.red.withValues(alpha: 0.5)),
+                                  color: AppColors.red.withValues(alpha: 0.5),
+                                ),
                               ),
                               child: Center(
                                 child: Text(
@@ -407,7 +447,9 @@ class RouteInfoOverlay extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(10),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: AppColors.red.withValues(alpha: 0.55),
+                                    color: AppColors.red.withValues(
+                                      alpha: 0.55,
+                                    ),
                                     blurRadius: 16,
                                     offset: const Offset(0, 4),
                                   ),
@@ -417,8 +459,10 @@ class RouteInfoOverlay extends StatelessWidget {
                                 child: Text(
                                   'GO',
                                   style: GoogleFonts.orbitron(
-                                    fontSize: 16, fontWeight: FontWeight.w900,
-                                    color: Colors.white, letterSpacing: 3,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    color: Colors.white,
+                                    letterSpacing: 3,
                                   ),
                                 ),
                               ),
@@ -428,20 +472,26 @@ class RouteInfoOverlay extends StatelessWidget {
                           if (hasChain) ...[
                             const SizedBox(height: 5),
                             _TapScale(
-                              onTap: composite != null ? svc.clearCompositeRoute : null,
+                              onTap: composite != null
+                                  ? svc.clearCompositeRoute
+                                  : null,
                               child: Container(
                                 width: 76,
                                 height: 28,
                                 decoration: BoxDecoration(
                                   color: AppColors.surface,
                                   borderRadius: BorderRadius.circular(6),
-                                  border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
+                                  border: Border.all(
+                                    color: AppColors.red.withValues(alpha: 0.5),
+                                  ),
                                 ),
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Icon(
-                                      composite != null ? Icons.layers_clear : Icons.link,
+                                      composite != null
+                                          ? Icons.layers_clear
+                                          : Icons.link,
                                       size: 9,
                                       color: AppColors.red,
                                     ),
@@ -449,7 +499,9 @@ class RouteInfoOverlay extends StatelessWidget {
                                     Text(
                                       composite != null ? 'CLEAR' : 'CHAIN',
                                       style: GoogleFonts.rajdhani(
-                                        fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
                                       ),
                                     ),
                                   ],
@@ -468,12 +520,17 @@ class RouteInfoOverlay extends StatelessWidget {
                           _TapScale(
                             onTap: () => svc.deselectRoute(),
                             child: Container(
-                              width: 28, height: 28,
+                              width: 28,
+                              height: 28,
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: 0.06),
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.close, size: 14, color: Colors.white54),
+                              child: const Icon(
+                                Icons.close,
+                                size: 14,
+                                color: Colors.white54,
+                              ),
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -484,7 +541,8 @@ class RouteInfoOverlay extends StatelessWidget {
                               if (route != null) svc.excludeRoute(route);
                             },
                             child: Container(
-                              width: 28, height: 28,
+                              width: 28,
+                              height: 28,
                               decoration: BoxDecoration(
                                 color: AppColors.red.withValues(alpha: 0.12),
                                 shape: BoxShape.circle,
@@ -492,7 +550,11 @@ class RouteInfoOverlay extends StatelessWidget {
                                   color: AppColors.red.withValues(alpha: 0.4),
                                 ),
                               ),
-                              child: const Icon(Icons.block, size: 13, color: AppColors.red),
+                              child: const Icon(
+                                Icons.block,
+                                size: 13,
+                                color: AppColors.red,
+                              ),
                             ),
                           ),
                         ],
@@ -504,7 +566,10 @@ class RouteInfoOverlay extends StatelessWidget {
                 Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
                 MiniElevSection(route: route, lineColor: diffColor),
                 if (hasChain) ...[
-                  Divider(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+                  Divider(
+                    height: 1,
+                    color: Colors.white.withValues(alpha: 0.06),
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                     child: Column(
@@ -568,8 +633,10 @@ class _ChainCandidateTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final svc = context.read<RouteService>();
-    final isPreviewed = svc.previewCompositeCandidate?.route.id == candidate.route.id;
-    final isCommitted = svc.selectedCompositeRoute?.chainedSegments.any(
+    final isPreviewed =
+        svc.previewCompositeCandidate?.route.id == candidate.route.id;
+    final isCommitted =
+        svc.selectedCompositeRoute?.chainedSegments.any(
           (segment) => segment.id == candidate.route.id,
         ) ??
         false;
@@ -617,7 +684,9 @@ class _ChainCandidateTile extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: isPreviewed ? AppColors.red.withValues(alpha: 0.18) : Colors.transparent,
+                color: isPreviewed
+                    ? AppColors.red.withValues(alpha: 0.18)
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
               ),
@@ -672,7 +741,11 @@ class _OvStatChip extends StatelessWidget {
         const SizedBox(width: 3),
         Text(
           value,
-          style: GoogleFonts.rajdhani(fontSize: 12, fontWeight: FontWeight.w600, color: c),
+          style: GoogleFonts.rajdhani(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: c,
+          ),
         ),
       ],
     );

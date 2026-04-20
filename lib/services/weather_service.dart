@@ -8,6 +8,9 @@ class WeatherService extends ChangeNotifier {
   String weatherIcon = '01d';
   String roadCondition = 'DRY';
   bool isLoading = false;
+  bool _isOffline = false;
+
+  bool get isOffline => _isOffline;
 
   Timer? _refreshTimer;
 
@@ -25,8 +28,9 @@ class WeatherService extends ChangeNotifier {
       tempCelsius = (data['main']['temp'] as num).toDouble();
       weatherIcon = data['weather'][0]['icon'] as String;
       roadCondition = _inferRoadCondition(data);
+      _isOffline = false;
     } catch (_) {
-      // 실패 시 기존 값 유지
+      _isOffline = true;
     }
 
     isLoading = false;
@@ -41,8 +45,8 @@ class WeatherService extends ChangeNotifier {
 
   String _inferRoadCondition(Map data) {
     final id = data['weather'][0]['id'] as int;
-    if (id >= 600 && id < 700) return 'ICY';   // 눈
-    if (id >= 500 && id < 600) return 'WET';   // 비
+    if (id >= 600 && id < 700) return 'ICY'; // 눈
+    if (id >= 500 && id < 600) return 'WET'; // 비
     if (id >= 700 && id < 800) return 'FOGGY'; // 안개/먼지
     if (tempCelsius < -5) return 'ICY';
     if (tempCelsius < 0) return 'COLD';
@@ -52,7 +56,11 @@ class WeatherService extends ChangeNotifier {
   String get weatherEmoji {
     final icon = weatherIcon;
     if (icon.startsWith('01')) return '☀️';
-    if (icon.startsWith('02') || icon.startsWith('03') || icon.startsWith('04')) return '☁️';
+    if (icon.startsWith('02') ||
+        icon.startsWith('03') ||
+        icon.startsWith('04')) {
+      return '☁️';
+    }
     if (icon.startsWith('09') || icon.startsWith('10')) return '🌧';
     if (icon.startsWith('11')) return '⛈';
     if (icon.startsWith('13')) return '🌨';
@@ -63,12 +71,18 @@ class WeatherService extends ChangeNotifier {
   String get tempDisplay => '${tempCelsius.toStringAsFixed(0)}°C';
 
   String get weatherBriefLine {
+    if (_isOffline) return '날씨 정보 없음';
     switch (roadCondition) {
-      case 'WET':    return '노면이 젖어있어요. 타이어 그립 주의하세요.';
-      case 'ICY':    return '노면 결빙 가능성 있어요. 브레이킹 거리 늘려주세요.';
-      case 'FOGGY':  return '안개 구간이에요. 전조등 켜고 차간거리 유지하세요.';
-      case 'COLD':   return '기온 영하예요. 타이어 워밍업 필요합니다.';
-      default:       return '오늘 노면 상태 좋아요. 드라이빙 즐기세요.';
+      case 'WET':
+        return '노면이 젖어있어요. 타이어 그립 주의하세요.';
+      case 'ICY':
+        return '노면 결빙 가능성 있어요. 브레이킹 거리 늘려주세요.';
+      case 'FOGGY':
+        return '안개 구간이에요. 전조등 켜고 차간거리 유지하세요.';
+      case 'COLD':
+        return '기온 영하예요. 타이어 워밍업 필요합니다.';
+      default:
+        return '오늘 노면 상태 좋아요. 드라이빙 즐기세요.';
     }
   }
 

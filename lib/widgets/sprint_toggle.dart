@@ -26,7 +26,7 @@ class RedGlowButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(2),
         child: InkWell(
           onTap: onTap,
-          splashColor: AppColors.red.withOpacity(0.3),
+          splashColor: AppColors.red.withValues(alpha: 0.3),
           borderRadius: BorderRadius.circular(2),
           child: Container(
             decoration: filled

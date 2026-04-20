@@ -1,17 +1,18 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../models/revv_route.dart';
 import '../services/mapbox_service.dart';
+import '../widgets/revv_ui.dart';
 
 // ── 분기점 데이터 ─────────────────────────────────────────────────
 class _BranchPoint {
-  final int routeNodeIdx;   // 현재 루트에서 분기 발생 위치
+  final int routeNodeIdx; // 현재 루트에서 분기 발생 위치
   final LatLng location;
   final RevvRoute branchRoute;
-  final int branchNodeIdx;  // 분기 루트에서 합류 위치
+  final int branchNodeIdx; // 분기 루트에서 합류 위치
   final double kmFromStart; // 현재 루트 기준 출발부터 거리
 
   const _BranchPoint({
@@ -61,16 +62,20 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
 
   // ── 분기점 탐색 ──────────────────────────────────────────────────
   static List<_BranchPoint> _findBranchPoints(
-      RevvRoute route, List<RevvRoute> others) {
-    const snapDist = 0.08;  // 80m 이내 = 같은 교차로
-    const groupDist = 0.3;  // 300m 이내 = 중복 분기점 병합
-    const step = 15;        // 성능: 15노드마다 체크
+    RevvRoute route,
+    List<RevvRoute> others,
+  ) {
+    const snapDist = 0.08; // 80m 이내 = 같은 교차로
+    const groupDist = 0.3; // 300m 이내 = 중복 분기점 병합
+    const step = 15; // 성능: 15노드마다 체크
 
     // 누적 거리 사전 계산
     final cumDist = <double>[0.0];
     for (int i = 0; i < route.nodes.length - 1; i++) {
       cumDist.add(
-          cumDist.last + RevvRoute.haversineKm(route.nodes[i], route.nodes[i + 1]));
+        cumDist.last +
+            RevvRoute.haversineKm(route.nodes[i], route.nodes[i + 1]),
+      );
     }
 
     final raw = <_BranchPoint>[];
@@ -92,12 +97,16 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
 
       for (int i = 0; i < route.nodes.length; i += step) {
         final rn = route.nodes[i];
-        if (rn.lat < oMinLat - buf || rn.lat > oMaxLat + buf ||
-            rn.lng < oMinLng - buf || rn.lng > oMaxLng + buf) continue;
+        if (rn.lat < oMinLat - buf ||
+            rn.lat > oMaxLat + buf ||
+            rn.lng < oMinLng - buf ||
+            rn.lng > oMaxLng + buf) {
+          continue;
+        }
 
         for (int j = 0; j < other.nodes.length; j += step) {
           final d = RevvRoute.haversineKm(rn, other.nodes[j]);
-          if (d < snapDist && (bestDist == null || d < bestDist!)) {
+          if (d < snapDist && (bestDist == null || d < bestDist)) {
             bestDist = d;
             bestI = i;
             bestJ = j;
@@ -106,13 +115,15 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
       }
 
       if (bestI >= 0) {
-        raw.add(_BranchPoint(
-          routeNodeIdx: bestI,
-          location: route.nodes[bestI],
-          branchRoute: other,
-          branchNodeIdx: bestJ,
-          kmFromStart: cumDist[bestI],
-        ));
+        raw.add(
+          _BranchPoint(
+            routeNodeIdx: bestI,
+            location: route.nodes[bestI],
+            branchRoute: other,
+            branchNodeIdx: bestJ,
+            kmFromStart: cumDist[bestI],
+          ),
+        );
       }
     }
 
@@ -121,7 +132,8 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
     final merged = <_BranchPoint>[];
     for (final bp in raw) {
       final tooClose = merged.any(
-          (m) => RevvRoute.haversineKm(m.location, bp.location) < groupDist);
+        (m) => RevvRoute.haversineKm(m.location, bp.location) < groupDist,
+      );
       if (!tooClose) merged.add(bp);
     }
     return merged;
@@ -133,8 +145,7 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
   }
 
   Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
-    _polyManager =
-        await _map?.annotations.createPolylineAnnotationManager();
+    _polyManager = await _map?.annotations.createPolylineAnnotationManager();
     _styleLoaded = true;
     await _drawAll();
     _schedulePinUpdate();
@@ -148,12 +159,14 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
     for (final r in widget.otherRoutes) {
       final isBranch = _branches.any((b) => b.branchRoute.id == r.id);
       final coords = r.nodes.map((n) => mbx.Position(n.lng, n.lat)).toList();
-      await _polyManager!.create(mbx.PolylineAnnotationOptions(
-        geometry: mbx.LineString(coordinates: coords),
-        lineColor: isBranch ? 0xFFFBBF24 : 0xFF334155,
-        lineWidth: isBranch ? 4.0 : 2.5,
-        lineOpacity: isBranch ? 0.8 : 0.35,
-      ));
+      await _polyManager!.create(
+        mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: coords),
+          lineColor: isBranch ? 0xFFFBBF24 : 0xFF334155,
+          lineWidth: isBranch ? 4.0 : 2.5,
+          lineOpacity: isBranch ? 0.8 : 0.35,
+        ),
+      );
     }
 
     // 현재 루트
@@ -165,52 +178,62 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
             .sublist(sel.routeNodeIdx)
             .map((n) => mbx.Position(n.lng, n.lat))
             .toList();
-        await _polyManager!.create(mbx.PolylineAnnotationOptions(
-          geometry: mbx.LineString(coordinates: after),
-          lineColor: 0xFF334155,
-          lineWidth: 5.0,
-          lineOpacity: 0.4,
-        ));
+        await _polyManager!.create(
+          mbx.PolylineAnnotationOptions(
+            geometry: mbx.LineString(coordinates: after),
+            lineColor: 0xFF334155,
+            lineWidth: 5.0,
+            lineOpacity: 0.4,
+          ),
+        );
       }
       // 분기점까지 구간 (풀 컬러)
       final before = widget.route.nodes
           .sublist(0, sel.routeNodeIdx + 1)
           .map((n) => mbx.Position(n.lng, n.lat))
           .toList();
-      await _polyManager!.create(mbx.PolylineAnnotationOptions(
-        geometry: mbx.LineString(coordinates: before),
-        lineColor: 0xFFFFFFFF,
-        lineWidth: 7.0,
-        lineOpacity: 1.0,
-      ));
+      await _polyManager!.create(
+        mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: before),
+          lineColor: 0xFFFFFFFF,
+          lineWidth: 7.0,
+          lineOpacity: 1.0,
+        ),
+      );
       // 선택된 분기 루트 (노란색 강조)
       final branchCoords = sel.branchRoute.nodes
           .map((n) => mbx.Position(n.lng, n.lat))
           .toList();
-      await _polyManager!.create(mbx.PolylineAnnotationOptions(
-        geometry: mbx.LineString(coordinates: branchCoords),
-        lineColor: 0xFFFBBF24,
-        lineWidth: 6.0,
-        lineOpacity: 1.0,
-      ));
+      await _polyManager!.create(
+        mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: branchCoords),
+          lineColor: 0xFFFBBF24,
+          lineWidth: 6.0,
+          lineOpacity: 1.0,
+        ),
+      );
     } else {
       // 루트 전체 표시
       final coords = widget.route.nodes
           .map((n) => mbx.Position(n.lng, n.lat))
           .toList();
-      await _polyManager!.create(mbx.PolylineAnnotationOptions(
-        geometry: mbx.LineString(coordinates: coords),
-        lineColor: 0xFFFFFFFF,
-        lineWidth: 7.0,
-        lineOpacity: 1.0,
-      ));
+      await _polyManager!.create(
+        mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: coords),
+          lineColor: 0xFFFFFFFF,
+          lineWidth: 7.0,
+          lineOpacity: 1.0,
+        ),
+      );
       final diffColor = _diffColorInt(widget.route.difficultyLevel);
-      await _polyManager!.create(mbx.PolylineAnnotationOptions(
-        geometry: mbx.LineString(coordinates: coords),
-        lineColor: diffColor,
-        lineWidth: 4.5,
-        lineOpacity: 1.0,
-      ));
+      await _polyManager!.create(
+        mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: coords),
+          lineColor: diffColor,
+          lineWidth: 4.5,
+          lineOpacity: 1.0,
+        ),
+      );
     }
   }
 
@@ -224,7 +247,8 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
       try {
         final px = await _map!.pixelForCoordinate(
           mbx.Point(
-              coordinates: mbx.Position(bp.location.lng, bp.location.lat)),
+            coordinates: mbx.Position(bp.location.lng, bp.location.lat),
+          ),
         );
         newPos[i] = Offset(px.x.toDouble(), px.y.toDouble());
       } catch (_) {}
@@ -299,7 +323,9 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
                       mbx.CameraOptions(
                         center: mbx.Point(
                           coordinates: mbx.Position(
-                              bp.location.lng, bp.location.lat),
+                            bp.location.lng,
+                            bp.location.lat,
+                          ),
                         ),
                         zoom: 12.5,
                       ),
@@ -325,42 +351,49 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
                 GestureDetector(
                   onTap: () => Navigator.pop(context),
                   child: Container(
-                    width: 40, height: 40,
+                    width: 40,
+                    height: 40,
                     decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
+                      color: AppColors.bg.withValues(alpha: 0.82),
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white12),
+                      border: Border.all(
+                        color: AppColors.outlineVariant.withValues(alpha: 0.45),
+                      ),
                     ),
-                    child: const Icon(Icons.arrow_back_ios_new_rounded,
-                        size: 15, color: Colors.white),
+                    child: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      size: 15,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Container(
+                  child: SizedBox(
                     height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.65),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.red.withValues(alpha: 0.4)),
-                    ),
-                    child: Center(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.edit_road_rounded,
-                              size: 13, color: AppColors.red),
-                          const SizedBox(width: 6),
-                          Text(
-                            '루트 편집  ·  분기점 ${_branches.length}개',
-                            style: GoogleFonts.rajdhani(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
-                              letterSpacing: 1,
+                    child: RevvGlassCard(
+                      padding: EdgeInsets.zero,
+                      color: AppColors.bg.withValues(alpha: 0.82),
+                      child: Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.edit_road_rounded,
+                              size: 13,
+                              color: AppColors.primaryContainer,
                             ),
-                          ),
-                        ],
+                            const SizedBox(width: 6),
+                            Text(
+                              '루트 편집  ·  분기점 ${_branches.length}개',
+                              style: AppText.label(
+                                size: 11,
+                                color: AppColors.textPrimary,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -378,17 +411,22 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
               child: Center(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.75),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white12),
+                    color: AppColors.bg.withValues(alpha: 0.82),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: AppColors.outlineVariant.withValues(alpha: 0.42),
+                    ),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
-                        width: 10, height: 10,
+                        width: 10,
+                        height: 10,
                         decoration: const BoxDecoration(
                           color: Color(0xFFFBBF24),
                           shape: BoxShape.circle,
@@ -398,7 +436,9 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
                       Text(
                         '황색 핀을 탭하면 분기 방향 선택',
                         style: GoogleFonts.rajdhani(
-                            fontSize: 12, color: Colors.white70),
+                          fontSize: 12,
+                          color: Colors.white70,
+                        ),
                       ),
                     ],
                   ),
@@ -415,7 +455,9 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
               child: Center(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 12),
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.75),
                     borderRadius: BorderRadius.circular(12),
@@ -424,7 +466,9 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
                   child: Text(
                     '주변에 분기 가능한 루트가 없어요',
                     style: GoogleFonts.rajdhani(
-                        fontSize: 13, color: AppColors.textSecondary),
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ),
               ),
@@ -477,9 +521,10 @@ class _BranchPin extends StatelessWidget {
             boxShadow: isSelected
                 ? [
                     const BoxShadow(
-                        color: Color(0x88FBBF24),
-                        blurRadius: 12,
-                        spreadRadius: 2)
+                      color: Color(0x88FBBF24),
+                      blurRadius: 12,
+                      spreadRadius: 2,
+                    ),
                   ]
                 : [],
           ),
@@ -497,9 +542,10 @@ class _BranchPin extends StatelessWidget {
         CustomPaint(
           size: const Size(10, 6),
           painter: _PinTailPainter(
-              color: isSelected
-                  ? const Color(0xFFFBBF24)
-                  : const Color(0xFFFBBF24)),
+            color: isSelected
+                ? const Color(0xFFFBBF24)
+                : const Color(0xFFFBBF24),
+          ),
         ),
       ],
     );
@@ -541,11 +587,16 @@ class _BranchCard extends StatelessWidget {
 
   Color _diffColor(int level) {
     switch (level) {
-      case 4: return const Color(0xFFEF4444);
-      case 3: return const Color(0xFFF97316);
-      case 2: return const Color(0xFFF59E0B);
-      case 1: return const Color(0xFF22C55E);
-      default: return const Color(0xFF60A5FA);
+      case 4:
+        return const Color(0xFFEF4444);
+      case 3:
+        return const Color(0xFFF97316);
+      case 2:
+        return const Color(0xFFF59E0B);
+      case 1:
+        return const Color(0xFF22C55E);
+      default:
+        return const Color(0xFF60A5FA);
     }
   }
 
@@ -553,26 +604,13 @@ class _BranchCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final br = branch.branchRoute;
     final diffColor = _diffColor(br.difficultyLevel);
-    final remainKm = br.distanceKm -
-        br.nodes.sublist(0, branch.branchNodeIdx).fold<double>(
-            0,
-            (s, _) => s) ; // 분기 이후 거리 (근사)
     final totalKm = branch.kmFromStart + br.distanceKm;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xF2141416),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFBBF24).withValues(alpha: 0.5)),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.6),
-              blurRadius: 20,
-              offset: const Offset(0, 6)),
-        ],
-      ),
+    return RevvGlassCard(
+      padding: EdgeInsets.zero,
+      color: AppColors.bg.withValues(alpha: 0.90),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -585,8 +623,11 @@ class _BranchCard extends StatelessWidget {
                   // 분기 방향 안내
                   Row(
                     children: [
-                      const Icon(Icons.fork_right_rounded,
-                          size: 14, color: Color(0xFFFBBF24)),
+                      const Icon(
+                        Icons.fork_right_rounded,
+                        size: 14,
+                        color: Color(0xFFFBBF24),
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         '${branch.kmFromStart.toStringAsFixed(1)}km 지점에서 분기',
@@ -604,7 +645,8 @@ class _BranchCard extends StatelessWidget {
                   Row(
                     children: [
                       Container(
-                        width: 4, height: 36,
+                        width: 4,
+                        height: 36,
                         decoration: BoxDecoration(
                           color: diffColor,
                           borderRadius: BorderRadius.circular(2),
@@ -622,7 +664,7 @@ class _BranchCard extends StatelessWidget {
                               style: GoogleFonts.rajdhani(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
-                                color: Colors.white,
+                                color: AppColors.textPrimary,
                               ),
                             ),
                             const SizedBox(height: 2),
@@ -631,16 +673,18 @@ class _BranchCard extends StatelessWidget {
                                 Text(
                                   br.difficultyLabel,
                                   style: GoogleFonts.rajdhani(
-                                      fontSize: 10,
-                                      color: diffColor,
-                                      fontWeight: FontWeight.w700),
+                                    fontSize: 10,
+                                    color: diffColor,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
                                   '${br.distanceDisplay}  ·  합산 ${totalKm.toStringAsFixed(0)}km',
                                   style: GoogleFonts.rajdhani(
-                                      fontSize: 10,
-                                      color: AppColors.textSecondary),
+                                    fontSize: 10,
+                                    color: AppColors.textSecondary,
+                                  ),
                                 ),
                               ],
                             ),
@@ -659,16 +703,21 @@ class _BranchCard extends StatelessWidget {
                           child: Container(
                             height: 38,
                             decoration: BoxDecoration(
-                              color: AppColors.surface,
-                              borderRadius: BorderRadius.circular(8),
+                              color: AppColors.surfaceHigh.withValues(
+                                alpha: 0.42,
+                              ),
+                              borderRadius: BorderRadius.circular(999),
                               border: Border.all(color: AppColors.divider),
                             ),
                             child: Center(
-                              child: Text('취소',
-                                  style: GoogleFonts.rajdhani(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.textSecondary)),
+                              child: Text(
+                                '취소',
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -681,23 +730,26 @@ class _BranchCard extends StatelessWidget {
                           child: Container(
                             height: 38,
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFBBF24),
-                              borderRadius: BorderRadius.circular(8),
+                              color: AppColors.primaryContainer,
+                              borderRadius: BorderRadius.circular(999),
                               boxShadow: [
                                 BoxShadow(
-                                    color: const Color(0xFFFBBF24)
-                                        .withValues(alpha: 0.4),
-                                    blurRadius: 8)
+                                  color: const Color(
+                                    0xFFFBBF24,
+                                  ).withValues(alpha: 0.25),
+                                  blurRadius: 8,
+                                ),
                               ],
                             ),
                             child: Center(
                               child: Text(
                                 '이 방향으로 계속',
                                 style: GoogleFonts.rajdhani(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.black,
-                                    letterSpacing: 0.5),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.onPrimary,
+                                  letterSpacing: 0.5,
+                                ),
                               ),
                             ),
                           ),
@@ -717,10 +769,15 @@ class _BranchCard extends StatelessWidget {
 
 int _diffColorInt(int level) {
   switch (level) {
-    case 4: return 0xFFEF4444;
-    case 3: return 0xFFF97316;
-    case 2: return 0xFFF59E0B;
-    case 1: return 0xFF22C55E;
-    default: return 0xFF60A5FA;
+    case 4:
+      return 0xFFEF4444;
+    case 3:
+      return 0xFFF97316;
+    case 2:
+      return 0xFFF59E0B;
+    case 1:
+      return 0xFF22C55E;
+    default:
+      return 0xFF60A5FA;
   }
 }

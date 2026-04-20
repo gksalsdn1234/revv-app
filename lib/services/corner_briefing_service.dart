@@ -35,13 +35,13 @@ extension CurveIntensityExt on CurveIntensity {
   String ttsText(String direction) {
     switch (this) {
       case CurveIntensity.gentle:
-        return '완만한 ${direction}커브입니다';
+        return '완만한 $direction커브입니다';
       case CurveIntensity.medium:
-        return '${direction}커브 주의하세요';
+        return '$direction커브 주의하세요';
       case CurveIntensity.sharp:
-        return '급 ${direction}커브입니다, 속도 확인하세요';
+        return '급 $direction커브입니다, 속도 확인하세요';
       case CurveIntensity.hairpin:
-        return '헤어핀 ${direction}커브입니다, 충분히 감속하세요';
+        return '헤어핀 $direction커브입니다, 충분히 감속하세요';
     }
   }
 }
@@ -252,8 +252,12 @@ class CornerBriefingService {
 
   /// 베어링 차이 정규화 → -180 ~ +180 (양수=우, 음수=좌)
   static double _normDelta(double d) {
-    while (d > 180)  d -= 360;
-    while (d < -180) d += 360;
+    while (d > 180) {
+      d -= 360;
+    }
+    while (d < -180) {
+      d += 360;
+    }
     return d;
   }
 

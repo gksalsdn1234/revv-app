@@ -10,6 +10,7 @@ class RevvAiService {
   RevvAiService._internal();
 
   static const _fallback = '잘 들었어요. 안전하게 달려요.';
+  bool lastRequestFailed = false;
 
   static FirebaseFunctions get _fn => FirebaseFunctions.instance;
 
@@ -43,40 +44,50 @@ class RevvAiService {
   }) async {
     if (userText.isEmpty) return _fallback;
     try {
-      return await _callClaude(
+      final response = await _callClaude(
         model: 'claude-sonnet-4-6',
-        system: '너는 REVV, AI 코드라이버야. 드라이버와 짧게 소통해. 2문장 이내로, 한국어로, 핵심만 말해. 주행 안전을 최우선으로.',
+        system:
+            '너는 REVV, AI 코드라이버야. 드라이버와 짧게 소통해. 2문장 이내로, 한국어로, 핵심만 말해. 주행 안전을 최우선으로.',
         messages: [
           {
             'role': 'user',
-            'content': '''현재 상태:
+            'content':
+                '''현재 상태:
 - 속도: ${speedKmh.toStringAsFixed(0)}km/h
 - 날씨: $weather
 - 노면: $roadCondition
-${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? '- 루트 거리: ${routeDistanceKm.toStringAsFixed(1)}km\n' : ''}${lateralG != null ? '- 횡G: ${lateralG.toStringAsFixed(2)}\n' : ''}${longitudinalG != null ? '- 종G: ${longitudinalG.toStringAsFixed(2)}\n' : ''}${rpm != null ? '- RPM: $rpm\n' : ''}${coolantTempC != null ? '- 냉각수: ${coolantTempC}°C\n' : ''}${throttlePct != null ? '- 스로틀: ${throttlePct.toStringAsFixed(0)}%\n' : ''}
+${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? '- 루트 거리: ${routeDistanceKm.toStringAsFixed(1)}km\n' : ''}${lateralG != null ? '- 횡G: ${lateralG.toStringAsFixed(2)}\n' : ''}${longitudinalG != null ? '- 종G: ${longitudinalG.toStringAsFixed(2)}\n' : ''}${rpm != null ? '- RPM: $rpm\n' : ''}${coolantTempC != null ? '- 냉각수: $coolantTempC°C\n' : ''}${throttlePct != null ? '- 스로틀: ${throttlePct.toStringAsFixed(0)}%\n' : ''}
 
 드라이버: "$userText"''',
-          }
+          },
         ],
         maxTokens: 100,
       );
+      lastRequestFailed = false;
+      return response;
     } catch (_) {}
+    lastRequestFailed = true;
     return _fallback;
   }
 
   /// 주행 종료 후 자동 분석 리포트 생성
   /// [useHighQuality] OBD 연결 시 true → Sonnet, 미연결 → Haiku
-  Future<String> analyzeRun(RunSession session, {bool useHighQuality = false}) async {
+  Future<String> analyzeRun(
+    RunSession session, {
+    bool useHighQuality = false,
+  }) async {
     try {
       final dur = session.duration;
       final durStr = dur.inHours > 0
           ? '${dur.inHours}시간 ${dur.inMinutes % 60}분'
           : dur.inMinutes > 0
-              ? '${dur.inMinutes}분 ${dur.inSeconds % 60}초'
-              : '${dur.inSeconds}초';
+          ? '${dur.inMinutes}분 ${dur.inSeconds % 60}초'
+          : '${dur.inSeconds}초';
 
-      final totalSecs =
-          session.driveModeSeconds.values.fold(0, (a, b) => a + b);
+      final totalSecs = session.driveModeSeconds.values.fold(
+        0,
+        (a, b) => a + b,
+      );
 
       String modeStr;
       if (totalSecs > 0) {
@@ -89,8 +100,7 @@ ${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? 
         final sport =
             ((session.driveModeSeconds['sport'] ?? 0) / totalSecs * 100)
                 .round();
-        modeStr =
-            'CRUISE ${cruise}% / WINDING ${winding}% / SPORT ${sport}%';
+        modeStr = 'CRUISE $cruise% / WINDING $winding% / SPORT $sport%';
       } else {
         modeStr = '데이터 없음';
       }
@@ -100,7 +110,8 @@ ${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? 
           ? '최대 횡G ${session.maxLateralG.toStringAsFixed(2)}G / 최대 종G ${session.maxLonG.toStringAsFixed(2)}G / 급조작 ${session.sharpCorners.length}회'
           : 'G포스 데이터 없음 (실기기 필요)';
 
-      final prompt = '''주행 데이터:
+      final prompt =
+          '''주행 데이터:
 - 루트: ${session.routeName}
 - 거리: ${session.distanceKm.toStringAsFixed(2)} km
 - 주행 시간: $durStr
@@ -111,8 +122,11 @@ ${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? 
 - 드라이빙 모드 비율: $modeStr''';
 
       return await _callClaude(
-        model: useHighQuality ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001',
-        system: '너는 REVV, AI 코드라이버야. 주행 데이터를 받아 드라이버에게 짧고 솔직한 피드백을 줘. '
+        model: useHighQuality
+            ? 'claude-sonnet-4-6'
+            : 'claude-haiku-4-5-20251001',
+        system:
+            '너는 REVV, AI 코드라이버야. 주행 데이터를 받아 드라이버에게 짧고 솔직한 피드백을 줘. '
             '3문장 이내. 한국어. 구체적인 수치를 인용해. 칭찬과 개선점을 균형있게. '
             '앱스토어 규정상 과속·위험 운전을 조장하는 표현은 절대 쓰지 마.',
         messages: [
@@ -126,21 +140,32 @@ ${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? 
 
   /// 상세 AI 코칭 리포트 — 런카드 "상세 분석" 버튼에서 호출
   /// [useHighQuality] OBD 연결 시 true → Sonnet
-  Future<String> analyzeRunDetailed(RunSession session, {bool useHighQuality = false}) async {
+  Future<String> analyzeRunDetailed(
+    RunSession session, {
+    bool useHighQuality = false,
+  }) async {
     try {
       final dur = session.duration;
       final durStr = dur.inHours > 0
           ? '${dur.inHours}시간 ${dur.inMinutes % 60}분'
           : '${dur.inMinutes}분';
 
-      final totalSecs =
-          session.driveModeSeconds.values.fold(0, (a, b) => a + b);
+      final totalSecs = session.driveModeSeconds.values.fold(
+        0,
+        (a, b) => a + b,
+      );
       String modeStr;
       if (totalSecs > 0) {
-        final cruise = ((session.driveModeSeconds['cruise'] ?? 0) / totalSecs * 100).round();
-        final winding = ((session.driveModeSeconds['winding'] ?? 0) / totalSecs * 100).round();
-        final sport = ((session.driveModeSeconds['sport'] ?? 0) / totalSecs * 100).round();
-        modeStr = 'CRUISE ${cruise}% / WINDING ${winding}% / SPORT ${sport}%';
+        final cruise =
+            ((session.driveModeSeconds['cruise'] ?? 0) / totalSecs * 100)
+                .round();
+        final winding =
+            ((session.driveModeSeconds['winding'] ?? 0) / totalSecs * 100)
+                .round();
+        final sport =
+            ((session.driveModeSeconds['sport'] ?? 0) / totalSecs * 100)
+                .round();
+        modeStr = 'CRUISE $cruise% / WINDING $winding% / SPORT $sport%';
       } else {
         modeStr = '데이터 없음';
       }
@@ -159,7 +184,8 @@ ${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? 
         styleLabel = 'RACER (0.45G 초과)';
       }
 
-      final prompt = '''다음 주행 데이터를 바탕으로 드라이버에게 상세 코칭 리포트를 작성해줘.
+      final prompt =
+          '''다음 주행 데이터를 바탕으로 드라이버에게 상세 코칭 리포트를 작성해줘.
 
 [주행 데이터]
 - 루트: ${session.routeName}
@@ -168,7 +194,7 @@ ${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? 
 - 드라이빙 스타일: $styleLabel
 - 최대 횡G: ${hasG ? '${session.maxLateralG.toStringAsFixed(2)}G' : '미측정'}
 - 최대 종G: ${hasG ? '${session.maxLonG.toStringAsFixed(2)}G' : '미측정'}
-- 급조작 횟수: ${hasG ? '${sharpCount}회 (0.45G 초과)' : '미측정'}
+- 급조작 횟수: ${hasG ? '$sharpCount회 (0.45G 초과)' : '미측정'}
 - 드라이빙 모드: $modeStr
 - 날씨: ${session.weatherEmoji} ${session.tempDisplay}
 
@@ -180,8 +206,11 @@ ${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? 
 총 8~10문장, 한국어, 수치를 적극 활용. 앱스토어 규정상 과속·위험 표현 절대 금지.''';
 
       return await _callClaude(
-        model: useHighQuality ? 'claude-sonnet-4-6' : 'claude-haiku-4-5-20251001',
-        system: '너는 REVV, AI 드라이빙 코치야. 주행 데이터를 분석하여 드라이버 성장에 도움이 되는 구체적이고 따뜻한 피드백을 준다. '
+        model: useHighQuality
+            ? 'claude-sonnet-4-6'
+            : 'claude-haiku-4-5-20251001',
+        system:
+            '너는 REVV, AI 드라이빙 코치야. 주행 데이터를 분석하여 드라이버 성장에 도움이 되는 구체적이고 따뜻한 피드백을 준다. '
             '앱스토어 규정 준수: 과속·위험 운전 조장 표현 절대 금지.',
         messages: [
           {'role': 'user', 'content': prompt},
@@ -199,11 +228,13 @@ ${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? 
     final buf = StringBuffer();
     buf.writeln('💪 오늘의 하이라이트');
     buf.writeln('${km.toStringAsFixed(1)}km 완주, 수고했어요!');
-    if (hasG) buf.writeln('최대 횡G ${session.maxLateralG.toStringAsFixed(2)}G를 기록했네요.');
+    if (hasG) {
+      buf.writeln('최대 횡G ${session.maxLateralG.toStringAsFixed(2)}G를 기록했네요.');
+    }
     buf.writeln();
     buf.writeln('🎯 개선 포인트');
     if (sharpCount > 3) {
-      buf.writeln('급조작이 ${sharpCount}회 감지됐어요. 코너 진입 전 미리 속도를 조정해보세요.');
+      buf.writeln('급조작이 $sharpCount회 감지됐어요. 코너 진입 전 미리 속도를 조정해보세요.');
     } else {
       buf.writeln('코너링이 안정적이에요. 루트 변경으로 새로운 코너를 경험해보세요.');
     }
@@ -223,46 +254,64 @@ ${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? 
     final avgDistKm = totalDistKm / totalRuns;
     final avgDurMin = (totalSecs / totalRuns / 60).round();
 
-    final gRuns = history.where((r) => r.maxLateralG != null && r.maxLateralG! > 0.01).toList();
-    final bestG = gRuns.isEmpty ? null : gRuns.map((r) => r.maxLateralG!).reduce((a, b) => a > b ? a : b);
-    final avgG = gRuns.isEmpty ? null : gRuns.map((r) => r.maxLateralG!).fold(0.0, (a, b) => a + b) / gRuns.length;
+    final gRuns = history
+        .where((r) => r.maxLateralG != null && r.maxLateralG! > 0.01)
+        .toList();
+    final bestG = gRuns.isEmpty
+        ? null
+        : gRuns.map((r) => r.maxLateralG!).reduce((a, b) => a > b ? a : b);
+    final avgG = gRuns.isEmpty
+        ? null
+        : gRuns.map((r) => r.maxLateralG!).fold(0.0, (a, b) => a + b) /
+              gRuns.length;
     final totalSharp = history.fold(0, (s, r) => s + r.sharpCornersCount);
 
     final routeCount = <String, int>{};
     for (final r in history) {
-      if (r.routeId != null) routeCount[r.routeName] = (routeCount[r.routeName] ?? 0) + 1;
+      if (r.routeId != null) {
+        routeCount[r.routeName] = (routeCount[r.routeName] ?? 0) + 1;
+      }
     }
-    final favoriteRoute = routeCount.isEmpty ? null
+    final favoriteRoute = routeCount.isEmpty
+        ? null
         : routeCount.entries.reduce((a, b) => a.value > b.value ? a : b).key;
 
     double? runsPerWeek;
     if (history.length >= 2) {
-      final oldest = history.map((r) => r.date).reduce((a, b) => a.isBefore(b) ? a : b);
+      final oldest = history
+          .map((r) => r.date)
+          .reduce((a, b) => a.isBefore(b) ? a : b);
       final daysDiff = DateTime.now().difference(oldest).inDays;
       if (daysDiff > 0) runsPerWeek = totalRuns / (daysDiff / 7);
     }
 
-    final recent = history.take(5).map((r) {
-      final dur = r.durationSeconds ~/ 60;
-      final gStr = r.maxLateralG != null && r.maxLateralG! > 0.01
-          ? '횡G ${r.maxLateralG!.toStringAsFixed(2)}G'
-          : 'G미측정';
-      return '${r.date.month}/${r.date.day} ${r.routeName} ${r.distanceKm.toStringAsFixed(1)}km ${dur}분 $gStr 급조작${r.sharpCornersCount}회';
-    }).join('\n');
+    final recent = history
+        .take(5)
+        .map((r) {
+          final dur = r.durationSeconds ~/ 60;
+          final gStr = r.maxLateralG != null && r.maxLateralG! > 0.01
+              ? '횡G ${r.maxLateralG!.toStringAsFixed(2)}G'
+              : 'G미측정';
+          return '${r.date.month}/${r.date.day} ${r.routeName} ${r.distanceKm.toStringAsFixed(1)}km $dur분 $gStr 급조작${r.sharpCornersCount}회';
+        })
+        .join('\n');
 
     final totalHrs = totalSecs ~/ 3600;
     final totalMin = (totalSecs % 3600) ~/ 60;
-    final timeStr = totalHrs > 0 ? '${totalHrs}시간 ${totalMin}분' : '${totalMin}분';
+    final timeStr = totalHrs > 0
+        ? '$totalHrs시간 $totalMin분'
+        : '$totalMin분';
 
-    final prompt = '''[드라이버 전체 주행 기록]
-- 총 드라이브: ${totalRuns}회
+    final prompt =
+        '''[드라이버 전체 주행 기록]
+- 총 드라이브: $totalRuns회
 - 누적 거리: ${totalDistKm.toStringAsFixed(1)} km
 - 누적 주행시간: $timeStr
 - 평균 거리/회: ${avgDistKm.toStringAsFixed(1)} km
-- 평균 시간/회: ${avgDurMin}분
+- 평균 시간/회: $avgDurMin분
 ${bestG != null ? '- 베스트 횡G: ${bestG.toStringAsFixed(2)}G' : ''}
 ${avgG != null ? '- 평균 횡G: ${avgG.toStringAsFixed(2)}G (${gRuns.length}회 측정)' : ''}
-- 총 급조작: ${totalSharp}회 (평균 ${totalRuns > 0 ? (totalSharp / totalRuns).toStringAsFixed(1) : 0}회/런)
+- 총 급조작: $totalSharp회 (평균 ${totalRuns > 0 ? (totalSharp / totalRuns).toStringAsFixed(1) : 0}회/런)
 ${favoriteRoute != null ? '- 자주 찾는 루트: $favoriteRoute (${routeCount[favoriteRoute]}회)' : ''}
 ${runsPerWeek != null ? '- 주행 빈도: 주 ${runsPerWeek.toStringAsFixed(1)}회' : ''}
 
@@ -280,7 +329,8 @@ $recent
     try {
       return await _callClaude(
         model: 'claude-sonnet-4-6',
-        system: '너는 REVV, AI 드라이빙 코치야. 누적 주행 데이터를 분석해 드라이버 성장을 돕는 통찰력 있는 피드백을 한국어로 제공한다. 앱스토어 규정 준수: 과속·위험 운전 조장 표현 절대 금지.',
+        system:
+            '너는 REVV, AI 드라이빙 코치야. 누적 주행 데이터를 분석해 드라이버 성장을 돕는 통찰력 있는 피드백을 한국어로 제공한다. 앱스토어 규정 준수: 과속·위험 운전 조장 표현 절대 금지.',
         messages: [
           {'role': 'user', 'content': prompt},
         ],
@@ -290,15 +340,21 @@ $recent
 
     final buf = StringBuffer();
     buf.writeln('🏁 드라이버 프로필');
-    buf.writeln('총 ${totalRuns}회, ${totalDistKm.toStringAsFixed(1)}km를 달려온 드라이버예요.');
+    buf.writeln(
+      '총 $totalRuns회, ${totalDistKm.toStringAsFixed(1)}km를 달려온 드라이버예요.',
+    );
     buf.writeln();
     buf.writeln('💪 강점');
-    buf.writeln('꾸준히 드라이브를 이어가고 있어요. 평균 ${avgDistKm.toStringAsFixed(1)}km의 일관된 드라이브가 인상적이에요.');
+    buf.writeln(
+      '꾸준히 드라이브를 이어가고 있어요. 평균 ${avgDistKm.toStringAsFixed(1)}km의 일관된 드라이브가 인상적이에요.',
+    );
     buf.writeln();
     buf.writeln('🎯 개선 포인트');
-    buf.writeln(totalSharp > totalRuns * 3
-        ? '급조작이 평균 ${(totalSharp / totalRuns).toStringAsFixed(1)}회/런으로 다소 많아요. 코너 진입 전 속도 조정을 의식해보세요.'
-        : '급조작 빈도가 안정적이에요. 다양한 루트에 도전해 경험을 넓혀보세요.');
+    buf.writeln(
+      totalSharp > totalRuns * 3
+          ? '급조작이 평균 ${(totalSharp / totalRuns).toStringAsFixed(1)}회/런으로 다소 많아요. 코너 진입 전 속도 조정을 의식해보세요.'
+          : '급조작 빈도가 안정적이에요. 다양한 루트에 도전해 경험을 넓혀보세요.',
+    );
     buf.writeln();
     buf.writeln('🗺️ 다음 도전');
     buf.writeln('새로운 루트를 탐색하며 드라이빙 반경을 넓혀보세요. REVV가 좋은 길을 찾아드릴게요!');
@@ -316,12 +372,14 @@ $recent
     try {
       final result = await _callClaude(
         model: 'claude-haiku-4-5-20251001',
-        system: '너는 드라이빙 루트 닉네임 메이커야. 자주 달리거나 좋아하는 루트에 드라이버만의 별명을 지어준다. 한국어 4~7글자. 이름만 반환. 설명 금지.',
+        system:
+            '너는 드라이빙 루트 닉네임 메이커야. 자주 달리거나 좋아하는 루트에 드라이버만의 별명을 지어준다. 한국어 4~7글자. 이름만 반환. 설명 금지.',
         messages: [
           {
             'role': 'user',
-            'content': '거리: ${route.distanceKm.toStringAsFixed(0)}km / 커브: ${route.curveStyle} / 점수: ${route.windingScore.toStringAsFixed(1)} / 난이도: ${route.difficultyLabel} / 기존이름: ${route.name}',
-          }
+            'content':
+                '거리: ${route.distanceKm.toStringAsFixed(0)}km / 커브: ${route.curveStyle} / 점수: ${route.windingScore.toStringAsFixed(1)} / 난이도: ${route.difficultyLabel} / 기존이름: ${route.name}',
+          },
         ],
         maxTokens: 15,
       );
@@ -350,13 +408,14 @@ $recent
           .join(', ');
       return await _callClaude(
         model: 'claude-haiku-4-5-20251001',
-        system: '너는 REVV 앱의 AI 코파일럿이야. 순환 드라이빙 루트를 2~3문장으로 임팩트 있게 소개해. 날씨/노면 반영. 한국어. 짧게.',
+        system:
+            '너는 REVV 앱의 AI 코파일럿이야. 순환 드라이빙 루트를 2~3문장으로 임팩트 있게 소개해. 날씨/노면 반영. 한국어. 짧게.',
         messages: [
           {
             'role': 'user',
             'content':
                 '총거리: ${loop.totalKm.toStringAsFixed(0)}km / 구간: ${loop.segments.length}개 ($segs) / 평균점수: ${loop.windingScore.toStringAsFixed(1)} / 날씨: $weatherDesc ${tempCelsius.toStringAsFixed(0)}°C 노면: $roadCondition',
-          }
+          },
         ],
         maxTokens: 120,
       );
@@ -375,13 +434,14 @@ $recent
       final gStr = hasG ? '최대G ${session.maxLateralG.toStringAsFixed(2)}G' : '';
       return await _callClaude(
         model: 'claude-haiku-4-5-20251001',
-        system: '너는 REVV 앱의 AI야. SNS 공유용 드라이빙 후기를 2문장으로 작성해. 한국어. 이모지 1~2개. 수치 활용. 과속 조장 표현 금지.',
+        system:
+            '너는 REVV 앱의 AI야. SNS 공유용 드라이빙 후기를 2문장으로 작성해. 한국어. 이모지 1~2개. 수치 활용. 과속 조장 표현 금지.',
         messages: [
           {
             'role': 'user',
             'content':
-                '루트: ${session.routeName} / 거리: ${session.distanceKm.toStringAsFixed(1)}km / 시간: ${dur}분 ${hasG ? gStr : ""}',
-          }
+                '루트: ${session.routeName} / 거리: ${session.distanceKm.toStringAsFixed(1)}km / 시간: $dur분 ${hasG ? gStr : ""}',
+          },
         ],
         maxTokens: 80,
       );
@@ -392,17 +452,15 @@ $recent
   String _buildFallbackAnalysis(RunSession session) {
     final km = session.distanceKm;
     final min = session.duration.inMinutes;
-    final totalSecs =
-        session.driveModeSeconds.values.fold(0, (a, b) => a + b);
+    final totalSecs = session.driveModeSeconds.values.fold(0, (a, b) => a + b);
     final sportSecs = session.driveModeSeconds['sport'] ?? 0;
-    final sportPct =
-        totalSecs > 0 ? (sportSecs / totalSecs * 100).round() : 0;
+    final sportPct = totalSecs > 0 ? (sportSecs / totalSecs * 100).round() : 0;
 
     if (sportPct >= 30) {
-      return '${km.toStringAsFixed(1)}km, ${min}분 — 오늘 꽤 격한 드라이빙이었네요. SPORT 모드가 ${sportPct}%였어요. 다음엔 조금 여유있게 달려봐요.';
+      return '${km.toStringAsFixed(1)}km, $min분 — 오늘 꽤 격한 드라이빙이었네요. SPORT 모드가 $sportPct%였어요. 다음엔 조금 여유있게 달려봐요.';
     }
     if (km >= 30) {
-      return '${km.toStringAsFixed(1)}km, ${min}분 — 오늘 긴 코스 수고했어요. 꾸준히 달리는 것 자체가 실력이에요.';
+      return '${km.toStringAsFixed(1)}km, $min분 — 오늘 긴 코스 수고했어요. 꾸준히 달리는 것 자체가 실력이에요.';
     }
     if (km >= 10) {
       return '${km.toStringAsFixed(1)}km 완주. 이 코스 마음에 드셨나요? 같은 코스를 반복하면 더 자연스러워져요.';

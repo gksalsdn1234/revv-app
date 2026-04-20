@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../services/obd_service.dart';
 import '../services/imu_service.dart';
 import '../services/garage_service.dart';
+import '../widgets/revv_ui.dart';
 import 'garage_screen.dart';
 
 class OBDScreen extends StatefulWidget {
@@ -85,25 +87,31 @@ class _AppBar extends StatelessWidget {
         height: 48,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: AppColors.panel,
+          color: AppColors.bg.withValues(alpha: 0.86),
           border: Border(
-            bottom: BorderSide(color: AppColors.red.withValues(alpha: 0.3)),
+            bottom: BorderSide(
+              color: AppColors.outlineVariant.withValues(alpha: 0.42),
+            ),
           ),
         ),
         child: Row(
           children: [
             GestureDetector(
               onTap: onBack,
-              child: const Icon(Icons.arrow_back_ios_new,
-                  color: Colors.white54, size: 16),
+              child: const Icon(
+                Icons.arrow_back_ios_new,
+                color: Colors.white54,
+                size: 16,
+              ),
             ),
             const SizedBox(width: 12),
             Text(
               'OBD TELEMETRY',
-              style: GoogleFonts.orbitron(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white),
+              style: AppText.label(
+                size: 12,
+                color: AppColors.primaryContainer,
+                letterSpacing: 1.8,
+              ),
             ),
             const Spacer(),
             // 연결 상태 표시
@@ -121,7 +129,9 @@ class _AppBar extends StatelessWidget {
                 Text(
                   _stateLabel(obd.state),
                   style: GoogleFonts.rajdhani(
-                      fontSize: 11, color: _stateColor(obd.state)),
+                    fontSize: 11,
+                    color: _stateColor(obd.state),
+                  ),
                 ),
               ],
             ),
@@ -139,7 +149,7 @@ class _AppBar extends StatelessWidget {
       case OBDState.connecting:
         return Colors.orange;
       case OBDState.error:
-        return AppColors.red;
+        return AppColors.danger;
       case OBDState.disconnected:
         return Colors.white24;
     }
@@ -172,15 +182,33 @@ class _LeftRail extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: 52,
-      color: AppColors.panel,
+      color: AppColors.surfaceLowest,
       child: Column(
         children: [
           const SizedBox(height: 16),
-          _RailItem(icon: Icons.speed, label: 'LIVE', idx: 0, selected: selected, onSelect: onSelect),
+          _RailItem(
+            icon: Icons.speed,
+            label: 'LIVE',
+            idx: 0,
+            selected: selected,
+            onSelect: onSelect,
+          ),
           const SizedBox(height: 8),
-          _RailItem(icon: Icons.show_chart, label: 'DATA', idx: 1, selected: selected, onSelect: onSelect),
+          _RailItem(
+            icon: Icons.show_chart,
+            label: 'DATA',
+            idx: 1,
+            selected: selected,
+            onSelect: onSelect,
+          ),
           const SizedBox(height: 8),
-          _RailItem(icon: Icons.settings, label: 'SETUP', idx: 2, selected: selected, onSelect: onSelect),
+          _RailItem(
+            icon: Icons.settings,
+            label: 'SETUP',
+            idx: 2,
+            selected: selected,
+            onSelect: onSelect,
+          ),
         ],
       ),
     );
@@ -212,23 +240,25 @@ class _RailItem extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border(
             left: BorderSide(
-              color: active ? AppColors.red : Colors.transparent,
+              color: active ? AppColors.primaryContainer : Colors.transparent,
               width: 2,
             ),
           ),
         ),
         child: Column(
           children: [
-            Icon(icon,
-                size: 18,
-                color: active ? AppColors.red : Colors.white24),
+            Icon(
+              icon,
+              size: 18,
+              color: active ? AppColors.primaryContainer : Colors.white24,
+            ),
             const SizedBox(height: 3),
             Text(
               label,
               style: GoogleFonts.rajdhani(
                 fontSize: 8,
                 fontWeight: FontWeight.w700,
-                color: active ? AppColors.red : Colors.white24,
+                color: active ? AppColors.primaryContainer : Colors.white24,
                 letterSpacing: 1,
               ),
             ),
@@ -280,7 +310,9 @@ class _LiveTab extends StatelessWidget {
                 child: Text(
                   '게이지 탭 → 채널 변경',
                   style: GoogleFonts.rajdhani(
-                      fontSize: 10, color: Colors.white24),
+                    fontSize: 10,
+                    color: Colors.white24,
+                  ),
                 ),
               ),
             ],
@@ -295,17 +327,21 @@ class _LiveTab extends StatelessWidget {
       context: context,
       backgroundColor: AppColors.panel,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
       builder: (_) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Text('채널 선택',
-                style: GoogleFonts.orbitron(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white)),
+            child: Text(
+              '채널 선택',
+              style: GoogleFonts.orbitron(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
           ),
           ...OBDService.channels.entries.map((e) {
             final isActive = obd.liveChannels[idx] == e.key;
@@ -315,17 +351,27 @@ class _LiveTab extends StatelessWidget {
                 _categoryIcon(e.value.category),
                 style: const TextStyle(fontSize: 16),
               ),
-              title: Text(e.value.name,
-                  style: GoogleFonts.rajdhani(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white)),
-              subtitle: Text('${e.value.category} · ${e.value.unit}',
-                  style: GoogleFonts.rajdhani(
-                      fontSize: 11, color: AppColors.gray)),
+              title: Text(
+                e.value.name,
+                style: GoogleFonts.rajdhani(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+              subtitle: Text(
+                '${e.value.category} · ${e.value.unit}',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 11,
+                  color: AppColors.gray,
+                ),
+              ),
               trailing: isActive
-                  ? const Icon(Icons.check_circle,
-                      color: AppColors.red, size: 18)
+                  ? const Icon(
+                      Icons.check_circle,
+                      color: AppColors.red,
+                      size: 18,
+                    )
                   : null,
               onTap: () {
                 obd.setLiveChannel(idx, e.key);
@@ -373,10 +419,10 @@ class _GaugeCard extends StatelessWidget {
   });
 
   Color _gaugeColor() {
-    if (percent > 0.85) return AppColors.red;
+    if (percent > 0.85) return AppColors.warning;
     if (percent > 0.65) return Colors.orange;
-    if (pid == '012F' && percent < 0.15) return AppColors.red;
-    return AppColors.red;
+    if (pid == '012F' && percent < 0.15) return AppColors.danger;
+    return AppColors.primaryContainer;
   }
 
   @override
@@ -386,12 +432,8 @@ class _GaugeCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.panel,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white12),
-        ),
+      child: RevvGlassCard(
+        padding: EdgeInsets.zero,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -409,14 +451,16 @@ class _GaugeCard extends StatelessWidget {
                         style: GoogleFonts.orbitron(
                           fontSize: 20,
                           fontWeight: FontWeight.w900,
-                          color: Colors.white,
+                          color: AppColors.textPrimary,
                         ),
                       ),
                       if (ch != null)
                         Text(
                           ch.unit,
                           style: GoogleFonts.rajdhani(
-                              fontSize: 10, color: AppColors.gray),
+                            fontSize: 10,
+                            color: AppColors.gray,
+                          ),
                         ),
                     ],
                   ),
@@ -513,7 +557,14 @@ class _TelemTab extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.symmetric(vertical: 8),
           children: [
-            _telemSection('⚙️  ENGINE', ['010C', '0104', '0111', '0145', '0105', '015C'], obd),
+            _telemSection('⚙️  ENGINE', [
+              '010C',
+              '0104',
+              '0111',
+              '0145',
+              '0105',
+              '015C',
+            ], obd),
             _telemSection('💨  AIR / INTAKE', ['010F', '010B', '0110'], obd),
             _telemSection('⛽  FUEL', ['012F', '015E'], obd),
             _FuelEcoRow(obd: obd),
@@ -569,10 +620,7 @@ class _TelemRow extends StatelessWidget {
             width: 90,
             child: Text(
               ch.name,
-              style: GoogleFonts.rajdhani(
-                fontSize: 12,
-                color: Colors.white70,
-              ),
+              style: GoogleFonts.rajdhani(fontSize: 12, color: Colors.white70),
             ),
           ),
           // 바
@@ -654,14 +702,18 @@ class _ExtendedSection extends StatelessWidget {
                   Text(
                     '📱  IMU (폰 센서)',
                     style: GoogleFonts.rajdhani(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.red,
-                        letterSpacing: 2),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.red,
+                      letterSpacing: 2,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: imu.calibrated
                           ? const Color(0xFF00FF88).withValues(alpha: 0.15)
@@ -671,10 +723,11 @@ class _ExtendedSection extends StatelessWidget {
                     child: Text(
                       imu.calibrated ? '캘리브레이션 완료' : '미캘리브레이션',
                       style: GoogleFonts.rajdhani(
-                          fontSize: 9,
-                          color: imu.calibrated
-                              ? const Color(0xFF00FF88)
-                              : Colors.orange),
+                        fontSize: 9,
+                        color: imu.calibrated
+                            ? const Color(0xFF00FF88)
+                            : Colors.orange,
+                      ),
                     ),
                   ),
                 ],
@@ -691,7 +744,12 @@ class _ExtendedSection extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            const Divider(height: 1, color: Colors.white12, indent: 16, endIndent: 16),
+            const Divider(
+              height: 1,
+              color: Colors.white12,
+              indent: 16,
+              endIndent: 16,
+            ),
 
             // ── 차량 의존 Mode 22 섹션 ──
             Padding(
@@ -701,21 +759,28 @@ class _ExtendedSection extends StatelessWidget {
                   Text(
                     '🏎  EXTENDED (Mode 22)',
                     style: GoogleFonts.rajdhani(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.gray,
-                        letterSpacing: 2),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.gray,
+                      letterSpacing: 2,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.white12,
                       borderRadius: BorderRadius.circular(2),
                     ),
                     child: Text(
                       '차량 의존',
-                      style: GoogleFonts.rajdhani(fontSize: 9, color: AppColors.gray),
+                      style: GoogleFonts.rajdhani(
+                        fontSize: 9,
+                        color: AppColors.gray,
+                      ),
                     ),
                   ),
                 ],
@@ -725,41 +790,55 @@ class _ExtendedSection extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
               child: Text(
                 'Mode 22 확장 PID — 차량 제조사별 지원 여부가 다릅니다.',
-                style: GoogleFonts.rajdhani(fontSize: 10, color: Colors.white24),
+                style: GoogleFonts.rajdhani(
+                  fontSize: 10,
+                  color: Colors.white24,
+                ),
               ),
             ),
-            ...const [
-              ('조향각', '°'),
-              ('ABS 압력', 'bar'),
-              ('트랙션 컨트롤', '—'),
-            ].map((c) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 90,
-                    child: Text(c.$1,
-                        style: GoogleFonts.rajdhani(fontSize: 12, color: Colors.white38)),
-                  ),
-                  Expanded(
-                    child: Container(
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white12,
-                        borderRadius: BorderRadius.circular(2),
+            ...const [('조향각', '°'), ('ABS 압력', 'bar'), ('트랙션 컨트롤', '—')].map(
+              (c) => Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 90,
+                      child: Text(
+                        c.$1,
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 12,
+                          color: Colors.white38,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 52,
-                    child: Text('— ${c.$2}',
+                    Expanded(
+                      child: Container(
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white12,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 52,
+                      child: Text(
+                        '— ${c.$2}',
                         textAlign: TextAlign.right,
-                        style: GoogleFonts.orbitron(fontSize: 10, color: Colors.white24)),
-                  ),
-                ],
+                        style: GoogleFonts.orbitron(
+                          fontSize: 10,
+                          color: Colors.white24,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            )),
+            ),
             const SizedBox(height: 20),
           ],
         );
@@ -767,7 +846,6 @@ class _ExtendedSection extends StatelessWidget {
     );
   }
 }
-
 
 // ── 순간 연비 행 ───────────────────────────────────────────────
 
@@ -784,27 +862,38 @@ class _FuelEcoRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 90,
-            child: Text('순간연비',
-                style: GoogleFonts.rajdhani(fontSize: 12, color: Colors.white70)),
+            child: Text(
+              '순간연비',
+              style: GoogleFonts.rajdhani(fontSize: 12, color: Colors.white70),
+            ),
           ),
           Expanded(
-            child: Stack(children: [
-              Container(height: 4,
-                  decoration: BoxDecoration(color: Colors.white12,
-                      borderRadius: BorderRadius.circular(2))),
-              if (eco != null)
-                FractionallySizedBox(
-                  widthFactor: (1 - (eco / 30).clamp(0.0, 1.0)),
-                  child: Container(height: 4,
-                      decoration: BoxDecoration(
-                          color: eco < 8
-                              ? const Color(0xFF00CC66)
-                              : eco < 15
-                              ? Colors.orange
-                              : AppColors.red,
-                          borderRadius: BorderRadius.circular(2))),
+            child: Stack(
+              children: [
+                Container(
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white12,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-            ]),
+                if (eco != null)
+                  FractionallySizedBox(
+                    widthFactor: (1 - (eco / 30).clamp(0.0, 1.0)),
+                    child: Container(
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: eco < 8
+                            ? const Color(0xFF00CC66)
+                            : eco < 15
+                            ? Colors.orange
+                            : AppColors.red,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
           const SizedBox(width: 8),
           SizedBox(
@@ -813,10 +902,16 @@ class _FuelEcoRow extends StatelessWidget {
               eco != null ? '${eco.toStringAsFixed(1)} L/100' : '— L/100',
               textAlign: TextAlign.right,
               style: GoogleFonts.orbitron(
-                  fontSize: 10, fontWeight: FontWeight.w700,
-                  color: eco != null
-                      ? (eco < 8 ? const Color(0xFF00CC66) : eco < 15 ? Colors.orange : AppColors.red)
-                      : Colors.white24),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: eco != null
+                    ? (eco < 8
+                          ? const Color(0xFF00CC66)
+                          : eco < 15
+                          ? Colors.orange
+                          : AppColors.red)
+                    : Colors.white24,
+              ),
             ),
           ),
         ],
@@ -855,14 +950,20 @@ class _CarGforceMeterState extends State<_CarGforceMeter>
   @override
   void initState() {
     super.initState();
-    _pulse = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1600), // 숨쉬는 속도
-    )..addListener(_onTick)..repeat(reverse: true);
+    _pulse =
+        AnimationController(
+            vsync: this,
+            duration: const Duration(milliseconds: 1600), // 숨쉬는 속도
+          )
+          ..addListener(_onTick)
+          ..repeat(reverse: true);
   }
 
   void _onTick() {
-    final mag = math.sqrt(widget.lateralG * widget.lateralG + widget.longitudinalG * widget.longitudinalG);
+    final mag = math.sqrt(
+      widget.lateralG * widget.lateralG +
+          widget.longitudinalG * widget.longitudinalG,
+    );
     final color = AppColors.gForceColor(mag);
     if (color != _displayColor) {
       setState(() => _displayColor = color);
@@ -877,7 +978,9 @@ class _CarGforceMeterState extends State<_CarGforceMeter>
 
   @override
   Widget build(BuildContext context) {
-    final maxMag = math.sqrt(widget.maxLatG * widget.maxLatG + widget.maxLonG * widget.maxLonG);
+    final maxMag = math.sqrt(
+      widget.maxLatG * widget.maxLatG + widget.maxLonG * widget.maxLonG,
+    );
     final color = _displayColor;
 
     return Column(
@@ -898,12 +1001,26 @@ class _CarGforceMeterState extends State<_CarGforceMeter>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              _GNum(label: '횡G', value: widget.lateralG, unit: 'g', color: color),
+              _GNum(
+                label: '횡G',
+                value: widget.lateralG,
+                unit: 'g',
+                color: color,
+              ),
               Container(width: 1, height: 36, color: Colors.white10),
-              _GNum(label: '종G', value: widget.longitudinalG, unit: 'g', color: color),
+              _GNum(
+                label: '종G',
+                value: widget.longitudinalG,
+                unit: 'g',
+                color: color,
+              ),
               Container(width: 1, height: 36, color: Colors.white10),
-              _GNum(label: '요레이트', value: widget.yawDps, unit: '°/s',
-                  color: AppColors.red),
+              _GNum(
+                label: '요레이트',
+                value: widget.yawDps,
+                unit: '°/s',
+                color: AppColors.red,
+              ),
             ],
           ),
         ),
@@ -920,21 +1037,42 @@ class _CarGforceMeterState extends State<_CarGforceMeter>
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('MAX', style: GoogleFonts.rajdhani(
-                  fontSize: 9, fontWeight: FontWeight.w700,
-                  color: Colors.white38, letterSpacing: 2)),
+              Text(
+                'MAX',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white38,
+                  letterSpacing: 2,
+                ),
+              ),
               const SizedBox(width: 10),
-              Text('횡 ${widget.maxLatG.toStringAsFixed(2)}g',
-                  style: GoogleFonts.rajdhani(fontSize: 12,
-                      color: Colors.orange, fontWeight: FontWeight.w600)),
+              Text(
+                '횡 ${widget.maxLatG.toStringAsFixed(2)}g',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 12,
+                  color: Colors.orange,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(width: 12),
-              Text('종 ${widget.maxLonG.toStringAsFixed(2)}g',
-                  style: GoogleFonts.rajdhani(fontSize: 12,
-                      color: Colors.orange, fontWeight: FontWeight.w600)),
+              Text(
+                '종 ${widget.maxLonG.toStringAsFixed(2)}g',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 12,
+                  color: Colors.orange,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
               const SizedBox(width: 12),
-              Text('합 ${maxMag.toStringAsFixed(2)}g',
-                  style: GoogleFonts.rajdhani(fontSize: 12,
-                      color: AppColors.gForceColor(maxMag), fontWeight: FontWeight.w700)),
+              Text(
+                '합 ${maxMag.toStringAsFixed(2)}g',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 12,
+                  color: AppColors.gForceColor(maxMag),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             ],
           ),
         ),
@@ -949,21 +1087,39 @@ class _GNum extends StatelessWidget {
   final String unit;
   final Color color;
 
-  const _GNum({required this.label, required this.value,
-    required this.unit, required this.color});
+  const _GNum({
+    required this.label,
+    required this.value,
+    required this.unit,
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(label, style: GoogleFonts.rajdhani(
-            fontSize: 9, color: Colors.white38, letterSpacing: 1.5)),
         Text(
-          value >= 0 ? '+${value.toStringAsFixed(2)}' : value.toStringAsFixed(2),
+          label,
           style: GoogleFonts.rajdhani(
-              fontSize: 19, fontWeight: FontWeight.w700, color: color),
+            fontSize: 9,
+            color: Colors.white38,
+            letterSpacing: 1.5,
+          ),
         ),
-        Text(unit, style: GoogleFonts.rajdhani(fontSize: 9, color: Colors.white38)),
+        Text(
+          value >= 0
+              ? '+${value.toStringAsFixed(2)}'
+              : value.toStringAsFixed(2),
+          style: GoogleFonts.rajdhani(
+            fontSize: 19,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+        Text(
+          unit,
+          style: GoogleFonts.rajdhani(fontSize: 9, color: Colors.white38),
+        ),
       ],
     );
   }
@@ -994,10 +1150,10 @@ class _CarGforcePainter extends CustomPainter {
 
     // ── 방향별 G 분리 ─────────────────────────────────────────
     // lateralG: 양수=우, 음수=좌 / longitudinalG: 양수=가속(앞), 음수=감속(뒤)
-    final leftG  = (-lateralG).clamp(0.0, 1.5);
+    final leftG = (-lateralG).clamp(0.0, 1.5);
     final rightG = lateralG.clamp(0.0, 1.5);
     final frontG = longitudinalG.clamp(0.0, 1.5);
-    final rearG  = (-longitudinalG).clamp(0.0, 1.5);
+    final rearG = (-longitudinalG).clamp(0.0, 1.5);
     final breathe = 0.55 + 0.45 * pulseValue;
 
     // ── 차체 실루엣 ──────────────────────────────────────────────
@@ -1011,11 +1167,15 @@ class _CarGforcePainter extends CustomPainter {
 
     // ── 상시 브리딩 ambient glow (전체 윤곽, 항상 파란 숨) ───────
     // BlurStyle.normal: Impeller/Skia 모두 안정적으로 렌더링됨
-    canvas.drawRRect(bodyRRect, Paint()
-      ..color = gColor.withValues(alpha: 0.55 * breathe)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 12.0  // 두꺼운 stroke를 blur → 외곽 halo 효과
-      ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10.0 * breathe));
+    canvas.drawRRect(
+      bodyRRect,
+      Paint()
+        ..color = gColor.withValues(alpha: 0.55 * breathe)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth =
+            12.0 // 두꺼운 stroke를 blur → 외곽 halo 효과
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 10.0 * breathe),
+    );
 
     // ── 방향별 directional glow ─────────────────────────────────
     // clipRect로 절반씩 잘라 해당 면만 강하게 빛남
@@ -1025,30 +1185,39 @@ class _CarGforcePainter extends CustomPainter {
       canvas.save();
       canvas.clipRect(clip);
       // 넓은 halo
-      canvas.drawRRect(bodyRRect, Paint()
-        ..color = gColor.withValues(alpha: (0.4 + g * 0.5).clamp(0.0, 0.9))
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 14.0
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma * 1.2));
+      canvas.drawRRect(
+        bodyRRect,
+        Paint()
+          ..color = gColor.withValues(alpha: (0.4 + g * 0.5).clamp(0.0, 0.9))
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 14.0
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma * 1.2),
+      );
       // 밝은 코어
-      canvas.drawRRect(bodyRRect, Paint()
-        ..color = gColor.withValues(alpha: 0.95)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3.0
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma * 0.3));
+      canvas.drawRRect(
+        bodyRRect,
+        Paint()
+          ..color = gColor.withValues(alpha: 0.95)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3.0
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, sigma * 0.3),
+      );
       canvas.restore();
     }
 
-    sideGlow(Rect.fromLTWH(0,  0,  cx, h),  leftG);   // 왼쪽 절반
-    sideGlow(Rect.fromLTWH(cx, 0,  cx, h),  rightG);  // 오른쪽 절반
-    sideGlow(Rect.fromLTWH(0,  0,  w,  cy), frontG);  // 앞(위) 절반
-    sideGlow(Rect.fromLTWH(0,  cy, w,  cy), rearG);   // 뒤(아래) 절반
+    sideGlow(Rect.fromLTWH(0, 0, cx, h), leftG); // 왼쪽 절반
+    sideGlow(Rect.fromLTWH(cx, 0, cx, h), rightG); // 오른쪽 절반
+    sideGlow(Rect.fromLTWH(0, 0, w, cy), frontG); // 앞(위) 절반
+    sideGlow(Rect.fromLTWH(0, cy, w, cy), rearG); // 뒤(아래) 절반
 
     // 실선 (glow 위에 덧그려 윤곽 선명하게)
-    canvas.drawRRect(bodyRRect, Paint()
-      ..color = gColor.withValues(alpha: 0.85)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.8);
+    canvas.drawRRect(
+      bodyRRect,
+      Paint()
+        ..color = gColor.withValues(alpha: 0.85)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.8,
+    );
 
     // ── 바퀴 4개 ──────────────────────────────────────────────
     final mag = _magnitude;
@@ -1076,8 +1245,16 @@ class _CarGforcePainter extends CustomPainter {
       ..color = gColor.withValues(alpha: 0.22)
       ..strokeWidth = 1.2
       ..style = PaintingStyle.stroke;
-    canvas.drawLine(Offset(w * 0.27, h * 0.23), Offset(w * 0.73, h * 0.23), glassPaint);
-    canvas.drawLine(Offset(w * 0.27, h * 0.77), Offset(w * 0.73, h * 0.77), glassPaint);
+    canvas.drawLine(
+      Offset(w * 0.27, h * 0.23),
+      Offset(w * 0.73, h * 0.23),
+      glassPaint,
+    );
+    canvas.drawLine(
+      Offset(w * 0.27, h * 0.77),
+      Offset(w * 0.73, h * 0.77),
+      glassPaint,
+    );
 
     // ── G포스 도트 ─────────────────────────────────────────────
     final maxOff = w * 0.21;
@@ -1091,27 +1268,44 @@ class _CarGforcePainter extends CustomPainter {
     }
 
     // 크로스헤어
-    final crossP = Paint()..color = Colors.white.withValues(alpha: 0.15)..strokeWidth = 0.7;
+    final crossP = Paint()
+      ..color = Colors.white.withValues(alpha: 0.15)
+      ..strokeWidth = 0.7;
     canvas.drawLine(Offset(cx - maxOff, cy), Offset(cx + maxOff, cy), crossP);
     canvas.drawLine(Offset(cx, cy - maxOff), Offset(cx, cy + maxOff), crossP);
-    canvas.drawCircle(Offset(cx, cy), maxOff, Paint()
-      ..color = Colors.white.withValues(alpha: 0.12)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8);
+    canvas.drawCircle(
+      Offset(cx, cy),
+      maxOff,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.12)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8,
+    );
 
     // 도트 외곽 글로우 (넓게)
-    canvas.drawCircle(Offset(cx + dx, cy + dy), 16, Paint()
-      ..color = gColor.withValues(alpha: 0.25)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14));
+    canvas.drawCircle(
+      Offset(cx + dx, cy + dy),
+      16,
+      Paint()
+        ..color = gColor.withValues(alpha: 0.25)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
+    );
     // 도트 글로우 (중간)
-    canvas.drawCircle(Offset(cx + dx, cy + dy), 9, Paint()
-      ..color = gColor.withValues(alpha: 0.7)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+    canvas.drawCircle(
+      Offset(cx + dx, cy + dy),
+      9,
+      Paint()
+        ..color = gColor.withValues(alpha: 0.7)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
     // 도트 본체
     canvas.drawCircle(Offset(cx + dx, cy + dy), 6, Paint()..color = gColor);
     // 도트 하이라이트
-    canvas.drawCircle(Offset(cx + dx, cy + dy), 2.5,
-        Paint()..color = Colors.white.withValues(alpha: 0.95));
+    canvas.drawCircle(
+      Offset(cx + dx, cy + dy),
+      2.5,
+      Paint()..color = Colors.white.withValues(alpha: 0.95),
+    );
   }
 
   @override
@@ -1199,7 +1393,8 @@ class _GarageProfileCard extends StatelessWidget {
                 child: Row(
                   children: [
                     Container(
-                      width: 40, height: 40,
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
                         color: AppColors.red.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(8),
@@ -1221,7 +1416,9 @@ class _GarageProfileCard extends StatelessWidget {
                             style: GoogleFonts.orbitron(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
-                              color: garage.hasVehicle ? Colors.white : Colors.white38,
+                              color: garage.hasVehicle
+                                  ? Colors.white
+                                  : Colors.white38,
                             ),
                           ),
                           const SizedBox(height: 3),
@@ -1246,7 +1443,11 @@ class _GarageProfileCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    const Icon(Icons.chevron_right, size: 18, color: Colors.white24),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 18,
+                      color: Colors.white24,
+                    ),
                   ],
                 ),
               ),
@@ -1364,9 +1565,14 @@ class _ImuCalibrationCard extends StatelessWidget {
             return GestureDetector(
               onTap: () => imu.setMountType(MountType.values[i]),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
-                  color: selected ? AppColors.red.withValues(alpha: 0.15) : AppColors.bg,
+                  color: selected
+                      ? AppColors.red.withValues(alpha: 0.15)
+                      : AppColors.bg,
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
                     color: selected ? AppColors.red : Colors.white12,
@@ -1392,7 +1598,10 @@ class _ImuCalibrationCard extends StatelessWidget {
                           ),
                           Text(
                             _mountDescs[i],
-                            style: GoogleFonts.rajdhani(fontSize: 9, color: Colors.white38),
+                            style: GoogleFonts.rajdhani(
+                              fontSize: 9,
+                              color: Colors.white38,
+                            ),
                           ),
                         ],
                       ),
@@ -1419,7 +1628,10 @@ class _ImuCalibrationCard extends StatelessWidget {
             children: [
               Text(
                 '현재 센서 값 (정지 상태에서 0에 가까워야 함)',
-                style: GoogleFonts.rajdhani(fontSize: 10, color: Colors.white38),
+                style: GoogleFonts.rajdhani(
+                  fontSize: 10,
+                  color: Colors.white38,
+                ),
               ),
               const SizedBox(height: 10),
               Row(
@@ -1460,7 +1672,10 @@ class _ImuCalibrationCard extends StatelessWidget {
                 ),
                 Text(
                   '차량 정지 + 수평 상태에서 탭',
-                  style: GoogleFonts.rajdhani(fontSize: 10, color: Colors.white70),
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 10,
+                    color: Colors.white70,
+                  ),
                 ),
               ],
             ),
@@ -1472,7 +1687,10 @@ class _ImuCalibrationCard extends StatelessWidget {
           Center(
             child: Text(
               '✓ 캘리브레이션 완료 — 저장됨',
-              style: GoogleFonts.rajdhani(fontSize: 11, color: const Color(0xFF00FF88)),
+              style: GoogleFonts.rajdhani(
+                fontSize: 11,
+                color: const Color(0xFF00FF88),
+              ),
             ),
           ),
         ],
@@ -1486,20 +1704,37 @@ class _LiveVal extends StatelessWidget {
   final String label;
   final double value;
   final String unit;
-  const _LiveVal({required this.label, required this.value, required this.unit});
+  const _LiveVal({
+    required this.label,
+    required this.value,
+    required this.unit,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: GoogleFonts.rajdhani(fontSize: 9, color: AppColors.gray, letterSpacing: 1)),
+        Text(
+          label,
+          style: GoogleFonts.rajdhani(
+            fontSize: 9,
+            color: AppColors.gray,
+            letterSpacing: 1,
+          ),
+        ),
         Text(
           '${value >= 0 ? '+' : ''}${value.toStringAsFixed(2)}',
-          style: GoogleFonts.orbitron(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white),
+          style: GoogleFonts.orbitron(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: Colors.white,
+          ),
         ),
-        Text(unit, style: GoogleFonts.rajdhani(fontSize: 9, color: AppColors.gray)),
+        Text(
+          unit,
+          style: GoogleFonts.rajdhani(fontSize: 9, color: AppColors.gray),
+        ),
       ],
     );
   }
@@ -1539,14 +1774,14 @@ class _ConnectionCard extends StatelessWidget {
                 isConnected
                     ? Icons.bluetooth_connected
                     : isScanning
-                        ? Icons.bluetooth_searching
-                        : Icons.bluetooth_disabled,
+                    ? Icons.bluetooth_searching
+                    : Icons.bluetooth_disabled,
                 size: 22,
                 color: isConnected
                     ? const Color(0xFF00FF88)
                     : isBusy
-                        ? Colors.orange
-                        : Colors.white38,
+                    ? Colors.orange
+                    : Colors.white38,
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -1554,18 +1789,18 @@ class _ConnectionCard extends StatelessWidget {
                   isConnected
                       ? '${obd.scanResults.isNotEmpty ? obd.scanResults.first.device.platformName : "OBD2"} 연결됨'
                       : isConnecting
-                          ? '연결 중...'
-                          : isScanning
-                              ? '기기 탐색 중... (30초)'
-                              : 'OBD 미연결',
+                      ? '연결 중...'
+                      : isScanning
+                      ? '기기 탐색 중... (30초)'
+                      : 'OBD 미연결',
                   style: GoogleFonts.rajdhani(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                     color: isConnected
                         ? const Color(0xFF00FF88)
                         : isBusy
-                            ? Colors.orange
-                            : Colors.white54,
+                        ? Colors.orange
+                        : Colors.white54,
                   ),
                 ),
               ),
@@ -1574,7 +1809,9 @@ class _ConnectionCard extends StatelessWidget {
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.orange),
+                    strokeWidth: 2,
+                    color: Colors.orange,
+                  ),
                 ),
             ],
           ),
@@ -1602,9 +1839,10 @@ class _ConnectionCard extends StatelessWidget {
             Text(
               '발견된 기기 ${obd.scanResults.length}개 — 탭하면 연결',
               style: GoogleFonts.rajdhani(
-                  fontSize: 10,
-                  color: Colors.white38,
-                  letterSpacing: 1),
+                fontSize: 10,
+                color: Colors.white38,
+                letterSpacing: 1,
+              ),
             ),
             const SizedBox(height: 6),
             ...obd.scanResults.map((r) {
@@ -1614,8 +1852,10 @@ class _ConnectionCard extends StatelessWidget {
                 onTap: () => obd.connectToDevice(r.device),
                 child: Container(
                   margin: const EdgeInsets.only(bottom: 6),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: isObd
                         ? AppColors.red.withValues(alpha: 0.1)
@@ -1648,13 +1888,17 @@ class _ConnectionCard extends StatelessWidget {
                       Text(
                         '${r.rssi} dBm',
                         style: GoogleFonts.rajdhani(
-                            fontSize: 10, color: Colors.white24),
+                          fontSize: 10,
+                          color: Colors.white24,
+                        ),
                       ),
                       if (isObd) ...[
                         const SizedBox(width: 6),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.red,
                             borderRadius: BorderRadius.circular(4),
@@ -1662,9 +1906,10 @@ class _ConnectionCard extends StatelessWidget {
                           child: Text(
                             'OBD',
                             style: GoogleFonts.rajdhani(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ],
@@ -1765,9 +2010,10 @@ class _ChannelSelector extends StatelessWidget {
                 child: Text(
                   '${index + 1}',
                   style: GoogleFonts.orbitron(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.red),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.red,
+                  ),
                 ),
               ),
             ),
@@ -1779,14 +2025,17 @@ class _ChannelSelector extends StatelessWidget {
                   Text(
                     ch?.name ?? pid,
                     style: GoogleFonts.rajdhani(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
                   ),
                   Text(
                     ch != null ? '${ch.category} · ${ch.unit}' : '',
                     style: GoogleFonts.rajdhani(
-                        fontSize: 10, color: AppColors.gray),
+                      fontSize: 10,
+                      color: AppColors.gray,
+                    ),
                   ),
                 ],
               ),
@@ -1803,33 +2052,47 @@ class _ChannelSelector extends StatelessWidget {
       context: context,
       backgroundColor: AppColors.panel,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
       builder: (_) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Text('게이지 ${index + 1} 채널',
-                style: GoogleFonts.orbitron(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white)),
+            child: Text(
+              '게이지 ${index + 1} 채널',
+              style: GoogleFonts.orbitron(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
           ),
           ...OBDService.channels.entries.map((e) {
             final active = obd.liveChannels[index] == e.key;
             return ListTile(
               dense: true,
-              title: Text('${e.value.name}  (${e.value.unit})',
-                  style: GoogleFonts.rajdhani(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white)),
-              subtitle: Text(e.value.category,
-                  style: GoogleFonts.rajdhani(
-                      fontSize: 10, color: AppColors.gray)),
+              title: Text(
+                '${e.value.name}  (${e.value.unit})',
+                style: GoogleFonts.rajdhani(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+              ),
+              subtitle: Text(
+                e.value.category,
+                style: GoogleFonts.rajdhani(
+                  fontSize: 10,
+                  color: AppColors.gray,
+                ),
+              ),
               trailing: active
-                  ? const Icon(Icons.check_circle,
-                      color: AppColors.red, size: 18)
+                  ? const Icon(
+                      Icons.check_circle,
+                      color: AppColors.red,
+                      size: 18,
+                    )
                   : null,
               onTap: () {
                 obd.setLiveChannel(index, e.key);
@@ -1856,15 +2119,11 @@ class _NotConnectedBanner extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.bluetooth_disabled,
-              size: 48, color: Colors.white24),
+          const Icon(Icons.bluetooth_disabled, size: 48, color: Colors.white24),
           const SizedBox(height: 16),
           Text(
             'OBD 연결 필요',
-            style: GoogleFonts.orbitron(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Colors.white54),
+            style: AppText.label(size: 13, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 8),
           Text(
@@ -1872,22 +2131,12 @@ class _NotConnectedBanner extends StatelessWidget {
             style: GoogleFonts.rajdhani(fontSize: 12, color: Colors.white24),
           ),
           const SizedBox(height: 20),
-          GestureDetector(
-            onTap: onConnect,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              decoration: BoxDecoration(
-                color: AppColors.red,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: Text(
-                'OBD 연결하기',
-                style: GoogleFonts.rajdhani(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: 2),
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 36),
+            child: RevvPrimaryButton(
+              label: 'OBD 연결하기',
+              icon: Icons.bluetooth_searching_rounded,
+              onPressed: onConnect,
             ),
           ),
         ],

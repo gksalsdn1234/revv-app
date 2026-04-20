@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import '../models/revv_route.dart';
 import '../services/saved_route_service.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../ui/ux_contracts.dart';
+import 'revv_ui.dart';
 
 class RoutesSelectionPanel extends StatelessWidget {
   final RevvRoute route;
@@ -55,15 +57,16 @@ class RoutesSelectionPanel extends StatelessWidget {
       route.routeCharacter.isNotEmpty ? route.routeCharacter : 'mixed_touring',
     );
 
-    return Column(
+    return RevvGlassCard(
       key: ValueKey('route-${route.id}'),
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(height: 1, color: Colors.white.withValues(alpha: 0.07)),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 10, 12),
-          child: Column(
+      margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+      color: AppColors.bg.withValues(alpha: 0.90),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
@@ -73,11 +76,7 @@ class RoutesSelectionPanel extends StatelessWidget {
                       recommendation.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.rajdhani(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
+                      style: AppText.inter(size: 22, weight: FontWeight.w900),
                     ),
                   ),
                   _Pressable(
@@ -97,7 +96,9 @@ class RoutesSelectionPanel extends StatelessWidget {
                               : Icons.favorite_border_rounded,
                           key: ValueKey(isSaved),
                           size: 18,
-                          color: isSaved ? AppColors.red : Colors.white38,
+                          color: isSaved
+                              ? AppColors.primaryContainer
+                              : Colors.white38,
                         ),
                       ),
                     ),
@@ -146,7 +147,7 @@ class RoutesSelectionPanel extends StatelessWidget {
                   fontSize: 15,
                   height: 1.3,
                   fontWeight: FontWeight.w700,
-                  color: Colors.white.withValues(alpha: 0.88),
+                  color: AppColors.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
@@ -206,9 +207,13 @@ class RoutesSelectionPanel extends StatelessWidget {
                         vertical: 10,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white10,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.white24),
+                        color: AppColors.surfaceHigh.withValues(alpha: 0.48),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: AppColors.outlineVariant.withValues(
+                            alpha: 0.45,
+                          ),
+                        ),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -224,7 +229,7 @@ class RoutesSelectionPanel extends StatelessWidget {
                             style: GoogleFonts.rajdhani(
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
-                              color: Colors.white70,
+                              color: AppColors.textPrimary,
                             ),
                           ),
                         ],
@@ -240,15 +245,23 @@ class RoutesSelectionPanel extends StatelessWidget {
                         vertical: 10,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.red,
-                        borderRadius: BorderRadius.circular(10),
+                        color: AppColors.primaryContainer,
+                        borderRadius: BorderRadius.circular(999),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.primaryContainer.withValues(
+                              alpha: 0.25,
+                            ),
+                            blurRadius: 18,
+                          ),
+                        ],
                       ),
                       child: Text(
                         recommendation.primaryCta,
                         style: GoogleFonts.rajdhani(
                           fontSize: 14,
                           fontWeight: FontWeight.w800,
-                          color: Colors.white,
+                          color: AppColors.onPrimary,
                         ),
                       ),
                     ),
@@ -301,8 +314,8 @@ class RoutesSelectionPanel extends StatelessWidget {
               ],
             ],
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -324,23 +337,20 @@ class _DecisionStrip extends StatelessWidget {
       (line) => line.trim().isNotEmpty,
       orElse: () => '지금 고르기 쉬운 루트예요.',
     );
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Text(
-        summary,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: GoogleFonts.rajdhani(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          height: 1.3,
-          color: Colors.white70,
+      child: RevvGlassCard(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Text(
+          summary,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: GoogleFonts.rajdhani(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            height: 1.3,
+            color: Colors.white70,
+          ),
         ),
       ),
     );
@@ -360,28 +370,10 @@ class _DiscoveryBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: outlined
-            ? color.withValues(alpha: 0.10)
-            : color.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: outlined
-              ? color.withValues(alpha: 0.45)
-              : color.withValues(alpha: 0.65),
-        ),
-      ),
-      child: Text(
-        label,
-        style: GoogleFonts.rajdhani(
-          fontSize: 11,
-          fontWeight: FontWeight.w800,
-          color: color,
-          letterSpacing: 0.4,
-        ),
-      ),
+    return RevvPill(
+      label: label,
+      color: color,
+      backgroundColor: outlined ? color.withValues(alpha: 0.08) : null,
     );
   }
 }
