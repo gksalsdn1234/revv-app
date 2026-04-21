@@ -824,6 +824,7 @@ class RouteService extends ChangeNotifier {
   int currentExpansionStep = 1;
   int currentExpansionTotal = 1;
   int searchRadiusKm = 50; // 기본 50km
+  int visibleRouteLimit = defaultVisibleRoutes;
 
   // 추천형 체인 후보 (선택 루트 출구 기준)
   List<ChainCandidate> connectingRoutes = [];
@@ -954,6 +955,22 @@ class RouteService extends ChangeNotifier {
     await fetchRoutes(lat, lng);
   }
 
+  Future<void> changeVisibleRouteLimit(
+    int limit,
+    double lat,
+    double lng,
+  ) async {
+    final nextLimit = limit.clamp(minimumVisibleRoutes, maximumVisibleRoutes);
+    if (nextLimit == visibleRouteLimit) return;
+    visibleRouteLimit = nextLimit;
+    resetCache();
+    routes = [];
+    selectedRoute = null;
+    _clearCompositeState(notify: false);
+    notifyListeners();
+    await fetchRoutes(lat, lng);
+  }
+
   Future<void> fetchRoutes(double lat, double lng) async {
     final fetchToken = ++_fetchToken;
     // ① 캐시 즉시 표시 (stale-while-revalidate)
@@ -1063,6 +1080,29 @@ class RouteService extends ChangeNotifier {
       // 고도 분석: 지형 기반 점수 보정
       fresh = await _enrichWithElevation(fresh);
       if (fetchToken != _fetchToken) return;
+
+      if (fresh.isEmpty && routes.isNotEmpty) {
+        debugPrint(
+          '[RouteService] 새 검색 결과가 비어 기존 표시 루트 ${routes.length}개를 유지합니다',
+        );
+        _lastFetchLocation = LatLng(lat, lng);
+        _lastFetchRadius = searchRadiusKm;
+        backgroundStatusMessage = '추가 루트를 찾지 못해 기존 추천을 유지합니다';
+        isLoading = false;
+        isLoadingInitial = false;
+        notifyListeners();
+        if (routes.isNotEmpty) {
+          _refreshDiversityInBackground(
+            lat: lat,
+            lng: lng,
+            globalFiltered: globalFiltered,
+            seed: seed,
+            fetchToken: fetchToken,
+          );
+        }
+        return;
+      }
+
       _publishNewRoutes(bootstrap, globalFiltered);
       _applyVisibleRoutes(
         fresh,
@@ -1222,7 +1262,7 @@ class RouteService extends ChangeNotifier {
       return route.copyWith(routeRankScore: score);
     }).toList();
     boosted.sort((a, b) => b.routeRankScore.compareTo(a.routeRankScore));
-    return boosted.take(maximumVisibleRoutes).toList();
+    return boosted.take(visibleRouteLimit).toList();
   }
 
   List<RevvRoute> _withCompositeFallback(List<RevvRoute> pool) {

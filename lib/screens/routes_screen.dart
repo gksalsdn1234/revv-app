@@ -11,6 +11,7 @@ import '../services/mapbox_service.dart';
 import '../services/home_location_service.dart';
 import '../services/loop_route_service.dart';
 import '../services/route_brief_service.dart';
+import '../services/route_loading_policy.dart';
 import '../services/weather_service.dart';
 import '../services/revv_ai_service.dart';
 import '../services/jarvis_service.dart';
@@ -913,12 +914,12 @@ class _RoutesScreenState extends State<RoutesScreen> {
           // 로딩 오버레이 — FadeTransition으로 부드럽게 등장/사라짐
           Consumer<RouteService>(
             builder: (context, svc, _) {
-              return AnimatedSwitcher(
-                duration: const Duration(milliseconds: 300),
-                child: svc.isLoadingInitial
-                    ? Positioned.fill(
-                        key: const ValueKey('loading'),
-                        child: IgnorePointer(
+              return Positioned.fill(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: svc.isLoadingInitial
+                      ? IgnorePointer(
+                          key: const ValueKey('loading'),
                           child: Container(
                             color: Colors.black.withValues(alpha: 0.45),
                             child: Column(
@@ -942,9 +943,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
                               ],
                             ),
                           ),
-                        ),
-                      )
-                    : const SizedBox.shrink(key: ValueKey('no-loading')),
+                        )
+                      : const SizedBox.shrink(key: ValueKey('no-loading')),
+                ),
               );
             },
           ),
@@ -1129,6 +1130,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       displayIdx: idx,
                       total: total,
                       searchRadiusKm: svc.searchRadiusKm,
+                      visibleRouteLimit: svc.visibleRouteLimit,
                       connectingCount: svc.connectingRoutes.length,
                       totalChainKm:
                           svc.selectedCompositeRoute?.totalDistanceKm ??
@@ -1246,6 +1248,7 @@ class _SwipeRouteCard extends StatelessWidget {
   final int displayIdx;
   final int total;
   final int searchRadiusKm;
+  final int visibleRouteLimit;
   final int connectingCount;
   final double totalChainKm;
   final bool heatmapActive;
@@ -1266,6 +1269,7 @@ class _SwipeRouteCard extends StatelessWidget {
     required this.displayIdx,
     required this.total,
     required this.searchRadiusKm,
+    required this.visibleRouteLimit,
     required this.connectingCount,
     required this.totalChainKm,
     required this.heatmapActive,
@@ -1342,26 +1346,72 @@ class _SwipeRouteCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const Spacer(),
-                    Text(
-                      '탐색 반경',
-                      style: AppText.label(
-                        size: 9,
-                        color: AppColors.textHint,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    RoutesRadiusButton(km: 30, active: searchRadiusKm == 30),
-                    RoutesRadiusButton(km: 50, active: searchRadiusKm == 50),
-                    RoutesRadiusButton(km: 100, active: searchRadiusKm == 100),
-                    const SizedBox(width: 6),
-                    GestureDetector(
-                      onTap: () => context.read<RouteService>().shuffleRoutes(),
-                      child: const Icon(
-                        Icons.refresh_rounded,
-                        size: 15,
-                        color: AppColors.textHint,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        reverse: true,
+                        child: Row(
+                          children: [
+                            Text(
+                              '탐색 반경',
+                              style: AppText.label(
+                                size: 9,
+                                color: AppColors.textHint,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            RoutesRadiusButton(
+                              km: 30,
+                              active: searchRadiusKm == 30,
+                            ),
+                            RoutesRadiusButton(
+                              km: 50,
+                              active: searchRadiusKm == 50,
+                            ),
+                            RoutesRadiusButton(
+                              km: 100,
+                              active: searchRadiusKm == 100,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '표시',
+                              style: AppText.label(
+                                size: 9,
+                                color: AppColors.textHint,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            RoutesLimitButton(
+                              count: 8,
+                              active: visibleRouteLimit == 8,
+                            ),
+                            RoutesLimitButton(
+                              count: 16,
+                              active: visibleRouteLimit == 16,
+                            ),
+                            RoutesLimitButton(
+                              count: 24,
+                              active: visibleRouteLimit == 24,
+                            ),
+                            RoutesLimitButton(
+                              count: maximumVisibleRoutes,
+                              active: visibleRouteLimit == maximumVisibleRoutes,
+                            ),
+                            const SizedBox(width: 6),
+                            GestureDetector(
+                              onTap: () =>
+                                  context.read<RouteService>().shuffleRoutes(),
+                              child: const Icon(
+                                Icons.refresh_rounded,
+                                size: 15,
+                                color: AppColors.textHint,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],

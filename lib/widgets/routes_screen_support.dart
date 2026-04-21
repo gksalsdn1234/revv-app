@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../services/location_service.dart';
 import '../services/loop_route_service.dart';
+import '../services/route_loading_policy.dart';
 import '../services/route_service.dart';
 import '../theme/colors.dart';
 
@@ -45,6 +46,55 @@ class RoutesRadiusButton extends StatelessWidget {
             fontSize: 10,
             fontWeight: FontWeight.w800,
             color: active ? Colors.white : AppColors.textHint,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class RoutesLimitButton extends StatelessWidget {
+  final int count;
+  final bool active;
+
+  const RoutesLimitButton({
+    super.key,
+    required this.count,
+    required this.active,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RoutesTapScale(
+      onTap: () {
+        final loc = context.read<LocationService>();
+        context.read<RouteService>().changeVisibleRouteLimit(
+          count,
+          loc.lat,
+          loc.lng,
+        );
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        margin: const EdgeInsets.only(left: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: active
+              ? AppColors.primaryContainer.withValues(alpha: 0.9)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: active ? AppColors.primaryContainer : Colors.white24,
+            width: 1,
+          ),
+        ),
+        child: Text(
+          count >= maximumVisibleRoutes ? 'ALL' : '$count',
+          style: GoogleFonts.rajdhani(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: active ? AppColors.onPrimary : AppColors.textHint,
           ),
         ),
       ),

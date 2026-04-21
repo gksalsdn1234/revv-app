@@ -2,9 +2,10 @@ import 'dart:math' as math;
 
 import '../models/revv_route.dart';
 
-const targetVisibleRoutes = 8;
+const targetVisibleRoutes = 12;
 const minimumVisibleRoutes = 6;
-const maximumVisibleRoutes = 10;
+const defaultVisibleRoutes = 16;
+const maximumVisibleRoutes = 30;
 
 final _facilityNamePattern = RegExp(
   r'\b(kart|karting|drift|circuit|raceway|speedway|motorsport|autocross|pit\s?lane|paddock|test\s?track|trackday)\b',
@@ -86,8 +87,7 @@ String buildOverpassQuery({
   }
 
   final ways = <String>[
-    if (includePrimary)
-      wayClause('primary'),
+    if (includePrimary) wayClause('primary'),
     wayClause('secondary'),
     wayClause('tertiary'),
     wayClause('unclassified'),
@@ -115,7 +115,8 @@ List<RevvRoute> mergeDiversityRoutes(
     final isNearDuplicate = pool.any(
       (current) =>
           current.id == route.id ||
-          RevvRoute.haversineKm(current.centerPoint, route.centerPoint) < dedupeDistanceKm,
+          RevvRoute.haversineKm(current.centerPoint, route.centerPoint) <
+              dedupeDistanceKm,
     );
     if (!isNearDuplicate) {
       pool.add(route);
@@ -275,7 +276,9 @@ List<String> deriveRouteReasonTags(RevvRoute route) {
   if (route.elevationDelta >= 45 && route.windingDensityPct >= 0.18) {
     reasons.add('elevation');
   }
-  if (route.isLoop && route.distanceKm >= 12 && route.windingDensityPct >= 0.24) {
+  if (route.isLoop &&
+      route.distanceKm >= 12 &&
+      route.windingDensityPct >= 0.24) {
     reasons.add('loop');
   }
   return reasons;
@@ -286,7 +289,12 @@ double routeFunScore(RevvRoute route) {
 
   double score = route.windingScore;
   if (route.tightCurveKm + route.mediumCurveKm >= 1.5) {
-    score *= 1.0 + ((route.tightCurveKm + route.mediumCurveKm) / route.distanceKm).clamp(0.0, 0.45);
+    score *=
+        1.0 +
+        ((route.tightCurveKm + route.mediumCurveKm) / route.distanceKm).clamp(
+          0.0,
+          0.45,
+        );
   }
   if (route.maxContinuousKm >= 1.2) {
     score *= 1.0 + (route.maxContinuousKm / 12).clamp(0.0, 0.18);
@@ -303,8 +311,7 @@ double routeFunScore(RevvRoute route) {
 double routeFlowScore(RevvRoute route) {
   if (route.flowScore > 0) return route.flowScore;
 
-  final weightedStops =
-      route.stopSignCount + (route.trafficSignalCount * 1.5);
+  final weightedStops = route.stopSignCount + (route.trafficSignalCount * 1.5);
   final density = route.stopControlDensity > 0
       ? route.stopControlDensity
       : weightedStops / math.max(route.distanceKm, 1.0);
@@ -368,7 +375,9 @@ bool isHardRejectedRecommendation(RevvRoute route) {
   if (route.distanceKm < 4.0) return true;
   if (hasNumericOnlyName(route.name) && route.distanceKm < 8.0) return true;
   if (route.stopSignCount >= 5 && route.distanceKm < 12.0) return true;
-  if (route.stopControlDensity >= 0.65 && route.maxContinuousKm < 1.2) return true;
+  if (route.stopControlDensity >= 0.65 && route.maxContinuousKm < 1.2) {
+    return true;
+  }
   return false;
 }
 
@@ -419,8 +428,12 @@ String? routeRejectReason(RevvRoute route) {
 String routeCharacter(RevvRoute route) {
   if (route.routeCharacter.isNotEmpty) return route.routeCharacter;
   final curvyDistance = route.tightCurveKm + route.mediumCurveKm;
-  final tightRatio = curvyDistance > 0 ? route.tightCurveKm / curvyDistance : 0.0;
-  final mediumRatio = curvyDistance > 0 ? route.mediumCurveKm / curvyDistance : 0.0;
+  final tightRatio = curvyDistance > 0
+      ? route.tightCurveKm / curvyDistance
+      : 0.0;
+  final mediumRatio = curvyDistance > 0
+      ? route.mediumCurveKm / curvyDistance
+      : 0.0;
   final rhythm = route.maxContinuousKm >= 1.35 && routeFlowScore(route) >= 0.8;
 
   if (route.elevationDelta >= 90 && route.maxContinuousKm >= 1.2) {
@@ -429,7 +442,9 @@ String routeCharacter(RevvRoute route) {
   if (tightRatio >= 0.62 && route.tightCurveKm >= 1.6) {
     return 'tight_technical';
   }
-  if (mediumRatio >= 0.68 && route.mediumCurveKm >= 2.2 && route.maxContinuousKm >= 1.4) {
+  if (mediumRatio >= 0.68 &&
+      route.mediumCurveKm >= 2.2 &&
+      route.maxContinuousKm >= 1.4) {
     return 'fast_sweeper';
   }
   if (rhythm && curvyDistance >= 2.0) {
@@ -453,8 +468,7 @@ String? routePrimaryReason(RevvRoute route) {
     case 'hill_climb':
       return '고도 변화가 살아 있어 업힐 몰입감이 좋은 루트예요.';
     case 'mixed_touring':
-      return primaryRouteReason(route) ??
-          '커브와 흐름의 균형이 괜찮은 투어링 성향 루트예요.';
+      return primaryRouteReason(route) ?? '커브와 흐름의 균형이 괜찮은 투어링 성향 루트예요.';
   }
   return primaryRouteReason(route);
 }
@@ -535,7 +549,8 @@ bool hasFacilityLikeName(String name) {
 bool hasNumericOnlyName(String name) {
   final normalized = normalizeRouteName(name);
   if (normalized.isEmpty) return true;
-  return normalized.length >= 5 && _numericOnlyRouteNamePattern.hasMatch(normalized);
+  return normalized.length >= 5 &&
+      _numericOnlyRouteNamePattern.hasMatch(normalized);
 }
 
 bool isBridgeLikeRouteName(String name) {
@@ -610,7 +625,9 @@ List<RevvRoute> filterSupabaseRouteCandidates(
   List<RevvRoute> routes, {
   int minimumCount = minimumVisibleRoutes,
 }) {
-  final filtered = routes.where((route) => !isSegmentLikeCurvyRoad(route)).toList();
+  final filtered = routes
+      .where((route) => !isSegmentLikeCurvyRoad(route))
+      .toList();
   if (filtered.isNotEmpty) return filtered;
 
   final namedFallback = routes
@@ -685,7 +702,8 @@ List<RevvRoute> applyQualityGuardrails(
         (route) =>
             recommendationTier(route) == 'keep' ||
             hasCompellingRouteReason(route) ||
-            (recommendationScore(route) >= 3.0 && !hasNumericOnlyName(route.name)),
+            (recommendationScore(route) >= 3.0 &&
+                !hasNumericOnlyName(route.name)),
       )
       .where((route) => !hasNumericOnlyName(route.name))
       .toList();
@@ -757,8 +775,12 @@ List<RevvRoute> buildCompositeFallbackRoutes(
       final best = pairings.first;
       final gapKm = best.gapKm;
       if (gapKm > maxGapKm) continue;
-      if (shouldRejectLowQualityRoute(a) || shouldRejectLowQualityRoute(b)) continue;
-      if (!hasCompellingRouteReason(a) || !hasCompellingRouteReason(b)) continue;
+      if (shouldRejectLowQualityRoute(a) || shouldRejectLowQualityRoute(b)) {
+        continue;
+      }
+      if (!hasCompellingRouteReason(a) || !hasCompellingRouteReason(b)) {
+        continue;
+      }
       if (a.windingScore < 4.9 || b.windingScore < 4.9) continue;
       if (a.windingDensityPct < 0.18 || b.windingDensityPct < 0.18) continue;
       if (gapKm > (math.min(a.distanceKm, b.distanceKm) * 0.45)) continue;
@@ -768,8 +790,9 @@ List<RevvRoute> buildCompositeFallbackRoutes(
       final combinedDistanceKm = a.distanceKm + b.distanceKm + gapKm;
       final combinedCurvyKm =
           a.tightCurveKm + a.mediumCurveKm + b.tightCurveKm + b.mediumCurveKm;
-      final combinedCurvyFraction =
-          combinedDistanceKm > 0 ? combinedCurvyKm / combinedDistanceKm : 0.0;
+      final combinedCurvyFraction = combinedDistanceKm > 0
+          ? combinedCurvyKm / combinedDistanceKm
+          : 0.0;
       if (combinedCurvyFraction < 0.22) continue;
 
       final mergedNodes = <LatLng>[
@@ -781,7 +804,9 @@ List<RevvRoute> buildCompositeFallbackRoutes(
         (a.centerPoint.lat + b.centerPoint.lat) / 2,
         (a.centerPoint.lng + b.centerPoint.lng) / 2,
       );
-      final baseScore = ((a.windingScore + b.windingScore) / 2) * (1.08 - (gapKm / maxGapKm) * 0.18);
+      final baseScore =
+          ((a.windingScore + b.windingScore) / 2) *
+          (1.08 - (gapKm / maxGapKm) * 0.18);
       if (baseScore < 5.0) continue;
       final combo = RevvRoute(
         id: 'combo:${a.id}:${b.id}',
