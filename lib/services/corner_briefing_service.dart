@@ -6,28 +6,36 @@ import 'jarvis_script.dart';
 
 // ── 커브 강도 분류 ──────────────────────────────────────────────
 enum CurveIntensity {
-  gentle,   // 20~40°
-  medium,   // 40~70°
-  sharp,    // 70~110°
-  hairpin,  // 110°+
+  gentle, // 20~40°
+  medium, // 40~70°
+  sharp, // 70~110°
+  hairpin, // 110°+
 }
 
 extension CurveIntensityExt on CurveIntensity {
   String get label {
     switch (this) {
-      case CurveIntensity.gentle:  return '완만';
-      case CurveIntensity.medium:  return '중간';
-      case CurveIntensity.sharp:   return '급커브';
-      case CurveIntensity.hairpin: return '헤어핀';
+      case CurveIntensity.gentle:
+        return '완만';
+      case CurveIntensity.medium:
+        return '중간';
+      case CurveIntensity.sharp:
+        return '급커브';
+      case CurveIntensity.hairpin:
+        return '헤어핀';
     }
   }
 
   String get shortLabel {
     switch (this) {
-      case CurveIntensity.gentle:  return 'GENTLE';
-      case CurveIntensity.medium:  return 'MEDIUM';
-      case CurveIntensity.sharp:   return 'SHARP';
-      case CurveIntensity.hairpin: return 'HAIRPIN';
+      case CurveIntensity.gentle:
+        return 'GENTLE';
+      case CurveIntensity.medium:
+        return 'MEDIUM';
+      case CurveIntensity.sharp:
+        return 'SHARP';
+      case CurveIntensity.hairpin:
+        return 'HAIRPIN';
     }
   }
 
@@ -48,11 +56,12 @@ extension CurveIntensityExt on CurveIntensity {
 
 // ── 코너 정보 ───────────────────────────────────────────────────
 class CornerInfo {
-  final double distanceM;      // 현재 위치에서 코너까지 거리 (m)
+  final double distanceM; // 현재 위치에서 코너까지 거리 (m)
   final CurveIntensity intensity;
-  final bool isRight;          // true = 우커브, false = 좌커브
-  final double bearingDelta;   // 절댓값 방향 변화 (°)
-  final int nodeIndex;         // 해당 노드 인덱스 (코너 정점)
+  final bool isRight; // true = 우커브, false = 좌커브
+  final double bearingDelta; // 절댓값 방향 변화 (°)
+  final int nodeIndex; // 해당 노드 인덱스 (코너 정점)
+  final double etaSeconds; // 현재 속도 기준 예상 도달 시간
 
   const CornerInfo({
     required this.distanceM,
@@ -60,11 +69,13 @@ class CornerInfo {
     required this.isRight,
     required this.bearingDelta,
     required this.nodeIndex,
+    required this.etaSeconds,
   });
 
   String get directionKo => isRight ? '우' : '좌';
 
-  bool get isSignificant => intensity == CurveIntensity.sharp || intensity == CurveIntensity.hairpin;
+  bool get isSignificant =>
+      intensity == CurveIntensity.sharp || intensity == CurveIntensity.hairpin;
 }
 
 // ── 코너 브리핑 서비스 ──────────────────────────────────────────
@@ -72,14 +83,14 @@ class CornerInfo {
 /// SprintScreen에서 _onRoute = true 상태일 때 updateLocation()을 호출한다.
 class CornerBriefingService {
   // 탐색 범위
-  static const double _lookAheadM  = 600.0; // 이 거리 이내 코너 탐색
-  static const double _minAngle    = 20.0;  // 이 각도 이상만 코너로 인정
-  static const double _announce1M  = 400.0; // 1차 예고 거리
-  static const double _announce2M  = 120.0; // 2차 예고 거리
+  static const double _lookAheadM = 700.0; // 이 거리 이내 코너 탐색
+  static const double _minAngle = 20.0; // 이 각도 이상만 코너로 인정
+  static const double _announce1M = 420.0; // 1차 예고 거리
+  static const double _announce2M = 120.0; // 2차 예고 거리
 
   final FlutterTts _tts = FlutterTts();
   bool _stopped = false;
-  bool _muted   = false;
+  bool _muted = false;
   bool get muted => _muted;
 
   // 현재 다음 코너
@@ -116,11 +127,22 @@ class CornerBriefingService {
   /// [lat], [lng]: 현재 위치
   /// [nodes]: 전체 루트 노드
   /// [closestIdx]: 현재 위치에서 가장 가까운 노드 인덱스 (sprint_screen에서 계산됨)
-  void updateLocation(double lat, double lng, List<LatLng> nodes, int closestIdx) {
+  void updateLocation(
+    double lat,
+    double lng,
+    List<LatLng> nodes,
+    int closestIdx, {
+    double speedKmh = 0,
+  }) {
     if (_stopped || nodes.isEmpty) return;
 
     // 전방 노드에서 다음 코너 탐색
-    final corner = _findNextCorner(LatLng(lat, lng), nodes, closestIdx);
+    final corner = _findNextCorner(
+      LatLng(lat, lng),
+      nodes,
+      closestIdx,
+      speedKmh: speedKmh,
+    );
     final changed = corner?.nodeIndex != _nextCorner?.nodeIndex;
     _nextCorner = corner;
 
@@ -137,19 +159,22 @@ class CornerBriefingService {
     }
 
     // 1차 예고 (~400m)
-    if (!_announced1 && corner.distanceM <= _announce1M) {
+    final announce1M = _dynamicAnnounce1M(speedKmh, corner.intensity);
+    final announce2M = _dynamicAnnounce2M(speedKmh, corner.intensity);
+
+    if (!_announced1 && corner.distanceM <= announce1M) {
       _announced1 = true;
-      final distStr = '${corner.distanceM.round()}미터 앞';
+      final distStr = _distanceText(corner.distanceM);
       // gentle은 400m 예고 생략 (운전 흐름 방해)
       if (corner.intensity != CurveIntensity.gentle) {
-        _speak('$distStr ${corner.intensity.ttsText(corner.directionKo)}');
+        _speak(_firstAnnouncement(corner, distStr));
       }
     }
 
     // 2차 예고 (~120m)
-    if (!_announced2 && corner.distanceM <= _announce2M) {
+    if (!_announced2 && corner.distanceM <= announce2M) {
       _announced2 = true;
-      _speak(corner.intensity.ttsText(corner.directionKo));
+      _speak(_secondAnnouncement(corner));
     }
 
     if (changed) onUpdate?.call();
@@ -157,17 +182,23 @@ class CornerBriefingService {
 
   // ── 코너 탐색 알고리즘 ─────────────────────────────────────────
   /// closestIdx 이후 노드들을 순회하며 첫 번째 의미있는 코너를 반환
-  CornerInfo? _findNextCorner(LatLng pos, List<LatLng> nodes, int closestIdx) {
+  CornerInfo? _findNextCorner(
+    LatLng pos,
+    List<LatLng> nodes,
+    int closestIdx, {
+    double speedKmh = 0,
+  }) {
     if (closestIdx + 2 >= nodes.length) return null;
 
+    final lookAheadM = _dynamicLookAheadM(speedKmh);
     double cumDistM = _haversineM(pos, nodes[closestIdx]);
 
     for (int i = closestIdx + 1; i < nodes.length - 1; i++) {
       cumDistM += _haversineM(nodes[i - 1], nodes[i]);
-      if (cumDistM > _lookAheadM) break;
+      if (cumDistM > lookAheadM) break;
 
       // 3점 (i-1, i, i+1) 으로 베어링 변화 계산
-      final bIn  = _bearing(nodes[i - 1], nodes[i]);
+      final bIn = _bearing(nodes[i - 1], nodes[i]);
       final bOut = _bearing(nodes[i], nodes[i + 1]);
       final delta = _normDelta(bOut - bIn); // -180 ~ +180
 
@@ -186,6 +217,7 @@ class CornerBriefingService {
         isRight: delta > 0,
         bearingDelta: absDelta,
         nodeIndex: i,
+        etaSeconds: _etaSeconds(cumDistM, speedKmh),
       );
     }
     return null;
@@ -193,8 +225,8 @@ class CornerBriefingService {
 
   CurveIntensity _classify(double deg) {
     if (deg >= 110) return CurveIntensity.hairpin;
-    if (deg >= 70)  return CurveIntensity.sharp;
-    if (deg >= 40)  return CurveIntensity.medium;
+    if (deg >= 70) return CurveIntensity.sharp;
+    if (deg >= 40) return CurveIntensity.medium;
     return CurveIntensity.gentle;
   }
 
@@ -226,12 +258,78 @@ class CornerBriefingService {
     _tts.speak(text);
   }
 
+  double _dynamicLookAheadM(double speedKmh) {
+    final extra = (speedKmh.clamp(0, 120) / 120) * 220;
+    return (_lookAheadM + extra).clamp(500.0, 920.0);
+  }
+
+  double _dynamicAnnounce1M(double speedKmh, CurveIntensity intensity) {
+    final speedFactor = (speedKmh.clamp(0, 120) / 120) * 160;
+    final intensityBonus = switch (intensity) {
+      CurveIntensity.hairpin => 90.0,
+      CurveIntensity.sharp => 45.0,
+      CurveIntensity.medium => 10.0,
+      CurveIntensity.gentle => 0.0,
+    };
+    return (_announce1M + speedFactor + intensityBonus).clamp(220.0, 650.0);
+  }
+
+  double _dynamicAnnounce2M(double speedKmh, CurveIntensity intensity) {
+    final speedFactor = (speedKmh.clamp(0, 120) / 120) * 45;
+    final intensityBonus = switch (intensity) {
+      CurveIntensity.hairpin => 30.0,
+      CurveIntensity.sharp => 18.0,
+      CurveIntensity.medium => 8.0,
+      CurveIntensity.gentle => 0.0,
+    };
+    return (_announce2M + speedFactor + intensityBonus).clamp(80.0, 220.0);
+  }
+
+  double _etaSeconds(double distanceM, double speedKmh) {
+    final ms = math.max(speedKmh / 3.6, 6.0);
+    return distanceM / ms;
+  }
+
+  String _distanceText(double distanceM) {
+    if (distanceM >= 1000) {
+      return '${(distanceM / 1000).toStringAsFixed(1)}킬로 앞';
+    }
+    return '${distanceM.round()}미터 앞';
+  }
+
+  String _firstAnnouncement(CornerInfo corner, String distText) {
+    switch (corner.intensity) {
+      case CurveIntensity.hairpin:
+        return '$distText 헤어핀 ${corner.directionKo}커브입니다. 미리 감속하세요.';
+      case CurveIntensity.sharp:
+        return '$distText 급 ${corner.directionKo}커브입니다. 라인 정리해 주세요.';
+      case CurveIntensity.medium:
+        return '$distText ${corner.directionKo}커브가 이어집니다.';
+      case CurveIntensity.gentle:
+        return '$distText 완만한 ${corner.directionKo}커브입니다.';
+    }
+  }
+
+  String _secondAnnouncement(CornerInfo corner) {
+    switch (corner.intensity) {
+      case CurveIntensity.hairpin:
+        return '곧 헤어핀 ${corner.directionKo}커브입니다. 충분히 감속하세요.';
+      case CurveIntensity.sharp:
+        return '곧 급 ${corner.directionKo}커브입니다. 속도를 확인하세요.';
+      case CurveIntensity.medium:
+        return '곧 ${corner.directionKo}커브입니다.';
+      case CurveIntensity.gentle:
+        return '완만한 ${corner.directionKo}커브입니다.';
+    }
+  }
+
   // ── 수학 헬퍼 ────────────────────────────────────────────────────
   static double _haversineM(LatLng a, LatLng b) {
     const r = 6371000.0;
     final dLat = (b.lat - a.lat) * math.pi / 180;
     final dLng = (b.lng - a.lng) * math.pi / 180;
-    final x = math.sin(dLat / 2) * math.sin(dLat / 2) +
+    final x =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
         math.cos(a.lat * math.pi / 180) *
             math.cos(b.lat * math.pi / 180) *
             math.sin(dLng / 2) *
@@ -245,7 +343,8 @@ class CornerBriefingService {
     final lat1 = a.lat * math.pi / 180;
     final lat2 = b.lat * math.pi / 180;
     final y = math.sin(dLng) * math.cos(lat2);
-    final x = math.cos(lat1) * math.sin(lat2) -
+    final x =
+        math.cos(lat1) * math.sin(lat2) -
         math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
     return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
   }
@@ -261,10 +360,8 @@ class CornerBriefingService {
     return d;
   }
 
-  static ({int hairpin, int sharp, int medium, double firstCornerM}) analyzeFullRoute(
-    LatLng userPos,
-    List<LatLng> nodes,
-  ) {
+  static ({int hairpin, int sharp, int medium, double firstCornerM})
+  analyzeFullRoute(LatLng userPos, List<LatLng> nodes) {
     if (nodes.length < 3) {
       return (hairpin: 0, sharp: 0, medium: 0, firstCornerM: 0.0);
     }
@@ -277,7 +374,9 @@ class CornerBriefingService {
 
     for (int i = 1; i < nodes.length - 1; i++) {
       distanceM += _haversineM(nodes[i - 1], nodes[i]);
-      final delta = _normDelta(_bearing(nodes[i], nodes[i + 1]) - _bearing(nodes[i - 1], nodes[i])).abs();
+      final delta = _normDelta(
+        _bearing(nodes[i], nodes[i + 1]) - _bearing(nodes[i - 1], nodes[i]),
+      ).abs();
       if (delta < 40) {
         continue;
       }

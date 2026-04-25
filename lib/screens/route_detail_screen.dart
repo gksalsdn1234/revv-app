@@ -96,173 +96,177 @@ class RouteDetailScreen extends StatelessWidget {
               ),
             ],
           ),
-          body: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-            children: [
-              _HeroCard(
-                route: route,
-                diffColor: diffColor,
-                qualityLabel: qualityLabel,
-                characterLabel: characterLabel,
-              ),
-              const SizedBox(height: 12),
-              _StartPlanCard(
-                route: route,
-                activeComposite: activeComposite,
-                location: location,
-              ),
-              const SizedBox(height: 12),
-              _DecisionSummaryCard(
-                route: route,
-                activeComposite: activeComposite,
-                location: location,
-              ),
-              const SizedBox(height: 12),
-              _SectionCard(
-                title: '왜 이 루트인가',
-                child: Text(
-                  route.primaryReason ?? '지금 달리기 좋은 루트예요.',
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
-                    color: Colors.white,
-                  ),
+          body: RevvCockpitBackground(
+            scanlines: true,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+              children: [
+                _HeroCard(
+                  route: route,
+                  diffColor: diffColor,
+                  qualityLabel: qualityLabel,
+                  characterLabel: characterLabel,
                 ),
-              ),
-              if (route.cautionNote?.isNotEmpty == true) ...[
+                const SizedBox(height: 12),
+                _StartPlanCard(
+                  route: route,
+                  activeComposite: activeComposite,
+                  location: location,
+                ),
+                const SizedBox(height: 12),
+                _DecisionSummaryCard(
+                  route: route,
+                  activeComposite: activeComposite,
+                  location: location,
+                ),
                 const SizedBox(height: 12),
                 _SectionCard(
-                  title: '주의할 점',
+                  title: '왜 이 루트인가',
                   child: Text(
-                    route.cautionNote!,
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 15,
+                    route.primaryReason ?? '지금 달리기 좋은 루트예요.',
+                    style: AppText.body(
+                      size: 18,
+                      weight: FontWeight.w700,
                       height: 1.35,
-                      color: AppColors.textSecondary,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                 ),
-              ],
-              if (briefLoading || brief != null) ...[
+                if (route.cautionNote?.isNotEmpty == true) ...[
+                  const SizedBox(height: 12),
+                  _SectionCard(
+                    title: '주의할 점',
+                    child: Text(
+                      route.cautionNote!,
+                      style: AppText.body(
+                        size: 15,
+                        height: 1.35,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+                if (briefLoading || brief != null) ...[
+                  const SizedBox(height: 12),
+                  _SectionCard(
+                    title: 'AI 요약',
+                    child: briefLoading
+                        ? Row(
+                            children: [
+                              const SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                  color: AppColors.primaryContainer,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                '추천 이유를 정리하고 있어요...',
+                                style: AppText.body(
+                                  size: 14,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          )
+                        : Text(
+                            brief!,
+                            style: AppText.body(
+                              size: 14,
+                              height: 1.35,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 _SectionCard(
-                  title: 'AI 요약',
-                  child: briefLoading
-                      ? Row(
-                          children: [
-                            const SizedBox(
-                              width: 12,
-                              height: 12,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 1.5,
-                                color: AppColors.red,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              '추천 이유를 정리하고 있어요...',
-                              style: GoogleFonts.rajdhani(
-                                fontSize: 14,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ],
-                        )
-                      : Text(
-                          brief!,
-                          style: GoogleFonts.rajdhani(
-                            fontSize: 14,
-                            height: 1.35,
-                            color: Colors.white70,
-                          ),
-                        ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              _SectionCard(
-                title: '루트 감각',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _MetricChip(
-                          icon: Icons.straighten,
-                          label: route.distanceDisplay,
-                        ),
-                        _MetricChip(
-                          icon: Icons.timer_outlined,
-                          label: route.durationDisplay,
-                        ),
-                        _MetricChip(
-                          icon: Icons.route_rounded,
-                          label: route.difficultyLabel,
-                        ),
-                        if (route.stopSignCount > 0 ||
-                            route.trafficSignalCount > 0)
-                          _MetricChip(
-                            icon: Icons.traffic_rounded,
-                            label:
-                                'STOP ${route.stopSignCount} · SIGNAL ${route.trafficSignalCount}',
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    MiniElevSection(route: route, lineColor: diffColor),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              _SectionCard(
-                title: '체인 추천',
-                child: svc.isLoadingConnecting
-                    ? const SizedBox(
-                        height: 36,
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            strokeWidth: 1.6,
-                            color: AppColors.red,
-                          ),
-                        ),
-                      )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  title: '루트 감각',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
                         children: [
-                          if (svc.connectingRoutes.isEmpty)
-                            Text(
-                              '이 루트 뒤에 자연스럽게 이어질 후보가 아직 없어요.',
-                              style: GoogleFonts.rajdhani(
-                                fontSize: 14,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ...svc.connectingRoutes.map(
-                            (candidate) => Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _ChainTile(
-                                candidate: candidate,
-                                onPreview: () =>
-                                    svc.previewChainCandidate(candidate),
-                                onApply: () =>
-                                    svc.commitCompositeRoute(candidate),
-                              ),
-                            ),
+                          _MetricChip(
+                            icon: Icons.straighten,
+                            label: route.distanceDisplay,
                           ),
-                          if (activeComposite != null)
-                            _CompositeSummary(composite: activeComposite),
+                          _MetricChip(
+                            icon: Icons.timer_outlined,
+                            label: route.durationDisplay,
+                          ),
+                          _MetricChip(
+                            icon: Icons.route_rounded,
+                            label: route.difficultyLabel,
+                          ),
+                          if (route.stopSignCount > 0 ||
+                              route.trafficSignalCount > 0)
+                            _MetricChip(
+                              icon: Icons.traffic_rounded,
+                              label:
+                                  'STOP ${route.stopSignCount} · SIGNAL ${route.trafficSignalCount}',
+                            ),
                         ],
                       ),
-              ),
-            ],
+                      const SizedBox(height: 12),
+                      MiniElevSection(route: route, lineColor: diffColor),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _SectionCard(
+                  title: '체인 추천',
+                  child: svc.isLoadingConnecting
+                      ? const SizedBox(
+                          height: 36,
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.6,
+                              color: AppColors.primaryContainer,
+                            ),
+                          ),
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (svc.connectingRoutes.isEmpty)
+                              Text(
+                                '이 루트 뒤에 자연스럽게 이어질 후보가 아직 없어요.',
+                                style: AppText.body(
+                                  size: 14,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ...svc.connectingRoutes.map(
+                              (candidate) => Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _ChainTile(
+                                  candidate: candidate,
+                                  onPreview: () =>
+                                      svc.previewChainCandidate(candidate),
+                                  onApply: () =>
+                                      svc.commitCompositeRoute(candidate),
+                                ),
+                              ),
+                            ),
+                            if (activeComposite != null)
+                              _CompositeSummary(composite: activeComposite),
+                          ],
+                        ),
+                ),
+              ],
+            ),
           ),
           bottomNavigationBar: SafeArea(
             top: false,
             child: RevvGlassCard(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              color: AppColors.bg.withValues(alpha: 0.94),
+              radius: 28,
+              color: AppColors.bg.withValues(alpha: 0.88),
               child: Row(
                 children: [
                   Expanded(
@@ -285,6 +289,7 @@ class RouteDetailScreen extends StatelessWidget {
                   Expanded(
                     child: RevvPrimaryButton(
                       label: '이 루트로 달리기',
+                      icon: Icons.bolt_rounded,
                       onPressed: () {
                         context.read<RouteService>().requestSprint(
                           route: activeComposite?.toRouteProjection(),
@@ -526,36 +531,77 @@ class _HeroCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return RevvGlassCard(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.zero,
+      glow: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _Badge(
-                label: qualityLabel,
-                color: _qualityColor(route.qualityLabel),
-              ),
-              _Badge(label: characterLabel, color: diffColor, outlined: true),
-              if (route.isLoop)
-                const _Badge(
-                  label: '루프 코스',
-                  color: AppColors.cyan,
-                  outlined: true,
+          Container(height: 3, color: diffColor.withValues(alpha: 0.92)),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _Badge(
+                      label: qualityLabel,
+                      color: _qualityColor(route.qualityLabel),
+                    ),
+                    _Badge(
+                      label: characterLabel,
+                      color: diffColor,
+                      outlined: true,
+                    ),
+                    if (route.isLoop)
+                      const _Badge(
+                        label: '루프 코스',
+                        color: AppColors.cyan,
+                        outlined: true,
+                      ),
+                  ],
                 ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            route.name,
-            style: AppText.inter(size: 24, weight: FontWeight.w900),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${route.distanceDisplay} · ${route.durationDisplay} · ${route.distanceFromUserDisplay}',
-            style: AppText.mono(size: 13, color: AppColors.textSecondary),
+                const SizedBox(height: 12),
+                Text(
+                  route.name,
+                  style: AppText.body(
+                    size: 26,
+                    weight: FontWeight.w900,
+                    letterSpacing: -0.8,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: RevvMetricTile(
+                        label: 'distance',
+                        value: route.distanceKm.toStringAsFixed(1),
+                        unit: 'KM',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: RevvMetricTile(
+                        label: 'difficulty',
+                        value: route.difficultyLabel,
+                        accent: diffColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  '${route.durationDisplay} · ${route.distanceFromUserDisplay}',
+                  style: AppText.technicalLabel(
+                    size: 11,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -584,12 +630,17 @@ class _SectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return RevvGlassCard(
       padding: const EdgeInsets.all(16),
+      color: AppColors.panel.withValues(alpha: 0.86),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title.toUpperCase(),
-            style: AppText.label(size: 11, color: AppColors.primaryContainer),
+            style: AppText.technicalLabel(
+              size: 10,
+              color: AppColors.primaryContainer,
+              letterSpacing: 1.8,
+            ),
           ),
           const SizedBox(height: 12),
           child,
@@ -629,11 +680,13 @@ class _MetricChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
+        color: AppColors.surface.withValues(alpha: 0.48),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.26),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -642,9 +695,9 @@ class _MetricChip extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: GoogleFonts.rajdhani(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
+            style: AppText.body(
+              size: 12,
+              weight: FontWeight.w700,
               color: AppColors.textSecondary,
             ),
           ),
@@ -668,73 +721,45 @@ class _ChainTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final note = _chainNote(candidate);
-    return Container(
+    return RevvGlassCard(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             candidate.route.name,
-            style: GoogleFonts.rajdhani(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
+            style: AppText.body(
+              size: 16,
+              weight: FontWeight.w800,
+              color: AppColors.textPrimary,
             ),
           ),
           const SizedBox(height: 6),
           Text(
             'gap ${candidate.gapKm.toStringAsFixed(1)}km · flow ${candidate.mergedFlowScore.toStringAsFixed(2)} · rank ${candidate.mergedRankScore.toStringAsFixed(1)}',
-            style: GoogleFonts.rajdhani(
-              fontSize: 13,
+            style: AppText.technicalLabel(
+              size: 11,
               color: AppColors.textSecondary,
             ),
           ),
           const SizedBox(height: 6),
           Text(
             note,
-            style: GoogleFonts.rajdhani(
-              fontSize: 13,
+            style: AppText.body(
+              size: 13,
               height: 1.3,
-              color: Colors.white70,
+              color: AppColors.textSecondary,
             ),
           ),
           const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
-                child: OutlinedButton(
-                  onPressed: onPreview,
-                  child: Text(
-                    '체인 미리 보기',
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white70,
-                    ),
-                  ),
-                ),
+                child: RevvGhostButton(onPressed: onPreview, label: '체인 미리 보기'),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.red,
-                  ),
-                  onPressed: onApply,
-                  child: Text(
-                    '체인 적용',
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
+                child: RevvPrimaryButton(label: '체인 적용', onPressed: onApply),
               ),
             ],
           ),
@@ -763,43 +788,41 @@ class _CompositeSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.red.withValues(alpha: 0.25)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '현재 체인 구성',
-            style: GoogleFonts.rajdhani(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: Colors.white,
+      child: RevvGlassCard(
+        padding: const EdgeInsets.all(12),
+        color: AppColors.surface.withValues(alpha: 0.42),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '현재 체인 구성',
+              style: AppText.body(
+                size: 14,
+                weight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${composite.totalDistanceKm.toStringAsFixed(1)} km · 재미 ${composite.funScore.toStringAsFixed(1)} · 흐름 ${composite.flowScore.toStringAsFixed(2)}',
-            style: GoogleFonts.rajdhani(
-              fontSize: 13,
-              color: AppColors.textSecondary,
+            const SizedBox(height: 6),
+            Text(
+              '${composite.totalDistanceKm.toStringAsFixed(1)} km · 재미 ${composite.funScore.toStringAsFixed(1)} · 흐름 ${composite.flowScore.toStringAsFixed(2)}',
+              style: AppText.technicalLabel(
+                size: 11,
+                color: AppColors.textSecondary,
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            composite.connectorLegs.isEmpty
-                ? '별도 연결 구간 없이 이어집니다.'
-                : '연결 구간 ${composite.connectorLegs.first.distanceKm.toStringAsFixed(1)}km가 포함돼 있어 preview에서 흐름을 꼭 확인하세요.',
-            style: GoogleFonts.rajdhani(
-              fontSize: 13,
-              height: 1.3,
-              color: Colors.white70,
+            const SizedBox(height: 6),
+            Text(
+              composite.connectorLegs.isEmpty
+                  ? '별도 연결 구간 없이 이어집니다.'
+                  : '연결 구간 ${composite.connectorLegs.first.distanceKm.toStringAsFixed(1)}km가 포함돼 있어 preview에서 흐름을 꼭 확인하세요.',
+              style: AppText.body(
+                size: 13,
+                height: 1.3,
+                color: AppColors.textSecondary,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

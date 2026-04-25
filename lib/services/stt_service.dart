@@ -8,6 +8,7 @@ class SttService {
   final SpeechToText _stt = SpeechToText();
   bool _initialized = false;
   String _lastWords = '';
+  String? _lastFailureReason;
 
   // ── 항상 듣기 상태 ─────────────────────────────────────────
   bool _alwaysOn = false;
@@ -16,11 +17,17 @@ class SttService {
 
   bool get isListening => _stt.isListening;
   bool get alwaysOn => _alwaysOn;
+  bool get isAvailable => _initialized;
+  String? get lastFailureReason => _lastFailureReason;
+  String get permissionStatusLabel =>
+      _initialized ? '마이크 사용 가능' : '마이크 권한 확인 필요';
 
   Future<bool> _init() async {
     if (_initialized) return true;
     _initialized = await _stt.initialize(
-      onError: (_) {},
+      onError: (error) {
+        _lastFailureReason = error.errorMsg;
+      },
       onStatus: (status) {
         // 항상듣기 모드: 음성 인식 완료 후 자동 재시작
         if (status == 'done' && _alwaysOn && !_processing) {
@@ -28,6 +35,11 @@ class SttService {
         }
       },
     );
+    if (!_initialized) {
+      _lastFailureReason = '마이크 권한이 없거나 음성 인식을 시작할 수 없어요.';
+    } else {
+      _lastFailureReason = null;
+    }
     return _initialized;
   }
 

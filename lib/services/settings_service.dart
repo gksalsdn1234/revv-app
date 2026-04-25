@@ -5,36 +5,47 @@ import 'jarvis_script.dart';
 
 /// 앱 전역 사용자 설정
 class SettingsService extends ChangeNotifier {
-
   // ── 기본값 ─────────────────────────────────────────────────
-  bool           _ttsMuted      = false;
-  int            _searchRadius  = 50;    // km: 30 / 50 / 100
-  String         _distUnit      = 'km';  // 'km' | 'mi'
-  bool           _showSpeedHud  = true;
-  bool           _offRouteAlert = true;
-  bool           _alwaysListen  = false;
-  JarvisPersona  _jarvisPersona = JarvisPersona.engineer;
+  bool _ttsMuted = false;
+  int _searchRadius = 50; // km: 30 / 50 / 100 / 160 / 220
+  String _distUnit = 'km'; // 'km' | 'mi'
+  bool _showSpeedHud = true;
+  bool _offRouteAlert = true;
+  bool _alwaysListen = false;
+  JarvisPersona _jarvisPersona = JarvisPersona.engineer;
+  String _ttsRatePreset = 'relaxed';
+  String? _ttsVoiceName;
+  String? _ttsVoiceLocale;
 
   // ── Getters ────────────────────────────────────────────────
-  bool          get ttsMuted      => _ttsMuted;
-  int           get searchRadiusKm => _searchRadius;
-  String        get distUnit      => _distUnit;
-  bool          get showSpeedHud  => _showSpeedHud;
-  bool          get offRouteAlert => _offRouteAlert;
-  bool          get alwaysListen  => _alwaysListen;
+  bool get ttsMuted => _ttsMuted;
+  int get searchRadiusKm => _searchRadius;
+  String get distUnit => _distUnit;
+  bool get showSpeedHud => _showSpeedHud;
+  bool get offRouteAlert => _offRouteAlert;
+  bool get alwaysListen => _alwaysListen;
   JarvisPersona get jarvisPersona => _jarvisPersona;
+  String get ttsRatePreset => _ttsRatePreset;
+  String? get ttsVoiceName => _ttsVoiceName;
+  String? get ttsVoiceLocale => _ttsVoiceLocale;
 
   // ── 로드 ──────────────────────────────────────────────────
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
-    _ttsMuted      = p.getBool(StorageKeys.ttsMuted)      ?? false;
-    _searchRadius  = p.getInt(StorageKeys.searchRadius)   ?? 50;
-    _distUnit      = p.getString(StorageKeys.distUnit)    ?? 'km';
-    _showSpeedHud  = p.getBool(StorageKeys.showSpeedHud)  ?? true;
+    _ttsMuted = p.getBool(StorageKeys.ttsMuted) ?? false;
+    final rawRadius = p.getInt(StorageKeys.searchRadius) ?? 50;
+    _searchRadius = _normalizeSearchRadius(rawRadius);
+    _distUnit = p.getString(StorageKeys.distUnit) ?? 'km';
+    _showSpeedHud = p.getBool(StorageKeys.showSpeedHud) ?? true;
     _offRouteAlert = p.getBool(StorageKeys.offRouteAlert) ?? true;
-    _alwaysListen  = p.getBool(StorageKeys.alwaysListen)  ?? false;
+    _alwaysListen = p.getBool(StorageKeys.alwaysListen) ?? false;
     final rawPersona = p.getString(StorageKeys.jarvisPersona) ?? 'engineer';
-    _jarvisPersona = rawPersona == 'friendly' ? JarvisPersona.friendly : JarvisPersona.engineer;
+    _jarvisPersona = rawPersona == 'friendly'
+        ? JarvisPersona.friendly
+        : JarvisPersona.engineer;
+    _ttsRatePreset = p.getString(StorageKeys.ttsRatePreset) ?? 'relaxed';
+    _ttsVoiceName = p.getString(StorageKeys.ttsVoiceName);
+    _ttsVoiceLocale = p.getString(StorageKeys.ttsVoiceLocale);
     notifyListeners();
   }
 
@@ -48,12 +59,21 @@ class SettingsService extends ChangeNotifier {
   }
 
   Future<void> setSearchRadius(int v) async {
-    assert(v == 30 || v == 50 || v == 100);
-    if (_searchRadius == v) return;
-    _searchRadius = v;
+    final next = _normalizeSearchRadius(v);
+    if (_searchRadius == next) return;
+    _searchRadius = next;
     notifyListeners();
     final p = await SharedPreferences.getInstance();
-    await p.setInt(StorageKeys.searchRadius, v);
+    await p.setInt(StorageKeys.searchRadius, next);
+  }
+
+  int _normalizeSearchRadius(int value) {
+    const allowed = [30, 50, 100, 160, 220];
+    if (allowed.contains(value)) return value;
+    return allowed.reduce(
+      (best, current) =>
+          (value - current).abs() < (value - best).abs() ? current : best,
+    );
   }
 
   Future<void> setDistUnit(String v) async {
@@ -94,5 +114,33 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
     final p = await SharedPreferences.getInstance();
     await p.setString(StorageKeys.jarvisPersona, v.name);
+  }
+
+  Future<void> setTtsRatePreset(String value) async {
+    const allowed = {'relaxed', 'balanced', 'brisk'};
+    final next = allowed.contains(value) ? value : 'relaxed';
+    if (_ttsRatePreset == next) return;
+    _ttsRatePreset = next;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString(StorageKeys.ttsRatePreset, next);
+  }
+
+  Future<void> setTtsVoice({
+    required String? name,
+    required String? locale,
+  }) async {
+    if (_ttsVoiceName == name && _ttsVoiceLocale == locale) return;
+    _ttsVoiceName = name;
+    _ttsVoiceLocale = locale;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    if (name == null || locale == null) {
+      await p.remove(StorageKeys.ttsVoiceName);
+      await p.remove(StorageKeys.ttsVoiceLocale);
+      return;
+    }
+    await p.setString(StorageKeys.ttsVoiceName, name);
+    await p.setString(StorageKeys.ttsVoiceLocale, locale);
   }
 }

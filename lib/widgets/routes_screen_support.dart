@@ -7,6 +7,7 @@ import '../services/loop_route_service.dart';
 import '../services/route_loading_policy.dart';
 import '../services/route_service.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 
 class RoutesRadiusButton extends StatelessWidget {
   final int km;
@@ -27,12 +28,12 @@ class RoutesRadiusButton extends StatelessWidget {
         margin: const EdgeInsets.only(left: 3),
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
         decoration: BoxDecoration(
-          color: active
-              ? AppColors.red.withValues(alpha: 0.9)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
+          color: active ? AppColors.primaryContainer : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: active ? AppColors.red : Colors.white24,
+            color: active
+                ? AppColors.primaryContainer
+                : AppColors.outlineVariant.withValues(alpha: 0.36),
             width: 1,
           ),
         ),
@@ -42,10 +43,9 @@ class RoutesRadiusButton extends StatelessWidget {
               : km == 50
               ? 'MID'
               : 'FAR',
-          style: GoogleFonts.rajdhani(
-            fontSize: 10,
-            fontWeight: FontWeight.w800,
-            color: active ? Colors.white : AppColors.textHint,
+          style: AppText.technicalLabel(
+            size: 9,
+            color: active ? AppColors.onPrimary : AppColors.textHint,
           ),
         ),
       ),
@@ -80,20 +80,19 @@ class RoutesLimitButton extends StatelessWidget {
         margin: const EdgeInsets.only(left: 3),
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
         decoration: BoxDecoration(
-          color: active
-              ? AppColors.primaryContainer.withValues(alpha: 0.9)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(4),
+          color: active ? AppColors.primaryContainer : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: active ? AppColors.primaryContainer : Colors.white24,
+            color: active
+                ? AppColors.primaryContainer
+                : AppColors.outlineVariant.withValues(alpha: 0.36),
             width: 1,
           ),
         ),
         child: Text(
           count >= maximumVisibleRoutes ? 'ALL' : '$count',
-          style: GoogleFonts.rajdhani(
-            fontSize: 10,
-            fontWeight: FontWeight.w800,
+          style: AppText.technicalLabel(
+            size: 9,
             color: active ? AppColors.onPrimary : AppColors.textHint,
           ),
         ),
@@ -210,19 +209,16 @@ class RoutesTabButton extends StatelessWidget {
           curve: Curves.easeOutCubic,
           height: 40,
           decoration: BoxDecoration(
-            color: active
-                ? AppColors.red.withValues(alpha: 0.85)
-                : Colors.transparent,
+            color: active ? AppColors.primaryContainer : Colors.transparent,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Center(
             child: AnimatedDefaultTextStyle(
               duration: const Duration(milliseconds: 200),
-              style: GoogleFonts.orbitron(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: active ? Colors.white : Colors.white38,
-                letterSpacing: 2.5,
+              style: AppText.technicalLabel(
+                size: 10,
+                color: active ? AppColors.onPrimary : AppColors.textHint,
+                letterSpacing: 2,
               ),
               child: Text(label),
             ),

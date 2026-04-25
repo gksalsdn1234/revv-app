@@ -68,6 +68,19 @@ String? _buildMapUrl(List<LatLng>? path) {
       '?padding=60&access_token=${MapboxService.accessToken}';
 }
 
+String? _buildSessionMapUrl(RunSession? session) {
+  if (session == null) return null;
+  final gpsUrl = _buildMapUrl(session.gpsPath);
+  if (gpsUrl != null) return gpsUrl;
+
+  // GPS 샘플이 너무 적을 때는 선택한 루트 형상을 대신 보여준다.
+  final routeNodes = session.route?.nodes;
+  if (routeNodes != null && routeNodes.length >= 2) {
+    return _buildMapUrl(routeNodes);
+  }
+  return null;
+}
+
 class RunCardScreen extends StatefulWidget {
   final RunSession? session;
   const RunCardScreen({super.key, this.session});
@@ -82,6 +95,8 @@ class _RunCardScreenState extends State<RunCardScreen> {
   bool _sharing = false;
   String? _jarvisAnalysis;
   bool _jarvisLoading = false;
+  String? _saveError;
+  String? _analysisError;
   bool _detailSheetOpen = false;
   String? _mapUrl;
   NewPrFlags? _prFlags;
@@ -91,7 +106,7 @@ class _RunCardScreenState extends State<RunCardScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       // 지도 URL 먼저 계산 (네트워크 이미지 사전 캐시 시작)
-      final url = _buildMapUrl(widget.session?.gpsPath);
+      final url = _buildSessionMapUrl(widget.session);
       if (url != null && mounted) {
         setState(() => _mapUrl = url);
         precacheImage(NetworkImage(url), context);
@@ -104,27 +119,57 @@ class _RunCardScreenState extends State<RunCardScreen> {
   Future<void> _saveSession() async {
     final s = widget.session;
     if (s == null) return;
-    final summary = await context.read<RunHistoryService>().save(s);
-    if (mounted) setState(() => _saved = summary);
-    // PR 체크 (저장 완료 후 비동기)
-    final flags = await PrService().checkAndUpdate(s);
-    if (mounted && flags.any) setState(() => _prFlags = flags);
+    try {
+      final summary = await context.read<RunHistoryService>().save(s);
+      if (mounted) {
+        setState(() {
+          _saved = summary;
+          _saveError = null;
+        });
+      }
+      // PR 체크는 보조 기능이다. 실패해도 RunCard 표시를 막지 않는다.
+      try {
+        final flags = await PrService().checkAndUpdate(s);
+        if (mounted && flags.any) setState(() => _prFlags = flags);
+      } catch (e) {
+        debugPrint('[RunCard] PR check failed: $e');
+      }
+    } catch (e) {
+      debugPrint('[RunCard] save failed: $e');
+      if (mounted) {
+        setState(() => _saveError = '기록 저장에 실패했어요. 이번 요약은 화면에서만 볼 수 있어요.');
+      }
+    }
   }
 
   Future<void> _runJarvisAnalysis() async {
     final s = widget.session;
     if (s == null) return;
-    if (mounted) setState(() => _jarvisLoading = true);
-    final obdConnected = context.read<OBDService>().isConnected;
-    final result = await RevvAiService().analyzeRun(
-      s,
-      useHighQuality: obdConnected,
-    );
     if (mounted) {
       setState(() {
-        _jarvisAnalysis = result;
-        _jarvisLoading = false;
+        _jarvisLoading = true;
+        _analysisError = null;
       });
+    }
+    try {
+      final obdConnected = context.read<OBDService>().isConnected;
+      final result = await RevvAiService().analyzeRun(
+        s,
+        useHighQuality: obdConnected,
+      );
+      if (mounted) {
+        setState(() {
+          _jarvisAnalysis = result;
+          _analysisError = null;
+        });
+      }
+    } catch (e) {
+      debugPrint('[RunCard] Jarvis analysis failed: $e');
+      if (mounted) {
+        setState(() => _analysisError = 'AI 분석 연결이 불안정해서 기본 요약을 표시해요.');
+      }
+    } finally {
+      if (mounted) setState(() => _jarvisLoading = false);
     }
   }
 
@@ -224,6 +269,15 @@ class _RunCardScreenState extends State<RunCardScreen> {
                     prFlags: _prFlags,
                   ),
                 ),
+                if (_saveError != null || _analysisError != null) ...[
+                  const SizedBox(height: 12),
+                  _RunCardNotice(
+                    message: [
+                      _saveError,
+                      _analysisError,
+                    ].whereType<String>().join('\n'),
+                  ),
+                ],
                 const SizedBox(height: 14),
                 _QuickStatsSection(session: s, reviewSummary: reviewSummary),
                 if (s?.obdSummary?.hasData == true) ...[
@@ -291,6 +345,42 @@ class _RunReviewHeader extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _RunCardNotice extends StatelessWidget {
+  final String message;
+
+  const _RunCardNotice({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return RevvGlassCard(
+      padding: const EdgeInsets.all(14),
+      color: AppColors.warning.withValues(alpha: 0.08),
+      borderOpacity: 0.28,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            size: 18,
+            color: AppColors.warning,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: AppText.body(
+                size: 13,
+                height: 1.35,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1774,15 +1864,25 @@ class _DetailedAnalysisSheetState extends State<_DetailedAnalysisSheet> {
   }
 
   Future<void> _loadReport() async {
-    final result = await RevvAiService().analyzeRunDetailed(
-      widget.session,
-      useHighQuality: widget.obdConnected,
-    );
-    if (mounted) {
-      setState(() {
-        _report = result;
-        _loading = false;
-      });
+    try {
+      final result = await RevvAiService().analyzeRunDetailed(
+        widget.session,
+        useHighQuality: widget.obdConnected,
+      );
+      if (mounted) {
+        setState(() {
+          _report = result;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('[RunCard] detailed analysis failed: $e');
+      if (mounted) {
+        setState(() {
+          _report = '상세 AI 분석 연결이 불안정해요. 기본 요약과 주행 기록은 정상적으로 볼 수 있습니다.';
+          _loading = false;
+        });
+      }
     }
   }
 

@@ -18,9 +18,17 @@ class SupabaseService extends ChangeNotifier {
   bool _initialized = false;
   SyncStatus _status = SyncStatus.idle;
   SyncStatus get status => _status;
+  String? _lastFailureReason;
+  String? get lastFailureReason => _lastFailureReason;
 
   bool _ready = false;
   bool get isReady => _ready;
+  bool get isCloudAvailable => _ready && uid != null;
+  String get availabilityLabel {
+    if (_ready) return '클라우드 연결됨';
+    if (_status == SyncStatus.error) return '클라우드 연결 실패';
+    return '클라우드 비활성';
+  }
 
   String? get uid {
     try {
@@ -44,6 +52,7 @@ class SupabaseService extends ChangeNotifier {
     _config ??= config ?? SupabaseConfig.instance;
     if (!_config!.isConfigured) {
       _ready = false;
+      _lastFailureReason = 'Supabase 설정이 없어 클라우드 기능을 비활성화했어요.';
       _setStatus(SyncStatus.idle);
       debugPrint('[Supabase] configuration missing; cloud features disabled');
       return;
@@ -56,10 +65,12 @@ class SupabaseService extends ChangeNotifier {
         await auth.signInAnonymously();
       }
       _ready = true;
+      _lastFailureReason = null;
       _setStatus(SyncStatus.done);
       debugPrint('[Supabase] initialized — uid: $uid');
     } catch (e) {
       _ready = false;
+      _lastFailureReason = '$e';
       _setStatus(SyncStatus.error);
       debugPrint('[Supabase] init failed: $e');
     }
@@ -144,7 +155,9 @@ class SupabaseService extends ChangeNotifier {
       await client!
           .from(SupabaseTables.discoveredRoutes)
           .upsert(
-            routes.map((route) => discoveredRouteCacheRow(route, userId: uid!)).toList(),
+            routes
+                .map((route) => discoveredRouteCacheRow(route, userId: uid!))
+                .toList(),
             onConflict: 'user_id,route_id',
           );
       debugPrint('[Supabase] route pool saved — ${routes.length}');
@@ -176,7 +189,9 @@ class SupabaseService extends ChangeNotifier {
 
   Future<void> publishRoute(RevvRoute route) async {
     if (!_ready) return;
-    debugPrint('[Supabase] publishRoute skipped: curvy_roads is canonical read-only');
+    debugPrint(
+      '[Supabase] publishRoute skipped: curvy_roads is canonical read-only',
+    );
   }
 
   Future<List<RevvRoute>> fetchNearbyRoutes(
@@ -190,6 +205,53 @@ class SupabaseService extends ChangeNotifier {
       radiusM: (radiusKm * 1000).round(),
       maxResults: 200,
     );
+  }
+
+  Future<List<RevvRoute>> fetchNearbyRoutesDirect(
+    double lat,
+    double lng,
+    double radiusKm, {
+    int limit = 200,
+  }) async {
+    if (!_ready) return const [];
+    try {
+      final latDelta = radiusKm / 111.0;
+      final lngScale = cos(_toRadians(lat)).abs().clamp(0.2, 1.0);
+      final lngDelta = radiusKm / (111.0 * lngScale);
+
+      final rows = await client!
+          .from(SupabaseTables.curvyRoads)
+          .select()
+          .gte('center_lat', lat - latDelta)
+          .lte('center_lat', lat + latDelta)
+          .gte('center_lng', lng - lngDelta)
+          .lte('center_lng', lng + lngDelta)
+          .gte('distance_km', 4.0)
+          .order('winding_score', ascending: false)
+          .order('run_count', ascending: false)
+          .limit(limit);
+
+      final routes =
+          (rows as List)
+              .whereType<Map<String, dynamic>>()
+              .map((row) => routeFromRow(row, userLat: lat, userLng: lng))
+              .where((route) => route.distanceFromUser <= radiusKm * 1.35)
+              .toList()
+            ..sort((a, b) {
+              final scoreDiff = b.windingScore.compareTo(a.windingScore);
+              if (scoreDiff != 0) return scoreDiff;
+              return a.distanceFromUser.compareTo(b.distanceFromUser);
+            });
+
+      debugPrint(
+        '[Supabase] direct nearby fallback: ${routes.length} rows '
+        '(lat=${lat.toStringAsFixed(4)}, lng=${lng.toStringAsFixed(4)}, r=${radiusKm.toStringAsFixed(0)}km)',
+      );
+      return routes;
+    } catch (e) {
+      debugPrint('[Supabase] fetchNearbyRoutesDirect failed: $e');
+      return const [];
+    }
   }
 
   Future<List<RevvRoute>> findCurvyRoads({
@@ -257,15 +319,13 @@ class SupabaseService extends ChangeNotifier {
     }
   }
 
-  Future<Map<String, Map<String, dynamic>>> fetchRouteRecords(
-    String userId,
-  ) async {
-    if (!_ready) return const {};
+  Future<Map<String, Map<String, dynamic>>> fetchRouteRecords() async {
+    if (!_ready || uid == null) return const {};
     try {
       final rows = await client!
           .from(SupabaseTables.routeRecords)
           .select()
-          .eq('user_id', userId);
+          .eq('user_id', uid!);
       final map = <String, Map<String, dynamic>>{};
       for (final row in rows as List) {
         if (row is Map<String, dynamic>) {
@@ -283,17 +343,16 @@ class SupabaseService extends ChangeNotifier {
   }
 
   Future<void> upsertRouteRecord({
-    required String userId,
     required String routeId,
     required int bestTimeSeconds,
     required double bestMaxG,
     required int runCount,
     required DateTime lastRunAt,
   }) async {
-    if (!_ready) return;
+    if (!_ready || uid == null) return;
     try {
       await client!.from(SupabaseTables.routeRecords).upsert({
-        'user_id': userId,
+        'user_id': uid!,
         'route_id': routeId,
         'best_time_seconds': bestTimeSeconds,
         'best_max_g': bestMaxG,
@@ -348,10 +407,11 @@ class SupabaseService extends ChangeNotifier {
     if (!_ready || uid == null) return;
     try {
       if (saved) {
+        final enrichedRoute = hydrateRouteMetadata(route);
         await client!.from(SupabaseTables.savedRoutes).upsert({
           'user_id': uid!,
-          'route_id': route.id,
-          'route_data': routeToRow(route),
+          'route_id': enrichedRoute.id,
+          'route_data': routeToRow(enrichedRoute),
           'saved_at': DateTime.now().toIso8601String(),
         }, onConflict: 'user_id,route_id');
       } else {
@@ -456,10 +516,14 @@ class SupabaseService extends ChangeNotifier {
     RevvRoute route, {
     required String userId,
   }) {
+    final enrichedRoute = hydrateRouteMetadata(route);
     return {
       'user_id': userId,
-      'route_id': route.id,
-      'route_data': routeToRow(route, publishedBy: route.publishedBy),
+      'route_id': enrichedRoute.id,
+      'route_data': routeToRow(
+        enrichedRoute,
+        publishedBy: enrichedRoute.publishedBy,
+      ),
       'saved_at': DateTime.now().toIso8601String(),
     };
   }
@@ -488,48 +552,54 @@ class SupabaseService extends ChangeNotifier {
         const [];
     final distanceFromUser =
         (row['distance_from_user_km'] as num?)?.toDouble() ??
-        ((userLat != null && userLng != null && centerLat != 0 && centerLng != 0)
+        ((userLat != null &&
+                userLng != null &&
+                centerLat != 0 &&
+                centerLng != 0)
             ? _distanceKmBetween(userLat, userLng, centerLat, centerLng)
             : 0);
-    return hydrateRouteMetadata(RevvRoute(
-      id: row['id'] as String,
-      name: row['name'] as String? ?? '',
-      nodes: nodes,
-      distanceKm: (row['distance_km'] as num?)?.toDouble() ?? 0,
-      windingScore: (row['winding_score'] as num?)?.toDouble() ?? 0,
-      starRating: (row['star_rating'] as num?)?.toInt() ?? 1,
-      sharpCurveCount: (row['sharp_curve_count'] as num?)?.toInt() ?? 0,
-      centerPoint: LatLng(centerLat, centerLng),
-      distanceFromUser: distanceFromUser,
-      tightCurveKm: (row['tight_curve_km'] as num?)?.toDouble() ?? 0,
-      mediumCurveKm: (row['medium_curve_km'] as num?)?.toDouble() ?? 0,
-      maxContinuousKm: (row['max_continuous_km'] as num?)?.toDouble() ?? 0,
-      isLoop: row['is_loop'] as bool? ?? false,
-      routeRankScore: (row['route_rank_score'] as num?)?.toDouble() ?? 0,
-      funScore: (row['fun_score'] as num?)?.toDouble() ?? 0,
-      flowScore: (row['flow_score'] as num?)?.toDouble() ?? 0,
-      driveabilityPenalty:
-          (row['driveability_penalty'] as num?)?.toDouble() ?? 0,
-      stopSignCount: (row['stop_sign_count'] as num?)?.toInt() ?? 0,
-      trafficSignalCount:
-          (row['traffic_signal_count'] as num?)?.toInt() ?? 0,
-      stopControlDensity:
-          (row['stop_control_density'] as num?)?.toDouble() ?? 0,
-      roadClassBucket: row['road_class_bucket'] as String? ?? '',
-      isNamed: row['is_named'] as bool? ?? (row['name'] as String? ?? '').trim().isNotEmpty,
-      isFacilityLike: row['is_facility_like'] as bool? ?? false,
-      isBridgeLike: row['is_bridge_like'] as bool? ?? false,
-      isConnectorLike: row['is_connector_like'] as bool? ?? false,
-      isMajorRoadLike: row['is_major_road_like'] as bool? ?? false,
-      isPrivateLike: row['is_private_like'] as bool? ?? false,
-      qualityLabel: row['quality_label'] as String? ?? '',
-      qualityRejectReason: row['quality_reject_reason'] as String?,
-      routeCharacter: row['route_character'] as String? ?? '',
-      primaryReason: row['primary_reason'] as String?,
-      cautionNote: row['caution_note'] as String?,
-      runCount: (row['run_count'] as num?)?.toInt() ?? 0,
-      publishedBy: row['published_by'] as String?,
-    ));
+    return hydrateRouteMetadata(
+      RevvRoute(
+        id: row['id'] as String,
+        name: row['name'] as String? ?? '',
+        nodes: nodes,
+        distanceKm: (row['distance_km'] as num?)?.toDouble() ?? 0,
+        windingScore: (row['winding_score'] as num?)?.toDouble() ?? 0,
+        starRating: (row['star_rating'] as num?)?.toInt() ?? 1,
+        sharpCurveCount: (row['sharp_curve_count'] as num?)?.toInt() ?? 0,
+        centerPoint: LatLng(centerLat, centerLng),
+        distanceFromUser: distanceFromUser,
+        tightCurveKm: (row['tight_curve_km'] as num?)?.toDouble() ?? 0,
+        mediumCurveKm: (row['medium_curve_km'] as num?)?.toDouble() ?? 0,
+        maxContinuousKm: (row['max_continuous_km'] as num?)?.toDouble() ?? 0,
+        isLoop: row['is_loop'] as bool? ?? false,
+        routeRankScore: (row['route_rank_score'] as num?)?.toDouble() ?? 0,
+        funScore: (row['fun_score'] as num?)?.toDouble() ?? 0,
+        flowScore: (row['flow_score'] as num?)?.toDouble() ?? 0,
+        driveabilityPenalty:
+            (row['driveability_penalty'] as num?)?.toDouble() ?? 0,
+        stopSignCount: (row['stop_sign_count'] as num?)?.toInt() ?? 0,
+        trafficSignalCount: (row['traffic_signal_count'] as num?)?.toInt() ?? 0,
+        stopControlDensity:
+            (row['stop_control_density'] as num?)?.toDouble() ?? 0,
+        roadClassBucket: row['road_class_bucket'] as String? ?? '',
+        isNamed:
+            row['is_named'] as bool? ??
+            (row['name'] as String? ?? '').trim().isNotEmpty,
+        isFacilityLike: row['is_facility_like'] as bool? ?? false,
+        isBridgeLike: row['is_bridge_like'] as bool? ?? false,
+        isConnectorLike: row['is_connector_like'] as bool? ?? false,
+        isMajorRoadLike: row['is_major_road_like'] as bool? ?? false,
+        isPrivateLike: row['is_private_like'] as bool? ?? false,
+        qualityLabel: row['quality_label'] as String? ?? '',
+        qualityRejectReason: row['quality_reject_reason'] as String?,
+        routeCharacter: row['route_character'] as String? ?? '',
+        primaryReason: row['primary_reason'] as String?,
+        cautionNote: row['caution_note'] as String?,
+        runCount: (row['run_count'] as num?)?.toInt() ?? 0,
+        publishedBy: row['published_by'] as String?,
+      ),
+    );
   }
 
   static LatLng? _pointFromRow(Map<String, dynamic> row, String prefix) {
@@ -557,7 +627,8 @@ class SupabaseService extends ChangeNotifier {
     return earthRadiusKm * c;
   }
 
-  static double _toRadians(double degrees) => degrees * 3.1415926535897932 / 180.0;
+  static double _toRadians(double degrees) =>
+      degrees * 3.1415926535897932 / 180.0;
 
   void _setStatus(SyncStatus s) {
     _status = s;

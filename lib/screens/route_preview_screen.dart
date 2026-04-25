@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -65,195 +64,306 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          RevvGlassCard(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.compositeRoute != null
-                      ? 'COMPOSITE ROUTE'
-                      : displayRoute.difficultyLabel,
-                  style: AppText.label(
-                    size: 10,
-                    color: AppColors.primaryContainer,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '${displayRoute.distanceKm.toStringAsFixed(1)} km',
-                  style: AppText.mono(size: 28, weight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  widget.compositeRoute != null
-                      ? '재미 ${widget.compositeRoute!.funScore.toStringAsFixed(1)} / 흐름 ${widget.compositeRoute!.flowScore.toStringAsFixed(2)} / stop ${widget.compositeRoute!.stopSignCount}'
-                      : '와인딩 ${displayRoute.windingScore.toStringAsFixed(1)} / 커브 ${displayRoute.sharpCurveCount}개 / ${displayRoute.distanceFromUserDisplay}',
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 14,
-                    color: Colors.white70,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  '출발 방식',
-                  style: AppText.label(
-                    size: 11,
-                    color: AppColors.primaryContainer,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _StartModeChip(
-                      label: '자동',
-                      selected: _startMode == SprintStartMode.auto,
-                      onTap: () =>
-                          setState(() => _startMode = SprintStartMode.auto),
+      body: RevvCockpitBackground(
+        scanlines: true,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
+          children: [
+            RevvSectionHeader(
+              eyebrow: 'Destination locked',
+              title: displayRoute.name,
+              trailing: RevvPill(
+                label: widget.compositeRoute != null
+                    ? 'COMPOSITE'
+                    : displayRoute.difficultyLabel.toUpperCase(),
+                color: AppColors.warning,
+              ),
+            ),
+            const SizedBox(height: 18),
+            RevvGlassCard(
+              padding: EdgeInsets.zero,
+              glow: true,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'ROUTE TELEMETRY',
+                                style: AppText.technicalLabel(
+                                  color: AppColors.primaryContainer,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                displayRoute.distanceKm.toStringAsFixed(1),
+                                style: AppText.display(
+                                  size: 52,
+                                  weight: FontWeight.w900,
+                                  color: AppColors.primaryContainer,
+                                  letterSpacing: -3,
+                                  height: 0.95,
+                                ),
+                              ),
+                              Text(
+                                'KILOMETERS',
+                                style: AppText.technicalLabel(
+                                  size: 10,
+                                  color: AppColors.textHint,
+                                  letterSpacing: 2.4,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          width: 54,
+                          height: 54,
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryContainer,
+                            borderRadius: BorderRadius.circular(16),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.primaryContainer.withValues(
+                                  alpha: 0.28,
+                                ),
+                                blurRadius: 24,
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.alt_route_rounded,
+                            color: AppColors.onPrimary,
+                          ),
+                        ),
+                      ],
                     ),
-                    _StartModeChip(
-                      label: '시작점까지 안내',
-                      selected: _startMode == SprintStartMode.guideToStart,
-                      onTap: () => setState(
-                        () => _startMode = SprintStartMode.guideToStart,
-                      ),
-                    ),
-                    _StartModeChip(
-                      label: '중간 합류',
-                      selected: _startMode == SprintStartMode.joinFromCurrent,
-                      onTap: () => setState(
-                        () => _startMode = SprintStartMode.joinFromCurrent,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: RevvGlassCard(
-                    padding: const EdgeInsets.all(12),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
                     child: Text(
-                      startSummary,
-                      style: AppText.inter(size: 14, height: 1.35),
+                      widget.compositeRoute != null
+                          ? '재미 ${widget.compositeRoute!.funScore.toStringAsFixed(1)} / 흐름 ${widget.compositeRoute!.flowScore.toStringAsFixed(2)} / stop ${widget.compositeRoute!.stopSignCount}'
+                          : '와인딩 ${displayRoute.windingScore.toStringAsFixed(1)} / 커브 ${displayRoute.sharpCurveCount}개 / ${displayRoute.distanceFromUserDisplay}',
+                      style: AppText.body(
+                        size: 14,
+                        color: AppColors.textSecondary,
+                        height: 1.35,
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                _PreviewDecisionPanel(
-                  route: displayRoute,
-                  startSummary: startSummary,
-                ),
-                if (widget.compositeRoute == null &&
-                    displayRoute.primaryReason?.isNotEmpty == true) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    displayRoute.primaryReason!,
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceLowest.withValues(alpha: 0.54),
+                      border: Border(
+                        top: BorderSide(
+                          color: AppColors.outlineVariant.withValues(
+                            alpha: 0.22,
+                          ),
+                        ),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: RevvMetricTile(
+                            label: 'curves',
+                            value: '${displayRoute.sharpCurveCount}',
+                            unit: 'EA',
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: RevvMetricTile(
+                            label: 'winding',
+                            value: displayRoute.windingScore.toStringAsFixed(1),
+                            accent: AppColors.warning,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-                if (widget.compositeRoute == null) ...[
-                  const SizedBox(height: 8),
+              ),
+            ),
+            const SizedBox(height: 14),
+            RevvGlassCard(
+              padding: const EdgeInsets.all(16),
+              color: AppColors.panel.withValues(alpha: 0.82),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'START MODE',
+                    style: AppText.technicalLabel(
+                      color: AppColors.primaryContainer,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _MetaChip(
-                        label: displayRoute.qualityLabel.toUpperCase(),
-                        color: displayRoute.qualityLabel == 'keep'
-                            ? const Color(0xFF22C55E)
-                            : displayRoute.qualityLabel == 'maybe'
-                            ? const Color(0xFFF59E0B)
-                            : const Color(0xFFEF4444),
+                      _StartModeChip(
+                        label: '자동',
+                        selected: _startMode == SprintStartMode.auto,
+                        onTap: () =>
+                            setState(() => _startMode = SprintStartMode.auto),
                       ),
-                      if (displayRoute.routeCharacter.isNotEmpty)
-                        _MetaChip(
-                          label: displayRoute.routeCharacter
-                              .replaceAll('_', ' ')
-                              .toUpperCase(),
+                      _StartModeChip(
+                        label: '시작점까지 안내',
+                        selected: _startMode == SprintStartMode.guideToStart,
+                        onTap: () => setState(
+                          () => _startMode = SprintStartMode.guideToStart,
                         ),
-                      if (displayRoute.stopSignCount > 0 ||
-                          displayRoute.trafficSignalCount > 0)
-                        _MetaChip(
-                          label:
-                              'STOP ${displayRoute.stopSignCount} · SIGNAL ${displayRoute.trafficSignalCount}',
+                      ),
+                      _StartModeChip(
+                        label: '중간 합류',
+                        selected: _startMode == SprintStartMode.joinFromCurrent,
+                        onTap: () => setState(
+                          () => _startMode = SprintStartMode.joinFromCurrent,
                         ),
+                      ),
                     ],
                   ),
-                ],
-                if (widget.compositeRoute == null &&
-                    displayRoute.cautionNote?.isNotEmpty == true) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    displayRoute.cautionNote!,
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 13,
-                      color: AppColors.textSecondary,
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface.withValues(alpha: 0.42),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                MiniElevSection(route: displayRoute, lineColor: AppColors.red),
-                if (widget.compositeRoute != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    'SEGMENTS',
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textSecondary,
-                      letterSpacing: 2,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ...[
-                    widget.compositeRoute!.baseRoute,
-                    ...widget.compositeRoute!.chainedSegments,
-                  ].map(
-                    (segment) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text(
-                        '${segment.name} · ${segment.distanceKm.toStringAsFixed(1)} km',
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white70,
-                        ),
+                    child: Text(
+                      startSummary,
+                      style: AppText.body(
+                        size: 14,
+                        color: AppColors.textSecondary,
+                        height: 1.35,
                       ),
                     ),
                   ),
-                  if (widget.compositeRoute!.connectorLegs.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Connector ${widget.compositeRoute!.connectorLegs.first.distanceKm.toStringAsFixed(1)} km · ${widget.compositeRoute!.estimatedDurationMinutes} min est',
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 13,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
                 ],
-              ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 14),
+            _PreviewDecisionPanel(
+              route: displayRoute,
+              startSummary: startSummary,
+            ),
+            if (widget.compositeRoute == null) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MetaChip(
+                    label: displayRoute.qualityLabel.toUpperCase(),
+                    color: displayRoute.qualityLabel == 'keep'
+                        ? AppColors.success
+                        : displayRoute.qualityLabel == 'maybe'
+                        ? AppColors.warning
+                        : AppColors.danger,
+                  ),
+                  if (displayRoute.routeCharacter.isNotEmpty)
+                    _MetaChip(
+                      label: displayRoute.routeCharacter
+                          .replaceAll('_', ' ')
+                          .toUpperCase(),
+                    ),
+                  if (displayRoute.stopSignCount > 0 ||
+                      displayRoute.trafficSignalCount > 0)
+                    _MetaChip(
+                      label:
+                          'STOP ${displayRoute.stopSignCount} · SIGNAL ${displayRoute.trafficSignalCount}',
+                    ),
+                ],
+              ),
+            ],
+            if (widget.compositeRoute == null &&
+                displayRoute.cautionNote?.isNotEmpty == true) ...[
+              const SizedBox(height: 12),
+              RevvGlassCard(
+                padding: const EdgeInsets.all(14),
+                color: AppColors.warning.withValues(alpha: 0.08),
+                borderOpacity: 0.34,
+                child: Text(
+                  displayRoute.cautionNote!,
+                  style: AppText.body(
+                    size: 13,
+                    color: AppColors.textSecondary,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            RevvGlassCard(
+              padding: const EdgeInsets.all(14),
+              child: MiniElevSection(
+                route: displayRoute,
+                lineColor: AppColors.red,
+              ),
+            ),
+            if (widget.compositeRoute != null) ...[
+              const SizedBox(height: 16),
+              RevvGlassCard(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('SEGMENTS', style: AppText.technicalLabel(size: 10)),
+                    const SizedBox(height: 10),
+                    ...[
+                      widget.compositeRoute!.baseRoute,
+                      ...widget.compositeRoute!.chainedSegments,
+                    ].map(
+                      (segment) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          '${segment.name} · ${segment.distanceKm.toStringAsFixed(1)} km',
+                          style: AppText.body(
+                            size: 14,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (widget.compositeRoute!.connectorLegs.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'Connector ${widget.compositeRoute!.connectorLegs.first.distanceKm.toStringAsFixed(1)} km · ${widget.compositeRoute!.estimatedDurationMinutes} min est',
+                          style: AppText.technicalLabel(
+                            size: 10,
+                            color: AppColors.textHint,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
       bottomNavigationBar: SafeArea(
         top: false,
         child: RevvGlassCard(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          color: AppColors.bg.withValues(alpha: 0.94),
+          radius: 28,
+          color: AppColors.bg.withValues(alpha: 0.88),
           child: RevvPrimaryButton(
             label: sprintStartCtaLabel(_startMode),
+            icon: Icons.bolt_rounded,
             onPressed: () {
               context.read<RouteService>().requestSprint(
                 route:
@@ -299,13 +409,17 @@ class _PreviewDecisionPanel extends StatelessWidget {
     return SizedBox(
       width: double.infinity,
       child: RevvGlassCard(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
+        color: AppColors.panel.withValues(alpha: 0.86),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '지금 선택 포인트',
-              style: AppText.label(size: 10, color: AppColors.primaryContainer),
+              'DRIVE DECISION',
+              style: AppText.technicalLabel(
+                size: 10,
+                color: AppColors.primaryContainer,
+              ),
             ),
             const SizedBox(height: 8),
             ...bullets
@@ -329,10 +443,10 @@ class _PreviewDecisionPanel extends StatelessWidget {
                         Expanded(
                           child: Text(
                             line,
-                            style: GoogleFonts.rajdhani(
-                              fontSize: 13,
+                            style: AppText.body(
+                              size: 13,
                               height: 1.35,
-                              color: Colors.white70,
+                              color: AppColors.textSecondary,
                             ),
                           ),
                         ),
@@ -357,19 +471,20 @@ class _MetaChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final chipColor = color ?? Colors.white.withValues(alpha: 0.18);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: chipColor.withValues(alpha: color == null ? 1 : 0.18),
+        color: chipColor.withValues(alpha: color == null ? 0.10 : 0.16),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color ?? Colors.white24),
+        border: Border.all(
+          color: (color ?? AppColors.outline).withValues(alpha: 0.30),
+        ),
       ),
       child: Text(
         label,
-        style: GoogleFonts.rajdhani(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
+        style: AppText.technicalLabel(
+          size: 10,
           color: color ?? Colors.white70,
-          letterSpacing: 1,
+          letterSpacing: 1.1,
         ),
       ),
     );
@@ -393,20 +508,24 @@ class _StartModeChip extends StatelessWidget {
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: selected
-              ? AppColors.red.withValues(alpha: 0.18)
-              : Colors.white.withValues(alpha: 0.04),
+              ? AppColors.primaryContainer
+              : AppColors.surface.withValues(alpha: 0.58),
           borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: selected ? AppColors.red : Colors.white12),
+          border: Border.all(
+            color: selected
+                ? AppColors.primaryContainer
+                : AppColors.outlineVariant.withValues(alpha: 0.32),
+          ),
         ),
         child: Text(
           label,
-          style: GoogleFonts.rajdhani(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: selected ? Colors.white : AppColors.textSecondary,
+          style: AppText.body(
+            size: 13,
+            weight: FontWeight.w800,
+            color: selected ? AppColors.onPrimary : AppColors.textSecondary,
           ),
         ),
       ),

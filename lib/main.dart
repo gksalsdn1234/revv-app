@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'theme/colors.dart';
+import 'theme/text_styles.dart';
 import 'screens/loading_screen.dart';
 import 'services/location_service.dart';
 import 'services/weather_service.dart';
@@ -84,7 +85,7 @@ class RevvApp extends StatelessWidget {
           create: (_) => JarvisService(),
           update: (_, settings, jarvis) {
             jarvis ??= JarvisService();
-            jarvis.setMuted(settings.ttsMuted);
+            jarvis.applySettings(settings);
             return jarvis;
           },
         ),
@@ -113,7 +114,18 @@ class RevvApp extends StatelessWidget {
           scaffoldBackgroundColor: AppColors.bg,
           colorScheme: const ColorScheme.dark(
             primary: AppColors.primaryContainer,
+            secondary: AppColors.warning,
             surface: AppColors.panel,
+            error: AppColors.danger,
+            onPrimary: AppColors.onPrimary,
+            onSurface: AppColors.textPrimary,
+          ),
+          textTheme: TextTheme(
+            displayLarge: AppText.display(size: 56),
+            headlineMedium: AppText.body(size: 24, weight: FontWeight.w800),
+            titleMedium: AppText.body(size: 16, weight: FontWeight.w700),
+            bodyMedium: AppText.body(),
+            labelMedium: AppText.technicalLabel(),
           ),
           appBarTheme: AppBarTheme(
             backgroundColor: AppColors.bg.withValues(alpha: 0.82),
@@ -124,6 +136,30 @@ class RevvApp extends StatelessWidget {
           dividerColor: AppColors.outlineVariant,
           splashColor: AppColors.primaryContainer.withValues(alpha: 0.16),
           highlightColor: Colors.transparent,
+          bottomSheetTheme: const BottomSheetThemeData(
+            backgroundColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+          ),
+          inputDecorationTheme: InputDecorationTheme(
+            filled: true,
+            fillColor: AppColors.surfaceLowest,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: AppColors.outlineVariant.withValues(alpha: 0.24),
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                color: AppColors.outlineVariant.withValues(alpha: 0.24),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: AppColors.primaryContainer),
+            ),
+          ),
         ),
         home: const LoadingScreen(),
       ),

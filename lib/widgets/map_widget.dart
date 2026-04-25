@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
 import 'package:provider/provider.dart';
@@ -8,6 +10,22 @@ import '../services/location_service.dart';
 import '../services/mapbox_service.dart';
 import '../services/weather_service.dart';
 import '../theme/colors.dart';
+
+class _LineLayerSpec {
+  final String id;
+  final String sourceId;
+  final int color;
+  final double width;
+  final double opacity;
+
+  const _LineLayerSpec({
+    required this.id,
+    required this.sourceId,
+    required this.color,
+    required this.width,
+    required this.opacity,
+  });
+}
 
 class MapWidget extends StatefulWidget {
   final bool isSprintMode;
@@ -21,12 +39,18 @@ class MapWidget extends StatefulWidget {
   /// 커브 밀도 히트맵 모드 (파랑→초록→노랑→주황→빨강)
   final bool showCurveHeatmap;
 
+  /// 본 루트 진입 후 지도 배경 정보를 최소화하고 루트만 강조한다.
+  final bool routeFocusMode;
+  final int recenterSignal;
+
   const MapWidget({
     super.key,
     this.isSprintMode = false,
     this.navPolyline,
     this.routePolyline,
     this.showCurveHeatmap = false,
+    this.routeFocusMode = false,
+    this.recenterSignal = 0,
   });
 
   @override
@@ -47,6 +71,104 @@ class _MapWidgetState extends State<MapWidget> {
 
   // ── 카메라 업데이트 1-프레임 격리 (viewport 비활성 구간 fallback) ──
   bool _cameraPending = false;
+  final Map<String, Object?> _originalLayerVisibility = {};
+  bool _routeFocusApplied = false;
+  Uint8List? _puckTopImage;
+  Uint8List? _puckBearingImage;
+  Uint8List? _puckShadowImage;
+
+  List<_LineLayerSpec> _buildLineLayers(
+    String id,
+    String sourceId,
+    int colorArgb,
+    double width,
+  ) {
+    final isRoute = id == 'route';
+    final isNav = id == 'nav';
+
+    if (isRoute) {
+      return [
+        _LineLayerSpec(
+          id: '$id-shadow-layer',
+          sourceId: sourceId,
+          color: 0xCC05080D,
+          width: width + 7.0,
+          opacity: widget.routeFocusMode ? 0.96 : 0.90,
+        ),
+        _LineLayerSpec(
+          id: '$id-track-layer',
+          sourceId: sourceId,
+          color: widget.routeFocusMode ? 0xFF0E2932 : 0xFF12242C,
+          width: width + 2.4,
+          opacity: 0.98,
+        ),
+        _LineLayerSpec(
+          id: '$id-core-layer',
+          sourceId: sourceId,
+          color: widget.routeFocusMode ? 0xFF29E0FF : 0xFF19C8E6,
+          width: width,
+          opacity: 0.96,
+        ),
+        _LineLayerSpec(
+          id: '$id-ribbon-layer',
+          sourceId: sourceId,
+          color: 0xFFEBFCFF,
+          width: math.max(1.4, width * 0.28),
+          opacity: widget.routeFocusMode ? 0.42 : 0.30,
+        ),
+      ];
+    }
+
+    if (isNav) {
+      return [
+        _LineLayerSpec(
+          id: '$id-shadow-layer',
+          sourceId: sourceId,
+          color: 0x99060A10,
+          width: width + 5.0,
+          opacity: 0.82,
+        ),
+        _LineLayerSpec(
+          id: '$id-track-layer',
+          sourceId: sourceId,
+          color: 0xFF1E2D4B,
+          width: width + 1.8,
+          opacity: 0.88,
+        ),
+        _LineLayerSpec(
+          id: '$id-core-layer',
+          sourceId: sourceId,
+          color: 0xFF6DA3FF,
+          width: width,
+          opacity: 0.88,
+        ),
+        _LineLayerSpec(
+          id: '$id-ribbon-layer',
+          sourceId: sourceId,
+          color: 0xFFDDEAFF,
+          width: math.max(1.2, width * 0.22),
+          opacity: 0.24,
+        ),
+      ];
+    }
+
+    return [
+      _LineLayerSpec(
+        id: '$id-shadow-layer',
+        sourceId: sourceId,
+        color: 0xCC000000,
+        width: width + 3.0,
+        opacity: 0.85,
+      ),
+      _LineLayerSpec(
+        id: '$id-core-layer',
+        sourceId: sourceId,
+        color: colorArgb,
+        width: width,
+        opacity: 1.0,
+      ),
+    ];
+  }
 
   @override
   void initState() {
@@ -75,13 +197,40 @@ class _MapWidgetState extends State<MapWidget> {
       _styleLoaded = false;
       _locationPuckEnabled = false;
       _viewportState = null; // 스타일 재로드 후 _onStyleLoaded에서 재활성화
+      _routeFocusApplied = false;
+      _originalLayerVisibility.clear();
     }
 
     if (_styleLoaded) {
+      if (oldWidget.recenterSignal != widget.recenterSignal) {
+        _recenterOnUser();
+      }
+      if (oldWidget.routeFocusMode != widget.routeFocusMode) {
+        _applyRouteFocusStyle();
+        if (widget.routeFocusMode) {
+          _drawPolyline('nav', const [], Colors.blue.toARGB32(), 4.0);
+        } else if (widget.navPolyline?.isNotEmpty == true) {
+          _drawPolyline(
+            'nav',
+            widget.navPolyline!,
+            Colors.blue.toARGB32(),
+            4.0,
+          );
+        }
+        if (widget.routePolyline?.isNotEmpty == true &&
+            !widget.showCurveHeatmap) {
+          _drawPolyline(
+            'route',
+            widget.routePolyline!,
+            AppColors.red.toARGB32(),
+            5.5,
+          );
+        }
+      }
       if (oldWidget.navPolyline != widget.navPolyline) {
         _drawPolyline(
           'nav',
-          widget.navPolyline ?? [],
+          widget.routeFocusMode ? const [] : widget.navPolyline ?? [],
           Colors.blue.toARGB32(),
           4.0,
         );
@@ -114,25 +263,10 @@ class _MapWidgetState extends State<MapWidget> {
 
   void _onLocationChanged() {
     if (_locationService == null || !_styleLoaded) return;
-    // FollowPuckViewportState가 활성화돼 있으면 SDK가 자동 추적 → 수동 카메라 불필요.
-    // 단, viewport가 아직 없거나 사용자가 이탈한 경우 수동 재잠금 (fallback).
+    // FollowPuckViewportState가 활성화돼 있으면 SDK가 자동 추적한다.
+    // GPS 업데이트마다 viewport를 다시 생성하면 platform view 전체가 재빌드돼
+    // 실기기에서 지도 프레임이 쉽게 떨어진다.
     if (_viewportState != null) {
-      // 사용자가 수동으로 지도를 이탈했을 때 GPS 업데이트마다 재잠금:
-      // 새 ViewportState 인스턴스를 만들어 SDK equality 체크 통과 → transition 재호출
-      if (!_cameraPending) {
-        _cameraPending = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _cameraPending = false;
-          if (!mounted || !_styleLoaded) return;
-          setState(() {
-            _viewportState = mbx.FollowPuckViewportState(
-              zoom: widget.isSprintMode ? 16.5 : 15.0,
-              pitch: widget.isSprintMode ? 50.0 : 20.0,
-              bearing: const mbx.FollowPuckViewportStateBearingHeading(),
-            );
-          });
-        });
-      }
       return;
     }
     // viewport 비활성 구간 fallback: 수동 카메라 이동
@@ -153,11 +287,150 @@ class _MapWidgetState extends State<MapWidget> {
     _mapController = controller;
   }
 
-  Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
-    _styleLoaded = true;
-    _locationPuckEnabled = false;
-    await _applyCustomStyle();
-    // FollowPuckViewportState 활성화: 스타일 로드 완료 후 SDK 네이티브 추적 시작
+  Future<Uint8List> _drawPuckImage({
+    required double size,
+    required void Function(Canvas canvas, Size size) painter,
+  }) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final imageSize = Size(size, size);
+    painter(canvas, imageSize);
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(size.round(), size.round());
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    return bytes!.buffer.asUint8List();
+  }
+
+  Future<void> _ensureCustomPuckImages() async {
+    if (_puckTopImage != null &&
+        _puckBearingImage != null &&
+        _puckShadowImage != null) {
+      return;
+    }
+
+    _puckTopImage = await _drawPuckImage(
+      size: 72,
+      painter: (canvas, size) {
+        final center = Offset(size.width / 2, size.height / 2);
+
+        final ringPaint = Paint()
+          ..color = const Color(0xFF12161C).withValues(alpha: 0.94)
+          ..style = PaintingStyle.fill;
+        final ringStroke = Paint()
+          ..color = const Color(0x5537DFFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3;
+        final corePaint = Paint()
+          ..shader = ui.Gradient.radial(
+            center,
+            size.width * 0.24,
+            const [Color(0xFF9CF3FF), Color(0xFF43D9FF)],
+          );
+
+        canvas.drawCircle(center, size.width * 0.18, ringPaint);
+        canvas.drawCircle(center, size.width * 0.18, ringStroke);
+        canvas.drawCircle(center, size.width * 0.10, corePaint);
+      },
+    );
+
+    _puckBearingImage = await _drawPuckImage(
+      size: 96,
+      painter: (canvas, size) {
+        final centerX = size.width / 2;
+        final centerY = size.height / 2;
+        final path = Path()
+          ..moveTo(centerX, size.height * 0.08)
+          ..lineTo(size.width * 0.77, size.height * 0.72)
+          ..quadraticBezierTo(
+            centerX,
+            size.height * 0.60,
+            size.width * 0.23,
+            size.height * 0.72,
+          )
+          ..close();
+
+        final glowPaint = Paint()
+          ..color = const Color(0x3343D9FF)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+        final fillPaint = Paint()
+          ..shader = ui.Gradient.linear(
+            Offset(centerX, size.height * 0.10),
+            Offset(centerX, size.height * 0.75),
+            const [Color(0xFFB8F7FF), Color(0xFF26D7FF)],
+          );
+        final strokePaint = Paint()
+          ..color = const Color(0xFF10151D)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 4
+          ..strokeJoin = StrokeJoin.round;
+
+        canvas.drawPath(path, glowPaint);
+        canvas.drawPath(path, fillPaint);
+        canvas.drawPath(path, strokePaint);
+
+        final center = Offset(centerX, centerY);
+        final ring = Paint()
+          ..color = const Color(0xE0141820);
+        final ringStroke = Paint()
+          ..color = const Color(0x8837DFFF)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.5;
+        canvas.drawCircle(center, size.width * 0.11, ring);
+        canvas.drawCircle(center, size.width * 0.11, ringStroke);
+      },
+    );
+
+    _puckShadowImage = await _drawPuckImage(
+      size: 110,
+      painter: (canvas, size) {
+        final center = Offset(size.width / 2, size.height / 2);
+        final shadowPaint = Paint()
+          ..color = const Color(0x4417D9FF)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18);
+        canvas.drawCircle(center, size.width * 0.18, shadowPaint);
+
+        final haloPaint = Paint()
+          ..shader = ui.Gradient.radial(
+            center,
+            size.width * 0.30,
+            const [
+              Color(0x2234E6FF),
+              Color(0x08131A22),
+              Color(0x00000000),
+            ],
+          );
+        canvas.drawCircle(center, size.width * 0.28, haloPaint);
+      },
+    );
+  }
+
+  Future<void> _updateLocationSettings() async {
+    final map = _mapController;
+    if (map == null) return;
+    await _ensureCustomPuckImages();
+    await map.location.updateSettings(
+      mbx.LocationComponentSettings(
+        enabled: true,
+        pulsingEnabled: widget.isSprintMode,
+        pulsingColor: widget.isSprintMode
+            ? AppColors.red.withValues(alpha: 0.28).toARGB32()
+            : const Color(0x3326D7FF).toARGB32(),
+        locationPuck: mbx.LocationPuck(
+          locationPuck2D: mbx.DefaultLocationPuck2D(
+            topImage: _puckTopImage,
+            bearingImage: _puckBearingImage,
+            shadowImage: _puckShadowImage,
+            opacity: 1.0,
+          ),
+        ),
+      ),
+    );
+    _locationPuckEnabled = true;
+  }
+
+  void _activateFollowViewport() {
+    final loc = _locationService;
+    if (loc == null) return;
     setState(() {
       _viewportState = mbx.FollowPuckViewportState(
         zoom: widget.isSprintMode ? 16.5 : 15.0,
@@ -165,8 +438,25 @@ class _MapWidgetState extends State<MapWidget> {
         bearing: const mbx.FollowPuckViewportStateBearingHeading(),
       );
     });
+  }
+
+  void _recenterOnUser() {
+    final loc = _locationService;
+    if (loc == null || !_styleLoaded) return;
+    _activateFollowViewport();
+    _moveCamera(loc.lat, loc.lng, heading: loc.heading, immediate: true);
+  }
+
+  Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
+    _styleLoaded = true;
+    _locationPuckEnabled = false;
+    _routeFocusApplied = false;
+    _originalLayerVisibility.clear();
+    await _applyCustomStyle();
+    // FollowPuckViewportState 활성화: 스타일 로드 완료 후 SDK 네이티브 추적 시작
+    _activateFollowViewport();
     // 폴리라인 재그리기 (스타일 재로드 시)
-    if (widget.navPolyline?.isNotEmpty == true) {
+    if (!widget.routeFocusMode && widget.navPolyline?.isNotEmpty == true) {
       await _drawPolyline(
         'nav',
         widget.navPolyline!,
@@ -198,15 +488,20 @@ class _MapWidgetState extends State<MapWidget> {
     if (map == null || !_styleLoaded) return;
 
     final sourceId = '$id-source';
-    final casingId = '$id-casing-layer';
-    final layerId = '$id-layer';
+    final layerIds = [
+      '$id-ribbon-layer',
+      '$id-core-layer',
+      '$id-track-layer',
+      '$id-shadow-layer',
+      '$id-layer',
+      '$id-casing-layer',
+    ];
 
-    try {
-      await map.style.removeStyleLayer(layerId);
-    } catch (_) {}
-    try {
-      await map.style.removeStyleLayer(casingId);
-    } catch (_) {}
+    for (final layerId in layerIds) {
+      try {
+        await map.style.removeStyleLayer(layerId);
+      } catch (_) {}
+    }
     try {
       await map.style.removeStyleSource(sourceId);
     } catch (_) {}
@@ -224,30 +519,19 @@ class _MapWidgetState extends State<MapWidget> {
 
     try {
       await map.style.addSource(mbx.GeoJsonSource(id: sourceId, data: geoJson));
-      // 검정 테두리 (casing) — 지도 배경과 구분
-      await map.style.addLayer(
-        mbx.LineLayer(
-          id: casingId,
-          sourceId: sourceId,
-          lineColor: 0xFF000000,
-          lineWidth: width + 3.0,
-          lineOpacity: 0.85,
-          lineCap: mbx.LineCap.ROUND,
-          lineJoin: mbx.LineJoin.ROUND,
-        ),
-      );
-      // 메인 색상 레이어
-      await map.style.addLayer(
-        mbx.LineLayer(
-          id: layerId,
-          sourceId: sourceId,
-          lineColor: colorArgb,
-          lineWidth: width,
-          lineOpacity: 1.0,
-          lineCap: mbx.LineCap.ROUND,
-          lineJoin: mbx.LineJoin.ROUND,
-        ),
-      );
+      for (final layer in _buildLineLayers(id, sourceId, colorArgb, width)) {
+        await map.style.addLayer(
+          mbx.LineLayer(
+            id: layer.id,
+            sourceId: layer.sourceId,
+            lineColor: layer.color,
+            lineWidth: layer.width,
+            lineOpacity: layer.opacity,
+            lineCap: mbx.LineCap.ROUND,
+            lineJoin: mbx.LineJoin.ROUND,
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('[MapWidget] polyline $id: $e');
     }
@@ -428,38 +712,83 @@ class _MapWidgetState extends State<MapWidget> {
 
     // ── 위치 표시: 방향 화살표 + pulsing ───────────────────────────
     try {
-      await map.location.updateSettings(
-        mbx.LocationComponentSettings(
-          enabled: true,
-          pulsingEnabled: widget.isSprintMode,
-          pulsingColor: widget.isSprintMode
-              ? AppColors.red.withValues(alpha: 0.35).toARGB32()
-              : 0xFF1E90FF,
-          locationPuck: mbx.LocationPuck(locationPuck2D: mbx.LocationPuck2D()),
-        ),
-      );
-      _locationPuckEnabled = true;
+      await _updateLocationSettings();
     } catch (e) {
       debugPrint('[MapWidget] location layer: $e');
     }
 
     // ── 스타일 설정 (라이트/라벨 등) ──────────────────────────────
-    if (!widget.isSprintMode) {
-      for (final entry in {
-        'showPointOfInterestLabels': false,
-        'showTransitLabels': false,
-        'showRoadLabels': true,
-        'showPlaceLabels': false,
-        'lightPreset': 'night',
-      }.entries) {
+    for (final entry in {
+      'showPointOfInterestLabels': false,
+      'showTransitLabels': false,
+      'showRoadLabels': !widget.routeFocusMode,
+      'showPlaceLabels': !widget.routeFocusMode,
+      'lightPreset': 'night',
+      if (widget.routeFocusMode) 'theme': 'monochrome',
+    }.entries) {
+      try {
+        await map.style.setStyleImportConfigProperty(
+          'basemap',
+          entry.key,
+          entry.value,
+        );
+      } catch (_) {}
+    }
+
+    await _applyRouteFocusStyle();
+  }
+
+  bool _isRevvOverlayLayer(String id) {
+    return id.startsWith('route-') ||
+        id.startsWith('nav-') ||
+        id.startsWith('hm-');
+  }
+
+  Future<void> _applyRouteFocusStyle() async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded) return;
+
+    if (!widget.routeFocusMode) {
+      if (!_routeFocusApplied && _originalLayerVisibility.isEmpty) return;
+      final restoreEntries = Map<String, Object?>.from(
+        _originalLayerVisibility,
+      );
+      for (final entry in restoreEntries.entries) {
         try {
-          await map.style.setStyleImportConfigProperty(
-            'basemap',
+          await map.style.setStyleLayerProperty(
             entry.key,
-            entry.value,
+            'visibility',
+            entry.value ?? 'visible',
           );
         } catch (_) {}
       }
+      _originalLayerVisibility.clear();
+      _routeFocusApplied = false;
+      return;
+    }
+
+    if (_routeFocusApplied) return;
+    try {
+      final layers = await map.style.getStyleLayers();
+      for (final layer in layers.whereType<mbx.StyleObjectInfo>()) {
+        if (_isRevvOverlayLayer(layer.id)) continue;
+        if (layer.type == 'background') continue;
+        try {
+          final original = await map.style.getStyleLayerProperty(
+            layer.id,
+            'visibility',
+          );
+          _originalLayerVisibility[layer.id] = original.value;
+        } catch (_) {
+          _originalLayerVisibility[layer.id] = null;
+        }
+        try {
+          await map.style.setStyleLayerProperty(layer.id, 'visibility', 'none');
+        } catch (_) {}
+      }
+      _routeFocusApplied = true;
+    } catch (e) {
+      debugPrint('[MapWidget] route focus style: $e');
     }
   }
 
@@ -504,16 +833,7 @@ class _MapWidgetState extends State<MapWidget> {
     // LocationPuck이 비활성화됐으면 재활성화
     if (!_locationPuckEnabled && _styleLoaded) {
       try {
-        await _mapController!.location.updateSettings(
-          mbx.LocationComponentSettings(
-            enabled: true,
-            pulsingEnabled: widget.isSprintMode,
-            locationPuck: mbx.LocationPuck(
-              locationPuck2D: mbx.LocationPuck2D(),
-            ),
-          ),
-        );
-        _locationPuckEnabled = true;
+        await _updateLocationSettings();
       } catch (_) {}
     }
   }

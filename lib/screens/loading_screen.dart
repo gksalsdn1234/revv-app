@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../widgets/corner_brackets.dart';
+import '../widgets/revv_ui.dart';
 import '../services/location_service.dart';
 import '../services/weather_service.dart';
 import '../services/jarvis_service.dart';
@@ -70,8 +71,12 @@ class _LoadingScreenState extends State<LoadingScreen>
       _sub.forward();
       _brackets.forward();
 
+      await _showPermissionIntroIfNeeded();
+      if (!mounted) return;
+
       // 권한 요청 (첫 실행 또는 미허용 시)
-      await _requestPermissions();
+      final permissions = await _requestPermissions();
+      await _showPermissionResultIfNeeded(permissions);
 
       // Jarvis 첫 인사 + 날씨 로드
       if (mounted) {
@@ -100,7 +105,7 @@ class _LoadingScreenState extends State<LoadingScreen>
   }
 
   /// 위치 + 마이크 권한 요청 — 이미 허용됐으면 즉시 반환
-  Future<void> _requestPermissions() async {
+  Future<Map<Permission, PermissionStatus>> _requestPermissions() async {
     final statuses = await [
       Permission.locationWhenInUse,
       Permission.microphone,
@@ -108,6 +113,43 @@ class _LoadingScreenState extends State<LoadingScreen>
     for (final entry in statuses.entries) {
       debugPrint('[LoadingScreen] ${entry.key} → ${entry.value}');
     }
+    return statuses;
+  }
+
+  Future<void> _showPermissionIntroIfNeeded() async {
+    final location = await Permission.locationWhenInUse.status;
+    final mic = await Permission.microphone.status;
+    if (!mounted || (location.isGranted && mic.isGranted)) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      builder: (_) =>
+          _PermissionIntroSheet(onContinue: () => Navigator.pop(context)),
+    );
+  }
+
+  Future<void> _showPermissionResultIfNeeded(
+    Map<Permission, PermissionStatus> statuses,
+  ) async {
+    if (!mounted) return;
+    final location = statuses[Permission.locationWhenInUse];
+    final mic = statuses[Permission.microphone];
+    if ((location?.isGranted ?? false) && (mic?.isGranted ?? false)) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _PermissionResultSheet(
+        locationGranted: location?.isGranted ?? false,
+        microphoneGranted: mic?.isGranted ?? false,
+        onSettings: () {
+          openAppSettings();
+          Navigator.pop(context);
+        },
+        onContinue: () => Navigator.pop(context),
+      ),
+    );
   }
 
   @override
@@ -126,116 +168,119 @@ class _LoadingScreenState extends State<LoadingScreen>
 
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: Stack(
-        children: [
-          // Corner brackets
-          Positioned.fill(
-            child: FadeTransition(
-              opacity: _bracketsOpacity,
-              child: const CornerBrackets(padding: 24, lineLength: 20),
+      body: RevvCockpitBackground(
+        scanlines: true,
+        child: Stack(
+          children: [
+            // Corner brackets
+            Positioned.fill(
+              child: FadeTransition(
+                opacity: _bracketsOpacity,
+                child: const CornerBrackets(padding: 24, lineLength: 20),
+              ),
             ),
-          ),
-          // Center content
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Logo with scan reveal
-                AnimatedBuilder(
-                  animation: _scanAnim,
-                  builder: (context, _) {
-                    final scanX = _scanAnim.value * screen.width;
-                    return Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        // Trail
-                        Positioned(
-                          left: 0,
-                          child: Container(
-                            width: scanX,
-                            height: 80,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  AppColors.primaryContainer.withValues(
-                                    alpha: 0.04,
-                                  ),
-                                  Colors.transparent,
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        // Revealed logo
-                        ClipRect(
-                          clipper: _ScanClipper(revealX: scanX),
-                          child: _buildLogo(),
-                        ),
-                        // Scan line
-                        if (_scanAnim.value < 1)
+            // Center content
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Logo with scan reveal
+                  AnimatedBuilder(
+                    animation: _scanAnim,
+                    builder: (context, _) {
+                      final scanX = _scanAnim.value * screen.width;
+                      return Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          // Trail
                           Positioned(
-                            left: scanX - 1,
+                            left: 0,
                             child: Container(
-                              width: 2,
+                              width: scanX,
                               height: 80,
                               decoration: BoxDecoration(
-                                color: AppColors.primaryContainer,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.primaryContainer
-                                        .withValues(alpha: 0.6),
-                                    blurRadius: 20,
-                                    spreadRadius: 2,
-                                  ),
-                                ],
+                                gradient: LinearGradient(
+                                  colors: [
+                                    AppColors.primaryContainer.withValues(
+                                      alpha: 0.04,
+                                    ),
+                                    Colors.transparent,
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 12),
-                // Red underline
-                AnimatedBuilder(
-                  animation: _lineWidth,
-                  builder: (context, _) {
-                    final w = _lineWidth.value * 240;
-                    return Container(
-                      width: w,
-                      height: 2,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.transparent,
-                            AppColors.primaryContainer,
-                            Colors.transparent,
+                          // Revealed logo
+                          ClipRect(
+                            clipper: _ScanClipper(revealX: scanX),
+                            child: _buildLogo(),
+                          ),
+                          // Scan line
+                          if (_scanAnim.value < 1)
+                            Positioned(
+                              left: scanX - 1,
+                              child: Container(
+                                width: 2,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  color: AppColors.primaryContainer,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppColors.primaryContainer
+                                          .withValues(alpha: 0.6),
+                                      blurRadius: 20,
+                                      spreadRadius: 2,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  // Red underline
+                  AnimatedBuilder(
+                    animation: _lineWidth,
+                    builder: (context, _) {
+                      final w = _lineWidth.value * 240;
+                      return Container(
+                        width: w,
+                        height: 2,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.transparent,
+                              AppColors.primaryContainer,
+                              Colors.transparent,
+                            ],
+                          ),
+                          boxShadow: [
+                            BoxShadow(color: AppColors.redGlow, blurRadius: 8),
                           ],
                         ),
-                        boxShadow: [
-                          BoxShadow(color: AppColors.redGlow, blurRadius: 8),
-                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  // Sub text
+                  FadeTransition(
+                    opacity: _subOpacity,
+                    child: Text(
+                      'AI CO-DRIVER',
+                      style: AppText.label(
+                        size: 11,
+                        color: AppColors.textHint,
+                        letterSpacing: 8,
                       ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-                // Sub text
-                FadeTransition(
-                  opacity: _subOpacity,
-                  child: Text(
-                    'AI CO-DRIVER',
-                    style: AppText.label(
-                      size: 11,
-                      color: AppColors.textHint,
-                      letterSpacing: 8,
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -274,4 +319,198 @@ class _ScanClipper extends CustomClipper<Rect> {
 
   @override
   bool shouldReclip(_ScanClipper old) => revealX != old.revealX;
+}
+
+class _PermissionIntroSheet extends StatelessWidget {
+  final VoidCallback onContinue;
+
+  const _PermissionIntroSheet({required this.onContinue});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: RevvGlassCard(
+        margin: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+        radius: 24,
+        color: AppColors.panel.withValues(alpha: 0.96),
+        glow: true,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '시작 전 권한 안내',
+              style: AppText.body(
+                size: 22,
+                weight: FontWeight.w900,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '권한은 필요한 기능에만 사용해요. 거부해도 앱은 계속 열리지만 일부 기능이 제한됩니다.',
+              style: AppText.body(
+                size: 13,
+                height: 1.35,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const _PermissionReasonTile(
+              icon: Icons.location_on_rounded,
+              title: '위치',
+              body: '현재 위치 주변 루트 탐색, 시작점 거리 계산, 주행 기록 저장에 사용합니다.',
+            ),
+            const _PermissionReasonTile(
+              icon: Icons.mic_rounded,
+              title: '마이크',
+              body: '코파일럿 음성 명령에만 사용합니다. 꺼도 루트 탐색과 주행은 가능합니다.',
+            ),
+            const SizedBox(height: 16),
+            RevvPrimaryButton(
+              label: '권한 설정 계속',
+              icon: Icons.verified_user_rounded,
+              onPressed: onContinue,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PermissionResultSheet extends StatelessWidget {
+  final bool locationGranted;
+  final bool microphoneGranted;
+  final VoidCallback onSettings;
+  final VoidCallback onContinue;
+
+  const _PermissionResultSheet({
+    required this.locationGranted,
+    required this.microphoneGranted,
+    required this.onSettings,
+    required this.onContinue,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final locationBlocked = !locationGranted;
+    return SafeArea(
+      top: false,
+      child: RevvGlassCard(
+        margin: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+        radius: 24,
+        color: AppColors.panel.withValues(alpha: 0.96),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              locationBlocked ? '위치 권한이 필요해요' : '음성 기능은 나중에 켤 수 있어요',
+              style: AppText.body(
+                size: 20,
+                weight: FontWeight.w900,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              locationBlocked
+                  ? '주변 루트 탐색은 위치 권한이 있어야 정확히 동작합니다. 설정에서 위치 권한을 켜면 바로 다시 찾을 수 있어요.'
+                  : microphoneGranted
+                  ? '필수 권한이 준비됐어요.'
+                  : '마이크 권한이 없어도 루트 탐색과 주행은 가능합니다. 음성 명령만 비활성화돼요.',
+              style: AppText.body(
+                size: 13,
+                height: 1.35,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                if (locationBlocked) ...[
+                  Expanded(
+                    child: RevvGhostButton(
+                      label: '설정 열기',
+                      onPressed: onSettings,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                ],
+                Expanded(
+                  child: RevvPrimaryButton(
+                    label: locationBlocked ? '일단 계속' : '계속',
+                    icon: Icons.arrow_forward_rounded,
+                    onPressed: onContinue,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PermissionReasonTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+
+  const _PermissionReasonTile({
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.primaryContainer.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, size: 18, color: AppColors.primaryContainer),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppText.body(
+                    size: 14,
+                    weight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  body,
+                  style: AppText.body(
+                    size: 12,
+                    height: 1.32,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

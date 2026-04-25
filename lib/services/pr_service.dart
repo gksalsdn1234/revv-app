@@ -24,7 +24,7 @@ class PrService {
     if (uid == null) return const NewPrFlags();
 
     try {
-      final records = await sync.fetchRouteRecords(uid);
+      final records = await sync.fetchRouteRecords();
       final existing = records[routeId];
 
       final timeSeconds = session.duration.inSeconds;
@@ -39,7 +39,6 @@ class PrService {
       final newBestG = maxG > 0.1 && (oldBestG == null || maxG > oldBestG);
 
       await sync.upsertRouteRecord(
-        userId: uid,
         routeId: routeId,
         bestTimeSeconds: newBestTime
             ? timeSeconds

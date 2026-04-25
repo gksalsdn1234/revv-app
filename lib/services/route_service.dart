@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
@@ -53,6 +54,39 @@ class _SearchRunResult {
     required this.expansionStep,
     required this.expansionSteps,
   });
+}
+
+enum RouteExtensionFlavor { short, recommended, long }
+
+class RouteExtensionOption {
+  final RouteExtensionFlavor flavor;
+  final ChainCandidate candidate;
+  final CompositeRoute composite;
+
+  const RouteExtensionOption({
+    required this.flavor,
+    required this.candidate,
+    required this.composite,
+  });
+
+  String get label {
+    switch (flavor) {
+      case RouteExtensionFlavor.short:
+        return '짧게 확장';
+      case RouteExtensionFlavor.recommended:
+        return '추천 확장';
+      case RouteExtensionFlavor.long:
+        return '길게 확장';
+    }
+  }
+
+  String get description {
+    final added = composite.chainedSegments.fold<double>(
+      0,
+      (sum, route) => sum + route.distanceKm,
+    );
+    return '${composite.totalDistanceKm.toStringAsFixed(0)}km · +${added.toStringAsFixed(0)}km';
+  }
 }
 
 // ─── Top-level 처리 함수 (isolate에서 실행) ────────────────────────
@@ -811,6 +845,8 @@ _IsolateResult _selectTopRoutes(
 // ─── RouteService ─────────────────────────────────────────────────
 
 class RouteService extends ChangeNotifier {
+  static const Duration _notifyThrottle = Duration(milliseconds: 120);
+
   List<RevvRoute> routes = [];
   RevvRoute? selectedRoute;
   bool isLoading = false;
@@ -818,7 +854,12 @@ class RouteService extends ChangeNotifier {
   bool isRefreshingDiversity = false;
   String? errorMessage;
   String? backgroundStatusMessage;
+  String? routeDataStatusTitle;
+  String? routeDataStatusBody;
+  String routeDataSourceLabel = '준비 중';
   String? lastDiversitySource;
+  int lastCloudCandidateCount = 0;
+  int lastUsableCloudRouteCount = 0;
   RouteSearchStage currentSearchStage = RouteSearchStage.strict;
   int currentSearchRadiusKm = 0;
   int currentExpansionStep = 1;
@@ -844,6 +885,50 @@ class RouteService extends ChangeNotifier {
   double? _lastJsonLng;
   int? _lastJsonRadiusM;
   int _fetchToken = 0;
+  Timer? _notifyTimer;
+  DateTime? _lastNotifiedAt;
+  bool _notifyQueued = false;
+  bool _disposed = false;
+
+  void _logRouteSnapshot(String label, List<RevvRoute> routes) {
+    final preview = routes
+        .take(5)
+        .map(
+          (r) =>
+              '${r.name.isEmpty ? '(noname)' : r.name}'
+              '[${r.distanceKm.toStringAsFixed(1)}km/${r.windingScore.toStringAsFixed(1)}]',
+        )
+        .join(', ');
+    debugPrint(
+      '[RouteService] $label: ${routes.length}개'
+      '${preview.isEmpty ? '' : ' -> $preview'}',
+    );
+  }
+
+  void _emitListenersNow() {
+    if (_disposed) return;
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+    _notifyQueued = false;
+    _lastNotifiedAt = DateTime.now();
+    super.notifyListeners();
+  }
+
+  @override
+  void notifyListeners() {
+    if (_disposed) return;
+    final now = DateTime.now();
+    final last = _lastNotifiedAt;
+    if (last == null || now.difference(last) >= _notifyThrottle) {
+      _emitListenersNow();
+      return;
+    }
+
+    if (_notifyQueued) return;
+    _notifyQueued = true;
+    final wait = _notifyThrottle - now.difference(last);
+    _notifyTimer = Timer(wait, _emitListenersNow);
+  }
 
   // ── 루트 배제 ────────────────────────────────────────────────
   final List<LatLng> _excludedCenters = [];
@@ -979,6 +1064,9 @@ class RouteService extends ChangeNotifier {
       routes = cached;
       selectedRoute = routes.first;
       lastDiversitySource = 'cache';
+      routeDataSourceLabel = '캐시';
+      routeDataStatusTitle = '이전 검색 결과 표시 중';
+      routeDataStatusBody = '네트워크 결과를 기다리는 동안 마지막으로 찾은 루트를 먼저 보여줘요.';
       notifyListeners();
     }
 
@@ -993,6 +1081,11 @@ class RouteService extends ChangeNotifier {
     isRefreshingDiversity = false;
     errorMessage = null;
     backgroundStatusMessage = null;
+    routeDataStatusTitle = null;
+    routeDataStatusBody = null;
+    routeDataSourceLabel = '검색 중';
+    lastCloudCandidateCount = 0;
+    lastUsableCloudRouteCount = 0;
     currentSearchStage = RouteSearchStage.strict;
     currentSearchRadiusKm = searchRadiusKm;
     currentExpansionStep = 1;
@@ -1003,15 +1096,55 @@ class RouteService extends ChangeNotifier {
       await loadExclusions();
 
       // ③-a 전역 DB 먼저 조회 (커뮤니티 루트)
-      final globalRoutes = filterSupabaseRouteCandidates(
-        await SupabaseService()
-            .fetchNearbyRoutes(lat, lng, searchRadiusKm.toDouble())
-            .timeout(
-              const Duration(seconds: 6),
-              onTimeout: () => <RevvRoute>[],
-            ),
+      final cloud = SupabaseService();
+      if (!cloud.isReady) {
+        routeDataStatusTitle = '클라우드 루트 연결 안 됨';
+        routeDataStatusBody = '저장된 커뮤니티 루트 대신 공개 도로 검색으로 루트를 찾고 있어요.';
+        notifyListeners();
+      }
+
+      final supabaseRpcRoutes = await cloud
+          .fetchNearbyRoutes(lat, lng, searchRadiusKm.toDouble())
+          .timeout(const Duration(seconds: 6), onTimeout: () => <RevvRoute>[]);
+      _logRouteSnapshot('Supabase RPC nearby(raw)', supabaseRpcRoutes);
+
+      final supabaseDirectRoutes = supabaseRpcRoutes.isEmpty
+          ? await cloud
+                .fetchNearbyRoutesDirect(lat, lng, searchRadiusKm.toDouble())
+                .timeout(
+                  const Duration(seconds: 6),
+                  onTimeout: () => <RevvRoute>[],
+                )
+          : const <RevvRoute>[];
+      if (supabaseDirectRoutes.isNotEmpty) {
+        _logRouteSnapshot(
+          'Supabase direct fallback nearby(raw)',
+          supabaseDirectRoutes,
+        );
+      }
+      final supabaseCandidatePool = supabaseRpcRoutes.isNotEmpty
+          ? supabaseRpcRoutes
+          : supabaseDirectRoutes;
+      lastCloudCandidateCount = supabaseCandidatePool.length;
+      _logRouteSnapshot(
+        'Supabase candidate pool(before filter)',
+        supabaseCandidatePool,
       );
+      final globalRoutes = filterSupabaseRouteCandidates(supabaseCandidatePool);
+      _logRouteSnapshot('Supabase candidate pool(after filter)', globalRoutes);
       final globalFiltered = globalRoutes.where((r) => !isExcluded(r)).toList();
+      lastUsableCloudRouteCount = globalFiltered.length;
+      _logRouteSnapshot(
+        'Supabase usable nearby after exclusions',
+        globalFiltered,
+      );
+      if (cloud.isReady &&
+          lastCloudCandidateCount > 0 &&
+          globalFiltered.isEmpty) {
+        routeDataStatusTitle = '조건에 맞는 클라우드 루트가 없어요';
+        routeDataStatusBody = '데이터는 찾았지만 품질 필터나 숨긴 루트 설정 때문에 표시할 후보가 없어요.';
+        notifyListeners();
+      }
 
       final initial = _rankRoutes(
         mergeDiversityRoutes(
@@ -1023,12 +1156,18 @@ class RouteService extends ChangeNotifier {
           ).dedupDistanceKm,
         ),
       );
+      _logRouteSnapshot('Initial merged supabase candidates', initial);
       if (fetchToken != _fetchToken) return;
       if (initial.isNotEmpty) {
         final guardedInitial = _withQualityGuardrails(initial);
         final visibleInitial = _withCompositeFallback(guardedInitial);
-        debugPrint(
-          '[RouteService] 초기 후보: initial=${initial.length}, guarded=${guardedInitial.length}, visible=${visibleInitial.length}',
+        _logRouteSnapshot(
+          'Initial candidates after guardrails',
+          guardedInitial,
+        );
+        _logRouteSnapshot(
+          'Initial candidates after composite fallback',
+          visibleInitial,
         );
         if (visibleInitial.isNotEmpty) {
           _applyVisibleRoutes(
@@ -1036,6 +1175,9 @@ class RouteService extends ChangeNotifier {
             source: routes.isNotEmpty ? 'mixed' : 'supabase',
             preserveSelection: true,
           );
+          routeDataSourceLabel = routes.isNotEmpty ? '혼합' : '클라우드';
+          routeDataStatusTitle = null;
+          routeDataStatusBody = null;
           _saveToCache(routes, lat, lng);
           _saveRoutesToFirestore(routes);
           isLoading = false;
@@ -1088,6 +1230,9 @@ class RouteService extends ChangeNotifier {
         _lastFetchLocation = LatLng(lat, lng);
         _lastFetchRadius = searchRadiusKm;
         backgroundStatusMessage = '추가 루트를 찾지 못해 기존 추천을 유지합니다';
+        routeDataSourceLabel = lastDiversitySource == 'cache' ? '캐시' : '기존 결과';
+        routeDataStatusTitle = '새 루트는 못 찾았어요';
+        routeDataStatusBody = '현재 지도에는 기존 추천을 유지하고 있어요. 다른 지역에서 다시 찾아보세요.';
         isLoading = false;
         isLoadingInitial = false;
         notifyListeners();
@@ -1103,18 +1248,65 @@ class RouteService extends ChangeNotifier {
         return;
       }
 
+      if (fresh.isEmpty && globalFiltered.isEmpty) {
+        final rawTopFallback = await SupabaseService().fetchTopRoutes(
+          limit: 60,
+        );
+        _logRouteSnapshot('Supabase top fallback(raw)', rawTopFallback);
+        final filteredTopFallback = filterSupabaseRouteCandidates(
+          rawTopFallback,
+        );
+        _logRouteSnapshot(
+          'Supabase top fallback(after filter)',
+          filteredTopFallback,
+        );
+        final topFallback = filteredTopFallback
+            .where((r) => !isExcluded(r))
+            .toList();
+        _logRouteSnapshot(
+          'Supabase top fallback(after exclusions)',
+          topFallback,
+        );
+        if (topFallback.isNotEmpty) {
+          fresh = _withCompositeFallback(_withQualityGuardrails(topFallback));
+          _logRouteSnapshot(
+            'Supabase top fallback(after guardrails/composite)',
+            fresh,
+          );
+        }
+      }
+
       _publishNewRoutes(bootstrap, globalFiltered);
       _applyVisibleRoutes(
         fresh,
         source: bootstrap.isNotEmpty ? 'overpass' : 'supabase',
         preserveSelection: true,
       );
+      routeDataSourceLabel = routes.isEmpty
+          ? '검색 결과 없음'
+          : bootstrap.isNotEmpty
+          ? '도로 검색'
+          : '클라우드';
       _lastFetchLocation = LatLng(lat, lng);
       _lastFetchRadius = searchRadiusKm;
       debugPrint('[RouteService] 초기 루트 로드: ${routes.length}개');
       backgroundStatusMessage = routes.length < minimumVisibleRoutes
           ? '근처에 흐름 좋은 와인딩이 적어 더 적은 수만 표시합니다'
           : '현재 위치 기준 루트를 준비했어요';
+      if (routes.isEmpty) {
+        routeDataStatusTitle = cloud.isReady
+            ? '이 지역에서 표시할 루트를 못 찾았어요'
+            : '클라우드 없이 도로 검색만 시도했어요';
+        routeDataStatusBody = cloud.isReady
+            ? '지도를 조금 이동한 뒤 다시 찾거나, 설정에서 탐색 반경을 넓혀보세요.'
+            : 'Supabase 설정이 없으면 저장된 루트를 불러오지 못해요. 설정 후 다시 실행하면 클라우드 루트도 표시됩니다.';
+      } else if (routes.length < minimumVisibleRoutes) {
+        routeDataStatusTitle = '추천 수가 적어요';
+        routeDataStatusBody = '현재 지역에는 조건에 맞는 루트가 적어요. 반경을 넓히면 더 볼 수 있어요.';
+      } else {
+        routeDataStatusTitle = null;
+        routeDataStatusBody = null;
+      }
 
       // ⑤ 캐시 저장 (SharedPreferences + Firestore 비동기)
       _saveToCache(routes, lat, lng);
@@ -1138,9 +1330,15 @@ class RouteService extends ChangeNotifier {
           selectedRoute = routes.first;
           errorMessage = '오프라인 모드 — 마지막 검색 결과를 표시합니다';
           lastDiversitySource = 'cache';
+          routeDataSourceLabel = '캐시';
+          routeDataStatusTitle = '오프라인 캐시 표시 중';
+          routeDataStatusBody = '네트워크 연결이 불안정해서 마지막 검색 결과를 보여줘요.';
           debugPrint('[RouteService] 오프라인 캐시 복원: ${routes.length}개');
         } else {
           errorMessage = '네트워크 오류가 발생했어요. 인터넷 연결을 확인하세요.';
+          routeDataSourceLabel = '연결 실패';
+          routeDataStatusTitle = '루트 데이터를 가져오지 못했어요';
+          routeDataStatusBody = '인터넷 연결과 Supabase 설정을 확인한 뒤 다시 시도해 주세요.';
         }
       }
     }
@@ -1262,7 +1460,7 @@ class RouteService extends ChangeNotifier {
       return route.copyWith(routeRankScore: score);
     }).toList();
     boosted.sort((a, b) => b.routeRankScore.compareTo(a.routeRankScore));
-    return boosted.take(visibleRouteLimit).toList();
+    return diversifyRouteSlots(boosted, limit: visibleRouteLimit);
   }
 
   List<RevvRoute> _withCompositeFallback(List<RevvRoute> pool) {
@@ -1484,6 +1682,124 @@ class RouteService extends ChangeNotifier {
     previewCompositeRoute = composite;
     notifyListeners();
     return composite;
+  }
+
+  Future<CompositeRoute?> generateRouteExtension(RevvRoute baseRoute) async {
+    final options = await generateRouteExtensionOptions(baseRoute);
+    if (options.isEmpty) return null;
+    return commitRouteExtensionOption(options.first);
+  }
+
+  Future<List<RouteExtensionOption>> generateRouteExtensionOptions(
+    RevvRoute baseRoute,
+  ) async {
+    if (isLoadingConnecting) return const [];
+    isLoadingConnecting = true;
+    backgroundStatusMessage = '루트 확장 후보를 조합하는 중이에요';
+    notifyListeners();
+
+    try {
+      var base = baseRoute;
+      if (base.nodes.length < 2) {
+        await _ensureRouteNodes(base);
+        base = selectedRoute?.id == baseRoute.id ? selectedRoute! : baseRoute;
+      }
+      if (base.nodes.length < 2) return const [];
+
+      selectedRoute = base;
+      final hydratedRoutes = await ensureChainCandidateNodes(
+        baseRoute: base,
+        allRoutes: routes,
+        loadNodes: (routeId) => SupabaseService().fetchRouteNodes(routeId),
+        maxHydratedCandidates: 10,
+      );
+      if (!listEquals(hydratedRoutes, routes)) {
+        routes = hydratedRoutes;
+        base = routes.firstWhere(
+          (route) => route.id == base.id,
+          orElse: () => base,
+        );
+        selectedRoute = base;
+      }
+
+      final candidates = buildChainCandidates(
+        baseRoute: base,
+        allRoutes: routes,
+        limit: 6,
+      );
+      connectingRoutes = candidates;
+      if (candidates.isEmpty) {
+        backgroundStatusMessage = '자연스럽게 이어지는 확장 후보가 없어요';
+        return const [];
+      }
+
+      final options = <RouteExtensionOption>[];
+      final usedCandidateIds = <String>{};
+      final shortest = List<ChainCandidate>.from(candidates)
+        ..sort((a, b) => a.route.distanceKm.compareTo(b.route.distanceKm));
+      final longest = List<ChainCandidate>.from(candidates)
+        ..sort((a, b) => b.route.distanceKm.compareTo(a.route.distanceKm));
+      final recipes =
+          <({RouteExtensionFlavor flavor, List<ChainCandidate> pool})>[
+            (flavor: RouteExtensionFlavor.recommended, pool: candidates),
+            (flavor: RouteExtensionFlavor.short, pool: shortest),
+            (flavor: RouteExtensionFlavor.long, pool: longest),
+          ];
+
+      for (final recipe in recipes) {
+        for (final candidate in recipe.pool) {
+          if (usedCandidateIds.contains(candidate.route.id)) continue;
+          final composite = await _buildCompositeRouteFromCandidate(candidate);
+          if (composite == null) continue;
+          usedCandidateIds.add(candidate.route.id);
+          options.add(
+            RouteExtensionOption(
+              flavor: recipe.flavor,
+              candidate: candidate,
+              composite: composite,
+            ),
+          );
+          break;
+        }
+      }
+
+      if (options.isNotEmpty) {
+        backgroundStatusMessage = '확장 후보 ${options.length}개를 만들었어요';
+        return options;
+      }
+
+      for (final candidate in candidates) {
+        final composite = await _buildCompositeRouteFromCandidate(candidate);
+        if (composite == null) continue;
+        backgroundStatusMessage = '확장 후보 1개를 만들었어요';
+        return [
+          RouteExtensionOption(
+            flavor: RouteExtensionFlavor.recommended,
+            candidate: candidate,
+            composite: composite,
+          ),
+        ];
+      }
+
+      backgroundStatusMessage = '실도로 연결선을 만들 수 없어 확장을 건너뜁니다';
+      return const [];
+    } catch (e) {
+      debugPrint('[RouteService] generateRouteExtension 오류: $e');
+      backgroundStatusMessage = '확장 루트 생성에 실패했어요';
+      return const [];
+    } finally {
+      isLoadingConnecting = false;
+      notifyListeners();
+    }
+  }
+
+  CompositeRoute commitRouteExtensionOption(RouteExtensionOption option) {
+    selectedCompositeRoute = option.composite;
+    previewCompositeCandidate = option.candidate;
+    previewCompositeRoute = option.composite;
+    backgroundStatusMessage = '확장 루트를 선택했어요';
+    notifyListeners();
+    return option.composite;
   }
 
   void clearCompositeRoute() {
@@ -1856,6 +2172,15 @@ class RouteService extends ChangeNotifier {
       isOptimizing = false;
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+    _notifyQueued = false;
+    super.dispose();
   }
 }
 

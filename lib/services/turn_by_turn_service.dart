@@ -16,6 +16,8 @@ class TurnByTurnService {
   final FlutterTts _tts = FlutterTts();
   bool _stopped = false;
   bool _muted = false;
+  double _speechRate = 0.42;
+  Map<String, String>? _voice;
 
   int get currentIdx => _idx;
   bool get muted => _muted;
@@ -48,15 +50,24 @@ class TurnByTurnService {
     required this.steps,
     required this.onUpdate,
     bool initialMuted = false,
+    double speechRate = 0.42,
+    Map<String, String>? voice,
   }) {
     _muted = initialMuted;
+    _speechRate = speechRate;
+    _voice = voice;
     _initTts();
   }
 
   Future<void> _initTts() async {
     await _tts.setLanguage('ko-KR');
-    await _tts.setSpeechRate(0.9);
+    await _tts.setSpeechRate(_speechRate);
     await _tts.setVolume(1.0);
+    if (_voice != null) {
+      try {
+        await _tts.setVoice(_voice!);
+      } catch (_) {}
+    }
     if (steps.isNotEmpty) await _tts.speak(steps[0].koreanInstruction);
   }
 
@@ -133,6 +144,37 @@ class TurnByTurnService {
     _muted = !_muted;
     if (_muted) _tts.stop();
     onUpdate();
+  }
+
+  void setMuted(bool value) {
+    if (_muted == value) return;
+    _muted = value;
+    if (_muted) _tts.stop();
+    onUpdate();
+  }
+
+  Future<void> setSpeechConfig({
+    required bool muted,
+    required double speechRate,
+    Map<String, String>? voice,
+  }) async {
+    setMuted(muted);
+    if ((_speechRate - speechRate).abs() > 0.001) {
+      _speechRate = speechRate;
+      try {
+        await _tts.setSpeechRate(_speechRate);
+      } catch (_) {}
+    }
+    final sameVoice =
+        _voice?['name'] == voice?['name'] && _voice?['locale'] == voice?['locale'];
+    if (!sameVoice) {
+      _voice = voice;
+      if (_voice != null) {
+        try {
+          await _tts.setVoice(_voice!);
+        } catch (_) {}
+      }
+    }
   }
 
   void _speak(String text) {

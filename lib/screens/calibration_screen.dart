@@ -175,8 +175,22 @@ class _CalibrationScreenState extends State<CalibrationScreen>
           Text(
             '주변에 루트가 없어요',
             style: GoogleFonts.rajdhani(
-              fontSize: 14,
-              color: AppColors.textSecondary,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 34),
+            child: Text(
+              '취향 설정은 선택사항이에요. 앱에 들어가서 지도를 움직이거나 탐색 반경을 넓혀 다시 찾을 수 있어요.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.rajdhani(
+                fontSize: 13,
+                height: 1.35,
+                color: AppColors.textSecondary,
+              ),
             ),
           ),
           const SizedBox(height: 24),
@@ -192,7 +206,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '캘리브레이션 완료!',
+            '취향 설정 완료!',
             style: GoogleFonts.orbitron(
               fontSize: 18,
               fontWeight: FontWeight.w700,
@@ -201,7 +215,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
           ),
           const SizedBox(height: 8),
           Text(
-            '싫어요한 루트는 앞으로 표시되지 않아요',
+            '건너뛰어도 언제든 설정에서 다시 할 수 있어요',
             style: GoogleFonts.rajdhani(
               fontSize: 13,
               color: AppColors.textSecondary,
@@ -253,7 +267,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'CALIBRATION',
+                          '취향 설정',
                           style: AppText.label(
                             size: 11,
                             color: AppColors.primaryContainer,
@@ -261,7 +275,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
                           ),
                         ),
                         Text(
-                          '좋아하는 루트 스타일을 알려주세요',
+                          '선택사항이에요. 몇 장만 골라도 추천이 더 좋아져요.',
                           style: GoogleFonts.rajdhani(
                             fontSize: 13,
                             color: AppColors.textSecondary,
@@ -362,7 +376,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
                                     child: Opacity(
                                       opacity: hintOpacity,
                                       child: _HintBadge(
-                                        label: '싫어요',
+                                        label: '숨기기',
                                         color: AppColors.red,
                                         icon: Icons.close_rounded,
                                       ),
@@ -376,7 +390,7 @@ class _CalibrationScreenState extends State<CalibrationScreen>
                                     child: Opacity(
                                       opacity: hintOpacity,
                                       child: _HintBadge(
-                                        label: '좋아요',
+                                        label: '추천',
                                         color: const Color(0xFF22C55E),
                                         icon: Icons.favorite_rounded,
                                       ),
@@ -401,13 +415,13 @@ class _CalibrationScreenState extends State<CalibrationScreen>
                     _ActionButton(
                       icon: Icons.close_rounded,
                       color: AppColors.red,
-                      label: '싫어요',
+                      label: '숨기기',
                       onTap: () => _swipe(true),
                     ),
                     _ActionButton(
                       icon: Icons.favorite_rounded,
                       color: const Color(0xFF22C55E),
-                      label: '좋아요',
+                      label: '추천',
                       onTap: () => _swipe(false),
                     ),
                   ],

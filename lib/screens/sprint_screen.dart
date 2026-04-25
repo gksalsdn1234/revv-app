@@ -8,6 +8,7 @@ import '../theme/colors.dart';
 import '../widgets/map_widget.dart';
 import '../widgets/sprint_toggle.dart';
 import '../widgets/mic_button.dart';
+import '../widgets/revv_ui.dart';
 import '../models/composite_route.dart';
 import '../models/revv_route.dart';
 import '../services/location_service.dart';
@@ -27,13 +28,13 @@ import '../models/nav_step.dart';
 import '../models/run_session.dart';
 import '../ui/ride_state_describer.dart';
 import '../ui/ux_contracts.dart';
-import '../widgets/ride_context_card.dart';
 import 'run_card_screen.dart';
 
 class SprintScreen extends StatefulWidget {
   final RevvRoute? selectedRoute;
   final void Function(RunSession? session)? onEnd;
   final void Function(List<LatLng>? poly)? onNavPolylineChanged;
+  final ValueChanged<bool>? onRouteFocusChanged;
   final SprintStartMode startMode;
 
   const SprintScreen({
@@ -41,6 +42,7 @@ class SprintScreen extends StatefulWidget {
     this.selectedRoute,
     this.onEnd,
     this.onNavPolylineChanged,
+    this.onRouteFocusChanged,
     this.startMode = SprintStartMode.auto,
   });
 
@@ -59,9 +61,6 @@ class _SprintScreenState extends State<SprintScreen> {
   TurnByTurnService? _tbtService;
   double _tbtDistM = 0;
   bool _isMuted = false;
-
-  // G-Force 엣지 글로우 (합성G, 0.0 ~ ~1.0+)
-  double _currentG = 0.0;
 
   // DriveMode — Consumer<DrivingContextService> 대신 State로 관리
   DriveMode _driveMode = DriveMode.cruise;
@@ -105,6 +104,17 @@ class _SprintScreenState extends State<SprintScreen> {
 
   String _routePhaseLabel(double progress) {
     return describeRoutePhaseCompact(progress);
+  }
+
+  void _syncMuteState(bool muted) {
+    if (_isMuted == muted) return;
+    _isMuted = muted;
+    _tbtService?.setMuted(muted);
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
+    }
   }
 
   @override
@@ -199,7 +209,12 @@ class _SprintScreenState extends State<SprintScreen> {
           if (mounted) setState(() {});
         },
         initialMuted: context.read<SettingsService>().ttsMuted,
+        speechRate: ttsPresetToTurnRate(
+          context.read<SettingsService>().ttsRatePreset,
+        ),
+        voice: context.read<JarvisService>().currentVoiceMap,
       );
+      _tbtService?.setMuted(context.read<SettingsService>().ttsMuted);
     }
   }
 
@@ -232,6 +247,7 @@ class _SprintScreenState extends State<SprintScreen> {
           _routeStateDetail = '본 루트에 진입했어요';
           _routeGapKm = 0;
         });
+        widget.onRouteFocusChanged?.call(true);
         Future.delayed(const Duration(seconds: 3), () {
           if (mounted) setState(() => _routeStatusMsg = null);
         });
@@ -282,13 +298,16 @@ class _SprintScreenState extends State<SprintScreen> {
           (_routeGapKm - minDist).abs() > 0.05) {
         // 이탈/복귀 전환 시 TTS
         if (wasOff != nowOff) {
-          final persona = context.read<SettingsService>().jarvisPersona;
-          context.read<JarvisService>().speak(
-            nowOff
-                ? JarvisScript.offRoute(persona)
-                : JarvisScript.onRoute(persona),
-            priority: SpeechPriority.critical,
-          );
+          final settings = context.read<SettingsService>();
+          if (settings.offRouteAlert) {
+            final persona = settings.jarvisPersona;
+            context.read<JarvisService>().speak(
+              nowOff
+                  ? JarvisScript.offRoute(persona)
+                  : JarvisScript.onRoute(persona),
+              priority: SpeechPriority.critical,
+            );
+          }
         }
         setState(() {
           _isOffRoute = nowOff;
@@ -300,7 +319,9 @@ class _SprintScreenState extends State<SprintScreen> {
             minDistKm: minDist,
             progress: newPct,
           );
-          if (!nowOff && wasOff) {
+          if (!nowOff &&
+              wasOff &&
+              context.read<SettingsService>().offRouteAlert) {
             _routeStatusMsg = '루트로 복귀했어요!';
             Future.delayed(const Duration(seconds: 2), () {
               if (mounted) setState(() => _routeStatusMsg = null);
@@ -311,7 +332,13 @@ class _SprintScreenState extends State<SprintScreen> {
 
       // 코너 브리핑 — 루트 이탈 중에는 비활성
       if (!nowOff) {
-        _cornerBriefing?.updateLocation(loc.lat, loc.lng, nodes, closestIdx);
+        _cornerBriefing?.updateLocation(
+          loc.lat,
+          loc.lng,
+          nodes,
+          closestIdx,
+          speedKmh: loc.speedKmh,
+        );
       }
     }
 
@@ -346,18 +373,16 @@ class _SprintScreenState extends State<SprintScreen> {
   }
 
   void _toggleMute() {
-    setState(() => _isMuted = !_isMuted);
-    _tbtService?.toggleMute();
-    // cornerBriefing은 speak 콜백에서 _isMuted 체크 → 별도 toggleMute 불필요
-    context.read<SettingsService>().setTtsMuted(_isMuted);
+    final next = !_isMuted;
+    _syncMuteState(next);
+    // cornerBriefing은 speak 콜백에서 JarvisService mute를 따른다.
+    context.read<SettingsService>().setTtsMuted(next);
   }
 
   void _onImu() {
     if (!mounted) return;
     final imu = context.read<ImuService>();
     final lateral = imu.lateralG;
-    final lon = imu.longitudinalG;
-    final totalG = math.sqrt(lateral * lateral + lon * lon);
 
     // 급조작 감지 — 횡G 임계값(0.45G) 초과 시 현재 위치와 함께 기록
     if (lateral.abs() >= kSharpCornerLateralG) {
@@ -365,11 +390,6 @@ class _SprintScreenState extends State<SprintScreen> {
       if (loc != null) {
         _runSessionService?.recordSharpCorner(loc.lat, loc.lng, lateral.abs());
       }
-    }
-
-    // G-Force 엣지 글로우 업데이트 — 0.02G 이상 변화 시만 rebuild
-    if ((totalG - _currentG).abs() > 0.02) {
-      setState(() => _currentG = totalG);
     }
   }
 
@@ -405,6 +425,7 @@ class _SprintScreenState extends State<SprintScreen> {
       );
     }
     if (widget.onEnd != null) {
+      widget.onRouteFocusChanged?.call(false);
       widget.onEnd!(session);
       return;
     }
@@ -439,7 +460,15 @@ class _SprintScreenState extends State<SprintScreen> {
       isOffRoute: _isOffRoute,
       onRoute: _onRoute,
     );
-    final tbtTop = (_tbtService?.upcomingStep != null) ? 76.0 : 16.0;
+    final safeTop = MediaQuery.of(context).padding.top;
+    final safeBottom = MediaQuery.of(context).padding.bottom;
+    final offRouteAlertEnabled = context.select<SettingsService, bool>(
+      (settings) => settings.offRouteAlert,
+    );
+    final hasTbt = _tbtService?.upcomingStep != null;
+    final tbtTop = safeTop + (hasTbt ? 92.0 : 16.0);
+    final bottomBarHeight = 72.0 + safeBottom;
+    final floatingBottom = bottomBarHeight + 16;
     // ⚠ ValueKey 필수:
     // Stack 자식 리스트에 if 조건부 위젯이 있으면 Flutter가 INDEX 기반으로 매칭.
     // 조건 변경 시 인덱스가 밀려서 서로 다른 타입끼리 매칭 → render object 교체
@@ -458,8 +487,9 @@ class _SprintScreenState extends State<SprintScreen> {
                 child: RepaintBoundary(
                   child: MapWidget(
                     isSprintMode: true,
-                    navPolyline: _navPolyline,
+                    navPolyline: _onRoute ? null : _navPolyline,
                     routePolyline: widget.selectedRoute?.nodes,
+                    routeFocusMode: _onRoute,
                   ),
                 ),
               ),
@@ -482,21 +512,13 @@ class _SprintScreenState extends State<SprintScreen> {
             ),
           ),
 
-        // ── G-Force 엣지 글로우 (파→초→빨, paint-only) ──
-        Positioned.fill(
-          key: const ValueKey('g-glow'),
-          child: IgnorePointer(
-            child: CustomPaint(painter: _GlowBorderPainter(g: _currentG)),
-          ),
-        ),
-
         // ── 상단: 턴바이턴 배너 ──
         if (_tbtService != null && _tbtService!.upcomingStep != null)
           Positioned(
             key: const ValueKey('nav-banner'),
-            top: 0,
-            left: 0,
-            right: 0,
+            top: safeTop + 8,
+            left: 12,
+            right: 12,
             child: _NavBanner(
               step: _tbtService!.upcomingStep!,
               distanceM: _tbtDistM,
@@ -515,7 +537,7 @@ class _SprintScreenState extends State<SprintScreen> {
             child: _ModeBadge(mode: _driveMode),
           ),
 
-        if (_onRoute || widget.startMode != SprintStartMode.auto)
+        if (!_onRoute || _isOffRoute)
           Positioned(
             key: const ValueKey('start-mode-pill'),
             top: tbtTop + (_driveMode != DriveMode.cruise ? 34 : 0),
@@ -536,18 +558,28 @@ class _SprintScreenState extends State<SprintScreen> {
           child: const _LiveStatHUD(),
         ),
 
-        if (rideContext != null)
+        // ── 우측 중단: 컴팩트 G 미터 ──
+        if (_onRoute)
+          Positioned(
+            key: const ValueKey('compact-g-meter'),
+            top: math.max(
+              safeTop + 156,
+              MediaQuery.sizeOf(context).height * 0.4,
+            ),
+            right: 14,
+            child: const _CompactGMeterHUD(),
+          ),
+
+        if (rideContext != null && (!_onRoute || _isOffRoute))
           Positioned(
             key: const ValueKey('ride-context'),
-            top: tbtTop + 52,
+            top: tbtTop + 44,
             left: 14,
-            right: 14,
-            child: RideContextCard(
+            right: 94,
+            child: _CompactRideContextCard(
               label: rideContext.label,
               detail: rideContext.detail,
               color: rideContext.color,
-              backgroundColor: AppColors.bg.withValues(alpha: 0.88),
-              borderOpacity: 0.4,
             ),
           ),
 
@@ -555,13 +587,14 @@ class _SprintScreenState extends State<SprintScreen> {
         if (!_onRoute && _navPolyline != null && widget.selectedRoute != null)
           Positioned(
             key: const ValueKey('nav-status'),
-            bottom: 88,
-            left: 0,
-            right: 0,
-            child: Center(
+            bottom: floatingBottom + 8,
+            left: 14,
+            right: 96,
+            child: Align(
+              alignment: Alignment.centerLeft,
               child: _StatusPill(
-                text: '🔵  ${widget.selectedRoute!.name} 으로 이동 중',
-                color: Colors.lightBlueAccent,
+                text: '${widget.selectedRoute!.name} 으로 이동 중',
+                color: AppColors.primaryContainer,
               ),
             ),
           ),
@@ -570,24 +603,22 @@ class _SprintScreenState extends State<SprintScreen> {
         if (_routeStatusMsg != null)
           Positioned(
             key: const ValueKey('route-msg'),
-            bottom: 88,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: _StatusPill(
-                text: '🏁  $_routeStatusMsg',
-                color: AppColors.red,
-              ),
+            bottom: floatingBottom + 8,
+            left: 14,
+            right: 96,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: _StatusPill(text: _routeStatusMsg!, color: AppColors.red),
             ),
           ),
 
         // ── 루트 이탈 경고 배너 ──
-        if (_isOffRoute)
+        if (_isOffRoute && offRouteAlertEnabled)
           Positioned(
             key: const ValueKey('off-route'),
-            top: 0,
-            left: 0,
-            right: 0,
+            top: safeTop + 8,
+            left: 12,
+            right: 12,
             child: _OffRouteBanner(
               detail: _routeStateDetail,
               gapKm: _routeGapKm,
@@ -598,7 +629,7 @@ class _SprintScreenState extends State<SprintScreen> {
         if (_tbtService != null)
           Positioned(
             key: const ValueKey('curve-icon'),
-            bottom: 84,
+            bottom: floatingBottom,
             left: 14,
             child: _CurvePreviewIcon(
               step: _tbtService!.upcomingStep,
@@ -610,7 +641,7 @@ class _SprintScreenState extends State<SprintScreen> {
         if (_onRoute && _cornerBriefing?.nextCorner != null)
           Positioned(
             key: const ValueKey('corner-hud'),
-            bottom: 84,
+            bottom: floatingBottom,
             left: 14,
             child: _CornerPreviewHUD(corner: _cornerBriefing!.nextCorner!),
           ),
@@ -619,7 +650,7 @@ class _SprintScreenState extends State<SprintScreen> {
         Positioned(
           key: const ValueKey('speed-hud'),
           right: 14,
-          bottom: 76,
+          bottom: floatingBottom,
           child: const _SpeedHUD(),
         ),
 
@@ -627,7 +658,7 @@ class _SprintScreenState extends State<SprintScreen> {
         if (_onRoute && widget.selectedRoute != null)
           Positioned(
             key: const ValueKey('route-progress'),
-            bottom: 68,
+            bottom: bottomBarHeight,
             left: 0,
             right: 0,
             child: _RouteProgressBar(
@@ -643,6 +674,7 @@ class _SprintScreenState extends State<SprintScreen> {
           left: 0,
           right: 0,
           child: _SprintBottomBar(
+            bottomPadding: safeBottom,
             onEnd: _endRun,
             modeColor: _driveMode.color,
             muted: _isMuted,
@@ -655,6 +687,17 @@ class _SprintScreenState extends State<SprintScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final muted = context.select<SettingsService, bool>((s) => s.ttsMuted);
+    final ratePreset = context.select<SettingsService, String>(
+      (s) => s.ttsRatePreset,
+    );
+    context.select<JarvisService, String?>((j) => j.selectedVoice?.id);
+    _syncMuteState(muted);
+    _tbtService?.setSpeechConfig(
+      muted: muted,
+      speechRate: ttsPresetToTurnRate(ratePreset),
+      voice: context.read<JarvisService>().currentVoiceMap,
+    );
     // SizedBox.expand() 필수:
     // 오버레이 모드에서 CruiseScreen Stack이 StackFit.loose(기본값) 이므로
     // non-Positioned 자식인 SprintScreen에 loose constraints가 전달됨.
@@ -782,17 +825,15 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
     final distStr = dist >= 1.0
         ? '${dist.toStringAsFixed(2)} km'
         : '${(dist * 1000).toStringAsFixed(0)} m';
-    final sharpCount = session.sharpCornerCount;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       decoration: BoxDecoration(
-        color: AppColors.bg.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white12),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.35), blurRadius: 8),
-        ],
+        color: AppColors.panel2.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.24),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -800,24 +841,11 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
           _Pill(icon: Icons.timer_outlined, value: _fmt(dur)),
           Container(
             width: 1,
-            height: 22,
+            height: 18,
             color: Colors.white12,
-            margin: const EdgeInsets.symmetric(horizontal: 8),
+            margin: const EdgeInsets.symmetric(horizontal: 7),
           ),
           _Pill(icon: Icons.straighten, value: distStr),
-          if (sharpCount > 0) ...[
-            Container(
-              width: 1,
-              height: 22,
-              color: Colors.white12,
-              margin: const EdgeInsets.symmetric(horizontal: 8),
-            ),
-            _Pill(
-              icon: Icons.bolt_rounded,
-              value: '$sharpCount',
-              color: const Color(0xFFF59E0B),
-            ),
-          ],
         ],
       ),
     );
@@ -827,26 +855,78 @@ class _LiveStatHUDState extends State<_LiveStatHUD> {
 class _Pill extends StatelessWidget {
   final IconData icon;
   final String value;
-  final Color? color;
-  const _Pill({required this.icon, required this.value, this.color});
+  const _Pill({required this.icon, required this.value});
 
   @override
   Widget build(BuildContext context) {
-    final c = color ?? AppColors.gray;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 10, color: c),
+        Icon(icon, size: 10, color: AppColors.gray),
         const SizedBox(width: 4),
         Text(
           value,
-          style: GoogleFonts.orbitron(
-            fontSize: 13,
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 12,
             fontWeight: FontWeight.w700,
-            color: color != null ? c : Colors.white,
+            color: Colors.white,
           ),
         ),
       ],
+    );
+  }
+}
+
+class _CompactRideContextCard extends StatelessWidget {
+  final String label;
+  final String detail;
+  final Color color;
+
+  const _CompactRideContextCard({
+    required this.label,
+    required this.detail,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.bg.withValues(alpha: 0.88),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.34)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: color,
+                letterSpacing: -0.1,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              detail,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textSecondary,
+                height: 1.25,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -860,22 +940,20 @@ class _StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.93),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.6)),
-        boxShadow: [
-          BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 10),
-        ],
+        color: AppColors.panel2.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.36)),
       ),
       child: Text(
         text,
-        style: GoogleFonts.rajdhani(
-          fontSize: 14,
+        overflow: TextOverflow.ellipsis,
+        style: GoogleFonts.inter(
+          fontSize: 12,
           fontWeight: FontWeight.w700,
           color: color,
-          letterSpacing: 1.5,
+          letterSpacing: 0.2,
         ),
       ),
     );
@@ -901,26 +979,15 @@ class _OffRouteBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: _bannerColor.withValues(alpha: 0.95),
-        border: Border(
-          bottom: BorderSide(
-            color: _bannerColor.withValues(alpha: 0.82),
-            width: 1.5,
-          ),
-        ),
-      ),
+    return RevvGlassCard(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      color: AppColors.warning.withValues(alpha: 0.16),
+      borderOpacity: 0.45,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.warning_amber_rounded,
-            color: Colors.white,
-            size: 18,
-          ),
-          const SizedBox(width: 8),
+          Icon(Icons.warning_amber_rounded, color: _bannerColor, size: 20),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -929,20 +996,20 @@ class _OffRouteBanner extends StatelessWidget {
                   _distanceText.isEmpty
                       ? '루트를 벗어났어요'
                       : '루트를 벗어났어요 · $_distanceText',
-                  style: GoogleFonts.rajdhani(
+                  style: GoogleFonts.inter(
                     fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                    letterSpacing: 0.5,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                    letterSpacing: -0.1,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   detail,
-                  style: GoogleFonts.rajdhani(
+                  style: GoogleFonts.inter(
                     fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white.withValues(alpha: 0.88),
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textSecondary,
                   ),
                 ),
               ],
@@ -961,38 +1028,229 @@ class _ModeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ⚠ AnimatedContainer 제거:
-    // implicit animation이 layout 단계에서 크기를 변경하면
-    // 부모 Stack의 Positioned relayout과 충돌 → !_debugDoingThisLayout.
-    // 색상 변경은 즉시 적용 (시각적 차이 거의 없음).
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
-        color: AppColors.bg.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: mode.color.withValues(alpha: 0.7), width: 1),
+        color: AppColors.bg.withValues(alpha: 0.74),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: mode.color.withValues(alpha: 0.42), width: 1),
         boxShadow: [
-          BoxShadow(color: mode.color.withValues(alpha: 0.2), blurRadius: 8),
+          BoxShadow(
+            color: mode.color.withValues(alpha: 0.12),
+            blurRadius: 10,
+            spreadRadius: -3,
+          ),
         ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(mode.emoji, style: const TextStyle(fontSize: 12)),
-          const SizedBox(width: 5),
+          Text(mode.emoji, style: const TextStyle(fontSize: 11)),
+          const SizedBox(width: 4),
           Text(
             mode.label,
             style: GoogleFonts.rajdhani(
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w800,
               color: mode.color,
-              letterSpacing: 2,
+              letterSpacing: 1.6,
             ),
           ),
         ],
       ),
     );
   }
+}
+
+// ── 컴팩트 G 미터 HUD ────────────────────────────────────────
+// 주행 중 지도 시야를 가리지 않도록 오른쪽 중단에 작게 고정한다.
+class _CompactGMeterHUD extends StatelessWidget {
+  const _CompactGMeterHUD();
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<
+      ImuService,
+      ({double lateralG, double longitudinalG, double peakG})
+    >(
+      selector: (_, imu) => (
+        lateralG: imu.lateralG,
+        longitudinalG: imu.longitudinalG,
+        peakG: math.max(imu.maxLateralG, imu.maxLonG),
+      ),
+      builder: (context, data, _) {
+        final totalG = math.sqrt(
+          data.lateralG * data.lateralG +
+              data.longitudinalG * data.longitudinalG,
+        );
+        final accent = totalG >= kSharpCornerLateralG
+            ? AppColors.warning
+            : AppColors.primaryContainer;
+
+        return RepaintBoundary(
+          child: Container(
+            width: 76,
+            padding: const EdgeInsets.fromLTRB(8, 9, 8, 10),
+            decoration: BoxDecoration(
+              color: AppColors.bg.withValues(alpha: 0.76),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: accent.withValues(alpha: 0.42)),
+              boxShadow: [
+                BoxShadow(
+                  color: accent.withValues(
+                    alpha: totalG >= kSharpCornerLateralG ? 0.28 : 0.14,
+                  ),
+                  blurRadius: 18,
+                  spreadRadius: -4,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'G',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: accent,
+                    letterSpacing: 2.2,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                SizedBox(
+                  width: 46,
+                  height: 46,
+                  child: CustomPaint(
+                    painter: _MiniTractionCirclePainter(
+                      lateralG: data.lateralG,
+                      longitudinalG: data.longitudinalG,
+                      color: accent,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  totalG.toStringAsFixed(2),
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                    height: 0.95,
+                  ),
+                ),
+                Text(
+                  'TOTAL',
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textHint,
+                    letterSpacing: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _CompactGLine(label: 'LAT', value: data.lateralG),
+                const SizedBox(height: 3),
+                _CompactGLine(label: 'PK', value: data.peakG),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CompactGLine extends StatelessWidget {
+  final String label;
+  final double value;
+
+  const _CompactGLine({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.rajdhani(
+            fontSize: 8,
+            fontWeight: FontWeight.w800,
+            color: AppColors.textHint,
+            letterSpacing: 1,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          value.abs().toStringAsFixed(2),
+          style: GoogleFonts.jetBrainsMono(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: AppColors.textSecondary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MiniTractionCirclePainter extends CustomPainter {
+  final double lateralG;
+  final double longitudinalG;
+  final Color color;
+
+  const _MiniTractionCirclePainter({
+    required this.lateralG,
+    required this.longitudinalG,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2;
+    final gridPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = AppColors.outline.withValues(alpha: 0.18);
+
+    canvas.drawCircle(center, radius - 1, gridPaint);
+    canvas.drawCircle(center, radius * 0.52, gridPaint);
+    canvas.drawLine(
+      Offset(center.dx, 3),
+      Offset(center.dx, size.height - 3),
+      gridPaint,
+    );
+    canvas.drawLine(
+      Offset(3, center.dy),
+      Offset(size.width - 3, center.dy),
+      gridPaint,
+    );
+
+    final maxG = 1.2;
+    final dx = (lateralG / maxG).clamp(-1.0, 1.0) * (radius - 7);
+    final dy = (-longitudinalG / maxG).clamp(-1.0, 1.0) * (radius - 7);
+    final dot = center + Offset(dx, dy);
+    final dotPaint = Paint()..color = color;
+    final glowPaint = Paint()
+      ..color = color.withValues(alpha: 0.28)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
+
+    canvas.drawCircle(dot, 8, glowPaint);
+    canvas.drawCircle(dot, 3.6, dotPaint);
+    canvas.drawCircle(
+      dot,
+      1.4,
+      Paint()..color = AppColors.onPrimary.withValues(alpha: 0.8),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_MiniTractionCirclePainter old) =>
+      old.lateralG != lateralG ||
+      old.longitudinalG != longitudinalG ||
+      old.color != color;
 }
 
 // ── 루트 진행률 바 ────────────────────────────────────────────
@@ -1074,11 +1332,13 @@ class _ProgressBarPainter extends CustomPainter {
 
 // ── 바텀 바 ──────────────────────────────────────────────────
 class _SprintBottomBar extends StatelessWidget {
+  final double bottomPadding;
   final VoidCallback onEnd;
   final Color modeColor;
   final bool muted;
   final VoidCallback onToggleMute;
   const _SprintBottomBar({
+    required this.bottomPadding,
     required this.onEnd,
     required this.modeColor,
     required this.muted,
@@ -1088,33 +1348,31 @@ class _SprintBottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 68,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      height: 72 + bottomPadding,
+      padding: EdgeInsets.fromLTRB(14, 8, 14, 10 + bottomPadding),
       decoration: BoxDecoration(
-        color: AppColors.bg.withValues(alpha: 0.93),
+        color: AppColors.bg.withValues(alpha: 0.86),
         border: Border(
-          top: BorderSide(color: modeColor.withValues(alpha: 0.5), width: 1.5),
+          top: BorderSide(
+            color: AppColors.outlineVariant.withValues(alpha: 0.24),
+          ),
         ),
       ),
       child: Row(
         children: [
-          // 음소거
           _BarBtn(
             icon: muted ? Icons.volume_off : Icons.volume_up,
-            color: muted ? AppColors.gray : Colors.lightBlueAccent,
+            color: muted ? AppColors.textHint : AppColors.primaryContainer,
             onTap: onToggleMute,
           ),
           const SizedBox(width: 8),
           const MicButton(),
-          const SizedBox(width: 12),
-          // 런 종료 버튼 — Expanded 필수:
-          // RedGlowButton 내부 SizedBox(width: infinity) + Row = 무한 너비 에러
-          // Expanded가 Row의 남은 공간을 배분 → 유한 너비로 변환
+          const SizedBox(width: 10),
           Expanded(
             child: RedGlowButton(
-              label: '🏁 런 종료',
+              label: '주행 종료',
               filled: true,
-              height: 48,
+              height: 46,
               onTap: onEnd,
             ),
           ),
@@ -1132,17 +1390,21 @@ class _BarBtn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 46,
-        height: 46,
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withValues(alpha: 0.4)),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: AppColors.surface.withValues(alpha: 0.72),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color.withValues(alpha: 0.34)),
+          ),
+          child: Icon(icon, size: 18, color: color),
         ),
-        child: Icon(icon, size: 20, color: color),
       ),
     );
   }
@@ -1178,17 +1440,16 @@ class _NavBanner extends StatelessWidget {
         ? AppColors.textHint
         : Colors.lightBlueAccent;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
+    return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: isStraightAhead ? 8 : 12,
+        horizontal: 14,
+        vertical: isStraightAhead ? 8 : 11,
       ),
       decoration: BoxDecoration(
         color: bannerColor,
-        border: Border(
-          bottom: BorderSide(color: accentColor.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: accentColor.withValues(alpha: isStraightAhead ? 0.18 : 0.32),
         ),
       ),
       child: Row(
@@ -1207,9 +1468,9 @@ class _NavBanner extends StatelessWidget {
             child: isStraightAhead
                 ? Text(
                     '직진 구간',
-                    style: GoogleFonts.rajdhani(
+                    style: GoogleFonts.inter(
                       fontSize: 14,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                       color: AppColors.textHint,
                     ),
                   )
@@ -1219,9 +1480,9 @@ class _NavBanner extends StatelessWidget {
                     children: [
                       Text(
                         step.koreanInstruction,
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
                           color: Colors.white,
                         ),
                         overflow: TextOverflow.ellipsis,
@@ -1229,7 +1490,7 @@ class _NavBanner extends StatelessWidget {
                       if (step.streetName.isNotEmpty)
                         Text(
                           step.streetName,
-                          style: GoogleFonts.rajdhani(
+                          style: GoogleFonts.jetBrainsMono(
                             fontSize: 11,
                             color: AppColors.gray,
                           ),
@@ -1242,7 +1503,7 @@ class _NavBanner extends StatelessWidget {
           if (!isStraightAhead)
             Text(
               _distText,
-              style: GoogleFonts.orbitron(
+              style: GoogleFonts.jetBrainsMono(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
                 color: Colors.lightBlueAccent,
@@ -1388,41 +1649,85 @@ class _CornerPreviewHUD extends StatelessWidget {
     return '${m.toInt()}m';
   }
 
+  String get _etaText {
+    if (corner.etaSeconds >= 90) {
+      return '${(corner.etaSeconds / 60).toStringAsFixed(1)}m';
+    }
+    return '${corner.etaSeconds.round()}s';
+  }
+
+  String get _title => 'NEXT ${corner.isRight ? 'RIGHT' : 'LEFT'}';
+
   @override
   Widget build(BuildContext context) {
     final color = _intensityColor(corner.intensity);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      width: 128,
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
       decoration: BoxDecoration(
-        color: AppColors.bg.withValues(alpha: 0.88),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.55), width: 1),
+        color: AppColors.bg.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.42), width: 1),
         boxShadow: [
-          BoxShadow(color: color.withValues(alpha: 0.25), blurRadius: 10),
+          BoxShadow(
+            color: color.withValues(alpha: 0.14),
+            blurRadius: 12,
+            spreadRadius: -4,
+          ),
         ],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(_dirIcon(corner.isRight), color: color, size: 28),
-          const SizedBox(height: 2),
+          Row(
+            children: [
+              Icon(_dirIcon(corner.isRight), color: color, size: 22),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  _title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.rajdhani(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
           Text(
             corner.intensity.shortLabel,
             style: GoogleFonts.rajdhani(
               fontSize: 9,
               fontWeight: FontWeight.w800,
               color: color,
-              letterSpacing: 1.5,
+              letterSpacing: 1.3,
             ),
           ),
-          const SizedBox(height: 1),
-          Text(
-            _distText,
-            style: GoogleFonts.orbitron(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: Colors.white70,
-            ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              Expanded(
+                child: _CornerMetric(
+                  label: 'DIST',
+                  value: _distText,
+                  color: Colors.white70,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _CornerMetric(
+                  label: 'ETA',
+                  value: _etaText,
+                  color: color,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1430,82 +1735,43 @@ class _CornerPreviewHUD extends StatelessWidget {
   }
 }
 
-// ── G-Force 엣지 글로우 페인터 ───────────────────────────────
-// 합성G(sqrt(lateral²+lon²)) 기반으로 화면 가장자리 glow 표현
-// 파(0.12G) → 초(0.4G) → 빨(0.75G+) 연속 색상 전환
-// paint-only (CustomPainter) → layout 단계 미개입, setState 안전
-class _GlowBorderPainter extends CustomPainter {
-  final double g;
-  const _GlowBorderPainter({required this.g});
+class _CornerMetric extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _CornerMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   @override
-  void paint(Canvas canvas, Size size) {
-    const threshold = kGlowStartG;
-    if (g < threshold) return;
-
-    final t = ((g - threshold) / 0.63).clamp(0.0, 1.0);
-    final opacity = (0.15 + t * 0.45).clamp(0.0, 0.6);
-    final glowSize = 90.0 + t * 50; // 90 ~ 140px
-
-    // 파→초→빨 선형 보간
-    final Color glowColor;
-    if (t < 0.5) {
-      glowColor = Color.lerp(
-        const Color(0xFF2196F3), // 파
-        const Color(0xFF4CAF50), // 초
-        t / 0.5,
-      )!;
-    } else {
-      glowColor = Color.lerp(
-        const Color(0xFF4CAF50), // 초
-        const Color(0xFFE53935), // 빨
-        (t - 0.5) / 0.5,
-      )!;
-    }
-
-    final base = glowColor.withValues(alpha: opacity);
-    final clear = Colors.transparent;
-
-    void drawEdge(Rect rect, Alignment from, Alignment to) {
-      canvas.drawRect(
-        rect,
-        Paint()
-          ..shader = LinearGradient(
-            begin: from,
-            end: to,
-            colors: [base, clear],
-          ).createShader(rect),
-      );
-    }
-
-    // 상단
-    drawEdge(
-      Rect.fromLTWH(0, 0, size.width, glowSize),
-      Alignment.topCenter,
-      Alignment.bottomCenter,
-    );
-    // 하단
-    drawEdge(
-      Rect.fromLTWH(0, size.height - glowSize, size.width, glowSize),
-      Alignment.bottomCenter,
-      Alignment.topCenter,
-    );
-    // 좌측
-    drawEdge(
-      Rect.fromLTWH(0, 0, glowSize, size.height),
-      Alignment.centerLeft,
-      Alignment.centerRight,
-    );
-    // 우측
-    drawEdge(
-      Rect.fromLTWH(size.width - glowSize, 0, glowSize, size.height),
-      Alignment.centerRight,
-      Alignment.centerLeft,
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: GoogleFonts.rajdhani(
+            fontSize: 8,
+            fontWeight: FontWeight.w700,
+            color: Colors.white38,
+            letterSpacing: 1.2,
+          ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          value,
+          style: GoogleFonts.orbitron(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
-
-  @override
-  bool shouldRepaint(_GlowBorderPainter old) => old.g != g;
 }
 
 // ── 속도 HUD (우하단) ─────────────────────────────────────────
@@ -1518,17 +1784,18 @@ class _SpeedHUD extends StatelessWidget {
     final speedKmh = context.watch<LocationService>().speedKmh;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
         color: AppColors.bg.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppColors.primaryContainer.withValues(alpha: 0.28),
+          color: AppColors.primaryContainer.withValues(alpha: 0.24),
         ),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primaryContainer.withValues(alpha: 0.16),
-            blurRadius: 18,
+            color: AppColors.primaryContainer.withValues(alpha: 0.10),
+            blurRadius: 14,
+            spreadRadius: -4,
           ),
         ],
       ),
@@ -1538,20 +1805,20 @@ class _SpeedHUD extends StatelessWidget {
           Text(
             speedKmh.toStringAsFixed(0),
             style: GoogleFonts.orbitron(
-              fontSize: 34,
+              fontSize: 30,
               fontWeight: FontWeight.w700,
               color: AppColors.primaryContainer,
               height: 1.0,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 1),
           Text(
             'km/h',
             style: GoogleFonts.rajdhani(
-              fontSize: 10,
+              fontSize: 9,
               fontWeight: FontWeight.w600,
               color: AppColors.textHint,
-              letterSpacing: 1.5,
+              letterSpacing: 1.3,
             ),
           ),
         ],

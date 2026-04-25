@@ -7,6 +7,13 @@ import '../models/revv_route.dart';
 import '../services/mapbox_service.dart';
 import '../widgets/revv_ui.dart';
 
+class RouteEditResult {
+  final RevvRoute route;
+  final RevvRoute? branchRoute;
+
+  const RouteEditResult({required this.route, this.branchRoute});
+}
+
 // ── 분기점 데이터 ─────────────────────────────────────────────────
 class _BranchPoint {
   final int routeNodeIdx; // 현재 루트에서 분기 발생 위치
@@ -48,6 +55,8 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
 
   List<_BranchPoint> _branches = [];
   _BranchPoint? _selected;
+  double _trimStart = 0.0;
+  double _trimEnd = 1.0;
 
   // 분기점 오버레이 위치 (픽셀)
   final Map<int, Offset> _pinPositions = {};
@@ -144,6 +153,37 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
     _map = map;
   }
 
+  void _onMapTap(mbx.MapContentGestureContext tap) {
+    if (_selected != null || widget.route.nodes.length < 3) return;
+    final point = LatLng(
+      tap.point.coordinates.lat.toDouble(),
+      tap.point.coordinates.lng.toDouble(),
+    );
+    final idx = _nearestNodeIndex(point);
+    if (idx == null) return;
+    final normalized = idx / (widget.route.nodes.length - 1);
+    final startGap = (normalized - _trimStart).abs();
+    final endGap = (normalized - _trimEnd).abs();
+    if (startGap <= endGap) {
+      _updateTrim(normalized.clamp(0.0, _trimEnd - 0.05), _trimEnd);
+    } else {
+      _updateTrim(_trimStart, normalized.clamp(_trimStart + 0.05, 1.0));
+    }
+  }
+
+  int? _nearestNodeIndex(LatLng point) {
+    int? bestIdx;
+    var bestKm = double.infinity;
+    for (var i = 0; i < widget.route.nodes.length; i++) {
+      final d = RevvRoute.haversineKm(point, widget.route.nodes[i]);
+      if (d < bestKm) {
+        bestKm = d;
+        bestIdx = i;
+      }
+    }
+    return bestKm <= 0.6 ? bestIdx : null;
+  }
+
   Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
     _polyManager = await _map?.annotations.createPolylineAnnotationManager();
     _styleLoaded = true;
@@ -213,27 +253,39 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
         ),
       );
     } else {
-      // 루트 전체 표시
-      final coords = widget.route.nodes
+      // 원본 루트 전체를 희미하게 깔고, 선택 구간만 강조 표시
+      final allCoords = widget.route.nodes
           .map((n) => mbx.Position(n.lng, n.lat))
           .toList();
       await _polyManager!.create(
         mbx.PolylineAnnotationOptions(
-          geometry: mbx.LineString(coordinates: coords),
-          lineColor: 0xFFFFFFFF,
-          lineWidth: 7.0,
-          lineOpacity: 1.0,
+          geometry: mbx.LineString(coordinates: allCoords),
+          lineColor: 0xFF334155,
+          lineWidth: 5.0,
+          lineOpacity: 0.45,
         ),
       );
-      final diffColor = _diffColorInt(widget.route.difficultyLevel);
-      await _polyManager!.create(
-        mbx.PolylineAnnotationOptions(
-          geometry: mbx.LineString(coordinates: coords),
-          lineColor: diffColor,
-          lineWidth: 4.5,
-          lineOpacity: 1.0,
-        ),
-      );
+
+      final trimmed = _trimmedNodes();
+      final coords = trimmed.map((n) => mbx.Position(n.lng, n.lat)).toList();
+      if (coords.length >= 2) {
+        await _polyManager!.create(
+          mbx.PolylineAnnotationOptions(
+            geometry: mbx.LineString(coordinates: coords),
+            lineColor: 0xFFFFFFFF,
+            lineWidth: 7.0,
+            lineOpacity: 1.0,
+          ),
+        );
+        await _polyManager!.create(
+          mbx.PolylineAnnotationOptions(
+            geometry: mbx.LineString(coordinates: coords),
+            lineColor: _diffColorInt(widget.route.difficultyLevel),
+            lineWidth: 4.5,
+            lineOpacity: 1.0,
+          ),
+        );
+      }
     }
   }
 
@@ -258,6 +310,49 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
   }
 
   // ── 적용 ──────────────────────────────────────────────────────
+  void _updateTrim(double start, double end) {
+    setState(() {
+      _trimStart = start.clamp(0.0, 0.95);
+      _trimEnd = end.clamp(_trimStart + 0.05, 1.0);
+    });
+    _drawAll();
+  }
+
+  List<LatLng> _trimmedNodes() {
+    final nodes = widget.route.nodes;
+    if (nodes.length < 2) return nodes;
+    final start = (_trimStart * (nodes.length - 1)).round().clamp(
+      0,
+      nodes.length - 2,
+    );
+    final end = (_trimEnd * (nodes.length - 1)).round().clamp(
+      start + 1,
+      nodes.length - 1,
+    );
+    return nodes.sublist(start, end + 1);
+  }
+
+  double _distanceOf(List<LatLng> nodes) {
+    var dist = 0.0;
+    for (var i = 0; i < nodes.length - 1; i++) {
+      dist += RevvRoute.haversineKm(nodes[i], nodes[i + 1]);
+    }
+    return dist;
+  }
+
+  void _applyTrimOnly() {
+    final nodes = _trimmedNodes();
+    if (nodes.length < 2) return;
+    final trimmed = widget.route.copyWith(
+      id: '${widget.route.id}_trim_${DateTime.now().millisecondsSinceEpoch}',
+      name: '${widget.route.name} 편집 구간',
+      nodes: nodes,
+      distanceKm: _distanceOf(nodes),
+      centerPoint: nodes[nodes.length ~/ 2],
+    );
+    Navigator.pop(context, RouteEditResult(route: trimmed));
+  }
+
   void _applyBranch() {
     final bp = _selected;
     if (bp == null) return;
@@ -271,9 +366,13 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
       id: '${widget.route.id}_edit',
       nodes: nodes,
       distanceKm: dist,
+      centerPoint: nodes[nodes.length ~/ 2],
     );
     // trimmed 루트 + 분기 루트를 결합해서 반환
-    Navigator.pop(context, (trimmed: trimmed, branch: bp.branchRoute));
+    Navigator.pop(
+      context,
+      RouteEditResult(route: trimmed, branchRoute: bp.branchRoute),
+    );
   }
 
   @override
@@ -301,6 +400,7 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
             onMapCreated: _onMapCreated,
             onStyleLoadedListener: _onStyleLoaded,
             onScrollListener: (_) => _schedulePinUpdate(),
+            onTapListener: _onMapTap,
           ),
 
           // ── 분기점 핀들 ──
@@ -402,54 +502,26 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
             ),
           ),
 
-          // ── 범례 ──
-          if (_branches.isNotEmpty && sel == null)
+          // ── 구간 편집 카드 ──
+          if (sel == null)
             Positioned(
-              bottom: MediaQuery.of(context).padding.bottom + 24,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.bg.withValues(alpha: 0.82),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: AppColors.outlineVariant.withValues(alpha: 0.42),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 10,
-                        height: 10,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFFBBF24),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '황색 핀을 탭하면 분기 방향 선택',
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 12,
-                          color: Colors.white70,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+              left: 12,
+              right: 12,
+              bottom: MediaQuery.of(context).padding.bottom + 12,
+              child: _TrimEditCard(
+                route: widget.route,
+                branchCount: _branches.length,
+                trimStart: _trimStart,
+                trimEnd: _trimEnd,
+                onChanged: _updateTrim,
+                onApply: _applyTrimOnly,
               ),
             ),
 
           // ── 빈 상태 ──
           if (_branches.isEmpty && _styleLoaded)
             Positioned(
-              bottom: MediaQuery.of(context).padding.bottom + 24,
+              bottom: MediaQuery.of(context).padding.bottom + 188,
               left: 0,
               right: 0,
               child: Center(
@@ -491,6 +563,246 @@ class _RouteEditScreenState extends State<RouteEditScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _TrimEditCard extends StatelessWidget {
+  final RevvRoute route;
+  final int branchCount;
+  final double trimStart;
+  final double trimEnd;
+  final void Function(double start, double end) onChanged;
+  final VoidCallback onApply;
+
+  const _TrimEditCard({
+    required this.route,
+    required this.branchCount,
+    required this.trimStart,
+    required this.trimEnd,
+    required this.onChanged,
+    required this.onApply,
+  });
+
+  double get _keptKm =>
+      (route.distanceKm * (trimEnd - trimStart)).clamp(0.0, route.distanceKm);
+
+  @override
+  Widget build(BuildContext context) {
+    return RevvGlassCard(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      color: AppColors.bg.withValues(alpha: 0.90),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.content_cut_rounded,
+                size: 15,
+                color: AppColors.primaryContainer,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '구간 편집',
+                  style: AppText.body(
+                    size: 15,
+                    weight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                '${_keptKm.toStringAsFixed(1)} km',
+                style: AppText.technicalLabel(
+                  size: 11,
+                  color: AppColors.primaryContainer,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            branchCount > 0
+                ? '슬라이더나 루트 탭으로 구간을 자르고, 노란 핀으로 다른 루트에 이어붙일 수 있어요.'
+                : '슬라이더나 루트 탭으로 시작/끝 지점을 조절해요.',
+            style: AppText.body(
+              size: 12,
+              height: 1.25,
+              weight: FontWeight.w600,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _TrimSliderRow(
+            label: '시작',
+            value: trimStart,
+            min: 0.0,
+            max: (trimEnd - 0.05).clamp(0.0, 0.95),
+            km: route.distanceKm * trimStart,
+            onChanged: (value) => onChanged(value, trimEnd),
+          ),
+          _TrimSliderRow(
+            label: '끝',
+            value: trimEnd,
+            min: (trimStart + 0.05).clamp(0.05, 1.0),
+            max: 1.0,
+            km: route.distanceKm * trimEnd,
+            onChanged: (value) => onChanged(trimStart, value),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _PresetButton(
+                  label: '앞 1/2',
+                  onTap: () => onChanged(0.0, 0.5),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _PresetButton(
+                  label: '뒤 1/2',
+                  onTap: () => onChanged(0.5, 1.0),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _PresetButton(
+                  label: '전체',
+                  onTap: () => onChanged(0.0, 1.0),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: onApply,
+            child: Container(
+              height: 42,
+              decoration: BoxDecoration(
+                color: AppColors.primaryContainer,
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primaryContainer.withValues(alpha: 0.24),
+                    blurRadius: 14,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Text(
+                  '이 구간으로 적용',
+                  style: AppText.body(
+                    size: 14,
+                    weight: FontWeight.w800,
+                    color: AppColors.onPrimary,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrimSliderRow extends StatelessWidget {
+  final String label;
+  final double value;
+  final double min;
+  final double max;
+  final double km;
+  final ValueChanged<double> onChanged;
+
+  const _TrimSliderRow({
+    required this.label,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.km,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 34,
+          child: Text(
+            label,
+            style: AppText.body(
+              size: 12,
+              weight: FontWeight.w700,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: AppColors.primaryContainer,
+              inactiveTrackColor: AppColors.surfaceHigh,
+              thumbColor: AppColors.primaryContainer,
+              overlayColor: AppColors.primaryContainer.withValues(alpha: 0.16),
+              trackHeight: 3,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+            ),
+            child: Slider(
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              onChanged: onChanged,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 46,
+          child: Text(
+            '${km.toStringAsFixed(1)}km',
+            textAlign: TextAlign.right,
+            style: AppText.technicalLabel(size: 10, color: AppColors.textHint),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PresetButton extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _PresetButton({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 32,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceHigh.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.30),
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: AppText.body(
+              size: 12,
+              weight: FontWeight.w700,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
       ),
     );
   }

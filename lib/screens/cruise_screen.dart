@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../constants/drive_thresholds.dart';
 import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import '../models/chain_candidate.dart';
 import '../models/composite_route.dart';
 import '../models/revv_route.dart';
@@ -17,9 +18,6 @@ import '../services/directions_service.dart';
 import '../services/settings_service.dart';
 import '../services/audio_service.dart';
 import '../services/stt_service.dart';
-import '../services/revv_ai_service.dart';
-import '../services/imu_service.dart';
-import '../services/obd_service.dart';
 import '../services/jarvis_service.dart';
 import '../services/local_command_service.dart';
 import '../models/run_session.dart';
@@ -49,22 +47,6 @@ PageRouteBuilder<T> _slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
     child: child,
   ),
 );
-
-TextStyle _koreanUiStyle({
-  double fontSize = 14,
-  FontWeight fontWeight = FontWeight.w600,
-  Color color = Colors.white,
-  double? height,
-  double? letterSpacing,
-}) {
-  return GoogleFonts.notoSansKr(
-    fontSize: fontSize,
-    fontWeight: fontWeight,
-    color: color,
-    height: height,
-    letterSpacing: letterSpacing,
-  );
-}
 
 TextStyle _techUiStyle({
   double fontSize = 14,
@@ -105,14 +87,17 @@ class _CruiseScreenState extends State<CruiseScreen>
   bool _showCurveHeatmap = false;
   RevvRoute? _sprintRoute;
   List<LatLng>? _sprintNavPolyline;
+  bool _sprintRouteFocus = false;
 
   RevvRoute? _driveRoute;
   SprintStartMode _activeStartMode = SprintStartMode.auto;
+  String? _lastPhaseSyncedRouteId;
+  bool? _lastAlwaysListenWanted;
+  bool _sprintLaunchQueued = false;
 
   // ── 항상 듣기 상태 ──
   bool _alwaysListening = false;
-  bool _hasShownAiOfflineSnack = false;
-
+  int _recenterSignal = 0;
   @override
   void initState() {
     super.initState();
@@ -180,34 +165,10 @@ class _CruiseScreenState extends State<CruiseScreen>
       return;
     }
 
-    // 2. 로컬로 처리 불가 → AI 폴백 (복잡한 질문만)
-    final loc = context.read<LocationService>();
-    final weather = context.read<WeatherService>();
-    final routeSvc = context.read<RouteService>();
-    final imu = context.read<ImuService>();
-    final obd = context.read<OBDService>();
-    final ai = RevvAiService();
-    final response = await ai.ask(
-      text,
-      speedKmh: loc.speedKmh,
-      weather: weather.weatherDesc,
-      roadCondition: weather.roadCondition,
-      routeName: routeSvc.selectedRoute?.name,
-      routeDistanceKm: routeSvc.selectedRoute?.distanceKm,
-      lateralG: imu.lateralG,
-      longitudinalG: imu.longitudinalG,
-      rpm: obd.data?.rpm,
-      coolantTempC: obd.data?.coolantTempC,
-      throttlePct: obd.data?.throttlePct,
-    );
+    // 2. 항상 듣기에서는 로컬 명령만 허용
+    // 민감한 주행 텔레메트리가 원격 AI로 전송되지 않도록 차단한다.
     if (mounted) {
-      if (ai.lastRequestFailed && !_hasShownAiOfflineSnack) {
-        _hasShownAiOfflineSnack = true;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('AI 연결 안 됨')));
-      }
-      jarvis.speak(response);
+      jarvis.speak('항상 듣기에서는 로컬 명령만 처리해요. 복잡한 요청은 버튼을 눌러서 실행해 주세요.');
     }
     SttService().setProcessing(false);
   }
@@ -279,6 +240,46 @@ class _CruiseScreenState extends State<CruiseScreen>
     _phase = selectedRoute == null ? _RidePhase.idle : _RidePhase.routeSelected;
   }
 
+  void _queuePhaseSync(RevvRoute? selectedRoute) {
+    final routeId = selectedRoute?.id;
+    if (_lastPhaseSyncedRouteId == routeId) return;
+    _lastPhaseSyncedRouteId = routeId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final loc = _locationService;
+      final isNear =
+          selectedRoute != null &&
+          loc != null &&
+          selectedRoute.nodes.isNotEmpty &&
+          RevvRoute.haversineKm(
+                LatLng(loc.lat, loc.lng),
+                selectedRoute.nodes.first,
+              ) <
+              kRouteStartNearKm;
+      _syncBrowsePhase(selectedRoute, isNearOverride: isNear);
+    });
+  }
+
+  void _queueAlwaysListenSync(bool wantAlwaysListen) {
+    if (_lastAlwaysListenWanted == wantAlwaysListen) return;
+    _lastAlwaysListenWanted = wantAlwaysListen;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _syncAlwaysListen();
+    });
+  }
+
+  void _queueSprintLaunch() {
+    if (_sprintLaunchQueued) return;
+    _sprintLaunchQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _sprintLaunchQueued = false;
+      if (!mounted) return;
+      context.read<RouteService>().clearSprintRequest();
+      _goSprint();
+    });
+  }
+
   Future<void> _fetchNavRoute(RevvRoute route) async {
     final loc = context.read<LocationService>();
     final polyline = await DirectionsService.getRoute(
@@ -306,6 +307,7 @@ class _CruiseScreenState extends State<CruiseScreen>
         setState(() {
           _enterDrive();
           _driveRoute = route;
+          _sprintRouteFocus = true;
           _activeStartMode = startMode;
         });
         return;
@@ -322,6 +324,7 @@ class _CruiseScreenState extends State<CruiseScreen>
       _enterSprint();
       _sprintRoute = route;
       _sprintNavPolyline = null;
+      _sprintRouteFocus = false;
       _activeStartMode = startMode;
     });
   }
@@ -337,6 +340,7 @@ class _CruiseScreenState extends State<CruiseScreen>
           setState(() {
             _enterDrive();
             _driveRoute = route;
+            _sprintRouteFocus = true;
             _activeStartMode = SprintStartMode.auto;
           });
         },
@@ -346,6 +350,7 @@ class _CruiseScreenState extends State<CruiseScreen>
             _enterSprint();
             _sprintRoute = route;
             _sprintNavPolyline = null;
+            _sprintRouteFocus = false;
             _activeStartMode = SprintStartMode.auto;
           });
         },
@@ -358,6 +363,7 @@ class _CruiseScreenState extends State<CruiseScreen>
       _exitRide();
       _sprintRoute = null;
       _sprintNavPolyline = null;
+      _sprintRouteFocus = false;
       _activeStartMode = SprintStartMode.auto;
     });
     if (session != null && mounted) {
@@ -446,31 +452,18 @@ class _CruiseScreenState extends State<CruiseScreen>
     final sprintRequested = context.select<RouteService, bool>(
       (r) => r.sprintRequested,
     );
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final loc = _locationService;
-      final isNear =
-          selectedRoute != null &&
-          loc != null &&
-          selectedRoute.nodes.isNotEmpty &&
-          RevvRoute.haversineKm(
-                LatLng(loc.lat, loc.lng),
-                selectedRoute.nodes.first,
-              ) <
-              kRouteStartNearKm;
-      _syncBrowsePhase(selectedRoute, isNearOverride: isNear);
-    });
     // 항상듣기 설정 변화 감지 → 즉시 동기화
-    context.select<SettingsService, bool>((s) => s.alwaysListen);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncAlwaysListen());
+    final alwaysListen = context.select<SettingsService, bool>(
+      (s) => s.alwaysListen,
+    );
+
+    _queuePhaseSync(selectedRoute);
+    _queueAlwaysListenSync(alwaysListen);
 
     if (sprintRequested &&
         _phase != _RidePhase.sprinting &&
         _phase != _RidePhase.driving) {
-      context.read<RouteService>().clearSprintRequest();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _goSprint();
-      });
+      _queueSprintLaunch();
     }
 
     return PopScope(
@@ -498,7 +491,7 @@ class _CruiseScreenState extends State<CruiseScreen>
                           _phase == _RidePhase.sprinting ||
                           _phase == _RidePhase.driving,
                       navPolyline: _phase == _RidePhase.sprinting
-                          ? _sprintNavPolyline
+                          ? (_sprintRouteFocus ? null : _sprintNavPolyline)
                           : _navPolyline,
                       routePolyline: _phase == _RidePhase.sprinting
                           ? _sprintRoute?.nodes
@@ -510,29 +503,54 @@ class _CruiseScreenState extends State<CruiseScreen>
                           _phase != _RidePhase.driving &&
                           _showCurveHeatmap &&
                           selectedRoute != null,
+                      routeFocusMode:
+                          (_phase == _RidePhase.sprinting &&
+                              _sprintRouteFocus) ||
+                          _phase == _RidePhase.driving,
+                      recenterSignal: _recenterSignal,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        AppColors.bg.withValues(alpha: 0.26),
+                        Colors.transparent,
+                        Colors.transparent,
+                        AppColors.bg.withValues(alpha: 0.42),
+                      ],
+                      stops: const [0.0, 0.18, 0.58, 1.0],
                     ),
                   ),
                 ),
               ),
             ),
 
-            // ── 상단 플로팅 HUD ──
+            // ── 상단 크루즈 앱바 ──
             if (_phase != _RidePhase.sprinting && _phase != _RidePhase.driving)
               Positioned(
-                key: const ValueKey('top-hud'),
-                top: MediaQuery.of(context).padding.top + 10,
-                left: 14,
-                right: 14,
-                child: const _TopFloatingHud(),
+                key: const ValueKey('top-bar'),
+                top: 0,
+                left: 0,
+                right: 0,
+                child: const _CruiseTopBar(),
               ),
 
-            // ── 속도 게이지 (좌하단 플로팅) ──
+            // ── 활성 루트 pill ──
             if (_phase == _RidePhase.idle)
               Positioned(
-                key: const ValueKey('speed-gauge'),
-                bottom: 80 + MediaQuery.of(context).padding.bottom + 18,
-                left: 14,
-                child: const _SpeedGauge(),
+                key: const ValueKey('active-routes-pill'),
+                top: MediaQuery.of(context).padding.top + 72,
+                left: 0,
+                right: 0,
+                child: const Center(child: _ActiveRoutesPill()),
               ),
 
             // ── 루트 시작 근접 배너 ──
@@ -573,6 +591,9 @@ class _CruiseScreenState extends State<CruiseScreen>
                   onNavPolylineChanged: (poly) {
                     if (mounted) setState(() => _sprintNavPolyline = poly);
                   },
+                  onRouteFocusChanged: (focused) {
+                    if (mounted) setState(() => _sprintRouteFocus = focused);
+                  },
                 ),
               ),
 
@@ -587,22 +608,30 @@ class _CruiseScreenState extends State<CruiseScreen>
                 ),
               ),
 
+            // ── 우측 맵 컨트롤 ──
+            if (_phase == _RidePhase.idle)
+              Positioned(
+                key: const ValueKey('map-controls'),
+                right: 14,
+                top: MediaQuery.of(context).size.height * 0.42,
+                child: _MapControlRail(
+                  onRecenter: () async {
+                    final loc = context.read<LocationService>();
+                    await loc.ensureLiveLocation();
+                    if (!mounted) return;
+                    setState(() => _recenterSignal++);
+                  },
+                ),
+              ),
+
             // ── 커브 히트맵 토글 버튼 ──
             if (_phase == _RidePhase.idle)
               Positioned(
                 key: const ValueKey('idle-prompt'),
                 left: 14,
                 right: 14,
-                bottom: 80 + MediaQuery.of(context).padding.bottom,
-                child: _IdleDrivePrompt(
-                  onBrowseRoutes: () {
-                    setState(() => _activeTab = 0);
-                    Navigator.push(
-                      context,
-                      _slideUpRoute(const RoutesScreen()),
-                    );
-                  },
-                ),
+                bottom: 82 + MediaQuery.of(context).padding.bottom,
+                child: const _RecommendedRoutesSheet(),
               ),
 
             if (_phase == _RidePhase.routeSelected && selectedRoute != null)
@@ -658,6 +687,10 @@ class _CruiseScreenState extends State<CruiseScreen>
                 right: 0,
                 child: _BottomNavBar(
                   activeTab: _activeTab,
+                  goLabel: _phase == _RidePhase.idle ? '루트 찾기' : '주행 시작',
+                  goIcon: _phase == _RidePhase.idle
+                      ? Icons.search_rounded
+                      : Icons.navigation_rounded,
                   onRoutes: () {
                     setState(() => _activeTab = 0);
                     Navigator.push(
@@ -728,43 +761,465 @@ class _TapScaleState extends State<_TapScale> {
   }
 }
 
-class _IdleDrivePrompt extends StatelessWidget {
-  final VoidCallback onBrowseRoutes;
-  const _IdleDrivePrompt({required this.onBrowseRoutes});
+class _CruiseTopBar extends StatelessWidget {
+  const _CruiseTopBar();
 
   @override
   Widget build(BuildContext context) {
-    return RevvGlassCard(
-      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-      color: AppColors.bg.withValues(alpha: 0.90),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            '어디로 달릴까?',
-            style: GoogleFonts.rajdhani(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: AppColors.textPrimary,
-            ),
+    final topPad = MediaQuery.of(context).padding.top;
+    return Container(
+      padding: EdgeInsets.fromLTRB(16, topPad + 10, 16, 10),
+      decoration: BoxDecoration(
+        color: AppColors.bg.withValues(alpha: 0.60),
+        border: Border(
+          bottom: BorderSide(
+            color: AppColors.outlineVariant.withValues(alpha: 0.20),
           ),
-          const SizedBox(height: 6),
-          Text(
-            '오늘 드라이브에 맞는 루트를 먼저 고르고 바로 시작하세요.',
-            style: GoogleFonts.rajdhani(
-              fontSize: 14,
-              height: 1.35,
-              color: Colors.white.withValues(alpha: 0.68),
-            ),
-          ),
-          const SizedBox(height: 14),
-          RevvPrimaryButton(
-            label: '루트 보기',
-            icon: Icons.alt_route_rounded,
-            onPressed: onBrowseRoutes,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryContainer.withValues(alpha: 0.06),
+            blurRadius: 15,
           ),
         ],
+      ),
+      child: Row(
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.sensors_rounded,
+                size: 20,
+                color: AppColors.primaryContainer,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'REVV',
+                style: AppText.body(
+                  size: 18,
+                  weight: FontWeight.w900,
+                  color: AppColors.primaryContainer,
+                  letterSpacing: 3,
+                ),
+              ),
+            ],
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceHigh.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: AppColors.outlineVariant.withValues(alpha: 0.20),
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  'GPS LOCK',
+                  style: AppText.technicalLabel(
+                    size: 9,
+                    color: AppColors.primaryContainer,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.primaryContainer,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primaryContainer.withValues(
+                          alpha: 0.8,
+                        ),
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Icon(
+            Icons.battery_charging_full_rounded,
+            size: 20,
+            color: AppColors.primaryContainer,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActiveRoutesPill extends StatelessWidget {
+  const _ActiveRoutesPill();
+
+  @override
+  Widget build(BuildContext context) {
+    final count = context.select<RouteService, int>((r) => r.routes.length);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.primaryContainer,
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryContainer.withValues(alpha: 0.30),
+            blurRadius: 20,
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.alt_route_rounded,
+            size: 16,
+            color: AppColors.onPrimary,
+          ),
+          const SizedBox(width: 8),
+          Text(
+            count == 0 ? '주변 루트 찾는 중' : '추천 루트 $count개',
+            style: AppText.technicalLabel(
+              size: 11,
+              color: AppColors.onPrimary,
+              letterSpacing: 1.1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapControlRail extends StatelessWidget {
+  final Future<void> Function() onRecenter;
+
+  const _MapControlRail({required this.onRecenter});
+
+  @override
+  Widget build(BuildContext context) {
+    return _TapScale(
+      onTap: onRecenter,
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: AppColors.primaryContainer,
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33000000),
+              blurRadius: 14,
+              offset: Offset(0, 6),
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.my_location_rounded,
+          color: AppColors.onPrimary,
+          size: 22,
+        ),
+      ),
+    );
+  }
+}
+
+class _RecommendedRoutesSheet extends StatelessWidget {
+  const _RecommendedRoutesSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<RouteService>(
+      builder: (_, svc, __) {
+        final routes = svc.routes.take(6).toList();
+        return RevvGlassCard(
+          padding: EdgeInsets.zero,
+          radius: 20,
+          color: AppColors.panel2.withValues(alpha: 0.95),
+          glow: true,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 48,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.outline.withValues(alpha: 0.30),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '추천 피드',
+                            style: AppText.technicalLabel(
+                              size: 10,
+                              color: AppColors.primaryContainer,
+                              letterSpacing: 1.8,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '근처에서 바로 달릴 루트',
+                            style: AppText.body(
+                              size: 20,
+                              weight: FontWeight.w800,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          _slideUpRoute(const RoutesScreen()),
+                        );
+                      },
+                      child: Text(
+                        'VIEW ALL',
+                        style: AppText.technicalLabel(
+                          size: 10,
+                          color: AppColors.primaryContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                height: 166,
+                child: routes.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              svc.isLoadingInitial
+                                  ? '현재 위치 기준으로 루트를 분석하는 중이에요.'
+                                  : svc.routeDataStatusTitle ??
+                                        '아직 추천 루트가 없어요.',
+                              style: AppText.body(
+                                size: 14,
+                                weight: FontWeight.w800,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              svc.routeDataStatusBody ??
+                                  '루트 찾기에서 지도를 움직여 다시 찾거나 탐색 반경을 넓혀보세요.',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.body(
+                                size: 12,
+                                height: 1.3,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            _MiniDataSourcePill(
+                              label: svc.routeDataSourceLabel,
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                        scrollDirection: Axis.horizontal,
+                        itemCount: routes.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 12),
+                        itemBuilder: (_, i) => _RecommendedRouteCard(
+                          route: routes[i],
+                          onTap: () {
+                            svc.selectRoute(routes[i]);
+                          },
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MiniDataSourcePill extends StatelessWidget {
+  final String label;
+
+  const _MiniDataSourcePill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.52),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.26),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.storage_rounded,
+            size: 12,
+            color: AppColors.textHint,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppText.body(
+              size: 11,
+              weight: FontWeight.w800,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RecommendedRouteCard extends StatelessWidget {
+  final RevvRoute route;
+  final VoidCallback onTap;
+
+  const _RecommendedRouteCard({required this.route, required this.onTap});
+
+  Color _accent() {
+    switch (route.difficultyLevel) {
+      case 4:
+        return const Color(0xFFEF4444);
+      case 3:
+        return const Color(0xFFF97316);
+      case 2:
+        return const Color(0xFFF59E0B);
+      case 1:
+        return const Color(0xFF22C55E);
+      default:
+        return AppColors.primaryContainer;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = _accent();
+    return _TapScale(
+      onTap: onTap,
+      child: Container(
+        width: 248,
+        decoration: BoxDecoration(
+          color: AppColors.surfaceHigh.withValues(alpha: 0.94),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.10),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 92,
+              decoration: BoxDecoration(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    accent.withValues(alpha: 0.70),
+                    AppColors.surfaceLowest,
+                  ],
+                ),
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${route.starRating.toStringAsFixed(1)} ★',
+                        style: AppText.technicalLabel(
+                          size: 9,
+                          color: AppColors.primaryContainer,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    route.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(
+                      size: 14,
+                      weight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${route.distanceDisplay} • ${route.curveStyle}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.technicalLabel(
+                            size: 10,
+                            color: AppColors.textHint,
+                          ),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                        color: AppColors.primaryContainer,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -808,17 +1263,56 @@ class _TopFloatingHudState extends State<_TopFloatingHud> {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        const Spacer(),
-        Consumer<WeatherService>(
-          builder: (_, w, __) => Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-            decoration: BoxDecoration(
-              color: AppColors.bg.withValues(alpha: 0.82),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: AppColors.outlineVariant.withValues(alpha: 0.42),
+        Expanded(
+          child: RevvGlassCard(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            color: AppColors.panel.withValues(alpha: 0.78),
+            child: Consumer<LocationService>(
+              builder: (_, loc, __) => Row(
+                children: [
+                  const Icon(
+                    Icons.navigation_rounded,
+                    size: 14,
+                    color: AppColors.primaryContainer,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'CRUISE READY',
+                          style: AppText.technicalLabel(
+                            size: 9,
+                            color: AppColors.primaryContainer,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          loc.hasPermission
+                              ? 'GPS ${loc.speedKmh.toStringAsFixed(0)} km/h'
+                              : 'GPS waiting',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.body(
+                            size: 12,
+                            weight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Consumer<WeatherService>(
+          builder: (_, w, __) => RevvGlassCard(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            color: AppColors.panel.withValues(alpha: 0.82),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -826,9 +1320,9 @@ class _TopFloatingHudState extends State<_TopFloatingHud> {
                 const SizedBox(width: 5),
                 Text(
                   w.tempDisplay,
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                  style: AppText.body(
+                    size: 12,
+                    weight: FontWeight.w700,
                     color: AppColors.textSecondary,
                   ),
                 ),
@@ -850,67 +1344,6 @@ class _TopFloatingHudState extends State<_TopFloatingHud> {
           ),
         ),
       ],
-    );
-  }
-}
-
-// ══════════════════════════════════════════════════════════════════
-// 속도 게이지 — 원형, 항상 좌하단
-// ══════════════════════════════════════════════════════════════════
-class _SpeedGauge extends StatelessWidget {
-  const _SpeedGauge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<LocationService>(
-      builder: (_, loc, __) {
-        final speed = loc.hasPermission
-            ? loc.speedKmh.toStringAsFixed(0)
-            : '--';
-        return Container(
-          width: 74,
-          height: 74,
-          decoration: BoxDecoration(
-            color: AppColors.bg.withValues(alpha: 0.82),
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: AppColors.primaryContainer.withValues(alpha: 0.55),
-              width: 1.5,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.primaryContainer.withValues(alpha: 0.18),
-                blurRadius: 20,
-                spreadRadius: 3,
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                speed,
-                style: GoogleFonts.orbitron(
-                  fontSize: 23,
-                  fontWeight: FontWeight.w900,
-                  color: AppColors.primaryContainer,
-                  height: 1.0,
-                ),
-              ),
-              const SizedBox(height: 1),
-              Text(
-                'km/h',
-                style: _koreanUiStyle(
-                  fontSize: 8,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary,
-                  letterSpacing: 1,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 }
@@ -1015,14 +1448,16 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
   ) {
     return RevvGlassCard(
       padding: EdgeInsets.zero,
-      color: AppColors.bg.withValues(alpha: 0.90),
+      color: AppColors.panel.withValues(alpha: 0.92),
+      glow: true,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            Container(height: 3, color: diffColor.withValues(alpha: 0.9)),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+              padding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -1043,9 +1478,8 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                               ),
                               child: Text(
                                 widget.route.difficultyLabel,
-                                style: GoogleFonts.rajdhani(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w800,
+                                style: AppText.technicalLabel(
+                                  size: 10,
                                   color: diffColor,
                                 ),
                               ),
@@ -1054,10 +1488,11 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                             Expanded(
                               child: Text(
                                 widget.route.name,
-                                style: GoogleFonts.rajdhani(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
+                                style: AppText.body(
+                                  size: 20,
+                                  weight: FontWeight.w900,
                                   color: AppColors.textPrimary,
+                                  letterSpacing: -0.4,
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -1090,11 +1525,11 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '이 루트로 시작할까?',
-                          style: _koreanUiStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.white.withValues(alpha: 0.68),
+                          '지도에서 선택한 루트예요. 바로 주행하거나 루트 찾기에서 편집할 수 있어요.',
+                          style: AppText.body(
+                            size: 14,
+                            weight: FontWeight.w600,
+                            color: AppColors.textSecondary,
                           ),
                         ),
                       ],
@@ -1108,7 +1543,7 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                         onTap: widget.onGo,
                         child: Container(
                           width: 92,
-                          height: 46,
+                          height: 48,
                           decoration: BoxDecoration(
                             color: AppColors.primaryContainer,
                             borderRadius: BorderRadius.circular(999),
@@ -1123,11 +1558,12 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                           ),
                           child: Center(
                             child: Text(
-                              '시작',
-                              style: _koreanUiStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w800,
+                              '주행',
+                              style: AppText.body(
+                                size: 14,
+                                weight: FontWeight.w900,
                                 color: AppColors.onPrimary,
+                                letterSpacing: 0.8,
                               ),
                             ),
                           ),
@@ -1164,10 +1600,9 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                                 const SizedBox(width: 3),
                                 Text(
                                   '${totalChainKm.toStringAsFixed(0)}km',
-                                  style: GoogleFonts.rajdhani(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
+                                  style: AppText.technicalLabel(
+                                    size: 10,
+                                    color: AppColors.textPrimary,
                                   ),
                                 ),
                               ],
@@ -1184,10 +1619,12 @@ class _RouteSelectedCardState extends State<_RouteSelectedCard>
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.18),
+                        color: AppColors.surface.withValues(alpha: 0.72),
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.15),
+                          color: AppColors.outlineVariant.withValues(
+                            alpha: 0.24,
+                          ),
                         ),
                       ),
                       child: const Icon(
@@ -1224,11 +1661,7 @@ class _StatChip extends StatelessWidget {
         const SizedBox(width: 3),
         Text(
           value,
-          style: GoogleFonts.rajdhani(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: c,
-          ),
+          style: AppText.body(size: 12, weight: FontWeight.w600, color: c),
         ),
       ],
     );
@@ -1282,24 +1715,24 @@ class _NearStartBannerState extends State<_NearStartBanner>
       opacity: _fade,
       child: SlideTransition(
         position: _slide,
-        child: Container(
+        child: RevvGlassCard(
           padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
-          decoration: BoxDecoration(
-            color: const Color(0xF0141416),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: Colors.white.withValues(alpha: 0.08),
-              width: 1.2,
-            ),
-          ),
+          color: AppColors.panel.withValues(alpha: 0.92),
+          glow: true,
           child: Row(
             children: [
               Container(
                 width: 10,
                 height: 10,
-                decoration: const BoxDecoration(
-                  color: AppColors.red,
+                decoration: BoxDecoration(
+                  color: AppColors.warning,
                   shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.warning.withValues(alpha: 0.45),
+                      blurRadius: 10,
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 10),
@@ -1308,19 +1741,18 @@ class _NearStartBannerState extends State<_NearStartBanner>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '시작 지점 근처',
-                      style: _koreanUiStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.red,
+                      'START POINT LOCKED',
+                      style: AppText.technicalLabel(
+                        size: 9,
+                        color: AppColors.warning,
                       ),
                     ),
                     Text(
                       widget.routeName,
-                      style: GoogleFonts.rajdhani(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
+                      style: AppText.body(
+                        size: 18,
+                        weight: FontWeight.w800,
+                        color: AppColors.textPrimary,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1334,18 +1766,19 @@ class _NearStartBannerState extends State<_NearStartBanner>
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 18,
-                    vertical: 9,
+                    vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.red,
-                    borderRadius: BorderRadius.circular(8),
+                    color: AppColors.primaryContainer,
+                    borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    '시작',
-                    style: _koreanUiStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white,
+                    'ENTER',
+                    style: AppText.body(
+                      size: 13,
+                      weight: FontWeight.w900,
+                      color: AppColors.onPrimary,
+                      letterSpacing: 0.8,
                     ),
                   ),
                 ),
@@ -1363,6 +1796,8 @@ class _NearStartBannerState extends State<_NearStartBanner>
 // ══════════════════════════════════════════════════════════════════
 class _BottomNavBar extends StatelessWidget {
   final int activeTab;
+  final String goLabel;
+  final IconData goIcon;
   final VoidCallback onRoutes;
   final VoidCallback onGo;
   final VoidCallback onLog;
@@ -1370,6 +1805,8 @@ class _BottomNavBar extends StatelessWidget {
 
   const _BottomNavBar({
     required this.activeTab,
+    required this.goLabel,
+    required this.goIcon,
     required this.onRoutes,
     required this.onGo,
     required this.onLog,
@@ -1379,23 +1816,10 @@ class _BottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomPad = MediaQuery.of(context).padding.bottom;
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xF2101012),
-        border: Border(
-          top: BorderSide(
-            color: Colors.white.withValues(alpha: 0.07),
-            width: 0.5,
-          ),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.65),
-            blurRadius: 28,
-            offset: const Offset(0, -6),
-          ),
-        ],
-      ),
+    return RevvGlassCard(
+      padding: EdgeInsets.zero,
+      radius: 30,
+      color: AppColors.bg.withValues(alpha: 0.86),
       child: SizedBox(
         height: 64 + bottomPad,
         child: Row(
@@ -1404,7 +1828,7 @@ class _BottomNavBar extends StatelessWidget {
             _NavItem(
               icon: Icons.route_outlined,
               activeIcon: Icons.route,
-              label: 'ROUTES',
+              label: '루트',
               active: activeTab == 0,
               onTap: onRoutes,
             ),
@@ -1424,21 +1848,22 @@ class _BottomNavBar extends StatelessWidget {
                           width: 66,
                           height: 66,
                           decoration: BoxDecoration(
-                            color: AppColors.red,
+                            color: AppColors.primaryContainer,
                             shape: BoxShape.circle,
-                            border: Border.all(
-                              color: const Color(0xF2101012),
-                              width: 3,
-                            ),
+                            border: Border.all(color: AppColors.bg, width: 3),
                             boxShadow: [
                               BoxShadow(
-                                color: AppColors.red.withValues(alpha: 0.65),
+                                color: AppColors.primaryContainer.withValues(
+                                  alpha: 0.45,
+                                ),
                                 blurRadius: 22,
                                 spreadRadius: 3,
                                 offset: const Offset(0, 4),
                               ),
                               BoxShadow(
-                                color: AppColors.red.withValues(alpha: 0.2),
+                                color: AppColors.primaryContainer.withValues(
+                                  alpha: 0.2,
+                                ),
                                 blurRadius: 44,
                                 spreadRadius: 8,
                               ),
@@ -1447,18 +1872,17 @@ class _BottomNavBar extends StatelessWidget {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              const Icon(
-                                Icons.navigation_rounded,
+                              Icon(
+                                goIcon,
                                 size: 20,
-                                color: Colors.white,
+                                color: AppColors.onPrimary,
                               ),
                               Text(
-                                'GO',
-                                style: GoogleFonts.orbitron(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w900,
-                                  color: Colors.white,
-                                  letterSpacing: 2,
+                                goLabel,
+                                style: AppText.technicalLabel(
+                                  size: goLabel.length > 4 ? 7 : 9,
+                                  color: AppColors.onPrimary,
+                                  letterSpacing: goLabel.length > 4 ? 0.4 : 1,
                                 ),
                               ),
                             ],
@@ -1473,14 +1897,14 @@ class _BottomNavBar extends StatelessWidget {
             _NavItem(
               icon: Icons.history,
               activeIcon: Icons.history,
-              label: 'LOG',
+              label: '기록',
               active: activeTab == 3,
               onTap: onLog,
             ),
             _NavItem(
               icon: Icons.more_horiz,
               activeIcon: Icons.more_horiz,
-              label: 'MORE',
+              label: '메뉴',
               active: activeTab == 4,
               onTap: onMore,
             ),
@@ -1522,17 +1946,16 @@ class _NavItem extends StatelessWidget {
                   active ? activeIcon : icon,
                   key: ValueKey(active),
                   size: 23,
-                  color: active ? AppColors.red : Colors.white30,
+                  color: active ? AppColors.primaryContainer : Colors.white30,
                 ),
               ),
               const SizedBox(height: 3),
               Text(
                 label,
-                style: GoogleFonts.rajdhani(
-                  fontSize: 8,
-                  fontWeight: FontWeight.w700,
-                  color: active ? AppColors.red : Colors.white30,
-                  letterSpacing: 1,
+                style: AppText.technicalLabel(
+                  size: 9,
+                  color: active ? AppColors.primaryContainer : Colors.white30,
+                  letterSpacing: 0.5,
                 ),
               ),
               const SizedBox(height: 5),
@@ -1542,7 +1965,7 @@ class _NavItem extends StatelessWidget {
                 width: active ? 20 : 0,
                 height: 2,
                 decoration: BoxDecoration(
-                  color: AppColors.red,
+                  color: AppColors.primaryContainer,
                   borderRadius: BorderRadius.circular(1),
                 ),
               ),
@@ -1582,11 +2005,11 @@ class _MoreSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF131315),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+    return RevvGlassCard(
+      padding: EdgeInsets.zero,
+      radius: 24,
+      color: AppColors.panel.withValues(alpha: 0.96),
+      glow: true,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1595,33 +2018,64 @@ class _MoreSheet extends StatelessWidget {
             width: 36,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.white24,
+              color: AppColors.outline.withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
           const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 0, 22, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'SYSTEM ACCESS',
+                        style: AppText.technicalLabel(
+                          size: 10,
+                          color: AppColors.primaryContainer,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '메뉴',
+                        style: AppText.body(
+                          size: 22,
+                          weight: FontWeight.w900,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
           _MoreItem(
             icon: Icons.speed_rounded,
             label: 'OBD 진단',
-            sub: '실시간 차량 데이터',
+            sub: '연결하면 속도·RPM·분석 정확도가 올라가요',
             onTap: onObd,
           ),
           _MoreItem(
             icon: Icons.directions_car_rounded,
             label: 'Garage Pro',
-            sub: '차량 프로필 · G포스 설정',
+            sub: '차량 정보를 넣으면 G미터 기준이 더 정확해져요',
             onTap: onGarage,
           ),
           _MoreItem(
             icon: Icons.favorite_rounded,
-            label: 'Saved Routes',
-            sub: '저장한 루트 다시 보기',
+            label: '저장한 루트',
+            sub: '좋아하는 코스를 다시 열고 바로 달려요',
             onTap: onSavedRoutes,
           ),
           _MoreItem(
             icon: Icons.settings_rounded,
             label: '설정',
-            sub: '앱 환경설정',
+            sub: '음성 안내·탐색 반경·주행 HUD 조정',
             onTap: onSettings,
           ),
           Padding(
@@ -1629,11 +2083,11 @@ class _MoreSheet extends StatelessWidget {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'AI 분석, 랭킹, 음성 명령은 주행 흐름 안에서 필요할 때만 다시 꺼내는 방향으로 정리 중이에요.',
-                style: _koreanUiStyle(
-                  fontSize: 13,
+                '처음엔 루트 찾기와 주행만 써도 충분해요. 차량/OBD 설정은 나중에 정확도를 높이고 싶을 때 열면 됩니다.',
+                style: AppText.body(
+                  size: 13,
                   height: 1.35,
-                  color: Colors.white.withValues(alpha: 0.45),
+                  color: AppColors.textSecondary,
                 ),
               ),
             ),
@@ -1672,10 +2126,10 @@ class _MoreItem extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: AppColors.red.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(11),
+                  color: AppColors.primaryContainer.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Icon(icon, size: 21, color: AppColors.red),
+                child: Icon(icon, size: 21, color: AppColors.primaryContainer),
               ),
               const SizedBox(width: 14),
               Column(
@@ -1683,20 +2137,24 @@ class _MoreItem extends StatelessWidget {
                 children: [
                   Text(
                     label,
-                    style: _koreanUiStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                    style: AppText.body(
+                      size: 15,
+                      weight: FontWeight.w700,
+                      color: AppColors.textPrimary,
                     ),
                   ),
                   Text(
                     sub,
-                    style: _koreanUiStyle(fontSize: 11, color: Colors.white38),
+                    style: AppText.body(size: 11, color: AppColors.textHint),
                   ),
                 ],
               ),
               const Spacer(),
-              const Icon(Icons.chevron_right, size: 18, color: Colors.white24),
+              const Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: AppColors.textHint,
+              ),
             ],
           ),
         ),
@@ -1721,65 +2179,73 @@ class _DriveOrNavSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.panel,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      padding: EdgeInsets.fromLTRB(
-        20,
-        16,
-        20,
-        20 + MediaQuery.of(context).padding.bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: AppColors.divider,
-              borderRadius: BorderRadius.circular(2),
+    return RevvGlassCard(
+      padding: EdgeInsets.zero,
+      radius: 24,
+      color: AppColors.panel.withValues(alpha: 0.96),
+      glow: true,
+      margin: EdgeInsets.zero,
+      borderOpacity: 0.28,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          20,
+          16,
+          20,
+          20 + MediaQuery.of(context).padding.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.outline.withValues(alpha: 0.35),
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            route.name,
-            style: _techUiStyle(fontSize: 13, fontWeight: FontWeight.w700),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '루트 시작점 근처예요. 어떻게 시작할까요?',
-            style: _koreanUiStyle(fontSize: 12, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              Expanded(
-                child: _SheetOptionBtn(
-                  icon: Icons.speed,
-                  title: 'DRIVE',
-                  subtitle: '미니멀 HUD\nG포스 + 속도',
-                  color: AppColors.cyan,
-                  onTap: onDrive,
-                ),
+            const SizedBox(height: 16),
+            Text(
+              route.name,
+              style: AppText.technicalLabel(
+                size: 11,
+                color: AppColors.primaryContainer,
+                letterSpacing: 1.6,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _SheetOptionBtn(
-                  icon: Icons.navigation,
-                  title: 'NAV',
-                  subtitle: '풀 내비게이션\n턴바이턴 안내',
-                  color: AppColors.red,
-                  onTap: onNav,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '루트 시작점 근처예요. 어떻게 시작할까요?',
+              style: AppText.body(size: 13, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: _SheetOptionBtn(
+                    icon: Icons.speed,
+                    title: 'DRIVE',
+                    subtitle: '미니멀 HUD\nG포스 + 속도',
+                    color: AppColors.cyan,
+                    onTap: onDrive,
+                  ),
                 ),
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _SheetOptionBtn(
+                    icon: Icons.navigation,
+                    title: 'NAV',
+                    subtitle: '풀 내비게이션\n턴바이턴 안내',
+                    color: AppColors.red,
+                    onTap: onNav,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1821,9 +2287,9 @@ class _SheetOptionBtnState extends State<_SheetOptionBtn> {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: widget.color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: widget.color.withValues(alpha: 0.4)),
+            color: widget.color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: widget.color.withValues(alpha: 0.34)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1832,9 +2298,8 @@ class _SheetOptionBtnState extends State<_SheetOptionBtn> {
               const SizedBox(height: 8),
               Text(
                 widget.title,
-                style: GoogleFonts.orbitron(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w800,
+                style: AppText.technicalLabel(
+                  size: 13,
                   color: widget.color,
                   letterSpacing: 1,
                 ),
@@ -1842,8 +2307,8 @@ class _SheetOptionBtnState extends State<_SheetOptionBtn> {
               const SizedBox(height: 4),
               Text(
                 widget.subtitle,
-                style: GoogleFonts.rajdhani(
-                  fontSize: 11,
+                style: AppText.body(
+                  size: 11,
                   color: AppColors.textSecondary,
                   height: 1.4,
                 ),

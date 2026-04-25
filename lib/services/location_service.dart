@@ -11,17 +11,21 @@ class LocationService extends ChangeNotifier {
     accuracy: LocationAccuracy.bestForNavigation,
     distanceFilter: 5,
   );
+  static const Duration _notifyThrottle = Duration(milliseconds: 250);
 
   Position? currentPosition;
   LatLng? _persistedLatLng;
   double speedKmh = 0;
   double heading = 0; // 이동 방향 (0=북, 90=동, 단위: degrees)
   bool hasPermission = false;
+  PermissionStatus _permissionStatus = PermissionStatus.denied;
   bool isTracking = false;
   bool _hydrated = false;
 
   StreamSubscription<Position>? _subscription;
   bool _notifyPending = false;
+  Timer? _notifyTimer;
+  DateTime? _lastNotifiedAt;
 
   LocationService() {
     unawaited(_hydrateLastKnownLocation());
@@ -29,44 +33,84 @@ class LocationService extends ChangeNotifier {
 
   Future<void> requestPermission() async {
     final status = await Permission.locationWhenInUse.request();
+    _permissionStatus = status;
     hasPermission = status.isGranted;
     notifyListeners();
+  }
+
+  PermissionStatus get permissionStatus => _permissionStatus;
+
+  String get permissionStatusLabel {
+    if (hasPermission) return '위치 허용됨';
+    if (_permissionStatus.isPermanentlyDenied) return '설정에서 위치 권한 필요';
+    if (_permissionStatus.isDenied) return '위치 권한 꺼짐';
+    if (_permissionStatus.isRestricted) return '위치 권한 제한됨';
+    return '위치 권한 확인 필요';
+  }
+
+  String? get lastFailureReason {
+    if (hasPermission) return null;
+    return '주변 루트 탐색에는 현재 위치 권한이 필요해요.';
   }
 
   Future<void> startTracking() async {
     if (!hasPermission || isTracking) return;
     isTracking = true;
-    _subscription = Geolocator.getPositionStream(locationSettings: _trackingSettings)
-        .listen((position) {
-      _applyPosition(position);
-      _scheduleNotify();
-    }, onError: (_) {
-      // GPS 신호 없을 때 마지막 위치 유지, 속도 0
-      speedKmh = 0;
-      _scheduleNotify();
-    });
+    _subscription =
+        Geolocator.getPositionStream(
+          locationSettings: _trackingSettings,
+        ).listen(
+          (position) {
+            _applyPosition(position);
+            _scheduleNotify();
+          },
+          onError: (_) {
+            // GPS 신호 없을 때 마지막 위치 유지, 속도 0
+            speedKmh = 0;
+            _scheduleNotify();
+          },
+        );
     await ensureLiveLocation(timeout: const Duration(seconds: 5));
   }
 
   void _scheduleNotify() {
+    final now = DateTime.now();
+    final last = _lastNotifiedAt;
+    if (last == null || now.difference(last) >= _notifyThrottle) {
+      _emitNotify();
+      return;
+    }
+
     if (_notifyPending) return;
     _notifyPending = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    final wait = _notifyThrottle - now.difference(last);
+    _notifyTimer = Timer(wait, () {
       _notifyPending = false;
-      notifyListeners();
+      _emitNotify();
     });
+  }
+
+  void _emitNotify() {
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+    _lastNotifiedAt = DateTime.now();
+    notifyListeners();
   }
 
   void stopTracking() {
     _subscription?.cancel();
     _subscription = null;
     isTracking = false;
+    _notifyTimer?.cancel();
+    _notifyTimer = null;
+    _notifyPending = false;
   }
 
   bool get hasLiveLocation => currentPosition != null;
 
-  LatLng? get liveLatLng =>
-      currentPosition == null ? null : LatLng(currentPosition!.latitude, currentPosition!.longitude);
+  LatLng? get liveLatLng => currentPosition == null
+      ? null
+      : LatLng(currentPosition!.latitude, currentPosition!.longitude);
 
   LatLng? get bestKnownLatLng => liveLatLng ?? _persistedLatLng;
 
@@ -78,6 +122,7 @@ class LocationService extends ChangeNotifier {
     await _hydrateLastKnownLocation();
     if (!hasPermission) {
       final status = await Permission.locationWhenInUse.status;
+      _permissionStatus = status;
       hasPermission = status.isGranted;
       if (!hasPermission) return bestKnownLatLng;
     }
@@ -150,20 +195,28 @@ class LocationService extends ChangeNotifier {
     StreamSubscription<Position>? tempSubscription;
     final completer = Completer<LatLng?>();
 
-    tempSubscription = Geolocator.getPositionStream(locationSettings: _trackingSettings)
-        .listen((position) {
-      _applyPosition(position);
-      if (!completer.isCompleted) {
-        completer.complete(liveLatLng);
-      }
-    }, onError: (_) {
-      if (!completer.isCompleted) {
-        completer.complete(null);
-      }
-    });
+    tempSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: _trackingSettings,
+        ).listen(
+          (position) {
+            _applyPosition(position);
+            if (!completer.isCompleted) {
+              completer.complete(liveLatLng);
+            }
+          },
+          onError: (_) {
+            if (!completer.isCompleted) {
+              completer.complete(null);
+            }
+          },
+        );
 
     try {
-      final result = await completer.future.timeout(timeout, onTimeout: () => null);
+      final result = await completer.future.timeout(
+        timeout,
+        onTimeout: () => null,
+      );
       if (result != null) {
         notifyListeners();
       }

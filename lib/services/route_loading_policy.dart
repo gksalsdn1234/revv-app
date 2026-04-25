@@ -126,6 +126,121 @@ List<RevvRoute> mergeDiversityRoutes(
   return pool.take(limit).toList();
 }
 
+double routePolylineOverlapRatio(RevvRoute a, RevvRoute b) {
+  if (a.nodes.isEmpty || b.nodes.isEmpty) return 0;
+  final sampleA = _sampleRouteNodesForOverlap(a.nodes);
+  final sampleB = _sampleRouteNodesForOverlap(b.nodes);
+  if (sampleA.isEmpty || sampleB.isEmpty) return 0;
+
+  var nearCount = 0;
+  for (final point in sampleA) {
+    final near = sampleB.any(
+      (other) => RevvRoute.haversineKm(point, other) < 0.18,
+    );
+    if (near) nearCount++;
+  }
+  return nearCount / sampleA.length;
+}
+
+List<LatLng> _sampleRouteNodesForOverlap(List<LatLng> nodes) {
+  if (nodes.length <= 24) return nodes;
+  final step = nodes.length / 24;
+  return List.generate(24, (i) => nodes[(i * step).floor()]);
+}
+
+bool areRoutesNearDuplicate(
+  RevvRoute a,
+  RevvRoute b, {
+  double centerDistanceKm = 3.0,
+}) {
+  if (a.id == b.id) return true;
+  final centerDistance = RevvRoute.haversineKm(a.centerPoint, b.centerPoint);
+  if (centerDistance < centerDistanceKm) return true;
+
+  final aName = normalizeRouteName(a.name).toLowerCase();
+  final bName = normalizeRouteName(b.name).toLowerCase();
+  if (aName.isNotEmpty &&
+      bName.isNotEmpty &&
+      aName == bName &&
+      centerDistance < centerDistanceKm * 2.2) {
+    return true;
+  }
+
+  if (centerDistance < centerDistanceKm * 2.0) {
+    final overlap = math.max(
+      routePolylineOverlapRatio(a, b),
+      routePolylineOverlapRatio(b, a),
+    );
+    if (overlap >= 0.42) return true;
+  }
+
+  return false;
+}
+
+List<RevvRoute> diversifyRouteSlots(
+  List<RevvRoute> routes, {
+  int limit = defaultVisibleRoutes,
+}) {
+  if (routes.length <= 2) return routes;
+  final ranked = List<RevvRoute>.from(routes)
+    ..sort((a, b) => recommendationScore(b).compareTo(recommendationScore(a)));
+  final selected = <RevvRoute>[];
+
+  bool addCandidate(RevvRoute route, {double centerDistanceKm = 3.0}) {
+    if (selected.length >= limit) return false;
+    final duplicate = selected.any(
+      (current) => areRoutesNearDuplicate(
+        current,
+        route,
+        centerDistanceKm: centerDistanceKm,
+      ),
+    );
+    if (duplicate) return false;
+    selected.add(route);
+    return true;
+  }
+
+  void addFromSlot(
+    bool Function(RevvRoute route) test,
+    int count, {
+    double centerDistanceKm = 3.0,
+  }) {
+    for (final route in ranked.where(test)) {
+      if (selected.where(test).length >= count) return;
+      addCandidate(route, centerDistanceKm: centerDistanceKm);
+    }
+  }
+
+  addFromSlot((route) => route.distanceFromUser <= 18, 4);
+  addFromSlot((route) => routeCharacter(route) == 'tight_technical', 3);
+  addFromSlot((route) => routeCharacter(route) == 'fast_sweeper', 3);
+  addFromSlot((route) => routeCharacter(route) == 'rhythmic_flow', 3);
+  addFromSlot((route) => route.isLoop, 2, centerDistanceKm: 2.4);
+  addFromSlot((route) => route.distanceKm >= 24, 2);
+  addFromSlot((route) => route.elevationDelta >= 45, 2);
+
+  for (final route in ranked) {
+    if (selected.length >= limit) break;
+    addCandidate(route, centerDistanceKm: 2.4);
+  }
+
+  if (selected.length < math.min(limit, minimumVisibleRoutes)) {
+    for (final route in ranked) {
+      if (selected.length >= limit) break;
+      if (!selected.any((current) => current.id == route.id)) {
+        selected.add(route);
+      }
+    }
+  }
+
+  selected.sort((a, b) {
+    final aScore = recommendationScore(a);
+    final bScore = recommendationScore(b);
+    return bScore.compareTo(aScore);
+  });
+  return selected.take(limit).toList();
+}
+
 bool hasMeaningfulDiversityGain(
   List<RevvRoute> existing,
   List<RevvRoute> enriched,
@@ -153,8 +268,14 @@ bool looksLikeEmptyOverpassPayload(String body) {
 }
 
 List<int> buildSearchRadiusPlan(int baseRadiusKm) {
-  final start = baseRadiusKm.clamp(20, 120);
-  return [start, start + 20, start + 50];
+  final start = baseRadiusKm.clamp(20, 220);
+  final plan = <int>{
+    start,
+    (start + 30).clamp(20, 220),
+    (start + 70).clamp(20, 220),
+    (start + 120).clamp(20, 220),
+  }.toList()..sort();
+  return plan;
 }
 
 RouteFilterThresholds thresholdsForStage(RouteSearchStage stage) {
@@ -453,30 +574,105 @@ String routeCharacter(RevvRoute route) {
   return 'mixed_touring';
 }
 
-String? routePrimaryReason(RevvRoute route) {
-  if (route.primaryReason?.isNotEmpty ?? false) {
-    return route.primaryReason;
+int _routeTextVariant(RevvRoute route, String salt, int modulo) {
+  if (modulo <= 1) return 0;
+  final key = '${route.id}|${route.name}|$salt';
+  var hash = 0;
+  for (final code in key.codeUnits) {
+    hash = (hash * 31 + code) & 0x7fffffff;
   }
+  return hash % modulo;
+}
+
+String _routeDistanceTone(RevvRoute route) {
+  if (route.distanceKm < 9) return '짧게 집중해서 타기 좋은';
+  if (route.distanceKm >= 28) return '긴 호흡으로 이어지는';
+  return '부담 없이 몰입하기 좋은';
+}
+
+String _routeFlowTone(RevvRoute route) {
+  final flow = routeFlowScore(route);
+  if (flow >= 0.86) return '정지 요소가 적어 흐름이 매끄러운';
+  if (flow >= 0.62) return '중간중간 리듬을 다시 잡기 좋은';
+  return '교차로와 정지 요소를 의식하며 타야 하는';
+}
+
+String _routeCurveTone(RevvRoute route) {
+  final curvyKm = route.tightCurveKm + route.mediumCurveKm;
+  if (curvyKm <= 0.4) return '완만한 굴곡';
+  final tightRatio = route.tightCurveKm / curvyKm;
+  if (tightRatio >= 0.58) return '타이트한 코너';
+  if (tightRatio <= 0.28) return '넓은 스위퍼';
+  return '타이트 코너와 스위퍼';
+}
+
+String _pickRouteText(RevvRoute route, String salt, List<String> options) {
+  return options[_routeTextVariant(route, salt, options.length)];
+}
+
+String? routePrimaryReason(RevvRoute route) {
+  final persistedReason = route.primaryReason?.trim();
+  if (persistedReason?.isNotEmpty ?? false) {
+    return persistedReason;
+  }
+
+  final distanceTone = _routeDistanceTone(route);
+  final flowTone = _routeFlowTone(route);
+  final curveTone = _routeCurveTone(route);
+  final curvyKm = route.tightCurveKm + route.mediumCurveKm;
+  final curveKmText = curvyKm >= 0.5 ? '${curvyKm.toStringAsFixed(1)}km' : '곳곳';
+  final continuousText = route.maxContinuousKm >= 0.8
+      ? '${route.maxContinuousKm.toStringAsFixed(1)}km'
+      : '짧은 구간';
+  final elevationText = '${route.elevationDelta.toStringAsFixed(0)}m';
 
   switch (routeCharacter(route)) {
     case 'tight_technical':
-      return '타이트한 코너 비중이 높아 기술적으로 재미있는 루트예요.';
+      return _pickRouteText(route, 'tight_reason', [
+        '$distanceTone 코스예요. $curveKmText 정도의 $curveTone가 이어져 조향 리듬을 차분히 잡기 좋아요.',
+        '$curveTone 비중이 높은 기술형 루트예요. 급하게 밀기보다 코너마다 진입 라인을 확인하기 좋습니다.',
+        '${route.distanceDisplay} 안에 조밀한 코너가 모여 있어 짧고 선명하게 집중하기 좋은 루트예요.',
+        '$flowTone 루트라 코너 사이 템포를 의식하면 훨씬 깔끔하게 이어집니다.',
+      ]);
     case 'fast_sweeper':
-      return '길게 이어지는 스위퍼 코너가 리듬감 있게 이어지는 루트예요.';
+      return _pickRouteText(route, 'sweeper_reason', [
+        '$distanceTone 스위퍼 루트예요. $continuousText 정도 흐름이 살아 있어 부드러운 조향 연습에 좋아요.',
+        '넓은 코너가 중심이라 차분하게 라인을 이어가기 좋은 코스예요.',
+        '$flowTone 구간 위주라 끊기지 않는 리듬을 만들기 좋습니다.',
+        '${route.distanceDisplay} 동안 완만한 곡선이 이어져 부담 없이 루트 감각을 익히기 좋아요.',
+      ]);
     case 'rhythmic_flow':
-      return '중간 정지가 적고 코너 리듬이 잘 이어지는 루트예요.';
+      return _pickRouteText(route, 'flow_reason', [
+        '$flowTone 코스예요. 코너와 직선의 간격이 자연스러워 페이스를 일정하게 잡기 좋습니다.',
+        '$continuousText 이상 이어지는 흐름이 있어 길을 읽는 재미가 살아있는 루트예요.',
+        '$distanceTone 루트지만 리듬이 끊기지 않아 편하게 몰입하기 좋습니다.',
+        '$curveTone가 과하지 않게 섞여 있어 처음 타도 흐름을 잡기 쉬운 편이에요.',
+      ]);
     case 'hill_climb':
-      return '고도 변화가 살아 있어 업힐 몰입감이 좋은 루트예요.';
+      return _pickRouteText(route, 'hill_reason', [
+        '고도 변화가 약 $elevationText 살아 있는 루트예요. 오르막과 코너가 섞여 길의 입체감이 좋습니다.',
+        '$distanceTone 업다운 코스예요. 시야가 바뀌는 구간이 많아 차분한 진입 판단이 중요합니다.',
+        '$curveTone와 고도 변화가 같이 나와 단조롭지 않은 드라이브 흐름을 만듭니다.',
+        '업힐/다운힐 전환이 있어 속도보다 노면과 시야를 읽는 재미가 있는 루트예요.',
+      ]);
     case 'mixed_touring':
-      return primaryRouteReason(route) ?? '커브와 흐름의 균형이 괜찮은 투어링 성향 루트예요.';
+      return primaryRouteReason(route) ??
+          _pickRouteText(route, 'mixed_reason', [
+            '$distanceTone 투어링 루트예요. $curveTone가 적당히 섞여 편하게 길맛을 보기 좋습니다.',
+            '$flowTone 드라이브 코스예요. 크게 부담스럽지 않으면서도 지루하지 않은 구성이에요.',
+            '${route.distanceDisplay} 안에서 코너와 완만한 구간이 균형 있게 이어지는 루트예요.',
+            '처음 고른 루트로도 무난해요. 흐름을 보면서 마음에 드는 구간을 편집해 쓰기 좋습니다.',
+          ]);
   }
   return primaryRouteReason(route);
 }
 
 String? routeCautionNote(RevvRoute route) {
-  if (route.cautionNote?.isNotEmpty ?? false) {
-    return route.cautionNote;
+  final persistedNote = route.cautionNote?.trim();
+  if (persistedNote?.isNotEmpty ?? false) {
+    return persistedNote;
   }
+  final notes = <String>[];
   if (route.stopSignCount > 0 || route.trafficSignalCount > 0) {
     final parts = <String>[];
     if (route.stopSignCount > 0) {
@@ -485,15 +681,28 @@ String? routeCautionNote(RevvRoute route) {
     if (route.trafficSignalCount > 0) {
       parts.add('signal ${route.trafficSignalCount}개');
     }
-    return '중간 ${parts.join(', ')}가 있어 흐름이 약간 끊길 수 있음';
+    notes.add('중간 ${parts.join(', ')}가 있어 흐름이 약간 끊길 수 있음');
+  }
+  if (routeFlowScore(route) < 0.55 && route.maxContinuousKm < 1.2) {
+    notes.add('연속 흐름이 짧아 구간마다 페이스를 다시 잡는 편이 좋음');
+  }
+  if (route.distanceKm >= 35) {
+    notes.add('거리가 긴 편이라 출발 전 연료와 휴식 포인트를 먼저 확인하세요');
+  }
+  if (route.tightCurveKm >= 2.0 && route.sharpCurveCount >= 8) {
+    notes.add('타이트한 코너가 많아 초행이면 시야 확보를 우선하세요');
   }
   if (route.isMajorRoadLike || isMajorRoadLikeRouteName(route.name)) {
-    return '일부 구간은 간선도로 성격이 섞일 수 있음';
+    notes.add('일부 구간은 간선도로 성격이 섞일 수 있음');
   }
   if (route.isBridgeLike || isBridgeLikeRouteName(route.name)) {
-    return '브리지 연결 구간이 포함될 수 있음';
+    notes.add('브리지 연결 구간이 포함될 수 있음');
   }
-  return null;
+  if (route.isPrivateLike) {
+    notes.add('접근 제한 가능성이 있어 현장 표지와 통행 가능 여부를 확인하세요');
+  }
+  if (notes.isEmpty) return null;
+  return _pickRouteText(route, 'caution_note', notes);
 }
 
 RevvRoute hydrateRouteMetadata(RevvRoute route) {
@@ -513,25 +722,53 @@ bool hasCompellingRouteReason(RevvRoute route) {
 String? primaryRouteReason(RevvRoute route) {
   final reasons = deriveRouteReasonTags(route);
   if (reasons.contains('switchbacks')) {
-    return '타이트한 스위치백이 연속되는 기술적인 드라이브 루트예요.';
+    return _pickRouteText(route, 'tag_switchbacks', [
+      '타이트한 스위치백이 연속되는 기술적인 드라이브 루트예요.',
+      '짧은 간격의 방향 전환이 이어져 라인 선택이 중요한 루트예요.',
+      '스위치백 리듬이 살아 있어 조향 타이밍을 연습하기 좋은 코스예요.',
+    ]);
   }
   if (reasons.contains('sweepers')) {
-    return '장쾌한 스위퍼 코너가 리듬감 있게 이어지는 루트예요.';
+    return _pickRouteText(route, 'tag_sweepers', [
+      '장쾌한 스위퍼 코너가 리듬감 있게 이어지는 루트예요.',
+      '넓은 곡선이 길게 이어져 부드러운 라인을 만들기 좋은 코스예요.',
+      '스위퍼 중심이라 급한 조작보다 일정한 조향이 잘 어울리는 루트예요.',
+    ]);
   }
   if (reasons.contains('dense_corners')) {
-    return '코너가 쉼 없이 이어지는 밀도 높은 와인딩 코스예요.';
+    return _pickRouteText(route, 'tag_dense', [
+      '코너가 쉼 없이 이어지는 밀도 높은 와인딩 코스예요.',
+      '짧은 거리 안에 굴곡이 압축돼 있어 집중감이 좋은 루트예요.',
+      '코너 밀도가 높아 처음부터 끝까지 길을 읽는 재미가 있습니다.',
+    ]);
   }
   if (reasons.contains('continuous_flow')) {
-    return '긴 호흡으로 몰입하기 좋은 연속 코너 루트예요.';
+    return _pickRouteText(route, 'tag_flow', [
+      '긴 호흡으로 몰입하기 좋은 연속 코너 루트예요.',
+      '코너 사이 흐름이 잘 이어져 부드럽게 리듬을 만들기 좋습니다.',
+      '정지 없이 이어지는 구간이 있어 차분하게 페이스를 잡기 좋은 루트예요.',
+    ]);
   }
   if (reasons.contains('elevation')) {
-    return '오르막내리막이 살아있는 드라이브 코스예요.';
+    return _pickRouteText(route, 'tag_elevation', [
+      '오르막내리막이 살아있는 드라이브 코스예요.',
+      '고도 변화가 더해져 평면적인 루트보다 시야 변화가 풍부합니다.',
+      '업다운과 코너가 함께 나와 노면과 시야를 읽는 재미가 있어요.',
+    ]);
   }
   if (reasons.contains('loop')) {
-    return '출발지로 자연스럽게 돌아오는 흐름 좋은 루프예요.';
+    return _pickRouteText(route, 'tag_loop', [
+      '출발지로 자연스럽게 돌아오는 흐름 좋은 루프예요.',
+      '왕복 부담 없이 한 바퀴 돌기 좋은 루프형 코스예요.',
+      '시작과 끝이 자연스럽게 이어져 가볍게 한 세션 잡기 좋습니다.',
+    ]);
   }
   if (reasons.contains('high_score')) {
-    return '와인딩 점수가 높은 검증된 드라이빙 코스예요.';
+    return _pickRouteText(route, 'tag_score', [
+      '와인딩 점수가 높은 검증된 드라이빙 코스예요.',
+      'REVV 기준 와인딩 곡률 점수가 높아 드라이브 재미가 뚜렷한 루트예요.',
+      '와인딩 코너 구성과 거리 밸런스가 좋아 추천 우선순위가 높은 코스입니다.',
+    ]);
   }
   return null;
 }

@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
+  // Stitch / Precision Cockpit tokens
   static const bg = Color(0xFF131314);
+  static const surfaceDim = Color(0xFF131314);
+  static const surfaceLowest = Color(0xFF0E0E0F);
   static const panel = Color(0xFF1C1B1C);
   static const panel2 = Color(0xFF201F20);
   static const surface = Color(0xFF2A2A2B);
+  static const surfaceHigh = Color(0xFF353436);
+  static const surfaceBright = Color(0xFF3A393A);
+
+  // Legacy red name is kept for compatibility, but it now means REVV cyan.
   static const red = Color(0xFF00E5FF);
   static const redGlow = Color(0x6600E5FF);
   static const redDim = Color(0x3300E5FF);
@@ -13,9 +20,6 @@ class AppColors {
   static const white = Colors.white;
   static const gray = Color(0x40FFFFFF);
 
-  static const surfaceLowest = Color(0xFF0E0E0F);
-  static const surfaceHigh = Color(0xFF353436);
-  static const surfaceBright = Color(0xFF3A393A);
   static const outline = Color(0xFF849396);
   static const outlineVariant = Color(0xFF3B494C);
   static const success = Color(0xFF59D98E);
@@ -31,6 +35,17 @@ class AppColors {
 
   // Divider
   static const divider = Color(0xFF3B494C);
+
+  static LinearGradient cockpitBackgroundGradient({
+    AlignmentGeometry begin = Alignment.topLeft,
+  }) {
+    return LinearGradient(
+      begin: begin,
+      end: Alignment.bottomRight,
+      colors: const [Color(0xFF0A0A0B), Color(0xFF131314), Color(0xFF1A1B1D)],
+      stops: [0.0, 0.58, 1.0],
+    );
+  }
 
   static Color gForceColor(double mag) {
     final t = (mag / 1.2).clamp(0.0, 1.0);

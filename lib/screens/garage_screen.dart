@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
@@ -82,206 +81,285 @@ class _GarageScreenState extends State<GarageScreen> {
     final safePad = MediaQuery.of(context).padding;
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: Column(
-        children: [
-          // ── 앱바 ──────────────────────────────────────────────
-          Container(
-            padding: EdgeInsets.fromLTRB(16, safePad.top + 12, 16, 14),
-            decoration: BoxDecoration(
-              color: AppColors.bg.withValues(alpha: 0.86),
-              border: Border(
-                bottom: BorderSide(
-                  color: AppColors.outlineVariant.withValues(alpha: 0.42),
+      body: RevvCockpitBackground(
+        child: Column(
+          children: [
+            Container(
+              padding: EdgeInsets.fromLTRB(16, safePad.top + 12, 16, 14),
+              decoration: BoxDecoration(
+                color: AppColors.bg.withValues(alpha: 0.86),
+                border: Border(
+                  bottom: BorderSide(
+                    color: AppColors.outlineVariant.withValues(alpha: 0.42),
+                  ),
                 ),
               ),
-            ),
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: const Icon(
-                    Icons.arrow_back_ios_new,
-                    size: 16,
-                    color: Colors.white54,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Text(
-                  'GARAGE PRO',
-                  style: AppText.label(
-                    size: 13,
-                    color: AppColors.primaryContainer,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const Spacer(),
-                // 차량 이모지
-                Text(_fuelEmoji(_fuel), style: const TextStyle(fontSize: 20)),
-              ],
-            ),
-          ),
-          // ── 폼 ───────────────────────────────────────────────
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.fromLTRB(16, 20, 16, safePad.bottom + 24),
-              children: [
-                // 차량 기본 정보
-                _SectionHeader('차량 기본 정보'),
-                const SizedBox(height: 12),
-                _Field(
-                  label: '차종',
-                  hint: 'e.g. Honda Civic Type R',
-                  controller: _nameCtrl,
-                  focusNode: _nameFocus,
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _Field(
-                        label: '마력 (HP)',
-                        hint: '예) 320',
-                        controller: _hpCtrl,
-                        isNumber: true,
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: RevvGlassCard(
+                      padding: EdgeInsets.zero,
+                      radius: 999,
+                      color: AppColors.panel.withValues(alpha: 0.82),
+                      child: const SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: Icon(
+                          Icons.arrow_back_ios_new,
+                          size: 16,
+                          color: Colors.white54,
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _Field(
-                        label: '차량 무게 (kg)',
-                        hint: '예) 1400',
-                        controller: _weightCtrl,
-                        isNumber: true,
+                  ),
+                  const SizedBox(width: 14),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'GARAGE PRO',
+                        style: AppText.technicalLabel(
+                          size: 11,
+                          color: AppColors.primaryContainer,
+                          letterSpacing: 2,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // 연료 타입
-                _SectionHeader('연료 타입'),
-                const SizedBox(height: 12),
-                Row(
-                  children: [FuelType.gasoline, FuelType.diesel, FuelType.ev]
-                      .map((f) {
-                        final active = _fuel == f;
-                        return Expanded(
-                          child: GestureDetector(
-                            onTap: () => setState(() => _fuel = f),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 160),
-                              margin: const EdgeInsets.only(right: 8),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                color: active
-                                    ? AppColors.primaryContainer.withValues(
-                                        alpha: 0.15,
-                                      )
-                                    : AppColors.surface,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: active
-                                      ? AppColors.primaryContainer
-                                      : Colors.white12,
-                                  width: active ? 1.5 : 1,
-                                ),
-                              ),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    FuelType.emoji(f),
-                                    style: const TextStyle(fontSize: 18),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    FuelType.label(f),
-                                    style: GoogleFonts.rajdhani(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: active
-                                          ? AppColors.primaryContainer
-                                          : Colors.white54,
-                                    ),
-                                  ),
-                                ],
+                      const SizedBox(height: 3),
+                      Text(
+                        'Vehicle Profile',
+                        style: AppText.body(
+                          size: 18,
+                          weight: FontWeight.w800,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Text(_fuelEmoji(_fuel), style: const TextStyle(fontSize: 20)),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(16, 20, 16, safePad.bottom + 24),
+                children: [
+                  RevvGlassCard(
+                    padding: const EdgeInsets.all(16),
+                    glow: true,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'VEHICLE PROFILE',
+                          style: AppText.technicalLabel(
+                            size: 10,
+                            color: AppColors.primaryContainer,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _nameCtrl.text.trim().isEmpty
+                              ? '차량 정보를 입력해 주세요'
+                              : _nameCtrl.text.trim(),
+                          style: AppText.body(
+                            size: 24,
+                            weight: FontWeight.w900,
+                            letterSpacing: -0.7,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: RevvMetricTile(
+                                label: 'power',
+                                value: _hpCtrl.text.isEmpty
+                                    ? '--'
+                                    : _hpCtrl.text,
+                                unit: 'HP',
                               ),
                             ),
-                          ),
-                        );
-                      })
-                      .toList(),
-                ),
-                const SizedBox(height: 24),
-
-                // 타이어 폭
-                _SectionHeader('타이어 폭 (mm)'),
-                const SizedBox(height: 12),
-                _Field(
-                  label: '폭 (mm)',
-                  hint: '예) 225',
-                  controller: _tireCtrl,
-                  isNumber: true,
-                ),
-                const SizedBox(height: 10),
-                // 프리셋 칩
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _tirePresets.map((mm) {
-                    final current = int.tryParse(_tireCtrl.text) == mm;
-                    return GestureDetector(
-                      onTap: () {
-                        setState(() => _tireCtrl.text = '$mm');
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 140),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: RevvMetricTile(
+                                label: 'weight',
+                                value: _weightCtrl.text.isEmpty
+                                    ? '--'
+                                    : _weightCtrl.text,
+                                unit: 'KG',
+                                accent: AppColors.warning,
+                              ),
+                            ),
+                          ],
                         ),
-                        decoration: BoxDecoration(
-                          color: current
-                              ? AppColors.primaryContainer.withValues(
-                                  alpha: 0.18,
-                                )
-                              : AppColors.surface,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: current
-                                ? AppColors.primaryContainer
-                                : Colors.white12,
-                          ),
-                        ),
-                        child: Text(
-                          '$mm',
-                          style: GoogleFonts.orbitron(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: current ? AppColors.red : Colors.white38,
-                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // 차량 기본 정보
+                  _SectionHeader('차량 기본 정보'),
+                  const SizedBox(height: 12),
+                  _Field(
+                    label: '차종',
+                    hint: 'e.g. Honda Civic Type R',
+                    controller: _nameCtrl,
+                    focusNode: _nameFocus,
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _Field(
+                          label: '마력 (HP)',
+                          hint: '예) 320',
+                          controller: _hpCtrl,
+                          isNumber: true,
                         ),
                       ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 28),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: _Field(
+                          label: '차량 무게 (kg)',
+                          hint: '예) 1400',
+                          controller: _weightCtrl,
+                          isNumber: true,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
 
-                // G-force 임계치 미리보기
-                _SectionHeader('G-FORCE 임계치 (예상)'),
-                const SizedBox(height: 12),
-                _GThresholdCard(latG: _latG, lonG: _lonG),
-                const SizedBox(height: 28),
+                  // 연료 타입
+                  _SectionHeader('연료 타입'),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [FuelType.gasoline, FuelType.diesel, FuelType.ev]
+                        .map((f) {
+                          final active = _fuel == f;
+                          return Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _fuel = f),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 160),
+                                margin: const EdgeInsets.only(right: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: active
+                                      ? AppColors.primaryContainer.withValues(
+                                          alpha: 0.15,
+                                        )
+                                      : AppColors.surface,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: active
+                                        ? AppColors.primaryContainer
+                                        : Colors.white12,
+                                    width: active ? 1.5 : 1,
+                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      FuelType.emoji(f),
+                                      style: const TextStyle(fontSize: 18),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      FuelType.label(f),
+                                      style: AppText.body(
+                                        size: 11,
+                                        weight: FontWeight.w700,
+                                        color: active
+                                            ? AppColors.primaryContainer
+                                            : Colors.white54,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        })
+                        .toList(),
+                  ),
+                  const SizedBox(height: 24),
 
-                // 저장 버튼
-                RevvPrimaryButton(
-                  label: 'SAVE',
-                  icon: Icons.check_rounded,
-                  onPressed: _save,
-                ),
-              ],
+                  // 타이어 폭
+                  _SectionHeader('타이어 폭 (mm)'),
+                  const SizedBox(height: 12),
+                  _Field(
+                    label: '폭 (mm)',
+                    hint: '예) 225',
+                    controller: _tireCtrl,
+                    isNumber: true,
+                  ),
+                  const SizedBox(height: 10),
+                  // 프리셋 칩
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _tirePresets.map((mm) {
+                      final current = int.tryParse(_tireCtrl.text) == mm;
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() => _tireCtrl.text = '$mm');
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 140),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: current
+                                ? AppColors.primaryContainer.withValues(
+                                    alpha: 0.18,
+                                  )
+                                : AppColors.surface,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: current
+                                  ? AppColors.primaryContainer
+                                  : Colors.white12,
+                            ),
+                          ),
+                          child: Text(
+                            '$mm',
+                            style: AppText.technicalLabel(
+                              size: 10,
+                              color: current
+                                  ? AppColors.primaryContainer
+                                  : Colors.white38,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 28),
+
+                  // G-force 임계치 미리보기
+                  _SectionHeader('G-FORCE 임계치 (예상)'),
+                  const SizedBox(height: 12),
+                  _GThresholdCard(latG: _latG, lonG: _lonG),
+                  const SizedBox(height: 28),
+
+                  // 저장 버튼
+                  RevvPrimaryButton(
+                    label: 'SAVE',
+                    icon: Icons.check_rounded,
+                    onPressed: _save,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -297,8 +375,12 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Text(
-      text,
-      style: AppText.label(size: 10, color: AppColors.primaryContainer),
+      text.toUpperCase(),
+      style: AppText.technicalLabel(
+        size: 10,
+        color: AppColors.primaryContainer,
+        letterSpacing: 1.8,
+      ),
     );
   }
 }
@@ -326,9 +408,8 @@ class _Field extends StatelessWidget {
       children: [
         Text(
           label,
-          style: GoogleFonts.rajdhani(
-            fontSize: 10,
-            fontWeight: FontWeight.w700,
+          style: AppText.technicalLabel(
+            size: 10,
             color: AppColors.textHint,
             letterSpacing: 1,
           ),
@@ -341,33 +422,14 @@ class _Field extends StatelessWidget {
           inputFormatters: isNumber
               ? [FilteringTextInputFormatter.digitsOnly]
               : null,
-          style: GoogleFonts.orbitron(fontSize: 13, color: Colors.white),
+          style: AppText.body(size: 13, weight: FontWeight.w700),
           cursorColor: AppColors.primaryContainer,
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: GoogleFonts.rajdhani(
-              fontSize: 13,
-              color: Colors.white24,
-            ),
-            filled: true,
-            fillColor: AppColors.surface,
+            hintStyle: AppText.body(size: 13, color: Colors.white24),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 12,
               vertical: 12,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Colors.white12),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Colors.white12),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: BorderSide(
-                color: AppColors.primaryContainer.withValues(alpha: 0.7),
-              ),
             ),
           ),
         ),
@@ -386,6 +448,7 @@ class _GThresholdCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return RevvGlassCard(
       padding: const EdgeInsets.all(14),
+      color: AppColors.panel.withValues(alpha: 0.86),
       child: Row(
         children: [
           _GVal(label: '횡G 한계', value: latG, color: const Color(0xFFF97316)),
@@ -400,7 +463,7 @@ class _GThresholdCard extends StatelessWidget {
           Expanded(
             child: Text(
               '타이어 폭 기반 추정값입니다. 실제 차량과 다를 수 있어요.',
-              style: GoogleFonts.rajdhani(fontSize: 9, color: Colors.white24),
+              style: AppText.body(size: 10, color: Colors.white38),
             ),
           ),
         ],
@@ -422,18 +485,14 @@ class _GVal extends StatelessWidget {
       children: [
         Text(
           '${value.toStringAsFixed(2)}g',
-          style: GoogleFonts.orbitron(
-            fontSize: 16,
-            fontWeight: FontWeight.w900,
-            color: color,
-          ),
+          style: AppText.mono(size: 16, weight: FontWeight.w900, color: color),
         ),
         const SizedBox(height: 3),
         Text(
           label,
-          style: GoogleFonts.rajdhani(
-            fontSize: 9,
-            fontWeight: FontWeight.w600,
+          style: AppText.body(
+            size: 9,
+            weight: FontWeight.w600,
             color: AppColors.textHint,
           ),
         ),

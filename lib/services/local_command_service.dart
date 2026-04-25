@@ -56,7 +56,9 @@ class LocalCommandService {
       final parts = <String>[];
       if (d.rpm != null) parts.add('RPM ${d.rpm}');
       if (d.coolantTempC != null) parts.add('냉각수 ${d.coolantTempC}도');
-      if (d.throttlePct != null) parts.add('스로틀 ${d.throttlePct!.toStringAsFixed(0)}퍼센트');
+      if (d.throttlePct != null) {
+        parts.add('스로틀 ${d.throttlePct!.toStringAsFixed(0)}퍼센트');
+      }
       return parts.isEmpty ? '데이터가 없어요.' : parts.join(', ');
     }
 
@@ -72,8 +74,7 @@ class LocalCommandService {
 
     // ── 위치 ─────────────────────────────────────────────────
     if (_any(t, ['지금 어디', '현재 위치', '내 위치', '여기 어디'])) {
-      final loc = context.read<LocationService>();
-      return '위도 ${loc.lat.toStringAsFixed(4)}, 경도 ${loc.lng.toStringAsFixed(4)}에 있어요.';
+      return '현재 위치는 화면 지도에서 확인해 주세요.';
     }
 
     // ── 처리 불가 → AI 폴백 ──────────────────────────────────

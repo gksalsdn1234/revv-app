@@ -11,13 +11,13 @@ import '../services/mapbox_service.dart';
 import '../services/home_location_service.dart';
 import '../services/loop_route_service.dart';
 import '../services/route_brief_service.dart';
-import '../services/route_loading_policy.dart';
 import '../services/weather_service.dart';
 import '../services/revv_ai_service.dart';
 import '../services/jarvis_service.dart';
 import '../services/settings_service.dart';
 import '../models/revv_route.dart';
 import '../models/loop_route.dart';
+import '../models/composite_route.dart';
 import '../theme/text_styles.dart';
 import 'route_wizard_screen.dart';
 import 'route_edit_screen.dart';
@@ -33,20 +33,41 @@ class RoutesScreen extends StatefulWidget {
   State<RoutesScreen> createState() => _RoutesScreenState();
 }
 
+typedef _RoutePanelState = ({
+  List<RevvRoute> routes,
+  RevvRoute? selectedRoute,
+  bool isLoadingInitial,
+  String? routeDataStatusTitle,
+  String? routeDataStatusBody,
+  String routeDataSourceLabel,
+  int lastCloudCandidateCount,
+  int lastUsableCloudRouteCount,
+  int connectingCount,
+  double totalChainKm,
+  bool isLoadingConnecting,
+  bool hasActiveExtension,
+});
+
 class _RoutesScreenState extends State<RoutesScreen> {
   // ── 지도 ──────────────────────────────────────────────────────
   mbx.MapboxMap? _mapController;
   mbx.PolylineAnnotationManager? _polyManager;
+  mbx.CircleAnnotationManager? _farRouteManager;
   mbx.Cancelable? _polyTapEvents;
+  mbx.Cancelable? _farRouteTapEvents;
   final List<mbx.PolylineAnnotation> _polylines = [];
+  final List<mbx.CircleAnnotation> _farRouteDots = [];
   final Map<String, RevvRoute> _annotationToRoute = {};
+  final Map<String, RevvRoute> _circleToRoute = {};
   bool _styleLoaded = false;
   bool _isDrawing = false;
   String? _lastFlownRouteId;
+  String? _lastRouteRenderKey;
   RouteService? _routeSvc;
   LocationService? _locationSvc;
   bool _initialRouteFetchRequested = false;
   bool _initialMapCenteredOnLiveLocation = false;
+  bool _routeCardExpanded = false;
 
   // ── D. 구간 트리밍 ────────────────────────────────────────────
   bool _trimMode = false;
@@ -91,6 +112,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
     _locationSvc?.removeListener(_onLocationChanged);
     _loopSvc.removeListener(_onLoopServiceChanged);
     _polyTapEvents?.cancel();
+    _farRouteTapEvents?.cancel();
     _loopSvc.dispose();
     super.dispose();
   }
@@ -240,8 +262,11 @@ class _RoutesScreenState extends State<RoutesScreen> {
     _isDrawing = true;
     try {
       await _polyManager!.deleteAll();
+      await _farRouteManager?.deleteAll();
       _polylines.clear();
+      _farRouteDots.clear();
       _annotationToRoute.clear();
+      _circleToRoute.clear();
       for (int i = 0; i < loop.segments.length; i++) {
         final seg = loop.segments[i];
         final coords = seg.nodes
@@ -281,10 +306,12 @@ class _RoutesScreenState extends State<RoutesScreen> {
     if (_activeTab != 0) return; // LOOP 탭에서는 무시
     if (_styleLoaded && !_routeSvc!.isLoading) {
       final sel = _routeSvc!.selectedRoute;
+      final renderKey = _buildRouteRenderKey(_routeSvc!.routes, sel);
       // 인기 루트 닉네임 (3회 이상 주행)
       _namePopularRoutes(_routeSvc!.routes);
       if (sel != null && sel.id != _lastFlownRouteId) {
         _lastFlownRouteId = sel.id;
+        _routeCardExpanded = false;
         // AI 브리핑 fetch
         _fetchBrief(sel);
         _mapController?.flyTo(
@@ -301,13 +328,85 @@ class _RoutesScreenState extends State<RoutesScreen> {
           mbx.MapAnimationOptions(duration: 700),
         );
       }
-      _drawRoutes(_routeSvc!.routes, sel);
+      if (renderKey != _lastRouteRenderKey) {
+        _lastRouteRenderKey = renderKey;
+        _drawRoutes(_routeSvc!.routes, sel);
+      }
     }
+  }
+
+  String _buildRouteRenderKey(List<RevvRoute> routes, RevvRoute? selected) {
+    final routeIds = routes.map((route) => route.id).join('|');
+    return '${selected?.id ?? 'none'}::$routeIds';
   }
 
   // ── 지도 콜백 ──────────────────────────────────────────────────
   void _onMapCreated(mbx.MapboxMap controller) {
     _mapController = controller;
+  }
+
+  void _onMapTap(mbx.MapContentGestureContext tap) {
+    final svc = _routeSvc;
+    if (!mounted || svc == null || _activeTab != 0 || _trimMode) return;
+    final lng = tap.point.coordinates.lng.toDouble();
+    final lat = tap.point.coordinates.lat.toDouble();
+    final nearest = _nearestRouteToPoint(LatLng(lat, lng), svc.routes);
+    if (nearest == null) return;
+
+    if (svc.selectedRoute?.id != nearest.route.id) {
+      setState(() {
+        _lastFlownRouteId = null;
+        _routeCardExpanded = false;
+      });
+      svc.selectRoute(nearest.route);
+    }
+  }
+
+  ({RevvRoute route, double distanceKm})? _nearestRouteToPoint(
+    LatLng point,
+    List<RevvRoute> routes,
+  ) {
+    RevvRoute? bestRoute;
+    var bestDistanceKm = double.infinity;
+
+    for (final route in routes) {
+      if (route.nodes.length < 2) continue;
+      for (var i = 0; i < route.nodes.length - 1; i++) {
+        final distanceKm = _distanceToSegmentKm(
+          point,
+          route.nodes[i],
+          route.nodes[i + 1],
+        );
+        if (distanceKm < bestDistanceKm) {
+          bestDistanceKm = distanceKm;
+          bestRoute = route;
+        }
+      }
+    }
+
+    // 손가락 터치를 감안해 선 위가 아니어도 근처면 선택되게 한다.
+    if (bestRoute == null || bestDistanceKm > 0.45) return null;
+    return (route: bestRoute, distanceKm: bestDistanceKm);
+  }
+
+  double _distanceToSegmentKm(LatLng point, LatLng start, LatLng end) {
+    const latScale = 111.32;
+    final lngScale =
+        111.32 * math.cos(point.lat * math.pi / 180).abs().clamp(0.1, 1.0);
+
+    final ax = (start.lng - point.lng) * lngScale;
+    final ay = (start.lat - point.lat) * latScale;
+    final bx = (end.lng - point.lng) * lngScale;
+    final by = (end.lat - point.lat) * latScale;
+    final dx = bx - ax;
+    final dy = by - ay;
+    final len2 = dx * dx + dy * dy;
+    if (len2 == 0) return math.sqrt(ax * ax + ay * ay);
+
+    final t = ((-(ax * dx + ay * dy)) / len2).clamp(0.0, 1.0);
+    final closestX = ax + t * dx;
+    final closestY = ay + t * dy;
+    return math.sqrt(closestX * closestX + closestY * closestY);
   }
 
   Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
@@ -319,6 +418,18 @@ class _RoutesScreenState extends State<RoutesScreen> {
       onTap: (annotation) {
         final route = _annotationToRoute[annotation.id];
         if (route != null && mounted) {
+          context.read<RouteService>().selectRoute(route);
+        }
+      },
+    );
+    _farRouteManager = await _mapController?.annotations
+        .createCircleAnnotationManager();
+    _farRouteTapEvents?.cancel();
+    _farRouteTapEvents = _farRouteManager?.tapEvents(
+      onTap: (annotation) {
+        final route = _circleToRoute[annotation.id];
+        if (route != null && mounted) {
+          setState(() => _routeCardExpanded = false);
           context.read<RouteService>().selectRoute(route);
         }
       },
@@ -356,12 +467,22 @@ class _RoutesScreenState extends State<RoutesScreen> {
     _isDrawing = true;
     try {
       await _polyManager!.deleteAll();
+      await _farRouteManager?.deleteAll();
       _polylines.clear();
+      _farRouteDots.clear();
       _annotationToRoute.clear();
+      _circleToRoute.clear();
+      final distanceThresholdKm = _lineRenderDistanceThresholdKm();
       final unselected = routes.where((r) => r.id != selected?.id).toList();
       final selectedList = routes.where((r) => r.id == selected?.id).toList();
       for (final route in [...unselected, ...selectedList]) {
         final isSel = route.id == selected?.id;
+        final renderAsDot =
+            !isSel && route.distanceFromUser > distanceThresholdKm;
+        if (renderAsDot) {
+          await _drawFarRouteDot(route);
+          continue;
+        }
         final coords = route.nodes
             .map((n) => mbx.Position(n.lng, n.lat))
             .toList();
@@ -373,27 +494,13 @@ class _RoutesScreenState extends State<RoutesScreen> {
           continue;
         }
 
-        final poly = await _polyManager!.create(
-          mbx.PolylineAnnotationOptions(
-            geometry: mbx.LineString(coordinates: coords),
-            lineColor: isSel ? 0xFFFFFFFF : diffColor,
-            lineWidth: isSel ? 7.0 : 4.5,
-            lineOpacity: isSel ? 1.0 : 0.75,
-          ),
+        await _drawRoutePolylineStack(
+          route: route,
+          coords: coords,
+          diffColor: diffColor,
+          selected: isSel,
+          dimmed: selected != null && !isSel,
         );
-        _polylines.add(poly);
-        _annotationToRoute[poly.id] = route;
-        if (isSel) {
-          final overlay = await _polyManager!.create(
-            mbx.PolylineAnnotationOptions(
-              geometry: mbx.LineString(coordinates: coords),
-              lineColor: diffColor,
-              lineWidth: 4.5,
-              lineOpacity: 1.0,
-            ),
-          );
-          _polylines.add(overlay);
-        }
       }
     } finally {
       _isDrawing = false;
@@ -462,8 +569,11 @@ class _RoutesScreenState extends State<RoutesScreen> {
     _isDrawing = true;
     try {
       await _polyManager!.deleteAll();
+      await _farRouteManager?.deleteAll();
       _polylines.clear();
+      _farRouteDots.clear();
       _annotationToRoute.clear();
+      _circleToRoute.clear();
       final svc = _routeSvc;
       if (svc == null) return;
       // 비선택 루트
@@ -497,22 +607,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
       // 살아남는 구간 (흰색+컬러)
       final kept = allCoords.sublist(s, e);
       final diffColor = _routeDiffColorInt(base.difficultyLevel);
-      await _polyManager!.create(
-        mbx.PolylineAnnotationOptions(
-          geometry: mbx.LineString(coordinates: kept),
-          lineColor: 0xFFFFFFFF,
-          lineWidth: 7.0,
-          lineOpacity: 1.0,
-        ),
-      );
-      await _polyManager!.create(
-        mbx.PolylineAnnotationOptions(
-          geometry: mbx.LineString(coordinates: kept),
-          lineColor: diffColor,
-          lineWidth: 4.5,
-          lineOpacity: 1.0,
-        ),
-      );
+      await _drawPreviewHighlight(kept, diffColor);
       // 잘려나갈 뒷 부분 (회색)
       if (e < allCoords.length - 1) {
         await _polyManager!.create(
@@ -529,22 +624,127 @@ class _RoutesScreenState extends State<RoutesScreen> {
     }
   }
 
+  Future<void> _drawRoutePolylineStack({
+    required RevvRoute route,
+    required List<mbx.Position> coords,
+    required int diffColor,
+    required bool selected,
+    required bool dimmed,
+  }) async {
+    if (_polyManager == null) return;
+
+    Future<void> addLayer({
+      required int color,
+      required double width,
+      required double opacity,
+    }) async {
+      final poly = await _polyManager!.create(
+        mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: coords),
+          lineColor: color,
+          lineWidth: width,
+          lineOpacity: opacity,
+        ),
+      );
+      _polylines.add(poly);
+      _annotationToRoute[poly.id] = route;
+    }
+
+    if (selected) {
+      await addLayer(color: 0xFF081114, width: 11.0, opacity: 0.58);
+      await addLayer(
+        color: _selectedOuterColorInt(diffColor),
+        width: 7.4,
+        opacity: 0.92,
+      );
+      await addLayer(
+        color: _selectedInnerColorInt(diffColor),
+        width: 3.2,
+        opacity: 0.96,
+      );
+      return;
+    }
+
+    await addLayer(
+      color: 0xFF101416,
+      width: dimmed ? 6.0 : 6.4,
+      opacity: dimmed ? 0.22 : 0.28,
+    );
+    await addLayer(
+      color: _mutedRouteColorInt(diffColor),
+      width: dimmed ? 2.9 : 3.4,
+      opacity: dimmed ? 0.42 : 0.58,
+    );
+  }
+
+  double _lineRenderDistanceThresholdKm() {
+    final radius = _routeSvc?.searchRadiusKm ?? 50;
+    return (radius * 0.38).clamp(26.0, 72.0);
+  }
+
+  Future<void> _drawFarRouteDot(RevvRoute route) async {
+    final manager = _farRouteManager;
+    if (manager == null) return;
+    final diffColor = _routeDiffColorInt(route.difficultyLevel);
+    final dot = await manager.create(
+      mbx.CircleAnnotationOptions(
+        geometry: mbx.Point(
+          coordinates: mbx.Position(
+            route.centerPoint.lng,
+            route.centerPoint.lat,
+          ),
+        ),
+        circleColor: _mutedRouteColorInt(diffColor),
+        circleOpacity: 0.82,
+        circleRadius: route.isLoop ? 6.5 : 5.5,
+        circleStrokeColor: 0xFF0A1012,
+        circleStrokeOpacity: 0.92,
+        circleStrokeWidth: 2.4,
+        circleBlur: route.isLoop ? 0.08 : 0.02,
+        circleSortKey: route.routeRankScore,
+      ),
+    );
+    _farRouteDots.add(dot);
+    _circleToRoute[dot.id] = route;
+  }
+
+  Future<void> _drawPreviewHighlight(
+    List<mbx.Position> coords,
+    int diffColor,
+  ) async {
+    if (_polyManager == null) return;
+    for (final layer in [
+      (color: 0xFF081114, width: 10.5, opacity: 0.55),
+      (color: _selectedOuterColorInt(diffColor), width: 7.0, opacity: 0.92),
+      (color: _selectedInnerColorInt(diffColor), width: 3.0, opacity: 0.96),
+    ]) {
+      await _polyManager!.create(
+        mbx.PolylineAnnotationOptions(
+          geometry: mbx.LineString(coordinates: coords),
+          lineColor: layer.color,
+          lineWidth: layer.width,
+          lineOpacity: layer.opacity,
+        ),
+      );
+    }
+  }
+
   // ── 루트 편집 화면 진입 ───────────────────────────────────────────
   Future<void> _openRouteEdit(RevvRoute route, RouteService svc) async {
-    final result =
-        await Navigator.push<({RevvRoute trimmed, RevvRoute branch})>(
-          context,
-          MaterialPageRoute(
-            builder: (_) => RouteEditScreen(
-              route: route,
-              otherRoutes: svc.routes.where((r) => r.id != route.id).toList(),
-            ),
-          ),
-        );
+    final result = await Navigator.push<RouteEditResult>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RouteEditScreen(
+          route: route,
+          otherRoutes: svc.routes.where((r) => r.id != route.id).toList(),
+        ),
+      ),
+    );
     if (result == null || !mounted) return;
-    // 트리밍된 루트 선택 + 분기 루트를 체인에 추가
-    svc.selectRoute(result.trimmed);
-    svc.addManualChain(result.branch);
+    // 편집된 루트 선택 + 필요하면 분기 루트를 체인에 추가
+    svc.selectRoute(result.route);
+    final branch = result.branchRoute;
+    if (branch != null) svc.addManualChain(branch);
   }
 
   // ── E. 루트 방향 반전 ────────────────────────────────────────────
@@ -588,6 +788,55 @@ class _RoutesScreenState extends State<RoutesScreen> {
         chained: svc.manualChainedRoutes,
         onAdd: svc.addManualChain,
         onRemove: svc.removeFromChain,
+      ),
+    );
+  }
+
+  // ── G2. 자동 루트 확장 생성 ─────────────────────────────────────
+  Future<void> _generateRouteExtension(RevvRoute selected) async {
+    final svc = _routeSvc;
+    if (svc == null) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    setState(() => _routeCardExpanded = false);
+    final options = await svc.generateRouteExtensionOptions(selected);
+    if (!mounted) return;
+    if (options.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('자연스럽게 이어지는 후보를 찾지 못했어요.')));
+      return;
+    }
+    final composite = options.length == 1
+        ? svc.commitRouteExtensionOption(options.first)
+        : await _showRouteExtensionOptions(options);
+    if (!mounted || composite == null) return;
+    setState(() {
+      _routeCardExpanded = false;
+      _heatmapMode = false;
+    });
+    _drawRoutes(svc.routes, svc.selectedRoute);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '확장 루트 생성 완료 · ${composite.totalDistanceKm.toStringAsFixed(0)}km',
+        ),
+      ),
+    );
+  }
+
+  Future<CompositeRoute?> _showRouteExtensionOptions(
+    List<RouteExtensionOption> options,
+  ) {
+    final svc = _routeSvc;
+    if (svc == null) return Future.value(null);
+    return showModalBottomSheet<CompositeRoute>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RouteExtensionOptionsSheet(
+        options: options,
+        onSelect: (option) {
+          Navigator.pop(context, svc.commitRouteExtensionOption(option));
+        },
       ),
     );
   }
@@ -673,6 +922,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
     if (svc.routes.isEmpty) return;
     final idx = svc.routes.indexWhere((r) => r.id == svc.selectedRoute?.id);
     final newIdx = ((idx <= 0 ? svc.routes.length : idx) - 1);
+    setState(() => _routeCardExpanded = false);
     svc.selectRoute(svc.routes[newIdx]);
   }
 
@@ -680,6 +930,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
     if (svc.routes.isEmpty) return;
     final idx = svc.routes.indexWhere((r) => r.id == svc.selectedRoute?.id);
     final newIdx = (idx + 1) % svc.routes.length;
+    setState(() => _routeCardExpanded = false);
     svc.selectRoute(svc.routes[newIdx]);
   }
 
@@ -714,185 +965,102 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   textureView: true,
                   onMapCreated: _onMapCreated,
                   onStyleLoadedListener: _onStyleLoaded,
+                  onTapListener: _onMapTap,
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      AppColors.bg.withValues(alpha: 0.34),
+                      Colors.transparent,
+                      Colors.transparent,
+                      AppColors.bg.withValues(alpha: 0.48),
+                    ],
+                    stops: const [0.0, 0.16, 0.54, 1.0],
+                  ),
                 ),
               ),
             ),
           ),
 
-          // ── 상단 헤더 ──
+          // ── 상단 미니 컨트롤 ──
           Positioned(
             top: MediaQuery.of(context).padding.top + 10,
             left: 14,
             right: 14,
-            child: Row(
-              children: [
-                // 뒤로가기
-                RoutesTapScale(
-                  onTap: () => Navigator.pop(context),
-                  child: ClipOval(
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.bg.withValues(alpha: 0.82),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: AppColors.outlineVariant.withValues(
-                              alpha: 0.55,
-                            ),
-                          ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x33000000),
-                              blurRadius: 18,
-                              offset: Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.arrow_back_ios_new_rounded,
-                          size: 15,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
+            child:
+                Selector<
+                  RouteService,
+                  ({int routeCount, bool isLoadingInitial})
+                >(
+                  selector: (_, svc) => (
+                    routeCount: svc.routes.length,
+                    isLoadingInitial: svc.isLoadingInitial,
                   ),
-                ),
-                const SizedBox(width: 10),
-                // 탭 토글: ROUTES | LOOP
-                Expanded(
-                  child: Container(
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.bg.withValues(alpha: 0.82),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: AppColors.outlineVariant.withValues(alpha: 0.45),
-                      ),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x22000000),
-                          blurRadius: 20,
-                          offset: Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: Row(
+                  builder: (context, data, _) {
+                    return Row(
                       children: [
-                        RoutesTabButton(
-                          label: 'ROUTES',
-                          active: _activeTab == 0,
-                          onTap: () {
-                            if (_activeTab == 0) return;
-                            setState(() => _activeTab = 0);
-                            final svc = _routeSvc;
-                            if (svc != null && _styleLoaded) {
-                              _drawRoutes(svc.routes, svc.selectedRoute);
-                            }
-                          },
+                        RoutesTapScale(
+                          onTap: () => Navigator.pop(context),
+                          child: const _RouteChromeCircle(
+                            icon: Icons.arrow_back_ios_new_rounded,
+                            iconSize: 15,
+                          ),
                         ),
-                        RoutesTabButton(
-                          label: 'LOOP',
-                          active: _activeTab == 1,
-                          onTap: () {
-                            if (_activeTab == 1) return;
-                            setState(() {
-                              _activeTab = 1;
-                              _loopIdx = 0;
-                            });
-                            _activateLoopTab();
-                          },
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _RouteModeSwitch(
+                            activeTab: _activeTab,
+                            routeCount: data.routeCount,
+                            onRoutes: () {
+                              if (_activeTab == 0) return;
+                              setState(() => _activeTab = 0);
+                              final svc = _routeSvc;
+                              if (svc != null && _styleLoaded) {
+                                _drawRoutes(svc.routes, svc.selectedRoute);
+                              }
+                            },
+                            onLoop: () {
+                              if (_activeTab == 1) return;
+                              setState(() {
+                                _activeTab = 1;
+                                _loopIdx = 0;
+                              });
+                              _activateLoopTab();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        if (!data.isLoadingInitial) ...[
+                          RoutesTapScale(
+                            onTap: _searchHere,
+                            child: const _RouteChromeCircle(
+                              icon: Icons.search_rounded,
+                              label: '여기서 찾기',
+                              iconSize: 18,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        RoutesTapScale(
+                          onTap: () => RouteWizardSheet.show(context),
+                          child: const _RouteChromeCircle(
+                            icon: Icons.add_road_rounded,
+                            label: '생성',
+                            tinted: true,
+                          ),
                         ),
                       ],
-                    ),
-                  ),
+                    );
+                  },
                 ),
-                const SizedBox(width: 10),
-                // 루트 wizard
-                RoutesTapScale(
-                  onTap: () => RouteWizardSheet.show(context),
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: AppColors.bg.withValues(alpha: 0.82),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: AppColors.primaryContainer.withValues(
-                          alpha: 0.5,
-                        ),
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.add_road_rounded,
-                      size: 18,
-                      color: AppColors.primaryContainer,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // ── 지도 중심 재검색 버튼 ──
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 62,
-            left: 0,
-            right: 0,
-            child: Consumer<RouteService>(
-              builder: (_, svc, __) {
-                if (svc.isLoadingInitial) return const SizedBox.shrink();
-                return Center(
-                  child: RoutesTapScale(
-                    onTap: _searchHere,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.bg.withValues(alpha: 0.82),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: AppColors.primaryContainer.withValues(
-                            alpha: 0.58,
-                          ),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primaryContainer.withValues(
-                              alpha: 0.20,
-                            ),
-                            blurRadius: 18,
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.search_rounded,
-                            size: 13,
-                            color: AppColors.primaryContainer,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            '이 지역 검색',
-                            style: AppText.label(
-                              size: 11,
-                              color: AppColors.textPrimary,
-                              letterSpacing: 1.4,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
           ),
 
           // ── D. 구간 트리밍 패널 ──
@@ -912,35 +1080,59 @@ class _RoutesScreenState extends State<RoutesScreen> {
             ),
 
           // 로딩 오버레이 — FadeTransition으로 부드럽게 등장/사라짐
-          Consumer<RouteService>(
-            builder: (context, svc, _) {
+          Selector<RouteService, bool>(
+            selector: (_, svc) => svc.isLoadingInitial,
+            builder: (context, isLoadingInitial, _) {
               return Positioned.fill(
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 300),
-                  child: svc.isLoadingInitial
+                  child: isLoadingInitial
                       ? IgnorePointer(
                           key: const ValueKey('loading'),
                           child: Container(
                             color: Colors.black.withValues(alpha: 0.45),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  'REVV가 주변 루트를 분석하고 있어요',
-                                  style: GoogleFonts.rajdhani(
-                                    fontSize: 14,
-                                    color: Colors.white,
-                                  ),
+                            child: Center(
+                              child: RevvGlassCard(
+                                padding: const EdgeInsets.fromLTRB(
+                                  18,
+                                  18,
+                                  18,
+                                  16,
                                 ),
-                                const SizedBox(height: 16),
-                                const SizedBox(
-                                  width: 200,
-                                  child: LinearProgressIndicator(
-                                    color: AppColors.primaryContainer,
-                                    backgroundColor: AppColors.panel,
-                                  ),
+                                color: AppColors.panel.withValues(alpha: 0.92),
+                                glow: true,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'ROUTE DISCOVERY',
+                                      style: AppText.technicalLabel(
+                                        size: 10,
+                                        color: AppColors.primaryContainer,
+                                        letterSpacing: 2,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'REVV가 주변 루트를 분석하고 있어요',
+                                      style: AppText.body(
+                                        size: 14,
+                                        weight: FontWeight.w700,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    const SizedBox(
+                                      width: 220,
+                                      child: LinearProgressIndicator(
+                                        color: AppColors.primaryContainer,
+                                        backgroundColor:
+                                            AppColors.surfaceLowest,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         )
@@ -951,27 +1143,24 @@ class _RoutesScreenState extends State<RoutesScreen> {
           ),
 
           // 에러 메시지
-          Consumer<RouteService>(
-            builder: (context, svc, _) {
-              if (svc.errorMessage == null) return const SizedBox.shrink();
+          Selector<RouteService, String?>(
+            selector: (_, svc) => svc.errorMessage,
+            builder: (context, errorMessage, _) {
+              if (errorMessage == null) return const SizedBox.shrink();
               return Positioned(
                 top: MediaQuery.of(context).padding.top + 62,
                 left: 16,
                 right: 16,
-                child: Container(
+                child: RevvGlassCard(
                   padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.panel,
-                    border: Border.all(
-                      color: AppColors.red.withValues(alpha: 0.5),
-                    ),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
+                  color: AppColors.panel.withValues(alpha: 0.92),
                   child: Text(
-                    svc.errorMessage!,
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 13,
-                      color: Colors.white,
+                    errorMessage,
+                    style: AppText.body(
+                      size: 13,
+                      weight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                      height: 1.35,
                     ),
                   ),
                 ),
@@ -979,81 +1168,64 @@ class _RoutesScreenState extends State<RoutesScreen> {
             },
           ),
 
-          Consumer<RouteService>(
-            builder: (context, svc, _) {
+          Selector<
+            RouteService,
+            ({
+              String? errorMessage,
+              bool isRefreshingDiversity,
+              String? backgroundStatusMessage,
+            })
+          >(
+            selector: (_, svc) => (
+              errorMessage: svc.errorMessage,
+              isRefreshingDiversity: svc.isRefreshingDiversity,
+              backgroundStatusMessage: svc.backgroundStatusMessage,
+            ),
+            builder: (context, data, _) {
+              if (data.errorMessage != null) return const SizedBox.shrink();
               final showStatus =
-                  svc.isRefreshingDiversity ||
-                  svc.backgroundStatusMessage != null ||
-                  svc.currentSearchRadiusKm > 0;
+                  data.isRefreshingDiversity ||
+                  data.backgroundStatusMessage != null;
               if (!showStatus) return const SizedBox.shrink();
-              final statusMessage = svc.backgroundStatusMessage;
+              final statusMessage = data.backgroundStatusMessage;
               return Positioned(
-                top: MediaQuery.of(context).padding.top + 106,
+                top: MediaQuery.of(context).padding.top + 62,
                 right: 14,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.72),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.08),
-                        ),
-                      ),
-                      child: Text(
-                        svc.searchStatusLabel,
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white70,
-                        ),
-                      ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.64),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: AppColors.outlineVariant.withValues(alpha: 0.25),
                     ),
-                    if (statusMessage != null) const SizedBox(height: 8),
-                    if (statusMessage != null)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 7,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.72),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.08),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (data.isRefreshingDiversity)
+                        const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 1.5,
+                            color: AppColors.primaryContainer,
                           ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (svc.isRefreshingDiversity)
-                              const SizedBox(
-                                width: 12,
-                                height: 12,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 1.5,
-                                  color: AppColors.red,
-                                ),
-                              ),
-                            if (svc.isRefreshingDiversity)
-                              const SizedBox(width: 8),
-                            Text(
-                              statusMessage,
-                              style: GoogleFonts.rajdhani(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white70,
-                              ),
-                            ),
-                          ],
+                      if (data.isRefreshingDiversity) const SizedBox(width: 8),
+                      Text(
+                        statusMessage ?? '루트 갱신 중',
+                        style: AppText.body(
+                          size: 12,
+                          weight: FontWeight.w700,
+                          color: AppColors.textSecondary,
                         ),
                       ),
-                  ],
+                    ],
+                  ),
                 ),
               );
             },
@@ -1065,9 +1237,26 @@ class _RoutesScreenState extends State<RoutesScreen> {
               bottom: MediaQuery.of(context).padding.bottom + 8,
               left: 12,
               right: 12,
-              child: Consumer<RouteService>(
-                builder: (_, svc, __) {
-                  if (svc.isLoadingInitial) {
+              child: Selector<RouteService, _RoutePanelState>(
+                selector: (_, svc) => (
+                  routes: svc.routes,
+                  selectedRoute: svc.selectedRoute,
+                  isLoadingInitial: svc.isLoadingInitial,
+                  routeDataStatusTitle: svc.routeDataStatusTitle,
+                  routeDataStatusBody: svc.routeDataStatusBody,
+                  routeDataSourceLabel: svc.routeDataSourceLabel,
+                  lastCloudCandidateCount: svc.lastCloudCandidateCount,
+                  lastUsableCloudRouteCount: svc.lastUsableCloudRouteCount,
+                  connectingCount: svc.connectingRoutes.length,
+                  totalChainKm:
+                      svc.selectedCompositeRoute?.totalDistanceKm ??
+                      (svc.selectedRoute?.distanceKm ?? 0),
+                  isLoadingConnecting: svc.isLoadingConnecting,
+                  hasActiveExtension: svc.selectedCompositeRoute != null,
+                ),
+                builder: (_, panel, __) {
+                  final svc = _routeSvc;
+                  if (panel.isLoadingInitial) {
                     return const Center(
                       child: SizedBox(
                         width: 16,
@@ -1079,36 +1268,102 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       ),
                     );
                   }
-                  final total = svc.routes.length;
+                  final total = panel.routes.length;
                   final idx = total == 0
                       ? 0
-                      : svc.routes
-                            .indexWhere((r) => r.id == svc.selectedRoute?.id)
+                      : panel.routes
+                            .indexWhere((r) => r.id == panel.selectedRoute?.id)
                             .clamp(0, total - 1);
-                  final selected = svc.selectedRoute;
+                  final selected = panel.selectedRoute;
+                  final onGo = svc == null
+                      ? () {}
+                      : () {
+                          svc.requestSprint(
+                            route: svc.selectedCompositeRoute
+                                ?.toRouteProjection(),
+                          );
+                        };
                   if (total == 0) {
                     return RevvGlassCard(
-                      padding: const EdgeInsets.all(18),
-                      color: AppColors.bg.withValues(alpha: 0.90),
+                      padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+                      color: AppColors.panel.withValues(alpha: 0.90),
+                      radius: 18,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.travel_explore_rounded,
+                                size: 20,
+                                color: AppColors.primaryContainer,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  panel.routeDataStatusTitle ??
+                                      '아직 표시할 루트가 없어요',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppText.body(
+                                    size: 15,
+                                    weight: FontWeight.w900,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
                           Text(
-                            '아직 주변 와인딩 루트를 충분히 찾지 못했어요',
-                            style: GoogleFonts.rajdhani(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white,
+                            panel.routeDataStatusBody ??
+                                '지도를 움직인 뒤 여기서 다시 찾거나, 설정에서 탐색 반경을 넓혀보세요.',
+                            style: AppText.body(
+                              size: 12,
+                              height: 1.3,
+                              color: AppColors.textSecondary,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            svc.backgroundStatusMessage ??
-                                '반경을 넓히거나 조건을 완화해 더 많은 루트를 찾는 중이에요.',
-                            style: GoogleFonts.rajdhani(
-                              fontSize: 13,
-                              color: Colors.white70,
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _RouteDataChip(
+                                icon: Icons.storage_rounded,
+                                label: panel.routeDataSourceLabel,
+                              ),
+                              if (panel.lastCloudCandidateCount > 0)
+                                _RouteDataChip(
+                                  icon: Icons.cloud_queue_rounded,
+                                  label:
+                                      '클라우드 ${panel.lastUsableCloudRouteCount}/${panel.lastCloudCandidateCount}',
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          RoutesTapScale(
+                            onTap: _searchHere,
+                            child: Container(
+                              height: 42,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.primaryContainer,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  '여기서 찾기',
+                                  style: AppText.body(
+                                    size: 13,
+                                    weight: FontWeight.w900,
+                                    color: AppColors.onPrimary,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -1118,6 +1373,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   return GestureDetector(
                     behavior: HitTestBehavior.translucent,
                     onHorizontalDragEnd: (details) {
+                      if (svc == null) return;
                       final v = details.primaryVelocity ?? 0;
                       if (v < -200) {
                         _nextRoute(svc);
@@ -1129,20 +1385,27 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       selected: selected,
                       displayIdx: idx,
                       total: total,
-                      searchRadiusKm: svc.searchRadiusKm,
-                      visibleRouteLimit: svc.visibleRouteLimit,
-                      connectingCount: svc.connectingRoutes.length,
-                      totalChainKm:
-                          svc.selectedCompositeRoute?.totalDistanceKm ??
-                          (selected?.distanceKm ?? 0),
+                      expanded: _routeCardExpanded,
+                      connectingCount: panel.connectingCount,
+                      totalChainKm: panel.totalChainKm,
+                      isGeneratingExtension: panel.isLoadingConnecting,
+                      hasActiveExtension: panel.hasActiveExtension,
                       heatmapActive: _heatmapMode,
                       onSaved: selected != null
                           ? () => _nameOnSave(selected)
                           : null,
-                      onGo: () => svc.requestSprint(
-                        route: svc.selectedCompositeRoute?.toRouteProjection(),
-                      ),
-                      onClose: () => svc.deselectRoute(),
+                      onGo: onGo,
+                      onExpand: () => setState(() => _routeCardExpanded = true),
+                      onCollapse: () =>
+                          setState(() => _routeCardExpanded = false),
+                      onClose: () {
+                        if (svc == null) return;
+                        if (_routeCardExpanded) {
+                          setState(() => _routeCardExpanded = false);
+                        } else {
+                          svc.deselectRoute();
+                        }
+                      },
                       onTrim: selected != null
                           ? () => _startTrim(selected)
                           : null,
@@ -1155,13 +1418,16 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       onChain: selected != null
                           ? () => _showChainPicker(selected)
                           : null,
+                      onGenerate: selected != null
+                          ? () => _generateRouteExtension(selected)
+                          : null,
                       onHeatmap: selected != null
                           ? () => _toggleHeatmap(selected)
                           : null,
-                      onEdit: selected != null
+                      onEdit: selected != null && svc != null
                           ? () => _openRouteEdit(selected, svc)
                           : null,
-                      onExclude: selected != null
+                      onExclude: selected != null && svc != null
                           ? () => svc.excludeRoute(selected)
                           : null,
                       onPreview: selected != null
@@ -1239,25 +1505,223 @@ int _routeDiffColorInt(int level) {
 
 Color _routeDiffColor(int level) => Color(_routeDiffColorInt(level));
 
+int _mutedRouteColorInt(int colorInt) {
+  final color = Color(colorInt);
+  return Color.lerp(const Color(0xFF33444A), color, 0.42)!.toARGB32();
+}
+
+int _selectedOuterColorInt(int colorInt) {
+  final color = Color(colorInt);
+  return Color.lerp(const Color(0xFF00E5FF), color, 0.68)!.toARGB32();
+}
+
+int _selectedInnerColorInt(int colorInt) {
+  final color = Color(colorInt);
+  return Color.lerp(Colors.white, color, 0.18)!.toARGB32();
+}
+
+class _RouteModeSwitch extends StatelessWidget {
+  final int activeTab;
+  final int routeCount;
+  final VoidCallback onRoutes;
+  final VoidCallback onLoop;
+
+  const _RouteModeSwitch({
+    required this.activeTab,
+    required this.routeCount,
+    required this.onRoutes,
+    required this.onLoop,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RevvGlassCard(
+      padding: const EdgeInsets.all(4),
+      color: AppColors.panel.withValues(alpha: 0.76),
+      radius: 999,
+      child: Row(
+        children: [
+          _RouteModeButton(
+            label: '루트',
+            count: routeCount,
+            active: activeTab == 0,
+            onTap: onRoutes,
+          ),
+          _RouteModeButton(label: '루프', active: activeTab == 1, onTap: onLoop),
+        ],
+      ),
+    );
+  }
+}
+
+class _RouteModeButton extends StatelessWidget {
+  final String label;
+  final int? count;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _RouteModeButton({
+    required this.label,
+    required this.active,
+    required this.onTap,
+    this.count,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fg = active ? AppColors.onPrimary : AppColors.textSecondary;
+    return Expanded(
+      child: RoutesTapScale(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: active ? AppColors.primaryContainer : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Center(
+            child: Text(
+              count == null ? label : '$label $count',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.technicalLabel(
+                size: 10,
+                color: fg,
+                letterSpacing: 1.8,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteChromeCircle extends StatelessWidget {
+  final IconData icon;
+  final String? label;
+  final double iconSize;
+  final bool tinted;
+
+  const _RouteChromeCircle({
+    required this.icon,
+    this.label,
+    this.iconSize = 18,
+    this.tinted = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final border = tinted
+        ? AppColors.primaryContainer.withValues(alpha: 0.48)
+        : AppColors.outlineVariant.withValues(alpha: 0.55);
+    final color = tinted ? AppColors.primaryContainer : Colors.white;
+    return ClipOval(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Container(
+          width: label == null ? 48 : null,
+          height: 48,
+          padding: label == null
+              ? EdgeInsets.zero
+              : const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: AppColors.bg.withValues(alpha: 0.82),
+            shape: label == null ? BoxShape.circle : BoxShape.rectangle,
+            borderRadius: label == null ? null : BorderRadius.circular(999),
+            border: Border.all(color: border),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x33000000),
+                blurRadius: 18,
+                offset: Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: iconSize, color: color),
+              if (label != null) ...[
+                const SizedBox(width: 7),
+                Text(
+                  label!,
+                  style: AppText.body(
+                    size: 13,
+                    weight: FontWeight.w900,
+                    color: color,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteDataChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+
+  const _RouteDataChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.52),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.28),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: AppColors.textHint),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppText.body(
+              size: 11,
+              weight: FontWeight.w800,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ══════════════════════════════════════════════════════════════════
-// 통합 스와이프 루트 카드 — 카운터+반경 헤더 + 루트 상세 (선택 시)
+// 통합 스와이프 루트 카드 — 최소 헤더 + 루트 상세 (선택 시)
 // 좌우 스와이프로 이전/다음 루트 탐색
 // ══════════════════════════════════════════════════════════════════
 class _SwipeRouteCard extends StatelessWidget {
   final RevvRoute? selected;
   final int displayIdx;
   final int total;
-  final int searchRadiusKm;
-  final int visibleRouteLimit;
+  final bool expanded;
   final int connectingCount;
   final double totalChainKm;
+  final bool isGeneratingExtension;
+  final bool hasActiveExtension;
   final bool heatmapActive;
   final VoidCallback onGo;
+  final VoidCallback onExpand;
+  final VoidCallback onCollapse;
   final VoidCallback onClose;
   final VoidCallback? onTrim;
   final VoidCallback? onReverse;
   final VoidCallback? onFindSimilar;
   final VoidCallback? onChain;
+  final VoidCallback? onGenerate;
   final VoidCallback? onHeatmap;
   final VoidCallback? onEdit;
   final VoidCallback? onExclude;
@@ -1268,17 +1732,21 @@ class _SwipeRouteCard extends StatelessWidget {
     required this.selected,
     required this.displayIdx,
     required this.total,
-    required this.searchRadiusKm,
-    required this.visibleRouteLimit,
+    required this.expanded,
     required this.connectingCount,
     required this.totalChainKm,
+    required this.isGeneratingExtension,
+    required this.hasActiveExtension,
     required this.heatmapActive,
     required this.onGo,
+    required this.onExpand,
+    required this.onCollapse,
     required this.onClose,
     this.onTrim,
     this.onReverse,
     this.onFindSimilar,
     this.onChain,
+    this.onGenerate,
     this.onHeatmap,
     this.onEdit,
     this.onExclude,
@@ -1293,171 +1761,232 @@ class _SwipeRouteCard extends StatelessWidget {
         ? _routeDiffColor(route.difficultyLevel)
         : AppColors.red;
 
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-      alignment: Alignment.bottomCenter,
-      child: RevvGlassCard(
-        padding: EdgeInsets.zero,
-        color: AppColors.bg.withValues(alpha: 0.88),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 난이도 컬러 밴드
-              Container(height: 3, color: diffColor.withValues(alpha: 0.75)),
-              // ── 헤더: 카운터 + 반경 버튼 ──
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                child: Row(
-                  children: [
-                    Text(
-                      '추천 루트',
-                      style: AppText.label(
-                        size: 10,
-                        color: AppColors.primaryContainer,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.surfaceHigh.withValues(alpha: 0.42),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: AppColors.outlineVariant.withValues(
-                            alpha: 0.38,
-                          ),
-                        ),
-                      ),
-                      child: Text(
-                        total == 0 ? '— / —' : '${displayIdx + 1} / $total',
-                        style: AppText.mono(
+    return GestureDetector(
+      onVerticalDragEnd: (details) {
+        final v = details.primaryVelocity ?? 0;
+        if (v < -160) {
+          onExpand();
+        } else if (v > 160) {
+          expanded ? onCollapse() : onClose();
+        }
+      },
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+        alignment: Alignment.bottomCenter,
+        child: RevvGlassCard(
+          padding: EdgeInsets.zero,
+          color: AppColors.panel.withValues(alpha: 0.92),
+          radius: 16,
+          glow: true,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 난이도 컬러 밴드
+                Container(height: 3, color: diffColor.withValues(alpha: 0.75)),
+                // ── 미니 헤더: 현재 위치와 새로고침만 표시 ──
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        total == 0 ? 'ROUTES' : '${displayIdx + 1} / $total',
+                        style: AppText.technicalLabel(
                           size: 10,
-                          color: AppColors.textSecondary,
+                          color: AppColors.primaryContainer,
+                          letterSpacing: 1.8,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        reverse: true,
-                        child: Row(
-                          children: [
-                            Text(
-                              '탐색 반경',
-                              style: AppText.label(
-                                size: 9,
-                                color: AppColors.textHint,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            RoutesRadiusButton(
-                              km: 30,
-                              active: searchRadiusKm == 30,
-                            ),
-                            RoutesRadiusButton(
-                              km: 50,
-                              active: searchRadiusKm == 50,
-                            ),
-                            RoutesRadiusButton(
-                              km: 100,
-                              active: searchRadiusKm == 100,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '표시',
-                              style: AppText.label(
-                                size: 9,
-                                color: AppColors.textHint,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            RoutesLimitButton(
-                              count: 8,
-                              active: visibleRouteLimit == 8,
-                            ),
-                            RoutesLimitButton(
-                              count: 16,
-                              active: visibleRouteLimit == 16,
-                            ),
-                            RoutesLimitButton(
-                              count: 24,
-                              active: visibleRouteLimit == 24,
-                            ),
-                            RoutesLimitButton(
-                              count: maximumVisibleRoutes,
-                              active: visibleRouteLimit == maximumVisibleRoutes,
-                            ),
-                            const SizedBox(width: 6),
-                            GestureDetector(
-                              onTap: () =>
-                                  context.read<RouteService>().shuffleRoutes(),
-                              child: const Icon(
-                                Icons.refresh_rounded,
-                                size: 15,
-                                color: AppColors.textHint,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              // ── 루트 상세 (루트 선택 시만) — AnimatedSwitcher 진입 페이드 ──
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 250),
-                transitionBuilder: (child, anim) => FadeTransition(
-                  opacity: anim,
-                  child: SlideTransition(
-                    position:
-                        Tween(
-                          begin: const Offset(0, 0.06),
-                          end: Offset.zero,
-                        ).animate(
-                          CurvedAnimation(
-                            parent: anim,
-                            curve: Curves.easeOutCubic,
+                      const Spacer(),
+                      if (connectingCount > 0)
+                        Text(
+                          '+$connectingCount 연결 후보',
+                          style: AppText.body(
+                            size: 11,
+                            weight: FontWeight.w700,
+                            color: AppColors.textHint,
                           ),
                         ),
-                    child: child,
+                      const SizedBox(width: 8),
+                      RoutesTapScale(
+                        onTap: () =>
+                            context.read<RouteService>().shuffleRoutes(),
+                        child: const Icon(
+                          Icons.refresh_rounded,
+                          size: 16,
+                          color: AppColors.textHint,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                child: route == null
-                    ? const SizedBox.shrink(key: ValueKey('no-route'))
-                    : RoutesSelectionPanel(
-                        route: route,
-                        diffColor: diffColor,
-                        connectingCount: connectingCount,
-                        totalChainKm: totalChainKm,
-                        onGo: onGo,
-                        onClose: onClose,
-                        onTrim: onTrim,
-                        onReverse: onReverse,
-                        onFindSimilar: onFindSimilar,
-                        onChain: onChain,
-                        onHeatmap: onHeatmap,
-                        onEdit: onEdit,
-                        onExclude: onExclude,
-                        onPreview: onPreview,
-                        onSaved: onSaved,
-                      ),
-              ),
-            ],
+                // ── 루트 상세 (루트 선택 시만) — AnimatedSwitcher 진입 페이드 ──
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  transitionBuilder: (child, anim) => FadeTransition(
+                    opacity: anim,
+                    child: SlideTransition(
+                      position:
+                          Tween(
+                            begin: const Offset(0, 0.06),
+                            end: Offset.zero,
+                          ).animate(
+                            CurvedAnimation(
+                              parent: anim,
+                              curve: Curves.easeOutCubic,
+                            ),
+                          ),
+                      child: child,
+                    ),
+                  ),
+                  child: route == null
+                      ? const SizedBox.shrink(key: ValueKey('no-route'))
+                      : RoutesSelectionPanel(
+                          route: route,
+                          diffColor: diffColor,
+                          expanded: expanded,
+                          connectingCount: connectingCount,
+                          totalChainKm: totalChainKm,
+                          isGeneratingExtension: isGeneratingExtension,
+                          hasActiveExtension: hasActiveExtension,
+                          onGo: onGo,
+                          onExpand: onExpand,
+                          onCollapse: onCollapse,
+                          onClose: onClose,
+                          onTrim: onTrim,
+                          onReverse: onReverse,
+                          onFindSimilar: onFindSimilar,
+                          onChain: onChain,
+                          onGenerate: onGenerate,
+                          onHeatmap: onHeatmap,
+                          onEdit: onEdit,
+                          onExclude: onExclude,
+                          onPreview: onPreview,
+                          onSaved: onSaved,
+                        ),
+                ),
+              ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteExtensionOptionsSheet extends StatelessWidget {
+  final List<RouteExtensionOption> options;
+  final ValueChanged<RouteExtensionOption> onSelect;
+
+  const _RouteExtensionOptionsSheet({
+    required this.options,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+        decoration: BoxDecoration(
+          color: const Color(0xF2141416),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '확장 생성 후보',
+              style: AppText.body(
+                size: 18,
+                weight: FontWeight.w900,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '원하는 길이와 흐름을 골라 바로 합성 루트로 만들어요.',
+              style: AppText.body(size: 13, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 14),
+            ...options.map(
+              (option) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: RoutesTapScale(
+                  onTap: () => onSelect(option),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.04),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: AppColors.outlineVariant.withValues(alpha: 0.24),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryContainer.withValues(
+                              alpha: 0.12,
+                            ),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: const Icon(
+                            Icons.auto_fix_high_rounded,
+                            size: 18,
+                            color: AppColors.primaryContainer,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                option.label,
+                                style: AppText.body(
+                                  size: 15,
+                                  weight: FontWeight.w900,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${option.description} · ${option.candidate.route.name}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppText.body(
+                                  size: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          color: AppColors.textHint,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../core/storage_keys.dart';
 import '../models/obd_data.dart';
 export '../models/obd_data.dart' show OBDRunSummary;
 
@@ -61,28 +63,138 @@ class OBDService extends ChangeNotifier {
 
   static const Map<String, OBDChannel> channels = {
     // ENGINE
-    '010C': OBDChannel(pid: '010C', name: 'RPM', unit: 'rpm', minVal: 0, maxVal: 8000, category: 'ENGINE'),
-    '0104': OBDChannel(pid: '0104', name: '엔진 부하', unit: '%', minVal: 0, maxVal: 100, category: 'ENGINE'),
-    '0111': OBDChannel(pid: '0111', name: '스로틀', unit: '%', minVal: 0, maxVal: 100, category: 'ENGINE'),
-    '0145': OBDChannel(pid: '0145', name: '상대 스로틀', unit: '%', minVal: 0, maxVal: 100, category: 'ENGINE'),
-    '0105': OBDChannel(pid: '0105', name: '냉각수 온도', unit: '°C', minVal: -40, maxVal: 130, category: 'ENGINE'),
-    '015C': OBDChannel(pid: '015C', name: '엔진 오일 온도', unit: '°C', minVal: -40, maxVal: 150, category: 'ENGINE'),
+    '010C': OBDChannel(
+      pid: '010C',
+      name: 'RPM',
+      unit: 'rpm',
+      minVal: 0,
+      maxVal: 8000,
+      category: 'ENGINE',
+    ),
+    '0104': OBDChannel(
+      pid: '0104',
+      name: '엔진 부하',
+      unit: '%',
+      minVal: 0,
+      maxVal: 100,
+      category: 'ENGINE',
+    ),
+    '0111': OBDChannel(
+      pid: '0111',
+      name: '스로틀',
+      unit: '%',
+      minVal: 0,
+      maxVal: 100,
+      category: 'ENGINE',
+    ),
+    '0145': OBDChannel(
+      pid: '0145',
+      name: '상대 스로틀',
+      unit: '%',
+      minVal: 0,
+      maxVal: 100,
+      category: 'ENGINE',
+    ),
+    '0105': OBDChannel(
+      pid: '0105',
+      name: '냉각수 온도',
+      unit: '°C',
+      minVal: -40,
+      maxVal: 130,
+      category: 'ENGINE',
+    ),
+    '015C': OBDChannel(
+      pid: '015C',
+      name: '엔진 오일 온도',
+      unit: '°C',
+      minVal: -40,
+      maxVal: 150,
+      category: 'ENGINE',
+    ),
     // AIR
-    '010F': OBDChannel(pid: '010F', name: '흡기 온도', unit: '°C', minVal: -40, maxVal: 100, category: 'AIR'),
-    '010B': OBDChannel(pid: '010B', name: '흡기 압력', unit: 'kPa', minVal: 0, maxVal: 255, category: 'AIR'),
-    '0110': OBDChannel(pid: '0110', name: '공기 유량', unit: 'g/s', minVal: 0, maxVal: 200, category: 'AIR'),
+    '010F': OBDChannel(
+      pid: '010F',
+      name: '흡기 온도',
+      unit: '°C',
+      minVal: -40,
+      maxVal: 100,
+      category: 'AIR',
+    ),
+    '010B': OBDChannel(
+      pid: '010B',
+      name: '흡기 압력',
+      unit: 'kPa',
+      minVal: 0,
+      maxVal: 255,
+      category: 'AIR',
+    ),
+    '0110': OBDChannel(
+      pid: '0110',
+      name: '공기 유량',
+      unit: 'g/s',
+      minVal: 0,
+      maxVal: 200,
+      category: 'AIR',
+    ),
     // FUEL
-    '012F': OBDChannel(pid: '012F', name: '연료량', unit: '%', minVal: 0, maxVal: 100, category: 'FUEL'),
-    '015E': OBDChannel(pid: '015E', name: '연료 소비율', unit: 'L/h', minVal: 0, maxVal: 50, category: 'FUEL'),
+    '012F': OBDChannel(
+      pid: '012F',
+      name: '연료량',
+      unit: '%',
+      minVal: 0,
+      maxVal: 100,
+      category: 'FUEL',
+    ),
+    '015E': OBDChannel(
+      pid: '015E',
+      name: '연료 소비율',
+      unit: 'L/h',
+      minVal: 0,
+      maxVal: 50,
+      category: 'FUEL',
+    ),
     // VEHICLE
-    '010D': OBDChannel(pid: '010D', name: '속도', unit: 'km/h', minVal: 0, maxVal: 260, category: 'VEHICLE'),
-    '0149': OBDChannel(pid: '0149', name: '가속 페달', unit: '%', minVal: 0, maxVal: 100, category: 'VEHICLE'),
-    '0142': OBDChannel(pid: '0142', name: '배터리 전압', unit: 'V', minVal: 10, maxVal: 16, category: 'VEHICLE'),
+    '010D': OBDChannel(
+      pid: '010D',
+      name: '속도',
+      unit: 'km/h',
+      minVal: 0,
+      maxVal: 260,
+      category: 'VEHICLE',
+    ),
+    '0149': OBDChannel(
+      pid: '0149',
+      name: '가속 페달',
+      unit: '%',
+      minVal: 0,
+      maxVal: 100,
+      category: 'VEHICLE',
+    ),
+    '0142': OBDChannel(
+      pid: '0142',
+      name: '배터리 전압',
+      unit: 'V',
+      minVal: 10,
+      maxVal: 16,
+      category: 'VEHICLE',
+    ),
   };
 
   static const List<String> _pollOrder = [
-    '010C', '010D', '0104', '0111', '012F', '0105',
-    '015C', '010F', '010B', '0110', '015E', '0149', '0142', '0145',
+    '010C',
+    '010D',
+    '0104',
+    '0111',
+    '012F',
+    '0105',
+    '015C',
+    '010F',
+    '010B',
+    '0110',
+    '015E',
+    '0149',
+    '0142',
+    '0145',
   ];
 
   // ── 값 조회 헬퍼 ──────────────────────────────────────────
@@ -91,21 +203,36 @@ class OBDService extends ChangeNotifier {
     final d = _data;
     if (d == null) return null;
     switch (pid) {
-      case '010C': return d.rpm?.toDouble();
-      case '010D': return d.speedKmh?.toDouble();
-      case '0104': return d.engineLoadPct;
-      case '0111': return d.throttlePct;
-      case '0145': return d.relThrottlePct;
-      case '0105': return d.coolantTempC?.toDouble();
-      case '015C': return d.oilTempC?.toDouble();
-      case '010F': return d.intakeAirTempC?.toDouble();
-      case '010B': return d.intakeMapKpa?.toDouble();
-      case '0110': return d.mafGps;
-      case '012F': return d.fuelLevelPct;
-      case '015E': return d.fuelRateLph;
-      case '0149': return d.accelPedalPct;
-      case '0142': return d.moduleVoltageV;
-      default: return null;
+      case '010C':
+        return d.rpm?.toDouble();
+      case '010D':
+        return d.speedKmh?.toDouble();
+      case '0104':
+        return d.engineLoadPct;
+      case '0111':
+        return d.throttlePct;
+      case '0145':
+        return d.relThrottlePct;
+      case '0105':
+        return d.coolantTempC?.toDouble();
+      case '015C':
+        return d.oilTempC?.toDouble();
+      case '010F':
+        return d.intakeAirTempC?.toDouble();
+      case '010B':
+        return d.intakeMapKpa?.toDouble();
+      case '0110':
+        return d.mafGps;
+      case '012F':
+        return d.fuelLevelPct;
+      case '015E':
+        return d.fuelRateLph;
+      case '0149':
+        return d.accelPedalPct;
+      case '0142':
+        return d.moduleVoltageV;
+      default:
+        return null;
     }
   }
 
@@ -113,21 +240,36 @@ class OBDService extends ChangeNotifier {
     final d = _data;
     if (d == null) return '—';
     switch (pid) {
-      case '010C': return d.rpmDisplay;
-      case '010D': return d.speedDisplay;
-      case '0104': return d.loadDisplay;
-      case '0111': return d.throttleDisplay;
-      case '0145': return d.relThrottleDisplay;
-      case '0105': return d.coolantDisplay;
-      case '015C': return d.oilDisplay;
-      case '010F': return d.intakeTempDisplay;
-      case '010B': return d.mapDisplay;
-      case '0110': return d.mafDisplay;
-      case '012F': return d.fuelDisplay;
-      case '015E': return d.fuelRateDisplay;
-      case '0149': return d.accelDisplay;
-      case '0142': return d.voltageDisplay;
-      default: return '—';
+      case '010C':
+        return d.rpmDisplay;
+      case '010D':
+        return d.speedDisplay;
+      case '0104':
+        return d.loadDisplay;
+      case '0111':
+        return d.throttleDisplay;
+      case '0145':
+        return d.relThrottleDisplay;
+      case '0105':
+        return d.coolantDisplay;
+      case '015C':
+        return d.oilDisplay;
+      case '010F':
+        return d.intakeTempDisplay;
+      case '010B':
+        return d.mapDisplay;
+      case '0110':
+        return d.mafDisplay;
+      case '012F':
+        return d.fuelDisplay;
+      case '015E':
+        return d.fuelRateDisplay;
+      case '0149':
+        return d.accelDisplay;
+      case '0142':
+        return d.voltageDisplay;
+      default:
+        return '—';
     }
   }
 
@@ -144,6 +286,7 @@ class OBDService extends ChangeNotifier {
 
   BluetoothDevice? _device;
   BluetoothCharacteristic? _char;
+  String? _trustedDeviceId;
   StreamSubscription<List<ScanResult>>? _scanSub;
   StreamSubscription<List<int>>? _notifySub;
   Timer? _pollTimer;
@@ -156,15 +299,19 @@ class OBDService extends ChangeNotifier {
   // [serviceShortId, characteristicShortId]
   // characteristicShortId가 null이면 해당 서비스에서 쓰기+알림 특성 자동 탐색
   static const _knownUuidPairs = [
-    ('ffe0', 'ffe1'),   // VEEPEAK, 대부분 중국산 ELM327 클론
-    ('18f0', '2af0'),   // Vgate iCar Pro
-    ('fff0', 'fff1'),   // 일부 클론
-    ('beef', 'bee1'),   // Kiwi 3
+    ('ffe0', 'ffe1'), // VEEPEAK, 대부분 중국산 ELM327 클론
+    ('18f0', '2af0'), // Vgate iCar Pro
+    ('fff0', 'fff1'), // 일부 클론
+    ('beef', 'bee1'), // Kiwi 3
     ('e7810a71', null), // OBDLink MX+ (iOS 전용, 긴 UUID 앞 부분)
   ];
 
   static bool _uuidContains(String uuid, String shortId) {
-    final u = uuid.toLowerCase().replaceAll('-', '').replaceAll('{', '').replaceAll('}', '');
+    final u = uuid
+        .toLowerCase()
+        .replaceAll('-', '')
+        .replaceAll('{', '')
+        .replaceAll('}', '');
     return u == shortId ||
         u == '0000${shortId}00001000800000805f9b34fb' ||
         u.startsWith(shortId) ||
@@ -200,7 +347,8 @@ class OBDService extends ChangeNotifier {
     debugPrint('[OBD] 알려진 UUID 없음 — fallback 탐색');
     for (final svc in services) {
       for (final c in svc.characteristics) {
-        final canWrite = c.properties.write || c.properties.writeWithoutResponse;
+        final canWrite =
+            c.properties.write || c.properties.writeWithoutResponse;
         final canNotify = c.properties.notify || c.properties.indicate;
         if (canWrite && canNotify) {
           debugPrint('[OBD] Fallback 특성: svc=${svc.uuid} char=${c.uuid}');
@@ -232,9 +380,24 @@ class OBDService extends ChangeNotifier {
 
   // OBD 동글로 알려진 이름 패턴 (대소문자 무시)
   static const _obdNamePatterns = [
-    'veepeak', 'obd', 'elm', 'obdii', 'vgate', 'icar',
-    'kiwi', 'v-link', 'vlink', 'bafx', 'obdlink', 'carista',
-    'scan', 'diag', 'torque', 'odb', 'eobd', 'bluetooth obd',
+    'veepeak',
+    'obd',
+    'elm',
+    'obdii',
+    'vgate',
+    'icar',
+    'kiwi',
+    'v-link',
+    'vlink',
+    'bafx',
+    'obdlink',
+    'carista',
+    'scan',
+    'diag',
+    'torque',
+    'odb',
+    'eobd',
+    'bluetooth obd',
   ];
 
   static bool isObdDeviceName(String name) {
@@ -248,6 +411,8 @@ class OBDService extends ChangeNotifier {
     _errorMsg = null;
     _data = null;
     _scanResults.clear();
+    final prefs = await SharedPreferences.getInstance();
+    _trustedDeviceId = prefs.getString(StorageKeys.trustedObdDeviceId);
 
     try {
       await FlutterBluePlus.startScan(timeout: const Duration(seconds: 30));
@@ -266,8 +431,10 @@ class OBDService extends ChangeNotifier {
             changed = true;
             debugPrint('[OBD SCAN] 발견: "$name" rssi=${r.rssi}');
           }
-          // 자동 매칭 — 패턴에 걸리는 기기 즉시 연결
-          if (_state == OBDState.scanning && isObdDeviceName(name)) {
+          // 자동 매칭 — 사용자가 신뢰한 기기만 정확한 remoteId로 자동 연결
+          if (_state == OBDState.scanning &&
+              _trustedDeviceId != null &&
+              r.device.remoteId.str == _trustedDeviceId) {
             debugPrint('[OBD SCAN] 자동 매칭! → 연결: "$name"');
             FlutterBluePlus.stopScan();
             _scanSub?.cancel();
@@ -281,7 +448,9 @@ class OBDService extends ChangeNotifier {
       FlutterBluePlus.isScanning.where((s) => !s).first.then((_) {
         if (_state == OBDState.scanning) {
           if (_scanResults.isEmpty) {
-            _setError('주변에서 블루투스 기기를 찾지 못했어요.\n동글이 차에 꽂혀있는지, 블루투스가 켜져있는지 확인해주세요.');
+            _setError(
+              '주변에서 블루투스 기기를 찾지 못했어요.\n동글이 차에 꽂혀있는지, 블루투스가 켜져있는지 확인해주세요.',
+            );
           } else {
             _setError('OBD 기기를 자동으로 찾지 못했어요.\n아래 목록에서 직접 선택해주세요.');
           }
@@ -298,6 +467,9 @@ class OBDService extends ChangeNotifier {
     FlutterBluePlus.stopScan();
     _scanSub?.cancel();
     _errorMsg = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(StorageKeys.trustedObdDeviceId, device.remoteId.str);
+    _trustedDeviceId = device.remoteId.str;
     await _connectDevice(device);
   }
 
@@ -335,10 +507,12 @@ class OBDService extends ChangeNotifier {
         for (final svc in services) {
           debugPrint('[OBD]   SVC: ${svc.uuid}');
           for (final c in svc.characteristics) {
-            debugPrint('[OBD]     CHAR: ${c.uuid} '
-                'write=${c.properties.write} '
-                'writeNoResp=${c.properties.writeWithoutResponse} '
-                'notify=${c.properties.notify}');
+            debugPrint(
+              '[OBD]     CHAR: ${c.uuid} '
+              'write=${c.properties.write} '
+              'writeNoResp=${c.properties.writeWithoutResponse} '
+              'notify=${c.properties.notify}',
+            );
           }
         }
         _setError('OBD 특성을 찾지 못했어요.\n로그의 UUID를 개발자에게 공유해주세요.');
@@ -374,10 +548,9 @@ class OBDService extends ChangeNotifier {
     final supported = <String>{};
     // 쿼리할 지원 비트맵 PID 목록 (각각 다음 32개 PID 지원 여부 반환)
     for (final queryPid in ['0100', '0120', '0140']) {
-      final resp = await _cmd(queryPid).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => '',
-      );
+      final resp = await _cmd(
+        queryPid,
+      ).timeout(const Duration(seconds: 5), onTimeout: () => '');
       if (resp.isEmpty) continue;
       final parsed = _parseSupportBitmap(queryPid, resp);
       supported.addAll(parsed);
@@ -412,7 +585,8 @@ class OBDService extends ChangeNotifier {
     for (int i = 0; i < 32; i++) {
       if (bitmap & (1 << (31 - i)) != 0) {
         final pidNum = baseOffset + i + 1;
-        final pidStr = '01${pidNum.toRadixString(16).padLeft(2, '0').toUpperCase()}';
+        final pidStr =
+            '01${pidNum.toRadixString(16).padLeft(2, '0').toUpperCase()}';
         supported.add(pidStr);
       }
     }
@@ -496,7 +670,9 @@ class OBDService extends ChangeNotifier {
     _cmdInFlight = false;
     _pollTimer?.cancel();
     _notifySub?.cancel();
-    try { await _device?.disconnect(); } catch (_) {}
+    try {
+      await _device?.disconnect();
+    } catch (_) {}
     _device = null;
     _char = null;
     _setError('응답 없음. 재연결 중...');
@@ -524,29 +700,47 @@ class OBDService extends ChangeNotifier {
       switch (pid) {
         case '010C': // RPM: (A*256+B)/4
           if (hex.length >= 4) {
-            upd = cur.copyWith(rpm: (byteA() * 256 + byteB()) ~/ 4, timestamp: DateTime.now());
+            upd = cur.copyWith(
+              rpm: (byteA() * 256 + byteB()) ~/ 4,
+              timestamp: DateTime.now(),
+            );
           }
           break;
         case '010D':
           upd = cur.copyWith(speedKmh: byteA(), timestamp: DateTime.now());
           break;
         case '0104':
-          upd = cur.copyWith(engineLoadPct: byteA() * 100.0 / 255.0, timestamp: DateTime.now());
+          upd = cur.copyWith(
+            engineLoadPct: byteA() * 100.0 / 255.0,
+            timestamp: DateTime.now(),
+          );
           break;
         case '0111':
-          upd = cur.copyWith(throttlePct: byteA() * 100.0 / 255.0, timestamp: DateTime.now());
+          upd = cur.copyWith(
+            throttlePct: byteA() * 100.0 / 255.0,
+            timestamp: DateTime.now(),
+          );
           break;
         case '0145':
-          upd = cur.copyWith(relThrottlePct: byteA() * 100.0 / 255.0, timestamp: DateTime.now());
+          upd = cur.copyWith(
+            relThrottlePct: byteA() * 100.0 / 255.0,
+            timestamp: DateTime.now(),
+          );
           break;
         case '0105':
-          upd = cur.copyWith(coolantTempC: byteA() - 40, timestamp: DateTime.now());
+          upd = cur.copyWith(
+            coolantTempC: byteA() - 40,
+            timestamp: DateTime.now(),
+          );
           break;
         case '015C':
           upd = cur.copyWith(oilTempC: byteA() - 40, timestamp: DateTime.now());
           break;
         case '010F':
-          upd = cur.copyWith(intakeAirTempC: byteA() - 40, timestamp: DateTime.now());
+          upd = cur.copyWith(
+            intakeAirTempC: byteA() - 40,
+            timestamp: DateTime.now(),
+          );
           break;
         case '010B':
           upd = cur.copyWith(intakeMapKpa: byteA(), timestamp: DateTime.now());
@@ -554,25 +748,37 @@ class OBDService extends ChangeNotifier {
         case '0110': // MAF: (A*256+B)/100
           if (hex.length >= 4) {
             upd = cur.copyWith(
-                mafGps: (byteA() * 256 + byteB()) / 100.0, timestamp: DateTime.now());
+              mafGps: (byteA() * 256 + byteB()) / 100.0,
+              timestamp: DateTime.now(),
+            );
           }
           break;
         case '012F':
-          upd = cur.copyWith(fuelLevelPct: byteA() * 100.0 / 255.0, timestamp: DateTime.now());
+          upd = cur.copyWith(
+            fuelLevelPct: byteA() * 100.0 / 255.0,
+            timestamp: DateTime.now(),
+          );
           break;
         case '015E': // Fuel rate: (A*256+B)/20
           if (hex.length >= 4) {
             upd = cur.copyWith(
-                fuelRateLph: (byteA() * 256 + byteB()) / 20.0, timestamp: DateTime.now());
+              fuelRateLph: (byteA() * 256 + byteB()) / 20.0,
+              timestamp: DateTime.now(),
+            );
           }
           break;
         case '0149':
-          upd = cur.copyWith(accelPedalPct: byteA() * 100.0 / 255.0, timestamp: DateTime.now());
+          upd = cur.copyWith(
+            accelPedalPct: byteA() * 100.0 / 255.0,
+            timestamp: DateTime.now(),
+          );
           break;
         case '0142': // Voltage: (A*256+B)/1000
           if (hex.length >= 4) {
             upd = cur.copyWith(
-                moduleVoltageV: (byteA() * 256 + byteB()) / 1000.0, timestamp: DateTime.now());
+              moduleVoltageV: (byteA() * 256 + byteB()) / 1000.0,
+              timestamp: DateTime.now(),
+            );
           }
           break;
       }
@@ -618,7 +824,9 @@ class OBDService extends ChangeNotifier {
     _trackingRun = false;
     final summary = OBDRunSummary(
       maxRpm: _maxRpm,
-      avgFuelRateLph: _fuelRateSamples > 0 ? _fuelRateSum / _fuelRateSamples : null,
+      avgFuelRateLph: _fuelRateSamples > 0
+          ? _fuelRateSum / _fuelRateSamples
+          : null,
       startFuelLevelPct: _startFuelLevel,
       endFuelLevelPct: _data?.fuelLevelPct,
       maxCoolantTempC: _maxCoolantTemp,

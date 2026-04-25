@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../theme/colors.dart';
-import '../theme/text_styles.dart';
-import '../services/settings_service.dart';
+
+import '../services/jarvis_service.dart';
 import '../services/jarvis_script.dart';
 import '../services/route_service.dart';
-import '../widgets/revv_ui.dart';
+import '../services/settings_service.dart';
+import '../services/supabase_service.dart';
+import '../theme/colors.dart';
+import '../theme/text_styles.dart';
 import 'calibration_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -22,189 +24,529 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final supabase = SupabaseService();
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: RevvTopBar(
-        title: 'System Configuration',
-        eyebrow: 'Calibration // Performance // Sync',
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios_new,
-            size: 18,
-            color: AppColors.textPrimary,
-          ),
-          onPressed: () => Navigator.pop(context),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: AppColors.cockpitBackgroundGradient(),
         ),
-      ),
-      body: Consumer<SettingsService>(
-        builder: (context, settings, _) {
-          return ListView(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            children: [
-              // ── 섹션: 음성 ──────────────────────────────────────
-              _SectionHeader(label: '음성 안내'),
-              _ToggleTile(
-                icon: settings.ttsMuted ? Icons.volume_off : Icons.volume_up,
-                iconColor: settings.ttsMuted
-                    ? AppColors.gray
-                    : Colors.lightBlueAccent,
-                title: 'TTS 음성 안내',
-                subtitle: settings.ttsMuted ? '음소거 중' : '안내 음성 켜짐',
-                value: !settings.ttsMuted,
-                onChanged: (v) => settings.setTtsMuted(!v),
-              ),
-
-              // ── 섹션: 코파일럿 스타일 ───────────────────────────────
-              _SectionHeader(label: '코파일럿 스타일'),
-              _RadioTile<JarvisPersona>(
-                icon: Icons.record_voice_over_rounded,
-                iconColor: AppColors.red,
-                title: '음성 페르소나',
-                subtitle: '자동 브리핑 어조',
-                options: const [
-                  _Option(label: '레이스 엔지니어', value: JarvisPersona.engineer),
-                  _Option(label: '친근한 코파일럿', value: JarvisPersona.friendly),
-                ],
-                selected: settings.jarvisPersona,
-                onChanged: settings.setJarvisPersona,
-              ),
-
-              // ── 섹션: 루트 탐색 ─────────────────────────────────
-              _SectionHeader(label: '루트 탐색'),
-              _RadioTile<int>(
-                icon: Icons.radar,
-                iconColor: AppColors.red,
-                title: '탐색 반경',
-                subtitle: '루트를 찾을 반경 거리',
-                options: const [
-                  _Option(label: '30 km', value: 30),
-                  _Option(label: '50 km', value: 50),
-                  _Option(label: '100 km', value: 100),
-                ],
-                selected: settings.searchRadiusKm,
-                onChanged: (v) {
-                  settings.setSearchRadius(v);
-                  // RouteService searchRadiusKm 동기화
-                  context.read<RouteService>().searchRadiusKm = v;
-                },
-              ),
-              _RadioTile<String>(
-                icon: Icons.straighten,
-                iconColor: AppColors.textSecondary,
-                title: '거리 단위',
-                subtitle: '앱 전체 거리 표시 단위',
-                options: const [
-                  _Option(label: 'km', value: 'km'),
-                  _Option(label: 'mi', value: 'mi'),
-                ],
-                selected: settings.distUnit,
-                onChanged: settings.setDistUnit,
-              ),
-
-              // ── 섹션: 주행 ──────────────────────────────────────
-              _SectionHeader(label: '주행'),
-              _ToggleTile(
-                icon: Icons.speed,
-                iconColor: AppColors.textSecondary,
-                title: '속도 HUD 표시',
-                subtitle: '레일에 속도/날씨 항목 표시',
-                value: settings.showSpeedHud,
-                onChanged: settings.setShowSpeedHud,
-              ),
-              _ToggleTile(
-                icon: Icons.warning_amber_rounded,
-                iconColor: Colors.orange,
-                title: '루트 이탈 경고',
-                subtitle: '루트 300m 이상 벗어나면 알림',
-                value: settings.offRouteAlert,
-                onChanged: settings.setOffRouteAlert,
-              ),
-              _ToggleTile(
-                icon: Icons.hearing,
-                iconColor: AppColors.cyan,
-                title: '항상 듣기',
-                subtitle: '마이크 버튼 없이 자동으로 음성 명령 감지',
-                value: settings.alwaysListen,
-                onChanged: settings.setAlwaysListen,
-              ),
-
-              const SizedBox(height: 32),
-              // ── 루트 캘리브레이션 ─────────────────────────────────
-              _SectionHeader(label: '루트 캘리브레이션'),
-              _ActionTile(
-                label: '캘리브레이션 다시하기',
-                subtitle: '싫어하는 루트 취향을 다시 설정합니다',
-                icon: Icons.tune_rounded,
-                onTap: () async {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.remove(kCalibrationDoneKey);
-                  if (!context.mounted) return;
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const CalibrationScreen(),
-                    ),
-                  );
-                },
-              ),
-              _ActionTile(
-                label: '배제 루트 초기화',
-                subtitle: '싫어요한 루트를 모두 복원합니다',
-                icon: Icons.restore_rounded,
-                color: AppColors.orange,
-                onTap: () async {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.remove('revv_excluded_centers');
-                  if (!context.mounted) return;
-                  context.read<RouteService>().resetExclusions();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        '배제 루트가 초기화됐어요',
-                        style: GoogleFonts.rajdhani(fontSize: 13),
+        child: Stack(
+          children: [
+            const _SettingsBackdrop(),
+            SafeArea(
+              bottom: false,
+              child: Consumer<SettingsService>(
+                builder: (context, settings, _) {
+                  final jarvis = context.watch<JarvisService>();
+                  return CustomScrollView(
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                          child: _SettingsTopBar(
+                            onBack: () => Navigator.pop(context),
+                          ),
+                        ),
                       ),
-                      backgroundColor: AppColors.panel,
-                      duration: const Duration(seconds: 2),
-                    ),
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+                          child: _SettingsOverviewCard(
+                            voiceEnabled: !settings.ttsMuted,
+                            radiusKm: settings.searchRadiusKm,
+                            cloudLabel: supabase.availabilityLabel,
+                            speedLabel: _speechPresetLabel(settings.ttsRatePreset),
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final wide = constraints.maxWidth >= 760;
+                              final navigationCard = _SettingsFeatureCard(
+                                icon: Icons.alt_route_rounded,
+                                section: '루트 탐색',
+                                accent: AppColors.primaryContainer,
+                                child: Column(
+                                  children: [
+                                    _SettingsToggleRow(
+                                      title: '음성 안내',
+                                      subtitle: settings.ttsMuted
+                                          ? '음성 안내가 꺼져 있어요'
+                                          : '코너와 이탈 안내를 음성으로 읽어요',
+                                      value: !settings.ttsMuted,
+                                      onChanged: (value) =>
+                                          settings.setTtsMuted(!value),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    _InlineSegmentField<String>(
+                                      label: '음성 속도',
+                                      valueLabel: _speechPresetLabel(
+                                        settings.ttsRatePreset,
+                                      ),
+                                      options: const [
+                                        _SegmentOption(
+                                          label: '차분',
+                                          value: 'relaxed',
+                                        ),
+                                        _SegmentOption(
+                                          label: '기본',
+                                          value: 'balanced',
+                                        ),
+                                        _SegmentOption(
+                                          label: '빠름',
+                                          value: 'brisk',
+                                        ),
+                                      ],
+                                      selected: settings.ttsRatePreset,
+                                      onChanged: settings.setTtsRatePreset,
+                                    ),
+                                    const SizedBox(height: 18),
+                                    _SettingsPickerRow(
+                                      title: '기기 음성',
+                                      subtitle: jarvis.availableVoices.isEmpty
+                                          ? '사용 가능한 한국어 음성을 불러오는 중이에요'
+                                          : '${jarvis.availableVoices.length}개 한국어 음성 중 선택',
+                                      valueLabel: jarvis.selectedVoice?.name ??
+                                          '기본 한국어 음성',
+                                      onTap: jarvis.availableVoices.isEmpty
+                                          ? null
+                                          : () => _showVoicePicker(
+                                                context,
+                                                jarvis: jarvis,
+                                                settings: settings,
+                                              ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    _SettingsToggleRow(
+                                      title: '항상 듣기',
+                                      subtitle: settings.alwaysListen
+                                          ? '웨이크워드로 로컬 명령을 대기해요'
+                                          : '마이크 버튼을 눌렀을 때만 음성을 받아요',
+                                      value: settings.alwaysListen,
+                                      onChanged: settings.setAlwaysListen,
+                                    ),
+                                    const SizedBox(height: 18),
+                                    _InlineSegmentField<int>(
+                                      label: '탐색 반경',
+                                      valueLabel:
+                                          '${settings.searchRadiusKm}KM',
+                                      options: const [
+                                        _SegmentOption(label: '30', value: 30),
+                                        _SegmentOption(label: '50', value: 50),
+                                        _SegmentOption(
+                                          label: '100',
+                                          value: 100,
+                                        ),
+                                        _SegmentOption(
+                                          label: '160',
+                                          value: 160,
+                                        ),
+                                        _SegmentOption(
+                                          label: '220',
+                                          value: 220,
+                                        ),
+                                      ],
+                                      selected: settings.searchRadiusKm,
+                                      onChanged: (value) {
+                                        settings.setSearchRadius(value);
+                                        context
+                                                .read<RouteService>()
+                                                .searchRadiusKm =
+                                            value;
+                                      },
+                                    ),
+                                    const SizedBox(height: 18),
+                                    _InlineSegmentField<String>(
+                                      label: '거리 단위',
+                                      valueLabel: settings.distUnit
+                                          .toUpperCase(),
+                                      options: const [
+                                        _SegmentOption(
+                                          label: 'KM',
+                                          value: 'km',
+                                        ),
+                                        _SegmentOption(
+                                          label: 'MI',
+                                          value: 'mi',
+                                        ),
+                                      ],
+                                      selected: settings.distUnit,
+                                      onChanged: settings.setDistUnit,
+                                    ),
+                                  ],
+                                ),
+                              );
+
+                              final hudCard = _SettingsFeatureCard(
+                                icon: Icons.speed_rounded,
+                                section: '주행 화면',
+                                accent: AppColors.primaryContainer,
+                                highlighted: true,
+                                child: Column(
+                                  children: [
+                                    _SettingsToggleRow(
+                                      title: '속도 HUD',
+                                      subtitle: settings.showSpeedHud
+                                          ? '주행 중 속도 HUD를 표시해요'
+                                          : '속도 HUD를 숨겨서 화면을 더 비워둬요',
+                                      value: settings.showSpeedHud,
+                                      onChanged: settings.setShowSpeedHud,
+                                    ),
+                                    const SizedBox(height: 14),
+                                    _SettingsToggleRow(
+                                      title: '루트 이탈 경고',
+                                      subtitle: settings.offRouteAlert
+                                          ? '루트 이탈을 음성·화면으로 알려줘요'
+                                          : '이탈 경고를 조용히 유지해요',
+                                      value: settings.offRouteAlert,
+                                      onChanged: settings.setOffRouteAlert,
+                                    ),
+                                    const SizedBox(height: 18),
+                                    _InlineSegmentField<JarvisPersona>(
+                                      label: '코파일럿 톤',
+                                      valueLabel:
+                                          settings.jarvisPersona ==
+                                              JarvisPersona.engineer
+                                          ? 'ENGINEER'
+                                          : 'FRIENDLY',
+                                      options: const [
+                                        _SegmentOption(
+                                          label: 'ENGINEER',
+                                          value: JarvisPersona.engineer,
+                                        ),
+                                        _SegmentOption(
+                                          label: 'FRIENDLY',
+                                          value: JarvisPersona.friendly,
+                                        ),
+                                      ],
+                                      selected: settings.jarvisPersona,
+                                      onChanged: settings.setJarvisPersona,
+                                    ),
+                                  ],
+                                ),
+                              );
+
+                              if (!wide) {
+                                return Column(
+                                  children: [
+                                    navigationCard,
+                                    const SizedBox(height: 14),
+                                    hudCard,
+                                  ],
+                                );
+                              }
+
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: navigationCard),
+                                  const SizedBox(width: 14),
+                                  Expanded(child: hudCard),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 26, 20, 0),
+                          child: _SectionLabel(
+                            icon: Icons.tune_rounded,
+                            title: '관리',
+                            color: AppColors.warning,
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                          child: Column(
+                            children: [
+                              _SettingsListRow(
+                                icon: Icons.tune_rounded,
+                                iconColor: AppColors.primaryContainer,
+                                title: '취향 보정 다시하기',
+                                subtitle: '추천/숨기기 선택으로 추천 감도를 다시 맞춰요',
+                                trailingIcon: Icons.chevron_right_rounded,
+                                onTap: () async {
+                                  final prefs =
+                                      await SharedPreferences.getInstance();
+                                  await prefs.remove(kCalibrationDoneKey);
+                                  if (!context.mounted) return;
+                                  Navigator.pushReplacement(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const CalibrationScreen(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              _SettingsListRow(
+                                icon: Icons.restore_rounded,
+                                iconColor: AppColors.warning,
+                                title: '숨긴 루트 초기화',
+                                subtitle: '숨긴 루트를 모두 다시 표시해요',
+                                trailingIcon: Icons.chevron_right_rounded,
+                                onTap: () async {
+                                  final prefs =
+                                      await SharedPreferences.getInstance();
+                                  await prefs.remove('revv_excluded_centers');
+                                  if (!context.mounted) return;
+                                  context
+                                      .read<RouteService>()
+                                      .resetExclusions();
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('배제 루트를 초기화했어요'),
+                                      backgroundColor: AppColors.panel2,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 26, 20, 0),
+                          child: _SectionLabel(
+                            icon: Icons.account_circle_outlined,
+                            title: '데이터 & 앱 정보',
+                            color: AppColors.outline,
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                          child: Column(
+                            children: [
+                              AnimatedBuilder(
+                                animation: supabase,
+                                builder: (context, _) {
+                                  final subtitle =
+                                      supabase.lastFailureReason ??
+                                      (supabase.isCloudAvailable
+                                          ? '클라우드 텔레메트리가 준비됐어요'
+                                          : '로컬 데이터만 사용 중');
+                                  return _SettingsListRow(
+                                    icon: Icons.cloud_sync_rounded,
+                                    iconColor: AppColors.primaryContainer,
+                                    title: '클라우드 동기화',
+                                    subtitle: subtitle,
+                                    trailingLabel: supabase.availabilityLabel,
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              _SettingsListRow(
+                                icon: Icons.map_outlined,
+                                iconColor: AppColors.textSecondary,
+                                title: '루트 데이터 소스',
+                                subtitle: 'Mapbox · Overpass · Supabase',
+                                trailingLabel: 'ONLINE',
+                              ),
+                              const SizedBox(height: 8),
+                              _SettingsListRow(
+                                icon: Icons.info_outline_rounded,
+                                iconColor: AppColors.textSecondary,
+                                title: '앱 버전',
+                                subtitle: 'REVV cockpit build',
+                                trailingLabel: 'v1.40',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 24, 20, 34),
+                          child: _SettingsStatusCard(
+                            status: settings.alwaysListen
+                                ? 'VOICE LINK READY'
+                                : 'SYSTEM CALIBRATED',
+                            subtitle: '설정이 저장되면 즉시 주행 화면에 반영돼요',
+                          ),
+                        ),
+                      ),
+                    ],
                   );
                 },
               ),
-
-              const SizedBox(height: 32),
-              // ── 앱 정보 ──────────────────────────────────────────
-              _SectionHeader(label: '앱 정보'),
-              _InfoTile(label: '버전', value: 'v1.40'),
-              _InfoTile(label: '지도', value: 'Mapbox'),
-              _InfoTile(label: '루트 데이터', value: 'Overpass API (OSM)'),
-              const SizedBox(height: 24),
-            ],
-          );
-        },
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-// ── 섹션 헤더 ─────────────────────────────────────────────────
-class _SectionHeader extends StatelessWidget {
-  final String label;
-  const _SectionHeader({required this.label});
+String _speechPresetLabel(String preset) {
+  switch (preset) {
+    case 'balanced':
+      return '기본';
+    case 'brisk':
+      return '빠름';
+    case 'relaxed':
+    default:
+      return '차분';
+  }
+}
+
+Future<void> _showVoicePicker(
+  BuildContext context, {
+  required JarvisService jarvis,
+  required SettingsService settings,
+}) async {
+  await showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (_) {
+      return SafeArea(
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          decoration: BoxDecoration(
+            color: AppColors.panel2.withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: AppColors.outlineVariant.withValues(alpha: 0.22),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 10),
+              Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.outline.withValues(alpha: 0.28),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.record_voice_over_rounded,
+                      color: AppColors.primaryContainer,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '기기 음성 선택',
+                      style: AppText.body(
+                        size: 16,
+                        weight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: jarvis.availableVoices.length,
+                  separatorBuilder: (_, __) => Divider(
+                    height: 1,
+                    color: AppColors.outlineVariant.withValues(alpha: 0.16),
+                  ),
+                  itemBuilder: (context, index) {
+                    final voice = jarvis.availableVoices[index];
+                    final selected =
+                        voice.name == settings.ttsVoiceName &&
+                        voice.locale == settings.ttsVoiceLocale;
+                    return ListTile(
+                      onTap: () async {
+                        await settings.setTtsVoice(
+                          name: voice.name,
+                          locale: voice.locale,
+                        );
+                        if (context.mounted) Navigator.pop(context);
+                      },
+                      title: Text(
+                        voice.name,
+                        style: AppText.body(
+                          size: 14,
+                          weight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      subtitle: Text(
+                        voice.locale.replaceAll('_', '-'),
+                        style: AppText.body(
+                          size: 11,
+                          color: AppColors.textHint,
+                        ),
+                      ),
+                      trailing: selected
+                          ? const Icon(
+                              Icons.check_circle_rounded,
+                              color: AppColors.primaryContainer,
+                              size: 18,
+                            )
+                          : null,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _SettingsBackdrop extends StatelessWidget {
+  const _SettingsBackdrop();
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
-      child: Row(
+    return IgnorePointer(
+      child: Stack(
         children: [
-          Text(
-            label.toUpperCase(),
-            style: AppText.label(size: 10, color: AppColors.primaryContainer),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
+          Positioned(
+            top: -60,
+            right: -40,
             child: Container(
-              height: 1,
-              color: AppColors.primaryContainer.withValues(alpha: 0.2),
+              width: 220,
+              height: 220,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    AppColors.primaryContainer.withValues(alpha: 0.16),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            left: -60,
+            top: 180,
+            child: Container(
+              width: 180,
+              height: 180,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    AppColors.warning.withValues(alpha: 0.08),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -213,17 +555,273 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// ── 토글 타일 ─────────────────────────────────────────────────
-class _ToggleTile extends StatelessWidget {
+class _SettingsTopBar extends StatelessWidget {
+  final VoidCallback onBack;
+
+  const _SettingsTopBar({required this.onBack});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _TopBarIconButton(
+          icon: Icons.arrow_back_ios_new_rounded,
+          onTap: onBack,
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Row(
+            children: [
+              const Icon(
+                Icons.sensors_rounded,
+                size: 20,
+                color: AppColors.primaryContainer,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'REVV',
+                style: GoogleFonts.inter(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.primaryContainer,
+                  letterSpacing: 3.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Text(
+          'SETTINGS',
+          style: GoogleFonts.inter(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+            color: AppColors.primaryContainer,
+            letterSpacing: 0.3,
+          ),
+        ),
+        const SizedBox(width: 10),
+        const Icon(
+          Icons.battery_charging_full_rounded,
+          size: 22,
+          color: AppColors.primaryContainer,
+        ),
+      ],
+    );
+  }
+}
+
+class _TopBarIconButton extends StatelessWidget {
   final IconData icon;
-  final Color iconColor;
+  final VoidCallback onTap;
+
+  const _TopBarIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: 48,
+        height: 48,
+        decoration: BoxDecoration(
+          color: AppColors.panel2.withValues(alpha: 0.84),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.28),
+          ),
+        ),
+        child: Icon(icon, size: 18, color: AppColors.textPrimary),
+      ),
+    );
+  }
+}
+
+class _SettingsOverviewCard extends StatelessWidget {
+  final bool voiceEnabled;
+  final int radiusKm;
+  final String cloudLabel;
+  final String speedLabel;
+
+  const _SettingsOverviewCard({
+    required this.voiceEnabled,
+    required this.radiusKm,
+    required this.cloudLabel,
+    required this.speedLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceHigh.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.24),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.24),
+            blurRadius: 24,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: AppColors.panel2,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: AppColors.primaryContainer.withValues(alpha: 0.22),
+                    width: 2,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.settings_input_component_rounded,
+                  color: AppColors.primaryContainer,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '시스템 설정',
+                      style: AppText.body(
+                        size: 18,
+                        weight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '주행 화면, 음성, 루트 탐색 기준을 여기서 조절해요',
+                      style: AppText.body(
+                        size: 12,
+                        height: 1.3,
+                        color: AppColors.textHint,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _OverviewPill(label: voiceEnabled ? '음성 안내 켜짐' : '음성 안내 꺼짐'),
+              _OverviewPill(label: '음성 속도 $speedLabel'),
+              _OverviewPill(label: '탐색 반경 ${radiusKm}km'),
+              _OverviewPill(label: cloudLabel),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewPill extends StatelessWidget {
+  final String label;
+
+  const _OverviewPill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.7),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.24),
+        ),
+      ),
+      child: Text(
+        label,
+        style: AppText.body(
+          size: 11,
+          weight: FontWeight.w700,
+          color: AppColors.textSecondary,
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsFeatureCard extends StatelessWidget {
+  final IconData icon;
+  final String section;
+  final Color accent;
+  final bool highlighted;
+  final Widget child;
+
+  const _SettingsFeatureCard({
+    required this.icon,
+    required this.section,
+    required this.accent,
+    required this.child,
+    this.highlighted = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+      decoration: BoxDecoration(
+        color: AppColors.panel2.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: highlighted
+              ? accent.withValues(alpha: 0.20)
+              : AppColors.outlineVariant.withValues(alpha: 0.20),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 17, color: accent),
+              const SizedBox(width: 8),
+              Text(
+                section.toUpperCase(),
+                style: AppText.technicalLabel(
+                  size: 10,
+                  color: AppColors.textHint,
+                  letterSpacing: 1.6,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsToggleRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool value;
   final ValueChanged<bool> onChanged;
-  const _ToggleTile({
-    required this.icon,
-    required this.iconColor,
+
+  const _SettingsToggleRow({
     required this.title,
     required this.subtitle,
     required this.value,
@@ -232,203 +830,120 @@ class _ToggleTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RevvGlassCard(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-      padding: EdgeInsets.zero,
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-        leading: Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            color: iconColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, size: 18, color: iconColor),
-        ),
-        title: Text(
-          title,
-          style: GoogleFonts.rajdhani(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        subtitle: Text(
-          subtitle,
-          style: GoogleFonts.rajdhani(
-            fontSize: 11,
-            color: AppColors.textSecondary,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: AppText.body(
+                  size: 14,
+                  weight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: AppText.body(
+                  size: 11,
+                  height: 1.3,
+                  color: AppColors.textHint,
+                ),
+              ),
+            ],
           ),
         ),
-        trailing: Switch(
+        const SizedBox(width: 12),
+        _CompactSwitch(
           value: value,
           onChanged: onChanged,
-          activeThumbColor: AppColors.red,
-          inactiveTrackColor: AppColors.panel2,
-          inactiveThumbColor: AppColors.gray,
+          accent: AppColors.primaryContainer,
         ),
-      ),
+      ],
     );
   }
 }
 
-// ── 라디오 선택 타일 ──────────────────────────────────────────
-class _Option<T> {
-  final String label;
-  final T value;
-  const _Option({required this.label, required this.value});
-}
-
-class _RadioTile<T> extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
+class _SettingsPickerRow extends StatelessWidget {
   final String title;
   final String subtitle;
-  final List<_Option<T>> options;
-  final T selected;
-  final ValueChanged<T> onChanged;
-  const _RadioTile({
-    required this.icon,
-    required this.iconColor,
+  final String valueLabel;
+  final VoidCallback? onTap;
+
+  const _SettingsPickerRow({
     required this.title,
     required this.subtitle,
-    required this.options,
-    required this.selected,
-    required this.onChanged,
+    required this.valueLabel,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return RevvGlassCard(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 18, color: iconColor),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: options.map((opt) {
-              final isSelected = opt.value == selected;
-              return GestureDetector(
-                onTap: () => onChanged(opt.value),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  margin: const EdgeInsets.only(left: 4),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isSelected ? AppColors.red : AppColors.surface,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(
-                      color: isSelected ? AppColors.red : AppColors.divider,
-                    ),
-                  ),
-                  child: Text(
-                    opt.label,
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: isSelected
-                          ? Colors.white
-                          : AppColors.textSecondary,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ── 액션 타일 ─────────────────────────────────────────────────
-class _ActionTile extends StatelessWidget {
-  final String label;
-  final String subtitle;
-  final IconData icon;
-  final Color? color;
-  final VoidCallback onTap;
-  const _ActionTile({
-    required this.label,
-    required this.subtitle,
-    required this.icon,
-    required this.onTap,
-    this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = color ?? AppColors.red;
-    return GestureDetector(
+    final enabled = onTap != null;
+    return InkWell(
       onTap: onTap,
-      child: RevvGlassCard(
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.surface.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.20),
+          ),
+        ),
         child: Row(
           children: [
-            Icon(icon, size: 16, color: c),
-            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    label,
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                    title,
+                    style: AppText.body(
+                      size: 14,
+                      weight: FontWeight.w700,
                       color: AppColors.textPrimary,
                     ),
                   ),
+                  const SizedBox(height: 4),
                   Text(
                     subtitle,
-                    style: GoogleFonts.rajdhani(
-                      fontSize: 11,
+                    style: AppText.body(
+                      size: 11,
+                      height: 1.3,
                       color: AppColors.textHint,
                     ),
                   ),
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, size: 16, color: AppColors.textHint),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                valueLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: AppText.body(
+                  size: 12,
+                  weight: FontWeight.w700,
+                  color: enabled
+                      ? AppColors.primaryContainer
+                      : AppColors.textHint,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: enabled ? AppColors.textSecondary : AppColors.textHint,
+            ),
           ],
         ),
       ),
@@ -436,34 +951,315 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
-// ── 정보 타일 ─────────────────────────────────────────────────
-class _InfoTile extends StatelessWidget {
-  final String label;
-  final String value;
-  const _InfoTile({required this.label, required this.value});
+class _CompactSwitch extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  final Color accent;
+
+  const _CompactSwitch({
+    required this.value,
+    required this.onChanged,
+    required this.accent,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return RevvGlassCard(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      child: Row(
+    return Transform.scale(
+      scale: 0.92,
+      child: Switch(
+        value: value,
+        onChanged: onChanged,
+        activeThumbColor: AppColors.onPrimary,
+        activeTrackColor: accent,
+        inactiveThumbColor: AppColors.outline,
+        inactiveTrackColor: AppColors.surfaceHigh,
+      ),
+    );
+  }
+}
+
+class _SegmentOption<T> {
+  final String label;
+  final T value;
+
+  const _SegmentOption({required this.label, required this.value});
+}
+
+class _InlineSegmentField<T> extends StatelessWidget {
+  final String label;
+  final String valueLabel;
+  final List<_SegmentOption<T>> options;
+  final T selected;
+  final ValueChanged<T> onChanged;
+
+  const _InlineSegmentField({
+    required this.label,
+    required this.valueLabel,
+    required this.options,
+    required this.selected,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: AppText.technicalLabel(
+                size: 10,
+                color: AppColors.textHint,
+                letterSpacing: 1.6,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              valueLabel,
+              style: AppText.technicalLabel(
+                size: 10,
+                color: AppColors.primaryContainer,
+                letterSpacing: 1.4,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: options.map((option) {
+            final active = option.value == selected;
+            return InkWell(
+              onTap: () => onChanged(option.value),
+              borderRadius: BorderRadius.circular(999),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 9,
+                ),
+                decoration: BoxDecoration(
+                  color: active
+                      ? AppColors.primaryContainer
+                      : AppColors.surface.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: active
+                        ? AppColors.primaryContainer
+                        : AppColors.outlineVariant.withValues(alpha: 0.24),
+                  ),
+                ),
+                child: Text(
+                  option.label,
+                  style: AppText.body(
+                    size: 12,
+                    weight: FontWeight.w800,
+                    color: active
+                        ? AppColors.onPrimary
+                        : AppColors.textSecondary,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final Color color;
+
+  const _SectionLabel({
+    required this.icon,
+    required this.title,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Text(
+          title.toUpperCase(),
+          style: AppText.technicalLabel(
+            size: 10,
+            color: AppColors.textHint,
+            letterSpacing: 1.7,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SettingsListRow extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String title;
+  final String subtitle;
+  final String? trailingLabel;
+  final IconData? trailingIcon;
+  final VoidCallback? onTap;
+
+  const _SettingsListRow({
+    required this.icon,
+    required this.iconColor,
+    required this.title,
+    required this.subtitle,
+    this.trailingLabel,
+    this.trailingIcon,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        decoration: BoxDecoration(
+          color: AppColors.panel.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.16),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.surface.withValues(alpha: 0.8),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: AppText.body(
+                      size: 14,
+                      weight: FontWeight.w800,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: AppText.body(
+                      size: 11,
+                      height: 1.3,
+                      color: AppColors.textHint,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (trailingLabel != null)
+              Text(
+                trailingLabel!,
+                style: AppText.technicalLabel(
+                  size: 10,
+                  color: AppColors.primaryContainer,
+                  letterSpacing: 1.4,
+                ),
+              ),
+            if (trailingLabel == null && trailingIcon != null)
+              Icon(trailingIcon, size: 18, color: AppColors.textHint),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsStatusCard extends StatelessWidget {
+  final String status;
+  final String subtitle;
+
+  const _SettingsStatusCard({required this.status, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 138,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.20),
+        ),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.surfaceLowest, AppColors.panel, AppColors.surface],
+        ),
+      ),
+      child: Stack(
         children: [
-          Text(
-            label,
-            style: GoogleFonts.rajdhani(
-              fontSize: 13,
-              color: AppColors.textSecondary,
+          Positioned(
+            top: -10,
+            right: -10,
+            child: Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    AppColors.primaryContainer.withValues(alpha: 0.18),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
             ),
           ),
-          const Spacer(),
-          Text(
-            value,
-            style: GoogleFonts.rajdhani(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textHint,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Mechanical Integrity Status'.toUpperCase(),
+                style: AppText.technicalLabel(
+                  size: 10,
+                  color: AppColors.primaryContainer,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                status,
+                style: GoogleFonts.inter(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  color: AppColors.textPrimary,
+                  letterSpacing: -0.8,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: AppText.body(
+                  size: 12,
+                  weight: FontWeight.w600,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
           ),
         ],
       ),

@@ -31,30 +31,33 @@ class _OBDScreenState extends State<OBDScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _AppBar(onBack: () => Navigator.pop(context)),
-            Expanded(
-              child: Row(
-                children: [
-                  // 왼쪽 레일
-                  _LeftRail(
-                    selected: _tab,
-                    onSelect: (t) => setState(() => _tab = t),
-                  ),
-                  Container(width: 1, color: Colors.white12),
-                  // 탭 컨텐츠
-                  Expanded(
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 180),
-                      child: _buildTab(),
+      body: RevvCockpitBackground(
+        child: SafeArea(
+          child: Column(
+            children: [
+              _AppBar(onBack: () => Navigator.pop(context)),
+              Expanded(
+                child: Row(
+                  children: [
+                    _LeftRail(
+                      selected: _tab,
+                      onSelect: (t) => setState(() => _tab = t),
                     ),
-                  ),
-                ],
+                    Container(
+                      width: 1,
+                      color: AppColors.outlineVariant.withValues(alpha: 0.24),
+                    ),
+                    Expanded(
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        child: _buildTab(),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -84,7 +87,7 @@ class _AppBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer<OBDService>(
       builder: (_, obd, __) => Container(
-        height: 48,
+        height: 56,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: AppColors.bg.withValues(alpha: 0.86),
@@ -98,20 +101,43 @@ class _AppBar extends StatelessWidget {
           children: [
             GestureDetector(
               onTap: onBack,
-              child: const Icon(
-                Icons.arrow_back_ios_new,
-                color: Colors.white54,
-                size: 16,
+              child: RevvGlassCard(
+                padding: EdgeInsets.zero,
+                radius: 999,
+                color: AppColors.panel.withValues(alpha: 0.82),
+                child: const SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: Icon(
+                    Icons.arrow_back_ios_new,
+                    color: Colors.white54,
+                    size: 16,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),
-            Text(
-              'OBD TELEMETRY',
-              style: AppText.label(
-                size: 12,
-                color: AppColors.primaryContainer,
-                letterSpacing: 1.8,
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'OBD TELEMETRY',
+                  style: AppText.technicalLabel(
+                    size: 11,
+                    color: AppColors.primaryContainer,
+                    letterSpacing: 1.8,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Live Diagnostics',
+                  style: AppText.body(
+                    size: 16,
+                    weight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
             ),
             const Spacer(),
             // 연결 상태 표시
@@ -128,8 +154,8 @@ class _AppBar extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   _stateLabel(obd.state),
-                  style: GoogleFonts.rajdhani(
-                    fontSize: 11,
+                  style: AppText.technicalLabel(
+                    size: 10,
                     color: _stateColor(obd.state),
                   ),
                 ),
@@ -181,8 +207,8 @@ class _LeftRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 52,
-      color: AppColors.surfaceLowest,
+      width: 60,
+      color: AppColors.surfaceLowest.withValues(alpha: 0.72),
       child: Column(
         children: [
           const SizedBox(height: 16),
@@ -236,14 +262,18 @@ class _RailItem extends StatelessWidget {
       onTap: () => onSelect(idx),
       child: Container(
         width: double.infinity,
+        margin: const EdgeInsets.symmetric(horizontal: 6),
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          border: Border(
-            left: BorderSide(
-              color: active ? AppColors.primaryContainer : Colors.transparent,
-              width: 2,
-            ),
-          ),
+          color: active
+              ? AppColors.primaryContainer.withValues(alpha: 0.12)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(14),
+          border: active
+              ? Border.all(
+                  color: AppColors.primaryContainer.withValues(alpha: 0.32),
+                )
+              : null,
         ),
         child: Column(
           children: [
@@ -255,9 +285,8 @@ class _RailItem extends StatelessWidget {
             const SizedBox(height: 3),
             Text(
               label,
-              style: GoogleFonts.rajdhani(
-                fontSize: 8,
-                fontWeight: FontWeight.w700,
+              style: AppText.technicalLabel(
+                size: 8,
                 color: active ? AppColors.primaryContainer : Colors.white24,
                 letterSpacing: 1,
               ),
