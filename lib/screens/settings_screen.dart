@@ -57,6 +57,7 @@ class SettingsScreen extends StatelessWidget {
                             radiusKm: settings.searchRadiusKm,
                             cloudLabel: supabase.availabilityLabel,
                             speedLabel: _speechPresetLabel(settings.ttsRatePreset),
+                            engineLabel: _speechEngineLabel(settings.ttsEngine),
                           ),
                         ),
                       ),
@@ -83,6 +84,25 @@ class SettingsScreen extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 14),
                                     _InlineSegmentField<String>(
+                                      label: '음성 엔진',
+                                      valueLabel: _speechEngineLabel(
+                                        settings.ttsEngine,
+                                      ),
+                                      options: const [
+                                        _SegmentOption(
+                                          label: 'GOOGLE',
+                                          value: 'google',
+                                        ),
+                                        _SegmentOption(
+                                          label: 'DEVICE',
+                                          value: 'device',
+                                        ),
+                                      ],
+                                      selected: settings.ttsEngine,
+                                      onChanged: settings.setTtsEngine,
+                                    ),
+                                    const SizedBox(height: 18),
+                                    _InlineSegmentField<String>(
                                       label: '음성 속도',
                                       valueLabel: _speechPresetLabel(
                                         settings.ttsRatePreset,
@@ -106,18 +126,31 @@ class SettingsScreen extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 18),
                                     _SettingsPickerRow(
-                                      title: '기기 음성',
-                                      subtitle: jarvis.availableVoices.isEmpty
-                                          ? '사용 가능한 한국어 음성을 불러오는 중이에요'
-                                          : '${jarvis.availableVoices.length}개 한국어 음성 중 선택',
-                                      valueLabel: jarvis.selectedVoice?.name ??
-                                          '기본 한국어 음성',
-                                      onTap: jarvis.availableVoices.isEmpty
+                                      title: settings.ttsEngine == 'google'
+                                          ? 'Google 음성'
+                                          : '기기 음성',
+                                      subtitle: settings.ttsEngine == 'google'
+                                          ? (jarvis.googleVoices.isEmpty
+                                                ? 'Google 한국어 음성을 불러오는 중이에요'
+                                                : '고급 음성 · 네트워크 필요')
+                                          : (jarvis.deviceVoices.isEmpty
+                                                ? '사용 가능한 한국어 음성을 불러오는 중이에요'
+                                                : '${jarvis.deviceVoices.length}개 한국어 음성 중 선택'),
+                                      valueLabel: settings.ttsEngine == 'google'
+                                          ? (jarvis.selectedGoogleVoice?.name ??
+                                              'Google 기본 음성')
+                                          : (jarvis.selectedDeviceVoice?.name ??
+                                              '기본 한국어 음성'),
+                                      onTap: (settings.ttsEngine == 'google'
+                                                  ? jarvis.googleVoices
+                                                  : jarvis.deviceVoices)
+                                              .isEmpty
                                           ? null
                                           : () => _showVoicePicker(
                                                 context,
                                                 jarvis: jarvis,
                                                 settings: settings,
+                                                useGoogle: settings.ttsEngine == 'google',
                                               ),
                                     ),
                                     const SizedBox(height: 14),
@@ -400,11 +433,23 @@ String _speechPresetLabel(String preset) {
   }
 }
 
+String _speechEngineLabel(String engine) {
+  switch (engine) {
+    case 'device':
+      return '기기 기본';
+    case 'google':
+    default:
+      return 'Google HD';
+  }
+}
+
 Future<void> _showVoicePicker(
   BuildContext context, {
   required JarvisService jarvis,
   required SettingsService settings,
+  required bool useGoogle,
 }) async {
+  final voices = useGoogle ? jarvis.googleVoices : jarvis.deviceVoices;
   await showModalBottomSheet<void>(
     context: context,
     backgroundColor: Colors.transparent,
@@ -442,7 +487,7 @@ Future<void> _showVoicePicker(
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      '기기 음성 선택',
+                      useGoogle ? 'Google 음성 선택' : '기기 음성 선택',
                       style: AppText.body(
                         size: 16,
                         weight: FontWeight.w800,
@@ -455,22 +500,27 @@ Future<void> _showVoicePicker(
               Flexible(
                 child: ListView.separated(
                   shrinkWrap: true,
-                  itemCount: jarvis.availableVoices.length,
+                  itemCount: voices.length,
                   separatorBuilder: (_, __) => Divider(
                     height: 1,
                     color: AppColors.outlineVariant.withValues(alpha: 0.16),
                   ),
                   itemBuilder: (context, index) {
-                    final voice = jarvis.availableVoices[index];
-                    final selected =
-                        voice.name == settings.ttsVoiceName &&
-                        voice.locale == settings.ttsVoiceLocale;
+                    final voice = voices[index];
+                    final selected = useGoogle
+                        ? voice.name == settings.googleTtsVoiceName
+                        : (voice.name == settings.ttsVoiceName &&
+                            voice.locale == settings.ttsVoiceLocale);
                     return ListTile(
                       onTap: () async {
-                        await settings.setTtsVoice(
-                          name: voice.name,
-                          locale: voice.locale,
-                        );
+                        if (useGoogle) {
+                          await settings.setGoogleTtsVoiceName(voice.name);
+                        } else {
+                          await settings.setTtsVoice(
+                            name: voice.name,
+                            locale: voice.locale,
+                          );
+                        }
                         if (context.mounted) Navigator.pop(context);
                       },
                       title: Text(
@@ -642,12 +692,14 @@ class _SettingsOverviewCard extends StatelessWidget {
   final int radiusKm;
   final String cloudLabel;
   final String speedLabel;
+  final String engineLabel;
 
   const _SettingsOverviewCard({
     required this.voiceEnabled,
     required this.radiusKm,
     required this.cloudLabel,
     required this.speedLabel,
+    required this.engineLabel,
   });
 
   @override
@@ -723,6 +775,7 @@ class _SettingsOverviewCard extends StatelessWidget {
             runSpacing: 8,
             children: [
               _OverviewPill(label: voiceEnabled ? '음성 안내 켜짐' : '음성 안내 꺼짐'),
+              _OverviewPill(label: '음성 엔진 $engineLabel'),
               _OverviewPill(label: '음성 속도 $speedLabel'),
               _OverviewPill(label: '탐색 반경 ${radiusKm}km'),
               _OverviewPill(label: cloudLabel),

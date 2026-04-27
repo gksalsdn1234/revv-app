@@ -4,6 +4,7 @@ import 'dart:math';
 import '../core/supabase_config.dart';
 import '../core/supabase_tables.dart';
 import '../models/revv_route.dart';
+import '../models/run_telemetry_detail.dart';
 import '../models/run_summary.dart';
 import 'route_loading_policy.dart';
 
@@ -86,6 +87,36 @@ class SupabaseService extends ChangeNotifier {
       debugPrint('[Supabase] run uploaded — ${summary.id}');
     } catch (e) {
       debugPrint('[Supabase] uploadRun failed: $e');
+    }
+  }
+
+  Future<void> uploadRunDetail(RunTelemetryDetail detail) async {
+    if (!_ready || uid == null) return;
+    try {
+      await client!.from(SupabaseTables.runDetails).upsert(
+        runDetailToRow(detail, userId: uid!),
+        onConflict: 'run_id',
+      );
+      debugPrint('[Supabase] run detail uploaded — ${detail.runId}');
+    } catch (e) {
+      debugPrint('[Supabase] uploadRunDetail failed: $e');
+    }
+  }
+
+  Future<RunTelemetryDetail?> fetchRunDetail(String runId) async {
+    if (!_ready || uid == null) return null;
+    try {
+      final row = await client!
+          .from(SupabaseTables.runDetails)
+          .select()
+          .eq('user_id', uid!)
+          .eq('run_id', runId)
+          .maybeSingle();
+      if (row == null) return null;
+      return runDetailFromRow(row);
+    } catch (e) {
+      debugPrint('[Supabase] fetchRunDetail failed: $e');
+      return null;
     }
   }
 
@@ -436,6 +467,8 @@ class SupabaseService extends ChangeNotifier {
       'date': summary.date.toIso8601String(),
       'distance_km': summary.distanceKm,
       'duration_seconds': summary.durationSeconds,
+      if (summary.maxSpeedKmh > 0) 'max_speed_kmh': summary.maxSpeedKmh,
+      if (summary.avgSpeedKmh > 0) 'avg_speed_kmh': summary.avgSpeedKmh,
       'route_name': summary.routeName,
       'route_id': summary.routeId,
       'weather_emoji': summary.weatherEmoji,
@@ -456,6 +489,8 @@ class SupabaseService extends ChangeNotifier {
       date: DateTime.parse(row['date'] as String),
       distanceKm: (row['distance_km'] as num).toDouble(),
       durationSeconds: (row['duration_seconds'] as num).toInt(),
+      maxSpeedKmh: (row['max_speed_kmh'] as num?)?.toDouble() ?? 0,
+      avgSpeedKmh: (row['avg_speed_kmh'] as num?)?.toDouble() ?? 0,
       routeName: row['route_name'] as String? ?? '',
       routeId: row['route_id'] as String?,
       weatherEmoji: row['weather_emoji'] as String? ?? '',
@@ -465,6 +500,30 @@ class SupabaseService extends ChangeNotifier {
       startPoint: _pointFromRow(row, 'start'),
       endPoint: _pointFromRow(row, 'end'),
     );
+  }
+
+  static Map<String, dynamic> runDetailToRow(
+    RunTelemetryDetail detail, {
+    required String userId,
+  }) {
+    return {
+      'run_id': detail.runId,
+      'user_id': userId,
+      'detail_version': detail.version,
+      'telemetry_json': detail.toJson(),
+      'created_at': detail.createdAt.toIso8601String(),
+    };
+  }
+
+  static RunTelemetryDetail runDetailFromRow(Map<String, dynamic> row) {
+    final json = row['telemetry_json'];
+    if (json is Map<String, dynamic>) {
+      return RunTelemetryDetail.fromJson(json);
+    }
+    if (json is Map) {
+      return RunTelemetryDetail.fromJson(json.cast<String, dynamic>());
+    }
+    throw FormatException('Invalid telemetry_json for run ${row['run_id']}');
   }
 
   static Map<String, dynamic> routeToRow(

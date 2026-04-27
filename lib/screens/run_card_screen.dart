@@ -14,6 +14,7 @@ import '../theme/text_styles.dart';
 import '../models/revv_route.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
+import '../models/run_telemetry_detail.dart';
 import '../services/run_history_service.dart';
 import '../services/revv_ai_service.dart';
 import '../services/saved_route_service.dart';
@@ -120,7 +121,10 @@ class _RunCardScreenState extends State<RunCardScreen> {
     final s = widget.session;
     if (s == null) return;
     try {
-      final summary = await context.read<RunHistoryService>().save(s);
+      final history = context.read<RunHistoryService>();
+      final summary = await history.save(s);
+      final detail = RunTelemetryDetail.fromSession(summary.id, s);
+      await history.saveDetail(detail);
       if (mounted) {
         setState(() {
           _saved = summary;

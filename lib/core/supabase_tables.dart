@@ -4,6 +4,7 @@ class SupabaseTables {
   static const String curvyRoads = 'curvy_roads';
   static const String discoveredRoutes = 'discovered_routes';
   static const String runs = 'runs';
+  static const String runDetails = 'run_details';
   static const String routeRecords = 'route_records';
   static const String savedRoutes = 'saved_routes';
 }

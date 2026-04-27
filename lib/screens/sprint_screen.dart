@@ -221,8 +221,16 @@ class _SprintScreenState extends State<SprintScreen> {
   void _onLocation() {
     final loc = _locationService;
     if (loc == null) return;
-    _runSessionService?.recordPosition(loc.lat, loc.lng, loc.speedKmh);
     final drivingCtx = context.read<DrivingContextService>();
+    final imu = context.read<ImuService>();
+    _runSessionService?.recordPosition(
+      loc.lat,
+      loc.lng,
+      loc.speedKmh,
+      lateralG: imu.lateralG,
+      longitudinalG: imu.longitudinalG,
+      driveMode: drivingCtx.mode.name,
+    );
     _runSessionService?.recordDriveMode(drivingCtx.mode.name);
 
     if (!_onRoute && widget.selectedRoute != null && _navPolyline != null) {

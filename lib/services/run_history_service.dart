@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/storage_keys.dart';
 import '../models/revv_route.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
+import '../models/run_telemetry_detail.dart';
 import 'supabase_service.dart';
 
 class RunHistoryService extends ChangeNotifier {
@@ -54,6 +56,8 @@ class RunHistoryService extends ChangeNotifier {
       date: session.startTime,
       distanceKm: session.distanceKm,
       durationSeconds: session.duration.inSeconds,
+      maxSpeedKmh: session.maxSpeedKmh,
+      avgSpeedKmh: session.avgSpeedKmh,
       routeName: session.routeName,
       routeId: session.route?.id,
       weatherEmoji: session.weatherEmoji,
@@ -80,6 +84,37 @@ class RunHistoryService extends ChangeNotifier {
   Future<void> _persist() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(StorageKeys.runs, RunSummary.listToJson(_history));
+  }
+
+  Future<void> saveDetail(RunTelemetryDetail detail) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      '${StorageKeys.runDetailPrefix}${detail.runId}',
+      jsonEncode(detail.toJson()),
+    );
+    SupabaseService().uploadRunDetail(detail);
+  }
+
+  Future<RunTelemetryDetail?> loadDetail(String runId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('${StorageKeys.runDetailPrefix}$runId');
+    if (raw != null) {
+      try {
+        return RunTelemetryDetail.fromJson(
+          jsonDecode(raw) as Map<String, dynamic>,
+        );
+      } catch (e) {
+        debugPrint('[RunHistory] detail decode failed: $e');
+      }
+    }
+    final remote = await SupabaseService().fetchRunDetail(runId);
+    if (remote != null) {
+      await prefs.setString(
+        '${StorageKeys.runDetailPrefix}$runId',
+        jsonEncode(remote.toJson()),
+      );
+    }
+    return remote;
   }
 
   int visitCount(String? routeId) {

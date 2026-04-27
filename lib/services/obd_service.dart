@@ -285,7 +285,9 @@ class OBDService extends ChangeNotifier {
   // ── BLE 상태 ──────────────────────────────────────────────
 
   BluetoothDevice? _device;
-  BluetoothCharacteristic? _char;
+  BluetoothCharacteristic? _writeChar;
+  BluetoothCharacteristic? _notifyChar;
+  bool _preferWriteWithoutResponse = true;
   String? _trustedDeviceId;
   StreamSubscription<List<ScanResult>>? _scanSub;
   StreamSubscription<List<int>>? _notifySub;
@@ -318,46 +320,79 @@ class OBDService extends ChangeNotifier {
         u.contains(shortId);
   }
 
-  // 연결된 기기에서 OBD 통신 가능한 특성 탐색
-  BluetoothCharacteristic? _findObdChar(List<BluetoothService> services) {
+  // 연결된 기기에서 OBD 통신 가능한 쓰기/알림 특성 탐색
+  (BluetoothCharacteristic?, BluetoothCharacteristic?) _findObdChars(
+    List<BluetoothService> services,
+  ) {
     // 1단계: 알려진 UUID 쌍으로 탐색
     for (final (svcId, charId) in _knownUuidPairs) {
       for (final svc in services) {
         if (!_uuidContains(svc.uuid.toString(), svcId)) continue;
         debugPrint('[OBD] 서비스 매칭: $svcId (${svc.uuid})');
+        BluetoothCharacteristic? writeCandidate;
+        BluetoothCharacteristic? notifyCandidate;
         for (final c in svc.characteristics) {
+          if (_canWrite(c) && writeCandidate == null) {
+            writeCandidate = c;
+          }
+          if (_canNotify(c) && notifyCandidate == null) {
+            notifyCandidate = c;
+          }
+
           if (charId == null) {
-            // 쓰기 + 알림 둘 다 되는 특성 자동 선택
-            if (c.properties.write || c.properties.writeWithoutResponse) {
-              if (c.properties.notify || c.properties.indicate) {
-                debugPrint('[OBD] 특성 자동 선택: ${c.uuid}');
-                return c;
-              }
+            if (_canWrite(c) && _canNotify(c)) {
+              debugPrint('[OBD] 단일 특성 자동 선택: ${c.uuid}');
+              return (c, c);
             }
           } else {
             if (_uuidContains(c.uuid.toString(), charId)) {
               debugPrint('[OBD] 특성 매칭: $charId (${c.uuid})');
-              return c;
+              if (_canWrite(c) && _canNotify(c)) return (c, c);
+              if (_canWrite(c)) writeCandidate = c;
+              if (_canNotify(c)) notifyCandidate = c;
             }
           }
         }
-      }
-    }
-    // 2단계: 모든 서비스에서 쓰기+알림 특성 fallback 탐색
-    debugPrint('[OBD] 알려진 UUID 없음 — fallback 탐색');
-    for (final svc in services) {
-      for (final c in svc.characteristics) {
-        final canWrite =
-            c.properties.write || c.properties.writeWithoutResponse;
-        final canNotify = c.properties.notify || c.properties.indicate;
-        if (canWrite && canNotify) {
-          debugPrint('[OBD] Fallback 특성: svc=${svc.uuid} char=${c.uuid}');
-          return c;
+        if (writeCandidate != null && notifyCandidate != null) {
+          debugPrint(
+            '[OBD] 분리 특성 선택: write=${writeCandidate.uuid} notify=${notifyCandidate.uuid}',
+          );
+          return (writeCandidate, notifyCandidate);
         }
       }
     }
-    return null;
+    // 2단계: 모든 서비스에서 쓰기/알림 특성 fallback 탐색
+    debugPrint('[OBD] 알려진 UUID 없음 — fallback 탐색');
+    BluetoothCharacteristic? writeCandidate;
+    BluetoothCharacteristic? notifyCandidate;
+    for (final svc in services) {
+      for (final c in svc.characteristics) {
+        if (_canWrite(c) && _canNotify(c)) {
+          debugPrint('[OBD] Fallback 특성: svc=${svc.uuid} char=${c.uuid}');
+          return (c, c);
+        }
+        if (_canWrite(c) && writeCandidate == null) {
+          writeCandidate = c;
+        }
+        if (_canNotify(c) && notifyCandidate == null) {
+          notifyCandidate = c;
+        }
+      }
+    }
+    if (writeCandidate != null && notifyCandidate != null) {
+      debugPrint(
+        '[OBD] Fallback 분리 특성: write=${writeCandidate.uuid} notify=${notifyCandidate.uuid}',
+      );
+      return (writeCandidate, notifyCandidate);
+    }
+    return (null, null);
   }
+
+  bool _canWrite(BluetoothCharacteristic c) =>
+      c.properties.write || c.properties.writeWithoutResponse;
+
+  bool _canNotify(BluetoothCharacteristic c) =>
+      c.properties.notify || c.properties.indicate;
 
   int _pidIdx = 0;
   final StringBuffer _buf = StringBuffer();
@@ -479,7 +514,8 @@ class OBDService extends ChangeNotifier {
     _scanSub?.cancel();
     await _device?.disconnect();
     _device = null;
-    _char = null;
+    _writeChar = null;
+    _notifyChar = null;
     _data = null;
     _setState(OBDState.disconnected);
   }
@@ -499,9 +535,13 @@ class OBDService extends ChangeNotifier {
       debugPrint('[OBD] 연결됨 → 서비스 탐색 중...');
       final services = await device.discoverServices();
 
-      _char = _findObdChar(services);
+      final (writeChar, notifyChar) = _findObdChars(services);
+      _writeChar = writeChar;
+      _notifyChar = notifyChar;
+      _preferWriteWithoutResponse =
+          _writeChar?.properties.writeWithoutResponse == true;
 
-      if (_char == null) {
+      if (_writeChar == null || _notifyChar == null) {
         debugPrint('[OBD] ❌ OBD 특성 탐색 실패');
         // 디버그용 서비스 목록 출력
         for (final svc in services) {
@@ -519,8 +559,14 @@ class OBDService extends ChangeNotifier {
         return;
       }
 
-      await _char!.setNotifyValue(true);
-      _notifySub = _char!.onValueReceived.listen(_onBytes);
+      debugPrint(
+        '[OBD] 통신 특성: write=${_writeChar!.uuid} notify=${_notifyChar!.uuid} '
+        'write=${_writeChar!.properties.write} '
+        'writeNoResp=${_writeChar!.properties.writeWithoutResponse}',
+      );
+
+      await _notifyChar!.setNotifyValue(true);
+      _notifySub = _notifyChar!.onValueReceived.listen(_onBytes);
 
       // ELM327 초기화
       await _cmd('ATZ');
@@ -613,14 +659,16 @@ class OBDService extends ChangeNotifier {
   }
 
   Future<String> _cmd(String command) async {
-    final c = _char;
+    final c = _writeChar;
     if (c == null) return '';
     _buf.clear();
     _responseCompleter?.complete('');
     _responseCompleter = Completer<String>();
     try {
-      await c.write(utf8.encode('$command\r'), withoutResponse: true);
-    } catch (_) {
+      await _writeCommand(c, command);
+    } catch (e) {
+      debugPrint('[OBD] Write failed [$command]: $e');
+      _responseCompleter = null;
       return '';
     }
     return _responseCompleter!.future.timeout(
@@ -630,6 +678,44 @@ class OBDService extends ChangeNotifier {
         return '';
       },
     );
+  }
+
+  Future<void> _writeCommand(
+    BluetoothCharacteristic c,
+    String command,
+  ) async {
+    final bytes = utf8.encode('$command\r');
+    final canWithout = c.properties.writeWithoutResponse;
+    final canWith = c.properties.write;
+
+    if (_preferWriteWithoutResponse && canWithout) {
+      try {
+        await c.write(bytes, withoutResponse: true);
+        return;
+      } catch (e) {
+        debugPrint('[OBD] writeWithoutResponse 실패 → write 재시도: $e');
+        _preferWriteWithoutResponse = false;
+        if (!canWith) rethrow;
+      }
+    }
+
+    if (canWith) {
+      try {
+        await c.write(bytes, withoutResponse: false);
+        return;
+      } catch (e) {
+        debugPrint('[OBD] write 실패: $e');
+        if (!canWithout) rethrow;
+      }
+    }
+
+    if (canWithout) {
+      _preferWriteWithoutResponse = true;
+      await c.write(bytes, withoutResponse: true);
+      return;
+    }
+
+    throw StateError('쓰기 가능한 OBD 특성이 아닙니다.');
   }
 
   // ── 폴링 ─────────────────────────────────────────────────
@@ -674,7 +760,8 @@ class OBDService extends ChangeNotifier {
       await _device?.disconnect();
     } catch (_) {}
     _device = null;
-    _char = null;
+    _writeChar = null;
+    _notifyChar = null;
     _setError('응답 없음. 재연결 중...');
     await Future.delayed(const Duration(seconds: 3));
     connect();

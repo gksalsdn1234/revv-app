@@ -132,7 +132,14 @@ class _DriveScreenState extends State<DriveScreen>
     if ((spd - _speedKmh).abs() > 0.5) {
       setState(() => _speedKmh = spd);
     }
-    _runSessionService?.recordPosition(loc.lat, loc.lng, spd);
+    _runSessionService?.recordPosition(
+      loc.lat,
+      loc.lng,
+      spd,
+      lateralG: _lateralG,
+      longitudinalG: _longitudinalG,
+      driveMode: _driveMode.name,
+    );
     _runSessionService?.recordDriveMode(_driveMode.name);
 
     // Route progress tracking

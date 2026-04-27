@@ -15,6 +15,7 @@ class StorageKeys {
   // ── 런 기록 (RunHistoryService) ─────────────────────────────
   /// RunSummary 배열 JSON (run_history_service.dart)
   static const runs = 'run_history';
+  static const runDetailPrefix = 'run_detail_';
 
   // ── 루트 (SavedRouteService, RouteService) ──────────────────
   /// 북마크된 RevvRoute 배열 JSON
@@ -48,8 +49,10 @@ class StorageKeys {
       'setting_jarvisPersona'; // 'engineer' | 'friendly'
   static const alwaysListen = 'setting_alwaysListen';
   static const ttsRatePreset = 'setting_ttsRatePreset';
+  static const ttsEngine = 'setting_ttsEngine';
   static const ttsVoiceName = 'setting_ttsVoiceName';
   static const ttsVoiceLocale = 'setting_ttsVoiceLocale';
+  static const googleTtsVoiceName = 'setting_googleTtsVoiceName';
   static const trustedObdDeviceId = 'trusted_obd_device_id';
 
   // ── IMU 캘리브레이션 (ImuService) ───────────────────────────

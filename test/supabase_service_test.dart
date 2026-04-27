@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/supabase_config.dart';
+import 'package:revv_app/models/obd_data.dart';
 import 'package:revv_app/models/revv_route.dart';
+import 'package:revv_app/models/run_telemetry_detail.dart';
 import 'package:revv_app/models/run_summary.dart';
 import 'package:revv_app/services/supabase_service.dart';
 
@@ -19,6 +21,8 @@ void main() {
       date: DateTime.parse('2026-04-01T10:00:00Z'),
       distanceKm: 12.5,
       durationSeconds: 780,
+      maxSpeedKmh: 88,
+      avgSpeedKmh: 57,
       routeName: '북악 스카이웨이',
       routeId: 'route-9',
       weatherEmoji: '🌤',
@@ -35,8 +39,46 @@ void main() {
     expect(payload['user_id'], 'user-1');
     expect(payload['route_name'], '북악 스카이웨이');
     expect(payload['route_id'], 'route-9');
+    expect(payload['max_speed_kmh'], 88);
+    expect(payload['avg_speed_kmh'], 57);
     expect(payload['start_lat'], 37.0);
     expect(payload['end_lng'], 127.1);
+  });
+
+  test('RunTelemetryDetail serializes into Supabase run_details payload', () {
+    final detail = RunTelemetryDetail(
+      runId: 'run-1',
+      version: 1,
+      routeSnapshot: const {'id': 'route-1', 'name': 'Loop'},
+      samples: const [
+        TelemetrySample(
+          tMs: 0,
+          lat: 45.0,
+          lng: -73.0,
+          speedKmh: 42,
+          lateralG: 0.12,
+          longitudinalG: 0.03,
+          driveMode: 'cruise',
+        ),
+      ],
+      sharpEvents: const [
+        {'lat': 45.0, 'lng': -73.0, 'lateralG': 0.5},
+      ],
+      driveModeSeconds: const {'cruise': 12},
+      obdSummary: const OBDRunSummary(maxRpm: 4200),
+      weather: const {'emoji': '🌤', 'tempDisplay': '18°C'},
+      createdAt: DateTime.parse('2026-04-01T10:00:00Z'),
+    );
+
+    final row = SupabaseService.runDetailToRow(detail, userId: 'user-1');
+    final restored = SupabaseService.runDetailFromRow(row);
+
+    expect(row['run_id'], 'run-1');
+    expect(row['user_id'], 'user-1');
+    expect(row['detail_version'], 1);
+    expect(row['telemetry_json'], isA<Map<String, dynamic>>());
+    expect(restored.samples.single.speedKmh, 42);
+    expect(restored.obdSummary?.maxRpm, 4200);
   });
 
   test('Route rows map back into RevvRoute models', () {

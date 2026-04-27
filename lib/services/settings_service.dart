@@ -14,8 +14,10 @@ class SettingsService extends ChangeNotifier {
   bool _alwaysListen = false;
   JarvisPersona _jarvisPersona = JarvisPersona.engineer;
   String _ttsRatePreset = 'relaxed';
+  String _ttsEngine = 'google';
   String? _ttsVoiceName;
   String? _ttsVoiceLocale;
+  String? _googleTtsVoiceName;
 
   // ── Getters ────────────────────────────────────────────────
   bool get ttsMuted => _ttsMuted;
@@ -26,8 +28,10 @@ class SettingsService extends ChangeNotifier {
   bool get alwaysListen => _alwaysListen;
   JarvisPersona get jarvisPersona => _jarvisPersona;
   String get ttsRatePreset => _ttsRatePreset;
+  String get ttsEngine => _ttsEngine;
   String? get ttsVoiceName => _ttsVoiceName;
   String? get ttsVoiceLocale => _ttsVoiceLocale;
+  String? get googleTtsVoiceName => _googleTtsVoiceName;
 
   // ── 로드 ──────────────────────────────────────────────────
   Future<void> load() async {
@@ -44,8 +48,10 @@ class SettingsService extends ChangeNotifier {
         ? JarvisPersona.friendly
         : JarvisPersona.engineer;
     _ttsRatePreset = p.getString(StorageKeys.ttsRatePreset) ?? 'relaxed';
+    _ttsEngine = p.getString(StorageKeys.ttsEngine) ?? 'google';
     _ttsVoiceName = p.getString(StorageKeys.ttsVoiceName);
     _ttsVoiceLocale = p.getString(StorageKeys.ttsVoiceLocale);
+    _googleTtsVoiceName = p.getString(StorageKeys.googleTtsVoiceName);
     notifyListeners();
   }
 
@@ -126,6 +132,16 @@ class SettingsService extends ChangeNotifier {
     await p.setString(StorageKeys.ttsRatePreset, next);
   }
 
+  Future<void> setTtsEngine(String value) async {
+    const allowed = {'google', 'device'};
+    final next = allowed.contains(value) ? value : 'google';
+    if (_ttsEngine == next) return;
+    _ttsEngine = next;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setString(StorageKeys.ttsEngine, next);
+  }
+
   Future<void> setTtsVoice({
     required String? name,
     required String? locale,
@@ -142,5 +158,17 @@ class SettingsService extends ChangeNotifier {
     }
     await p.setString(StorageKeys.ttsVoiceName, name);
     await p.setString(StorageKeys.ttsVoiceLocale, locale);
+  }
+
+  Future<void> setGoogleTtsVoiceName(String? name) async {
+    if (_googleTtsVoiceName == name) return;
+    _googleTtsVoiceName = name;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    if (name == null || name.isEmpty) {
+      await p.remove(StorageKeys.googleTtsVoiceName);
+      return;
+    }
+    await p.setString(StorageKeys.googleTtsVoiceName, name);
   }
 }

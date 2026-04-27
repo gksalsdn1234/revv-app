@@ -157,6 +157,8 @@ CREATE TABLE IF NOT EXISTS runs (
   date TIMESTAMPTZ NOT NULL,
   distance_km DOUBLE PRECISION NOT NULL,
   duration_seconds INTEGER NOT NULL,
+  max_speed_kmh DOUBLE PRECISION,
+  avg_speed_kmh DOUBLE PRECISION,
   route_name TEXT NOT NULL,
   route_id TEXT,
   weather_emoji TEXT DEFAULT '',
@@ -175,6 +177,23 @@ CREATE INDEX IF NOT EXISTS idx_runs_user ON runs(user_id, date DESC);
 ALTER TABLE runs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS runs_owner ON runs;
 CREATE POLICY runs_owner ON runs
+  FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE TABLE IF NOT EXISTS run_details (
+  run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id),
+  detail_version INTEGER NOT NULL DEFAULT 1,
+  telemetry_json JSONB NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_details_user ON run_details(user_id, created_at DESC);
+
+ALTER TABLE run_details ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS run_details_owner ON run_details;
+CREATE POLICY run_details_owner ON run_details
   FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);

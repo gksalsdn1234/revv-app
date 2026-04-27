@@ -6,6 +6,8 @@ class RunSummary {
   final DateTime date;
   final double distanceKm;
   final int durationSeconds;
+  final double maxSpeedKmh;
+  final double avgSpeedKmh;
   final String routeName;
   final String? routeId;
   final String weatherEmoji;
@@ -23,6 +25,8 @@ class RunSummary {
     required this.date,
     required this.distanceKm,
     required this.durationSeconds,
+    this.maxSpeedKmh = 0,
+    this.avgSpeedKmh = 0,
     required this.routeName,
     this.routeId,
     required this.weatherEmoji,
@@ -47,6 +51,8 @@ class RunSummary {
         'date': date.toIso8601String(),
         'distanceKm': distanceKm,
         'durationSeconds': durationSeconds,
+        if (maxSpeedKmh > 0) 'maxSpeedKmh': maxSpeedKmh,
+        if (avgSpeedKmh > 0) 'avgSpeedKmh': avgSpeedKmh,
         'routeName': routeName,
         'routeId': routeId,
         'weatherEmoji': weatherEmoji,
@@ -62,6 +68,8 @@ class RunSummary {
         date: DateTime.parse(j['date'] as String),
         distanceKm: (j['distanceKm'] as num).toDouble(),
         durationSeconds: j['durationSeconds'] as int,
+        maxSpeedKmh: (j['maxSpeedKmh'] as num?)?.toDouble() ?? 0,
+        avgSpeedKmh: (j['avgSpeedKmh'] as num?)?.toDouble() ?? 0,
         routeName: j['routeName'] as String,
         routeId: j['routeId'] as String?,
         weatherEmoji: j['weatherEmoji'] as String,

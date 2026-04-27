@@ -3,6 +3,7 @@ import 'package:flutter/scheduler.dart';
 import '../models/run_session.dart';
 import '../models/revv_route.dart';
 import '../models/obd_data.dart';
+import '../models/run_telemetry_detail.dart';
 // SharpCorner는 run_session.dart에 정의됨
 
 class RunSessionService extends ChangeNotifier {
@@ -27,7 +28,10 @@ class RunSessionService extends ChangeNotifier {
   int _speedSamples = 0;
   double _distanceKm = 0;
   final List<LatLng> _gpsPath = [];
+  final List<TelemetrySample> _telemetrySamples = [];
   LatLng? _lastPosition;
+  DateTime? _lastTelemetrySampleTime;
+  LatLng? _lastTelemetrySamplePosition;
 
   // ── 급조작 감지 ──────────────────────────────────────────────
   static const double _sharpCornerGThreshold = 0.45; // G 임계값
@@ -63,7 +67,10 @@ class RunSessionService extends ChangeNotifier {
     _speedSamples = 0;
     _distanceKm = 0;
     _gpsPath.clear();
+    _telemetrySamples.clear();
     _lastPosition = null;
+    _lastTelemetrySampleTime = null;
+    _lastTelemetrySamplePosition = null;
     _route = route;
     _weatherEmoji = weatherEmoji;
     _tempDisplay = tempDisplay;
@@ -76,7 +83,14 @@ class RunSessionService extends ChangeNotifier {
     _scheduleNotify();
   }
 
-  void recordPosition(double lat, double lng, double speedKmh) {
+  void recordPosition(
+    double lat,
+    double lng,
+    double speedKmh, {
+    double lateralG = 0,
+    double longitudinalG = 0,
+    String? driveMode,
+  }) {
     if (!isRecording) return;
     final point = LatLng(lat, lng);
     if (_lastPosition != null) {
@@ -87,7 +101,50 @@ class RunSessionService extends ChangeNotifier {
     if (speedKmh > _maxSpeedKmh) _maxSpeedKmh = speedKmh;
     _totalSpeedSum += speedKmh;
     _speedSamples++;
+    _recordTelemetrySample(
+      point,
+      speedKmh,
+      lateralG: lateralG,
+      longitudinalG: longitudinalG,
+      driveMode: driveMode ?? _currentMode,
+    );
     _scheduleNotify();
+  }
+
+  void _recordTelemetrySample(
+    LatLng point,
+    double speedKmh, {
+    required double lateralG,
+    required double longitudinalG,
+    required String driveMode,
+  }) {
+    final start = _startTime;
+    if (start == null) return;
+    final now = DateTime.now();
+    final lastTime = _lastTelemetrySampleTime;
+    final lastPoint = _lastTelemetrySamplePosition;
+    final movedKm = lastPoint == null
+        ? double.infinity
+        : RevvRoute.haversineKm(lastPoint, point);
+    final enoughTime =
+        lastTime == null || now.difference(lastTime).inMilliseconds >= 500;
+    final meaningfulMove = movedKm >= 0.005;
+    if (_telemetrySamples.isNotEmpty && !enoughTime && !meaningfulMove) {
+      return;
+    }
+    _lastTelemetrySampleTime = now;
+    _lastTelemetrySamplePosition = point;
+    _telemetrySamples.add(
+      TelemetrySample(
+        tMs: now.difference(start).inMilliseconds,
+        lat: point.lat,
+        lng: point.lng,
+        speedKmh: speedKmh,
+        lateralG: lateralG,
+        longitudinalG: longitudinalG,
+        driveMode: driveMode,
+      ),
+    );
   }
 
   /// 급조작 순간 기록 — ImuService에서 G > 임계값 감지 시 호출
@@ -148,6 +205,7 @@ class RunSessionService extends ChangeNotifier {
       driveModeSeconds: Map.unmodifiable(Map.of(_driveModeSeconds)),
       sharpCorners: List.unmodifiable(List.of(_sharpCorners)),
       obdSummary: obdSummary,
+      telemetrySamples: List.unmodifiable(List.of(_telemetrySamples)),
     );
     _scheduleNotify();
     return session;

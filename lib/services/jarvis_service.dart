@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'google_tts_service.dart';
 import 'settings_service.dart';
 import 'weather_service.dart';
 
@@ -53,8 +55,22 @@ double ttsPresetToTurnRate(String preset) {
   }
 }
 
+double ttsPresetToGooglePlaybackRate(String preset) {
+  switch (preset) {
+    case 'balanced':
+      return 0.94;
+    case 'brisk':
+      return 1.0;
+    case 'relaxed':
+    default:
+      return 0.88;
+  }
+}
+
 class JarvisService extends ChangeNotifier {
   final FlutterTts _tts = FlutterTts();
+  final AudioPlayer _cloudPlayer = AudioPlayer();
+  final GoogleTtsService _googleTts = GoogleTtsService();
   final List<_SpeechItem> _queue = [];
 
   bool isSpeaking = false;
@@ -63,14 +79,30 @@ class JarvisService extends ChangeNotifier {
   bool _isDisposed = false;
   bool _isTransitioning = false;
   String _ratePreset = 'relaxed';
-  List<TtsVoiceOption> _availableVoices = const [];
-  TtsVoiceOption? _selectedVoice;
+  String _ttsEngine = 'google';
+  List<TtsVoiceOption> _deviceVoices = const [];
+  TtsVoiceOption? _selectedDeviceVoice;
+  List<TtsVoiceOption> _googleVoices = const [];
+  TtsVoiceOption? _selectedGoogleVoice;
+  int _cloudSpeakToken = 0;
 
-  List<TtsVoiceOption> get availableVoices => List.unmodifiable(_availableVoices);
-  TtsVoiceOption? get selectedVoice => _selectedVoice;
-  Map<String, String>? get currentVoiceMap => _selectedVoice == null
+  String get ttsEngine => _ttsEngine;
+  List<TtsVoiceOption> get availableVoices => _ttsEngine == 'google'
+      ? List.unmodifiable(_googleVoices)
+      : List.unmodifiable(_deviceVoices);
+  TtsVoiceOption? get selectedVoice =>
+      _ttsEngine == 'google' ? _selectedGoogleVoice : _selectedDeviceVoice;
+  List<TtsVoiceOption> get deviceVoices => List.unmodifiable(_deviceVoices);
+  List<TtsVoiceOption> get googleVoices => List.unmodifiable(_googleVoices);
+  TtsVoiceOption? get selectedDeviceVoice => _selectedDeviceVoice;
+  TtsVoiceOption? get selectedGoogleVoice => _selectedGoogleVoice;
+  bool get usesGoogleTts => _ttsEngine == 'google';
+  Map<String, String>? get currentVoiceMap => _selectedDeviceVoice == null
       ? null
-      : {'name': _selectedVoice!.name, 'locale': _selectedVoice!.locale};
+      : {
+          'name': _selectedDeviceVoice!.name,
+          'locale': _selectedDeviceVoice!.locale,
+        };
 
   JarvisService() {
     _initTts();
@@ -81,7 +113,17 @@ class JarvisService extends ChangeNotifier {
     await _tts.setSpeechRate(ttsPresetToJarvisRate(_ratePreset));
     await _tts.setVolume(1.0);
     await _tts.setPitch(0.85);
-    await _loadAvailableVoices();
+    await _loadDeviceVoices();
+
+    await _cloudPlayer.setReleaseMode(ReleaseMode.stop);
+    _cloudPlayer.onPlayerComplete.listen((_) {
+      if (_isDisposed) return;
+      isSpeaking = false;
+      notifyListeners();
+      if (!_isTransitioning) {
+        _processQueue();
+      }
+    });
 
     _tts.setStartHandler(() {
       if (_isDisposed) return;
@@ -106,7 +148,7 @@ class JarvisService extends ChangeNotifier {
     });
   }
 
-  Future<void> _loadAvailableVoices() async {
+  Future<void> _loadDeviceVoices() async {
     try {
       final raw = await _tts.getVoices;
       if (raw is! List) return;
@@ -130,13 +172,40 @@ class JarvisService extends ChangeNotifier {
           if (aScore != bScore) return bScore.compareTo(aScore);
           return a.displayLabel.compareTo(b.displayLabel);
         });
-      _availableVoices = voices;
-      if (_selectedVoice == null && voices.isNotEmpty) {
-        await _selectVoice(voices.first, notify: false);
+      _deviceVoices = voices;
+      if (_selectedDeviceVoice == null && voices.isNotEmpty) {
+        await _selectDeviceVoice(voices.first, notify: false);
       }
       notifyListeners();
     } catch (e) {
       debugPrint('[TTS] 음성 목록 로드 실패: $e');
+    }
+  }
+
+  Future<void> _loadGoogleVoices() async {
+    try {
+      final raw = await _googleTts.fetchVoices();
+      final voices = raw
+          .map(
+            (item) => TtsVoiceOption(
+              name: item['name'] ?? GoogleTtsService.defaultVoiceName,
+              locale: item['locale'] ?? 'ko-KR',
+            ),
+          )
+          .toList()
+        ..sort((a, b) {
+          final aScore = _voiceScore(a);
+          final bScore = _voiceScore(b);
+          if (aScore != bScore) return bScore.compareTo(aScore);
+          return a.displayLabel.compareTo(b.displayLabel);
+        });
+      _googleVoices = voices;
+      if (_selectedGoogleVoice == null && voices.isNotEmpty) {
+        _selectedGoogleVoice = voices.first;
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[GoogleTTS] 음성 목록 로드 실패: $e');
     }
   }
 
@@ -153,13 +222,13 @@ class JarvisService extends ChangeNotifier {
     return score;
   }
 
-  Future<void> _selectVoice(
+  Future<void> _selectDeviceVoice(
     TtsVoiceOption voice, {
     bool notify = true,
   }) async {
     try {
       await _tts.setVoice({'name': voice.name, 'locale': voice.locale});
-      _selectedVoice = voice;
+      _selectedDeviceVoice = voice;
       if (notify) notifyListeners();
     } catch (e) {
       debugPrint('[TTS] 음성 적용 실패: ${voice.displayLabel} ($e)');
@@ -178,22 +247,41 @@ class JarvisService extends ChangeNotifier {
       }
     }
 
-    if (_availableVoices.isEmpty) {
-      await _loadAvailableVoices();
+    final nextEngine = settings.ttsEngine;
+    if (_ttsEngine != nextEngine) {
+      _ttsEngine = nextEngine;
+      await _cloudPlayer.stop();
     }
 
-    final preferred = _availableVoices.cast<TtsVoiceOption?>().firstWhere(
+    if (_deviceVoices.isEmpty) {
+      await _loadDeviceVoices();
+    }
+
+    final preferred = _deviceVoices.cast<TtsVoiceOption?>().firstWhere(
       (voice) =>
           voice != null &&
           voice.name == settings.ttsVoiceName &&
           voice.locale == settings.ttsVoiceLocale,
       orElse: () => null,
     );
-    final target = preferred ?? (_availableVoices.isNotEmpty ? _availableVoices.first : null);
+    final target =
+        preferred ?? (_deviceVoices.isNotEmpty ? _deviceVoices.first : null);
     if (target != null &&
-        (_selectedVoice?.name != target.name ||
-            _selectedVoice?.locale != target.locale)) {
-      await _selectVoice(target, notify: false);
+        (_selectedDeviceVoice?.name != target.name ||
+            _selectedDeviceVoice?.locale != target.locale)) {
+      await _selectDeviceVoice(target, notify: false);
+    }
+
+    if (_ttsEngine == 'google') {
+      if (_googleVoices.isEmpty) {
+        await _loadGoogleVoices();
+      }
+      final preferredGoogle = _googleVoices.cast<TtsVoiceOption?>().firstWhere(
+        (voice) => voice != null && voice.name == settings.googleTtsVoiceName,
+        orElse: () => null,
+      );
+      _selectedGoogleVoice = preferredGoogle ??
+          (_googleVoices.isNotEmpty ? _googleVoices.first : null);
     }
     notifyListeners();
   }
@@ -204,6 +292,8 @@ class JarvisService extends ChangeNotifier {
     if (_isMuted) {
       _queue.clear();
       _tts.stop();
+      _cloudSpeakToken++;
+      _cloudPlayer.stop();
       isSpeaking = false;
       notifyListeners();
     }
@@ -251,7 +341,12 @@ class JarvisService extends ChangeNotifier {
     _queue.removeWhere((item) => item.priority == SpeechPriority.critical);
     if (isSpeaking) {
       _isTransitioning = true;
-      await _tts.stop();
+      _cloudSpeakToken++;
+      if (_ttsEngine == 'google') {
+        await _cloudPlayer.stop();
+      } else {
+        await _tts.stop();
+      }
       isSpeaking = false;
       _isTransitioning = false;
     }
@@ -265,7 +360,11 @@ class JarvisService extends ChangeNotifier {
     notifyListeners();
     try {
       _isTransitioning = true;
-      await _tts.speak(item.text);
+      if (_ttsEngine == 'google' && item.priority != SpeechPriority.critical) {
+        await _speakWithGoogle(item.text);
+      } else {
+        await _tts.speak(item.text);
+      }
     } catch (_) {
       isSpeaking = false;
       debugPrint('[TTS] 발화 실패: ${item.text}');
@@ -274,6 +373,22 @@ class JarvisService extends ChangeNotifier {
     } finally {
       _isTransitioning = false;
     }
+  }
+
+  Future<void> _speakWithGoogle(String text) async {
+    final voiceName =
+        _selectedGoogleVoice?.name ?? GoogleTtsService.defaultVoiceName;
+    final requestToken = ++_cloudSpeakToken;
+    final bytes = await _googleTts.synthesize(text, voiceName: voiceName);
+    if (bytes == null || bytes.isEmpty) {
+      debugPrint('[GoogleTTS] 합성 실패, 로컬 TTS로 fallback');
+      await _tts.speak(text);
+      return;
+    }
+    if (_isDisposed || _isMuted || requestToken != _cloudSpeakToken) return;
+
+    await _cloudPlayer.setPlaybackRate(ttsPresetToGooglePlaybackRate(_ratePreset));
+    await _cloudPlayer.play(BytesSource(bytes), volume: 1.0);
   }
 
   void _processQueue() {
@@ -302,6 +417,7 @@ class JarvisService extends ChangeNotifier {
     _isDisposed = true;
     isSpeaking = false;
     _tts.stop();
+    _cloudPlayer.dispose();
     super.dispose();
   }
 }
