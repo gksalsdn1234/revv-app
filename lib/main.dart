@@ -22,7 +22,11 @@ import 'services/supabase_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    debugPrint('[Firebase] 초기화 실패, 클라우드 함수 기능 비활성화: $e');
+  }
 
   await SupabaseService().init();
 
