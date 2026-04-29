@@ -1,8 +1,8 @@
-import 'package:cloud_functions/cloud_functions.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/revv_route.dart';
 import '../models/loop_route.dart';
+import 'supabase_service.dart';
 
 class RevvAiService {
   static final RevvAiService _instance = RevvAiService._internal();
@@ -12,21 +12,24 @@ class RevvAiService {
   static const _fallback = '잘 들었어요. 안전하게 달려요.';
   bool lastRequestFailed = false;
 
-  static FirebaseFunctions get _fn => FirebaseFunctions.instance;
-
   Future<String> _callClaude({
     required String model,
     required String system,
     required List<Map<String, String>> messages,
     int maxTokens = 200,
   }) async {
-    final result = await _fn.httpsCallable('callClaude').call<Map>({
-      'model': model,
-      'system': system,
-      'messages': messages,
-      'maxTokens': maxTokens,
-    });
-    return (result.data['text'] as String? ?? '').trim();
+    final data = await SupabaseService().invokeFunction(
+      'call-ai',
+      body: {
+        'model': model,
+        'system': system,
+        'messages': messages,
+        'maxTokens': maxTokens,
+      },
+    );
+    final text = (data?['text'] as String? ?? '').trim();
+    if (text.isEmpty) throw StateError('AI function returned empty text');
+    return text;
   }
 
   Future<String> ask(
@@ -298,9 +301,7 @@ ${routeName != null ? '- 루트: $routeName\n' : ''}${routeDistanceKm != null ? 
 
     final totalHrs = totalSecs ~/ 3600;
     final totalMin = (totalSecs % 3600) ~/ 60;
-    final timeStr = totalHrs > 0
-        ? '$totalHrs시간 $totalMin분'
-        : '$totalMin분';
+    final timeStr = totalHrs > 0 ? '$totalHrs시간 $totalMin분' : '$totalMin분';
 
     final prompt =
         '''[드라이버 전체 주행 기록]

@@ -1004,8 +1004,12 @@ class RouteService extends ChangeNotifier {
     RevvRoute? route,
     SprintStartMode startMode = SprintStartMode.auto,
   }) {
+    final requestedRoute = route ?? selectedCompositeRoute?.toRouteProjection();
+    if (requestedRoute != null) {
+      selectRoute(requestedRoute);
+    }
     sprintRequested = true;
-    sprintRoute = route ?? selectedCompositeRoute?.toRouteProjection();
+    sprintRoute = requestedRoute;
     sprintStartMode = startMode;
     notifyListeners();
   }
@@ -1173,7 +1177,7 @@ class RouteService extends ChangeNotifier {
           _applyVisibleRoutes(
             visibleInitial,
             source: routes.isNotEmpty ? 'mixed' : 'supabase',
-            preserveSelection: true,
+            preserveSelection: false,
           );
           routeDataSourceLabel = routes.isNotEmpty ? '혼합' : '클라우드';
           routeDataStatusTitle = null;
@@ -1280,7 +1284,7 @@ class RouteService extends ChangeNotifier {
       _applyVisibleRoutes(
         fresh,
         source: bootstrap.isNotEmpty ? 'overpass' : 'supabase',
-        preserveSelection: true,
+        preserveSelection: false,
       );
       routeDataSourceLabel = routes.isEmpty
           ? '검색 결과 없음'
@@ -2076,8 +2080,14 @@ class RouteService extends ChangeNotifier {
   }
 
   void selectRoute(RevvRoute route) {
-    if (!routes.any((r) => r.id == route.id)) {
+    final existingIndex = routes.indexWhere((r) => r.id == route.id);
+    if (existingIndex == -1) {
       routes = [route, ...routes];
+    } else {
+      routes = [
+        for (var i = 0; i < routes.length; i++)
+          i == existingIndex ? route : routes[i],
+      ];
     }
     selectedRoute = route;
     connectingRoutes = [];

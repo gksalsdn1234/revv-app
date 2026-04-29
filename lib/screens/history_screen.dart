@@ -6,6 +6,7 @@ import '../models/run_summary.dart';
 import '../services/run_history_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/revv_copy.dart';
 import 'saved_routes_screen.dart';
 
 enum _HistoryFilterMode { all, thisMonth, longRun, highG }
@@ -203,7 +204,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                 ),
                               );
                             },
-                            separatorBuilder: (_, __) =>
+                            separatorBuilder: (_, _) =>
                                 const SizedBox(height: 10),
                             itemCount: recent.length,
                           ),
@@ -329,7 +330,7 @@ class _ArchiveTopBar extends StatelessWidget {
           ),
         ),
         Text(
-          'Archive',
+          RevvCopy.runHistory,
           style: GoogleFonts.inter(
             fontSize: 18,
             fontWeight: FontWeight.w800,
@@ -407,7 +408,7 @@ class _ArchiveTabBar extends StatelessWidget {
               ),
               alignment: Alignment.center,
               child: Text(
-                'Drive History',
+                RevvCopy.runHistory,
                 style: AppText.body(
                   size: 13,
                   weight: FontWeight.w900,
@@ -425,7 +426,7 @@ class _ArchiveTabBar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 alignment: Alignment.center,
                 child: Text(
-                  'Saved Routes',
+                  RevvCopy.savedRoutes,
                   style: AppText.body(
                     size: 13,
                     weight: FontWeight.w800,
@@ -464,7 +465,7 @@ class _ArchiveSectionHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Session Logs'.toUpperCase(),
+              '주행 로그',
               style: AppText.technicalLabel(
                 size: 10,
                 color: AppColors.primaryContainer,
@@ -473,7 +474,7 @@ class _ArchiveSectionHeader extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Recent Runs',
+              '최근 주행',
               style: AppText.body(
                 size: 26,
                 weight: FontWeight.w900,
@@ -895,7 +896,7 @@ class _FeaturedRunCard extends StatelessWidget {
                         Expanded(
                           child: _FeaturedMetric(
                             value: avgSpeed.toStringAsFixed(0),
-                            label: 'Avg KM/H',
+                            label: '평균',
                             accent: AppColors.primaryContainer,
                           ),
                         ),
@@ -903,7 +904,7 @@ class _FeaturedRunCard extends StatelessWidget {
                         Expanded(
                           child: _FeaturedMetric(
                             value: gText,
-                            label: 'Max G',
+                            label: '최대 횡G',
                             accent: AppColors.warning,
                           ),
                         ),
@@ -1036,17 +1037,17 @@ class _DriveMetricsCard extends StatelessWidget {
           ),
           const SizedBox(height: 20),
           _MetricRow(
-            label: 'Total Distance',
+            label: '누적 거리',
             value: '${totalDistanceKm.toStringAsFixed(1)} KM',
           ),
           const SizedBox(height: 18),
           _MetricRow(
-            label: 'Active Time',
+            label: '주행 시간',
             value: '${totalHours}h ${totalMinutes.toString().padLeft(2, '0')}m',
           ),
           const SizedBox(height: 18),
           _MetricRow(
-            label: 'Avg. Lateral G',
+            label: '평균 횡G',
             value: avgG == null ? '—' : avgG.toStringAsFixed(2),
             accent: AppColors.primaryContainer,
           ),
@@ -1067,7 +1068,7 @@ class _DriveMetricsCard extends StatelessWidget {
             ),
             alignment: Alignment.center,
             child: Text(
-              'Download Full Log'.toUpperCase(),
+              RevvCopy.runReport,
               style: AppText.technicalLabel(
                 size: 10,
                 color: AppColors.primaryContainer,
@@ -1134,7 +1135,7 @@ class _ArchiveSubHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Recent Runs'.toUpperCase(),
+              '최근 주행',
               style: AppText.technicalLabel(
                 size: 10,
                 color: AppColors.textHint,
@@ -1143,7 +1144,7 @@ class _ArchiveSubHeader extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Archive Feed',
+              RevvCopy.runHistory,
               style: AppText.body(
                 size: 20,
                 weight: FontWeight.w900,
@@ -1410,7 +1411,7 @@ class _EmptyArchiveState extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Text(
-              'Archive is empty',
+              RevvCopy.noRunHistoryTitle,
               style: AppText.body(
                 size: 20,
                 weight: FontWeight.w900,
@@ -1419,7 +1420,7 @@ class _EmptyArchiveState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '첫 드라이브를 마치면 최근 주행 기록과 요약 메트릭이 여기에 쌓여요.',
+              RevvCopy.noRunHistoryBody,
               textAlign: TextAlign.center,
               style: AppText.body(
                 size: 13,
@@ -1540,7 +1541,7 @@ class _RunDetailSheet extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Run Detail'.toUpperCase(),
+                            RevvCopy.runReport,
                             style: AppText.technicalLabel(
                               size: 10,
                               color: AppColors.primaryContainer,

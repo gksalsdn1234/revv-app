@@ -8,6 +8,7 @@ import '../services/run_history_service.dart';
 import '../services/saved_route_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/revv_copy.dart';
 import '../ui/ux_contracts.dart';
 import 'history_screen.dart';
 import 'route_detail_screen.dart';
@@ -15,6 +16,7 @@ import 'route_edit_screen.dart';
 import 'route_preview_screen.dart';
 
 enum _SavedSortMode { recent, quality, distance }
+
 enum _SavedFilterMode { all, ridden, unridden }
 
 class SavedRoutesScreen extends StatefulWidget {
@@ -53,7 +55,9 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
                 builder: (context, saved, history, _) {
                   final routes = _visibleRoutes(saved.routes, history);
                   final featured = routes.isNotEmpty ? routes.first : null;
-                  final list = featured == null ? routes : routes.skip(1).toList();
+                  final list = featured == null
+                      ? routes
+                      : routes.skip(1).toList();
 
                   return CustomScrollView(
                     slivers: [
@@ -79,9 +83,7 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
                       SliverToBoxAdapter(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(22, 22, 22, 0),
-                          child: _SavedSectionHeader(
-                            count: routes.length,
-                          ),
+                          child: _SavedSectionHeader(count: routes.length),
                         ),
                       ),
                       SliverToBoxAdapter(
@@ -91,9 +93,12 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
                             query: _query,
                             sortMode: _sortMode,
                             filterMode: _filterMode,
-                            onQueryChanged: (value) => setState(() => _query = value),
-                            onSortChanged: (value) => setState(() => _sortMode = value),
-                            onFilterChanged: (value) => setState(() => _filterMode = value),
+                            onQueryChanged: (value) =>
+                                setState(() => _query = value),
+                            onSortChanged: (value) =>
+                                setState(() => _sortMode = value),
+                            onFilterChanged: (value) =>
+                                setState(() => _filterMode = value),
                           ),
                         ),
                       ),
@@ -112,9 +117,13 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
                                 final featuredCard = _SavedFeaturedCard(
                                   route: featured!,
                                   visitCount: history.visitCount(featured.id),
-                                  lastRun: _lastRunForRoute(history, featured.id),
+                                  lastRun: _lastRunForRoute(
+                                    history,
+                                    featured.id,
+                                  ),
                                   onShare: () => _shareRoute(featured),
-                                  onPreview: () => _openPreview(context, featured),
+                                  onPreview: () =>
+                                      _openPreview(context, featured),
                                   onStart: () => _startRoute(context, featured),
                                 );
                                 final summaryCard = _SavedSummaryCard(
@@ -154,7 +163,8 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
                           padding: const EdgeInsets.fromLTRB(20, 14, 20, 36),
                           sliver: SliverList.separated(
                             itemCount: list.length,
-                            separatorBuilder: (_, __) => const SizedBox(height: 10),
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 10),
                             itemBuilder: (context, index) {
                               final route = list[index];
                               return _SavedRouteRowCard(
@@ -162,7 +172,9 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
                                 visitCount: history.visitCount(route.id),
                                 lastRun: _lastRunForRoute(history, route.id),
                                 onTap: () => _openDetail(context, route),
-                                onFavoriteToggle: () => context.read<SavedRouteService>().toggle(route),
+                                onFavoriteToggle: () => context
+                                    .read<SavedRouteService>()
+                                    .toggle(route),
                                 onStart: () => _startRoute(context, route),
                               );
                             },
@@ -180,7 +192,10 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
     );
   }
 
-  List<RevvRoute> _sortRoutes(List<RevvRoute> input, RunHistoryService history) {
+  List<RevvRoute> _sortRoutes(
+    List<RevvRoute> input,
+    RunHistoryService history,
+  ) {
     final routes = List<RevvRoute>.from(input);
     switch (_sortMode) {
       case _SavedSortMode.recent:
@@ -194,10 +209,14 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
     }
   }
 
-  List<RevvRoute> _visibleRoutes(List<RevvRoute> input, RunHistoryService history) {
+  List<RevvRoute> _visibleRoutes(
+    List<RevvRoute> input,
+    RunHistoryService history,
+  ) {
     final keyword = _query.trim().toLowerCase();
     final filtered = input.where((route) {
-      final matchesQuery = keyword.isEmpty ||
+      final matchesQuery =
+          keyword.isEmpty ||
           route.name.toLowerCase().contains(keyword) ||
           (route.primaryReason ?? '').toLowerCase().contains(keyword);
       final visitCount = history.visitCount(route.id);
@@ -267,7 +286,9 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
           context.read<RouteService>().clearCompositeRoute();
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => RouteDetailScreen(routeId: route.id)),
+            MaterialPageRoute(
+              builder: (_) => RouteDetailScreen(routeId: route.id),
+            ),
           );
         },
         onStart: () {
@@ -292,8 +313,8 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
       ..writeln(route.name)
       ..writeln('${route.distanceDisplay} · ${route.durationDisplay}')
       ..writeln(describeRouteCharacter(route.routeCharacter))
-      ..writeln(route.primaryReason ?? '다시 달리기 좋은 저장 루트예요.');
-    return Share.share(text.toString().trim());
+      ..writeln(route.primaryReason ?? '다시 주행하기 좋은 저장 루트예요.');
+    return SharePlus.instance.share(ShareParams(text: text.toString().trim()));
   }
 }
 
@@ -354,7 +375,10 @@ class _SavedTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _SavedTopBarIconButton(icon: Icons.arrow_back_ios_new_rounded, onTap: onBack),
+        _SavedTopBarIconButton(
+          icon: Icons.arrow_back_ios_new_rounded,
+          onTap: onBack,
+        ),
         const SizedBox(width: 12),
         Expanded(
           child: Row(
@@ -378,7 +402,7 @@ class _SavedTopBar extends StatelessWidget {
           ),
         ),
         Text(
-          'Saved',
+          RevvCopy.savedRoutes,
           style: AppText.body(
             size: 18,
             weight: FontWeight.w800,
@@ -400,10 +424,7 @@ class _SavedTopBarIconButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
 
-  const _SavedTopBarIconButton({
-    required this.icon,
-    required this.onTap,
-  });
+  const _SavedTopBarIconButton({required this.icon, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -455,7 +476,7 @@ class _SavedTabBar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 alignment: Alignment.center,
                 child: Text(
-                  'Drive History',
+                  RevvCopy.runHistory,
                   style: AppText.body(
                     size: 13,
                     weight: FontWeight.w800,
@@ -481,7 +502,7 @@ class _SavedTabBar extends StatelessWidget {
               ),
               alignment: Alignment.center,
               child: Text(
-                'Saved Routes',
+                RevvCopy.savedRoutes,
                 style: AppText.body(
                   size: 13,
                   weight: FontWeight.w900,
@@ -509,7 +530,7 @@ class _SavedSectionHeader extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Route Library'.toUpperCase(),
+              '루트 보관함',
               style: AppText.technicalLabel(
                 size: 10,
                 color: AppColors.primaryContainer,
@@ -518,7 +539,7 @@ class _SavedSectionHeader extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Saved Routes',
+              RevvCopy.savedRoutes,
               style: AppText.body(
                 size: 26,
                 weight: FontWeight.w900,
@@ -783,9 +804,15 @@ class _SavedFeaturedCard extends StatelessWidget {
             right: 16,
             child: Row(
               children: [
-                _CircleActionButton(icon: Icons.ios_share_rounded, onTap: onShare),
+                _CircleActionButton(
+                  icon: Icons.ios_share_rounded,
+                  onTap: onShare,
+                ),
                 const SizedBox(width: 8),
-                _CircleActionButton(icon: Icons.visibility_rounded, onTap: onPreview),
+                _CircleActionButton(
+                  icon: Icons.visibility_rounded,
+                  onTap: onPreview,
+                ),
               ],
             ),
           ),
@@ -800,10 +827,19 @@ class _SavedFeaturedCard extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _SavedBadge(label: qualityLabel, color: AppColors.primaryContainer),
-                    _SavedBadge(label: characterLabel, color: AppColors.warning),
+                    _SavedBadge(
+                      label: qualityLabel,
+                      color: AppColors.primaryContainer,
+                    ),
+                    _SavedBadge(
+                      label: characterLabel,
+                      color: AppColors.warning,
+                    ),
                     if (route.isLoop)
-                      const _SavedBadge(label: 'LOOP', color: AppColors.primaryContainer),
+                      const _SavedBadge(
+                        label: 'LOOP',
+                        color: AppColors.primaryContainer,
+                      ),
                     if (lastRun != null)
                       _SavedBadge(
                         label: _lastRunLabel(lastRun!),
@@ -825,7 +861,7 @@ class _SavedFeaturedCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  route.primaryReason ?? '다시 꺼내 달리기 좋은 저장 루트예요.',
+                  route.primaryReason ?? '다시 꺼내 주행하기 좋은 저장 루트예요.',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppText.body(
@@ -878,7 +914,7 @@ class _SavedFeaturedCard extends StatelessWidget {
                       ),
                     ),
                     child: Text(
-                      '이 루트로 바로 달리기',
+                      RevvCopy.startDrive,
                       style: AppText.body(size: 14, weight: FontWeight.w900),
                     ),
                   ),
@@ -910,10 +946,14 @@ class _SavedBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: outlined ? AppColors.panel.withValues(alpha: 0.72) : color.withValues(alpha: 0.12),
+        color: outlined
+            ? AppColors.panel.withValues(alpha: 0.72)
+            : color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: outlined ? AppColors.outlineVariant.withValues(alpha: 0.24) : color.withValues(alpha: 0.25),
+          color: outlined
+              ? AppColors.outlineVariant.withValues(alpha: 0.24)
+              : color.withValues(alpha: 0.25),
         ),
       ),
       child: Text(
@@ -1017,17 +1057,17 @@ class _SavedSummaryCard extends StatelessWidget {
   final List<RevvRoute> routes;
   final RunHistoryService history;
 
-  const _SavedSummaryCard({
-    required this.routes,
-    required this.history,
-  });
+  const _SavedSummaryCard({required this.routes, required this.history});
 
   @override
   Widget build(BuildContext context) {
-    final ridden = routes.where((route) => history.visitCount(route.id) > 0).length;
+    final ridden = routes
+        .where((route) => history.visitCount(route.id) > 0)
+        .length;
     final avgDistance = routes.isEmpty
         ? 0.0
-        : routes.fold<double>(0, (sum, route) => sum + route.distanceKm) / routes.length;
+        : routes.fold<double>(0, (sum, route) => sum + route.distanceKm) /
+              routes.length;
     final loops = routes.where((route) => route.isLoop).length;
 
     return Container(
@@ -1043,7 +1083,7 @@ class _SavedSummaryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Library Metrics'.toUpperCase(),
+            '보관함 요약',
             style: AppText.technicalLabel(
               size: 10,
               color: AppColors.textHint,
@@ -1051,18 +1091,18 @@ class _SavedSummaryCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          _SummaryRow(label: 'Saved Count', value: '${routes.length}개'),
+          _SummaryRow(label: '저장한 루트', value: '${routes.length}개'),
           const SizedBox(height: 18),
-          _SummaryRow(label: 'Driven Before', value: '$ridden개'),
+          _SummaryRow(label: '주행한 루트', value: '$ridden개'),
           const SizedBox(height: 18),
           _SummaryRow(
-            label: 'Avg Distance',
+            label: '평균 거리',
             value: '${avgDistance.toStringAsFixed(1)} KM',
             accent: AppColors.primaryContainer,
           ),
           const SizedBox(height: 18),
           _SummaryRow(
-            label: 'Loop Routes',
+            label: '루프 루트',
             value: '$loops개',
             accent: AppColors.warning,
           ),
@@ -1077,11 +1117,7 @@ class _SummaryRow extends StatelessWidget {
   final String value;
   final Color? accent;
 
-  const _SummaryRow({
-    required this.label,
-    required this.value,
-    this.accent,
-  });
+  const _SummaryRow({required this.label, required this.value, this.accent});
 
   @override
   Widget build(BuildContext context) {
@@ -1118,7 +1154,7 @@ class _SavedSubHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Saved Feed'.toUpperCase(),
+          '저장 루트',
           style: AppText.technicalLabel(
             size: 10,
             color: AppColors.textHint,
@@ -1127,7 +1163,7 @@ class _SavedSubHeader extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Ready To Reuse',
+          '다시 달릴 준비',
           style: AppText.body(
             size: 20,
             weight: FontWeight.w900,
@@ -1191,7 +1227,9 @@ class _SavedRouteRowCard extends StatelessWidget {
                       child: Icon(
                         route.isLoop ? Icons.loop_rounded : Icons.route_rounded,
                         size: 28,
-                        color: AppColors.primaryContainer.withValues(alpha: 0.55),
+                        color: AppColors.primaryContainer.withValues(
+                          alpha: 0.55,
+                        ),
                       ),
                     ),
                     if (route.isLoop)
@@ -1199,7 +1237,10 @@ class _SavedRouteRowCard extends StatelessWidget {
                         left: 8,
                         bottom: 8,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: AppColors.panel2.withValues(alpha: 0.84),
                             borderRadius: BorderRadius.circular(999),
@@ -1238,7 +1279,9 @@ class _SavedRouteRowCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          lastRun == null ? '미주행' : '최근 ${lastRun!.month}/${lastRun!.day}',
+                          lastRun == null
+                              ? '미주행'
+                              : '최근 ${lastRun!.month}/${lastRun!.day}',
                           style: AppText.technicalLabel(
                             size: 9,
                             color: AppColors.textHint,
@@ -1249,7 +1292,7 @@ class _SavedRouteRowCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      route.primaryReason ?? '다시 꺼내 달리기 좋은 저장 루트예요.',
+                      route.primaryReason ?? '다시 꺼내 주행하기 좋은 저장 루트예요.',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.body(
@@ -1262,10 +1305,22 @@ class _SavedRouteRowCard extends StatelessWidget {
                       spacing: 16,
                       runSpacing: 8,
                       children: [
-                        _InlineStat(icon: Icons.route_rounded, label: route.distanceDisplay),
-                        _InlineStat(icon: Icons.timer_outlined, label: route.durationDisplay),
-                        _InlineStat(icon: Icons.waves_rounded, label: characterLabel),
-                        _InlineStat(icon: Icons.history_rounded, label: '$visitCount회'),
+                        _InlineStat(
+                          icon: Icons.route_rounded,
+                          label: route.distanceDisplay,
+                        ),
+                        _InlineStat(
+                          icon: Icons.timer_outlined,
+                          label: route.durationDisplay,
+                        ),
+                        _InlineStat(
+                          icon: Icons.waves_rounded,
+                          label: characterLabel,
+                        ),
+                        _InlineStat(
+                          icon: Icons.history_rounded,
+                          label: '$visitCount회',
+                        ),
                       ],
                     ),
                   ],
@@ -1299,10 +1354,7 @@ class _InlineStat extends StatelessWidget {
   final IconData icon;
   final String label;
 
-  const _InlineStat({
-    required this.icon,
-    required this.label,
-  });
+  const _InlineStat({required this.icon, required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -1459,10 +1511,19 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _SavedBadge(label: qualityLabel, color: AppColors.primaryContainer),
-                    _SavedBadge(label: characterLabel, color: AppColors.warning),
+                    _SavedBadge(
+                      label: qualityLabel,
+                      color: AppColors.primaryContainer,
+                    ),
+                    _SavedBadge(
+                      label: characterLabel,
+                      color: AppColors.warning,
+                    ),
                     if (route.isLoop)
-                      const _SavedBadge(label: 'LOOP', color: AppColors.primaryContainer),
+                      const _SavedBadge(
+                        label: 'LOOP',
+                        color: AppColors.primaryContainer,
+                      ),
                     if (lastRun != null)
                       _SavedBadge(
                         label: '최근 ${lastRun!.month}/${lastRun!.day}',
@@ -1537,7 +1598,7 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        route.primaryReason ?? '다시 꺼내 달리기 좋은 저장 루트예요.',
+                        route.primaryReason ?? '다시 꺼내 주행하기 좋은 저장 루트예요.',
                         style: AppText.body(
                           size: 14,
                           height: 1.45,
@@ -1566,7 +1627,9 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                         onPressed: onPreview,
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(
-                            color: AppColors.outlineVariant.withValues(alpha: 0.3),
+                            color: AppColors.outlineVariant.withValues(
+                              alpha: 0.3,
+                            ),
                           ),
                           foregroundColor: AppColors.textPrimary,
                           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1574,7 +1637,7 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: const Text('지도에서 보기'),
+                        child: const Text(RevvCopy.viewOnMap),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1583,7 +1646,9 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                         onPressed: onEdit,
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(
-                            color: AppColors.outlineVariant.withValues(alpha: 0.3),
+                            color: AppColors.outlineVariant.withValues(
+                              alpha: 0.3,
+                            ),
                           ),
                           foregroundColor: AppColors.textPrimary,
                           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1591,7 +1656,7 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: const Text('편집'),
+                        child: const Text(RevvCopy.edit),
                       ),
                     ),
                   ],
@@ -1604,7 +1669,9 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                         onPressed: onDetail,
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(
-                            color: AppColors.outlineVariant.withValues(alpha: 0.3),
+                            color: AppColors.outlineVariant.withValues(
+                              alpha: 0.3,
+                            ),
                           ),
                           foregroundColor: AppColors.textPrimary,
                           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1612,7 +1679,7 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: const Text('자세히'),
+                        child: const Text(RevvCopy.detail),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -1621,7 +1688,9 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                         onPressed: onShare,
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(
-                            color: AppColors.outlineVariant.withValues(alpha: 0.3),
+                            color: AppColors.outlineVariant.withValues(
+                              alpha: 0.3,
+                            ),
                           ),
                           foregroundColor: AppColors.textPrimary,
                           padding: const EdgeInsets.symmetric(vertical: 14),
@@ -1629,7 +1698,7 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                             borderRadius: BorderRadius.circular(16),
                           ),
                         ),
-                        child: const Text('공유'),
+                        child: const Text(RevvCopy.share),
                       ),
                     ),
                   ],
@@ -1648,7 +1717,7 @@ class _SavedRouteDetailSheet extends StatelessWidget {
                       ),
                     ),
                     child: Text(
-                      '이 루트로 달리기',
+                      RevvCopy.startDrive,
                       style: AppText.body(size: 14, weight: FontWeight.w900),
                     ),
                   ),
@@ -1743,7 +1812,7 @@ class _SavedEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Text(
-              'Saved library is empty',
+              RevvCopy.noSavedRoutesTitle,
               style: AppText.body(
                 size: 20,
                 weight: FontWeight.w900,
@@ -1752,7 +1821,7 @@ class _SavedEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Routes 화면에서 마음에 드는 루트를 저장해두면 여기서 바로 다시 보고 달릴 수 있어요.',
+              RevvCopy.noSavedRoutesBody,
               textAlign: TextAlign.center,
               style: AppText.body(
                 size: 13,

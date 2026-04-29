@@ -2,15 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../widgets/corner_brackets.dart';
 import '../widgets/revv_ui.dart';
-import '../services/location_service.dart';
-import '../services/weather_service.dart';
-import '../services/jarvis_service.dart';
 import 'cruise_screen.dart';
 import 'calibration_screen.dart';
 
@@ -78,15 +74,8 @@ class _LoadingScreenState extends State<LoadingScreen>
       final permissions = await _requestPermissions();
       await _showPermissionResultIfNeeded(permissions);
 
-      // Jarvis 첫 인사 + 날씨 로드
-      if (mounted) {
-        final loc = context.read<LocationService>();
-        final weather = context.read<WeatherService>();
-        final jarvis = context.read<JarvisService>();
-
-        jarvis.speak('준비됐어요. 오늘도 안전하게 달려요.');
-        weather.fetchWeather(loc.lat, loc.lng);
-      }
+      // 클라우드 함수 설정이 없거나 TTS 엔진 초기화 중인 환경에서 시작 크래시를 피하기 위해
+      // 첫 진입 자동 음성 안내는 하지 않는다. 날씨는 CruiseScreen 진입 후 갱신한다.
 
       await Future.delayed(const Duration(milliseconds: 1200));
       if (mounted) {

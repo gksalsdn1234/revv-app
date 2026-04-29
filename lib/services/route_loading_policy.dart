@@ -188,6 +188,10 @@ List<RevvRoute> diversifyRouteSlots(
 
   bool addCandidate(RevvRoute route, {double centerDistanceKm = 3.0}) {
     if (selected.length >= limit) return false;
+    if (route.id.startsWith('combo:') &&
+        selected.where((r) => r.id.startsWith('combo:')).length >= 2) {
+      return false;
+    }
     final duplicate = selected.any(
       (current) => areRoutesNearDuplicate(
         current,
@@ -233,11 +237,6 @@ List<RevvRoute> diversifyRouteSlots(
     }
   }
 
-  selected.sort((a, b) {
-    final aScore = recommendationScore(a);
-    final bScore = recommendationScore(b);
-    return bScore.compareTo(aScore);
-  });
   return selected.take(limit).toList();
 }
 
@@ -706,12 +705,18 @@ String? routeCautionNote(RevvRoute route) {
 }
 
 RevvRoute hydrateRouteMetadata(RevvRoute route) {
+  final persistedReason = route.primaryReason?.trim();
+  final persistedNote = route.cautionNote?.trim();
   return route.copyWith(
     qualityLabel: routeQualityLabel(route),
     qualityRejectReason: routeRejectReason(route),
     routeCharacter: routeCharacter(route),
-    primaryReason: routePrimaryReason(route),
-    cautionNote: routeCautionNote(route),
+    primaryReason: (persistedReason?.isNotEmpty ?? false)
+        ? persistedReason
+        : routePrimaryReason(route),
+    cautionNote: (persistedNote?.isNotEmpty ?? false)
+        ? persistedNote
+        : routeCautionNote(route),
   );
 }
 

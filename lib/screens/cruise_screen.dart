@@ -21,6 +21,7 @@ import '../services/stt_service.dart';
 import '../services/jarvis_service.dart';
 import '../services/local_command_service.dart';
 import '../models/run_session.dart';
+import '../ui/revv_copy.dart';
 import 'sprint_screen.dart';
 import 'drive_screen.dart';
 import 'run_card_screen.dart';
@@ -36,10 +37,10 @@ import 'garage_screen.dart';
 import 'saved_routes_screen.dart';
 
 PageRouteBuilder<T> _slideUpRoute<T>(Widget page) => PageRouteBuilder<T>(
-  pageBuilder: (_, __, ___) => page,
+  pageBuilder: (_, _, _) => page,
   transitionDuration: const Duration(milliseconds: 320),
   reverseTransitionDuration: const Duration(milliseconds: 280),
-  transitionsBuilder: (_, anim, __, child) => SlideTransition(
+  transitionsBuilder: (_, anim, _, child) => SlideTransition(
     position: Tween(
       begin: const Offset(0, 1),
       end: Offset.zero,
@@ -241,9 +242,11 @@ class _CruiseScreenState extends State<CruiseScreen>
   }
 
   void _queuePhaseSync(RevvRoute? selectedRoute) {
-    final routeId = selectedRoute?.id;
-    if (_lastPhaseSyncedRouteId == routeId) return;
-    _lastPhaseSyncedRouteId = routeId;
+    final routeSyncKey = selectedRoute == null
+        ? null
+        : '${selectedRoute.id}:${selectedRoute.nodes.length}';
+    if (_lastPhaseSyncedRouteId == routeSyncKey) return;
+    _lastPhaseSyncedRouteId = routeSyncKey;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final loc = _locationService;
@@ -687,7 +690,9 @@ class _CruiseScreenState extends State<CruiseScreen>
                 right: 0,
                 child: _BottomNavBar(
                   activeTab: _activeTab,
-                  goLabel: _phase == _RidePhase.idle ? '루트 찾기' : '주행 시작',
+                  goLabel: _phase == _RidePhase.idle
+                      ? RevvCopy.routeFinder
+                      : RevvCopy.startDrive,
                   goIcon: _phase == _RidePhase.idle
                       ? Icons.search_rounded
                       : Icons.navigation_rounded,
@@ -935,8 +940,13 @@ class _RecommendedRoutesSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Consumer<RouteService>(
-      builder: (_, svc, __) {
-        final routes = svc.routes.take(6).toList();
+      builder: (_, svc, _) {
+        final selectedRoute = svc.selectedRoute;
+        final feed = <RevvRoute>[
+          ?selectedRoute,
+          ...svc.routes.where((route) => route.id != selectedRoute?.id),
+        ];
+        final routes = feed.take(6).toList();
         return RevvGlassCard(
           padding: EdgeInsets.zero,
           radius: 20,
@@ -1044,7 +1054,7 @@ class _RecommendedRoutesSheet extends StatelessWidget {
                         padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
                         scrollDirection: Axis.horizontal,
                         itemCount: routes.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 12),
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
                         itemBuilder: (_, i) => _RecommendedRouteCard(
                           route: routes[i],
                           onTap: () {
@@ -1268,7 +1278,7 @@ class _TopFloatingHudState extends State<_TopFloatingHud> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             color: AppColors.panel.withValues(alpha: 0.78),
             child: Consumer<LocationService>(
-              builder: (_, loc, __) => Row(
+              builder: (_, loc, _) => Row(
                 children: [
                   const Icon(
                     Icons.navigation_rounded,
@@ -1310,7 +1320,7 @@ class _TopFloatingHudState extends State<_TopFloatingHud> {
         ),
         const SizedBox(width: 10),
         Consumer<WeatherService>(
-          builder: (_, w, __) => RevvGlassCard(
+          builder: (_, w, _) => RevvGlassCard(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             color: AppColors.panel.withValues(alpha: 0.82),
             child: Row(
@@ -1897,7 +1907,7 @@ class _BottomNavBar extends StatelessWidget {
             _NavItem(
               icon: Icons.history,
               activeIcon: Icons.history,
-              label: '기록',
+              label: RevvCopy.runHistory,
               active: activeTab == 3,
               onTap: onLog,
             ),
@@ -2057,7 +2067,7 @@ class _MoreSheet extends StatelessWidget {
           _MoreItem(
             icon: Icons.speed_rounded,
             label: 'OBD 진단',
-            sub: '연결하면 속도·RPM·분석 정확도가 올라가요',
+            sub: '연결하면 RPM과 차량 상태 분석 정확도가 올라가요',
             onTap: onObd,
           ),
           _MoreItem(
@@ -2068,14 +2078,14 @@ class _MoreSheet extends StatelessWidget {
           ),
           _MoreItem(
             icon: Icons.favorite_rounded,
-            label: '저장한 루트',
+            label: RevvCopy.savedRoutes,
             sub: '좋아하는 코스를 다시 열고 바로 달려요',
             onTap: onSavedRoutes,
           ),
           _MoreItem(
             icon: Icons.settings_rounded,
-            label: '설정',
-            sub: '음성 안내·탐색 반경·주행 HUD 조정',
+            label: RevvCopy.vehicleSettings,
+            sub: '음성 안내·탐색 반경·주행 화면 조정',
             onTap: onSettings,
           ),
           Padding(
@@ -2083,7 +2093,7 @@ class _MoreSheet extends StatelessWidget {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                '처음엔 루트 찾기와 주행만 써도 충분해요. 차량/OBD 설정은 나중에 정확도를 높이고 싶을 때 열면 됩니다.',
+                '처음엔 루트 찾기와 주행 시작만 써도 충분해요. 차량/OBD 설정은 나중에 정확도를 높이고 싶을 때 열면 됩니다.',
                 style: AppText.body(
                   size: 13,
                   height: 1.35,
@@ -2359,7 +2369,7 @@ class _AlwaysListenDotState extends State<_AlwaysListenDot>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _pulse,
-      builder: (_, __) => Container(
+      builder: (_, _) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
           color: Colors.black.withValues(alpha: 0.65),

@@ -86,7 +86,7 @@ class _AppBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Consumer<OBDService>(
-      builder: (_, obd, __) => Container(
+      builder: (_, obd, _) => Container(
         height: 56,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
@@ -579,7 +579,7 @@ class _TelemTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Consumer<OBDService>(
-      builder: (_, obd, __) {
+      builder: (_, obd, _) {
         if (!obd.isConnected) {
           return _NotConnectedBanner(onConnect: () => obd.connect());
         }
@@ -715,7 +715,7 @@ class _ExtendedSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Consumer<ImuService>(
-      builder: (_, imu, __) {
+      builder: (_, imu, _) {
         final latG = imu.lateralG;
         final lonG = imu.longitudinalG;
         final yaw = imu.yawRateDps;
@@ -1353,7 +1353,7 @@ class _SetupTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Consumer2<OBDService, ImuService>(
-      builder: (_, obd, imu, __) => ListView(
+      builder: (_, obd, imu, _) => ListView(
         padding: const EdgeInsets.all(16),
         children: [
           // OBD 연결 카드
@@ -1392,7 +1392,7 @@ class _GarageProfileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Consumer<GarageService>(
-      builder: (_, garage, __) {
+      builder: (_, garage, _) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

@@ -16,10 +16,10 @@ class RankingScreen extends StatefulWidget {
     Navigator.push(
       context,
       PageRouteBuilder(
-        pageBuilder: (_, __, ___) => const RankingScreen(),
+        pageBuilder: (_, _, _) => const RankingScreen(),
         transitionDuration: const Duration(milliseconds: 320),
         reverseTransitionDuration: const Duration(milliseconds: 280),
-        transitionsBuilder: (_, anim, __, child) => SlideTransition(
+        transitionsBuilder: (_, anim, _, child) => SlideTransition(
           position: Tween(
             begin: const Offset(0, 1),
             end: Offset.zero,

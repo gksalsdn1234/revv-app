@@ -531,7 +531,10 @@ class OBDService extends ChangeNotifier {
     _device = device;
 
     try {
-      await device.connect(timeout: const Duration(seconds: 10));
+      await device.connect(
+        license: License.free,
+        timeout: const Duration(seconds: 10),
+      );
       debugPrint('[OBD] 연결됨 → 서비스 탐색 중...');
       final services = await device.discoverServices();
 

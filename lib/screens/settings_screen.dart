@@ -5,11 +5,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/jarvis_service.dart';
 import '../services/jarvis_script.dart';
+import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/settings_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/revv_copy.dart';
 import 'calibration_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -39,6 +41,7 @@ class SettingsScreen extends StatelessWidget {
               child: Consumer<SettingsService>(
                 builder: (context, settings, _) {
                   final jarvis = context.watch<JarvisService>();
+                  final location = context.watch<LocationService>();
                   return CustomScrollView(
                     slivers: [
                       SliverToBoxAdapter(
@@ -53,10 +56,18 @@ class SettingsScreen extends StatelessWidget {
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
                           child: _SettingsOverviewCard(
-                            voiceEnabled: !settings.ttsMuted,
+                            voiceLabel: settings.ttsMuted
+                                ? '음성 꺼짐'
+                                : '음성 안내 켜짐',
+                            locationLabel: location.permissionStatusLabel,
+                            safetyLabel: settings.offRouteAlert
+                                ? '주행 안전 안내 켜짐'
+                                : '주행 안전 안내 꺼짐',
                             radiusKm: settings.searchRadiusKm,
                             cloudLabel: supabase.availabilityLabel,
-                            speedLabel: _speechPresetLabel(settings.ttsRatePreset),
+                            speedLabel: _speechPresetLabel(
+                              settings.ttsRatePreset,
+                            ),
                             engineLabel: _speechEngineLabel(settings.ttsEngine),
                           ),
                         ),
@@ -69,15 +80,15 @@ class SettingsScreen extends StatelessWidget {
                               final wide = constraints.maxWidth >= 760;
                               final navigationCard = _SettingsFeatureCard(
                                 icon: Icons.alt_route_rounded,
-                                section: '루트 탐색',
+                                section: RevvCopy.routeFinder,
                                 accent: AppColors.primaryContainer,
                                 child: Column(
                                   children: [
                                     _SettingsToggleRow(
                                       title: '음성 안내',
                                       subtitle: settings.ttsMuted
-                                          ? '음성 안내가 꺼져 있어요'
-                                          : '코너와 이탈 안내를 음성으로 읽어요',
+                                          ? '주행 중 음성 안내를 쉬게 해요'
+                                          : '코너와 이탈 안내를 짧게 읽어요',
                                       value: !settings.ttsMuted,
                                       onChanged: (value) =>
                                           settings.setTtsMuted(!value),
@@ -138,26 +149,29 @@ class SettingsScreen extends StatelessWidget {
                                                 : '${jarvis.deviceVoices.length}개 한국어 음성 중 선택'),
                                       valueLabel: settings.ttsEngine == 'google'
                                           ? (jarvis.selectedGoogleVoice?.name ??
-                                              'Google 기본 음성')
+                                                'Google 기본 음성')
                                           : (jarvis.selectedDeviceVoice?.name ??
-                                              '기본 한국어 음성'),
-                                      onTap: (settings.ttsEngine == 'google'
+                                                '기본 한국어 음성'),
+                                      onTap:
+                                          (settings.ttsEngine == 'google'
                                                   ? jarvis.googleVoices
                                                   : jarvis.deviceVoices)
                                               .isEmpty
                                           ? null
                                           : () => _showVoicePicker(
-                                                context,
-                                                jarvis: jarvis,
-                                                settings: settings,
-                                                useGoogle: settings.ttsEngine == 'google',
-                                              ),
+                                              context,
+                                              jarvis: jarvis,
+                                              settings: settings,
+                                              useGoogle:
+                                                  settings.ttsEngine ==
+                                                  'google',
+                                            ),
                                     ),
                                     const SizedBox(height: 14),
                                     _SettingsToggleRow(
                                       title: '항상 듣기',
                                       subtitle: settings.alwaysListen
-                                          ? '웨이크워드로 로컬 명령을 대기해요'
+                                          ? '베타 · 웨이크워드로 로컬 명령을 대기해요'
                                           : '마이크 버튼을 눌렀을 때만 음성을 받아요',
                                       value: settings.alwaysListen,
                                       onChanged: settings.setAlwaysListen,
@@ -216,7 +230,7 @@ class SettingsScreen extends StatelessWidget {
 
                               final hudCard = _SettingsFeatureCard(
                                 icon: Icons.speed_rounded,
-                                section: '주행 화면',
+                                section: '주행 HUD',
                                 accent: AppColors.primaryContainer,
                                 highlighted: true,
                                 child: Column(
@@ -224,8 +238,8 @@ class SettingsScreen extends StatelessWidget {
                                     _SettingsToggleRow(
                                       title: '속도 HUD',
                                       subtitle: settings.showSpeedHud
-                                          ? '주행 중 속도 HUD를 표시해요'
-                                          : '속도 HUD를 숨겨서 화면을 더 비워둬요',
+                                          ? '주행 중 기본 정보를 크게 보여줘요'
+                                          : 'HUD를 숨겨 지도를 더 넓게 봐요',
                                       value: settings.showSpeedHud,
                                       onChanged: settings.setShowSpeedHud,
                                     ),
@@ -383,7 +397,7 @@ class SettingsScreen extends StatelessWidget {
                                 icon: Icons.map_outlined,
                                 iconColor: AppColors.textSecondary,
                                 title: '루트 데이터 소스',
-                                subtitle: 'Mapbox · Overpass · Supabase',
+                                subtitle: 'Mapbox · Overpass · Supabase 베타',
                                 trailingLabel: 'ONLINE',
                               ),
                               const SizedBox(height: 8),
@@ -501,7 +515,7 @@ Future<void> _showVoicePicker(
                 child: ListView.separated(
                   shrinkWrap: true,
                   itemCount: voices.length,
-                  separatorBuilder: (_, __) => Divider(
+                  separatorBuilder: (_, _) => Divider(
                     height: 1,
                     color: AppColors.outlineVariant.withValues(alpha: 0.16),
                   ),
@@ -510,7 +524,7 @@ Future<void> _showVoicePicker(
                     final selected = useGoogle
                         ? voice.name == settings.googleTtsVoiceName
                         : (voice.name == settings.ttsVoiceName &&
-                            voice.locale == settings.ttsVoiceLocale);
+                              voice.locale == settings.ttsVoiceLocale);
                     return ListTile(
                       onTap: () async {
                         if (useGoogle) {
@@ -688,14 +702,18 @@ class _TopBarIconButton extends StatelessWidget {
 }
 
 class _SettingsOverviewCard extends StatelessWidget {
-  final bool voiceEnabled;
+  final String voiceLabel;
+  final String locationLabel;
+  final String safetyLabel;
   final int radiusKm;
   final String cloudLabel;
   final String speedLabel;
   final String engineLabel;
 
   const _SettingsOverviewCard({
-    required this.voiceEnabled,
+    required this.voiceLabel,
+    required this.locationLabel,
+    required this.safetyLabel,
     required this.radiusKm,
     required this.cloudLabel,
     required this.speedLabel,
@@ -748,7 +766,7 @@ class _SettingsOverviewCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '시스템 설정',
+                      RevvCopy.vehicleSettings,
                       style: AppText.body(
                         size: 18,
                         weight: FontWeight.w800,
@@ -757,7 +775,7 @@ class _SettingsOverviewCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '주행 화면, 음성, 루트 탐색 기준을 여기서 조절해요',
+                      '클라우드, 음성, 위치, 주행 안전 상태를 한 번에 확인해요',
                       style: AppText.body(
                         size: 12,
                         height: 1.3,
@@ -774,11 +792,15 @@ class _SettingsOverviewCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _OverviewPill(label: voiceEnabled ? '음성 안내 켜짐' : '음성 안내 꺼짐'),
-              _OverviewPill(label: '음성 엔진 $engineLabel'),
-              _OverviewPill(label: '음성 속도 $speedLabel'),
+              _OverviewPill(label: cloudLabel, icon: Icons.cloud_done_rounded),
+              _OverviewPill(label: voiceLabel, icon: Icons.volume_up_rounded),
+              _OverviewPill(
+                label: locationLabel,
+                icon: Icons.location_on_rounded,
+              ),
+              _OverviewPill(label: safetyLabel, icon: Icons.shield_rounded),
+              _OverviewPill(label: '음성 $engineLabel · $speedLabel'),
               _OverviewPill(label: '탐색 반경 ${radiusKm}km'),
-              _OverviewPill(label: cloudLabel),
             ],
           ),
         ],
@@ -789,8 +811,9 @@ class _SettingsOverviewCard extends StatelessWidget {
 
 class _OverviewPill extends StatelessWidget {
   final String label;
+  final IconData? icon;
 
-  const _OverviewPill({required this.label});
+  const _OverviewPill({required this.label, this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -803,13 +826,22 @@ class _OverviewPill extends StatelessWidget {
           color: AppColors.outlineVariant.withValues(alpha: 0.24),
         ),
       ),
-      child: Text(
-        label,
-        style: AppText.body(
-          size: 11,
-          weight: FontWeight.w700,
-          color: AppColors.textSecondary,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 13, color: AppColors.primaryContainer),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            label,
+            style: AppText.body(
+              size: 11,
+              weight: FontWeight.w700,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
       ),
     );
   }

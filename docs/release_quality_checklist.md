@@ -8,6 +8,8 @@
 - [x] `flutter test` 통과
 - [ ] `.env` 또는 `--dart-define-from-file=.env`로 Supabase/Mapbox 설정 확인
 - [ ] iPhone 실기기 실행: `flutter run --dart-define-from-file=.env`
+- [ ] Firebase 의존성 없음 확인: `rg "Firebase|FirebaseFunctions|cloud_functions|firebase_core" lib pubspec.yaml`
+- [ ] Supabase Edge Functions 배포 및 secrets 확인: `call-ai`, `get-weather`, `list-google-tts-voices`, `synthesize-tts`
 - [x] 첫 실행 권한 설명 표시 후 위치/마이크 권한 요청
 - [x] 위치 거부 시 루트 탐색 불가 이유와 설정 이동 안내 표시
 - [x] 마이크 거부 시 음성 기능만 비활성화되고 앱 사용은 계속 가능
@@ -57,6 +59,14 @@ flutter run --dart-define-from-file=.env
 ```sh
 SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
+```
+
+Supabase 서버 secrets:
+
+```sh
+AI_API_KEY=...
+WEATHER_API_KEY=...
+GOOGLE_TTS_API_KEY=...
 ```
 
 Mapbox token은 현재 `MapboxService` 설정을 사용한다. TestFlight 전에는 토큰 노출 정책을 별도 점검한다.

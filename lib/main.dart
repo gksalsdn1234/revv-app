@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'theme/colors.dart';
 import 'theme/text_styles.dart';
@@ -22,12 +21,6 @@ import 'services/supabase_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('[Firebase] 초기화 실패, 클라우드 함수 기능 비활성화: $e');
-  }
-
   await SupabaseService().init();
 
   final history = RunHistoryService();

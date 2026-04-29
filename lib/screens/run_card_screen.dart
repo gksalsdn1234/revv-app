@@ -223,9 +223,12 @@ class _RunCardScreenState extends State<RunCardScreen> {
       await file.writeAsBytes(pngBytes);
 
       final caption = await captionFuture;
-      await Share.shareXFiles([
-        XFile(file.path, mimeType: 'image/png'),
-      ], text: caption);
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'image/png')],
+          text: caption,
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -448,7 +451,7 @@ class _HeroReviewCard extends StatelessWidget {
                 child: Image.network(
                   mapUrl!,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => _noGpsPlaceholder(),
+                  errorBuilder: (_, _, _) => _noGpsPlaceholder(),
                 ),
               ),
             )
@@ -820,7 +823,7 @@ class _SummaryCard extends StatelessWidget {
                       ),
                     );
                   },
-                  errorBuilder: (_, __, ___) => Container(
+                  errorBuilder: (_, _, _) => Container(
                     color: AppColors.surface,
                     child: const Center(
                       child: Icon(
@@ -1416,7 +1419,7 @@ class _GpsMapCard extends StatelessWidget {
                           ),
                         );
                       },
-                      errorBuilder: (_, __, ___) => hasPath
+                      errorBuilder: (_, _, _) => hasPath
                           ? CustomPaint(
                               painter: _GpsPathPainter(
                                 path: s.gpsPath,

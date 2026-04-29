@@ -63,45 +63,78 @@ void main() {
 
   test('preferred overpass endpoints are capped to fast shortlist', () {
     expect(preferredOverpassEndpoints.length, lessThanOrEqualTo(3));
-    expect(preferredOverpassEndpoints, contains('https://overpass-api.de/api/interpreter'));
-  });
-
-  test('mergeDiversityRoutes keeps existing selection and only adds distinct routes', () {
-    final existing = [
-      _route(id: 'a', distanceKm: 12, windingScore: 4.0, lat: 37.0, lng: 127.0),
-      _route(id: 'b', distanceKm: 20, windingScore: 5.0, lat: 37.2, lng: 127.2),
-    ];
-    final incoming = [
-      _route(id: 'b-new', distanceKm: 20.1, windingScore: 5.2, lat: 37.21, lng: 127.21),
-      _route(id: 'c', distanceKm: 30, windingScore: 6.5, lat: 38.0, lng: 128.0),
-    ];
-
-    final merged = mergeDiversityRoutes(existing, incoming, limit: 25);
-
-    expect(merged.any((r) => r.id == 'a'), isTrue);
-    expect(merged.any((r) => r.id == 'c'), isTrue);
-    expect(merged.length, 3);
-  });
-
-  test('cached routes are reused only when cache center stays near current location', () {
     expect(
-      shouldUseCachedRoutes(
-        cacheCenter: const LatLng(37.50, 127.00),
-        targetCenter: const LatLng(37.56, 127.04),
-        searchRadiusKm: 50,
-      ),
-      isTrue,
-    );
-
-    expect(
-      shouldUseCachedRoutes(
-        cacheCenter: const LatLng(40.7128, -74.0060),
-        targetCenter: const LatLng(37.5665, 126.9780),
-        searchRadiusKm: 50,
-      ),
-      isFalse,
+      preferredOverpassEndpoints,
+      contains('https://overpass-api.de/api/interpreter'),
     );
   });
+
+  test(
+    'mergeDiversityRoutes keeps existing selection and only adds distinct routes',
+    () {
+      final existing = [
+        _route(
+          id: 'a',
+          distanceKm: 12,
+          windingScore: 4.0,
+          lat: 37.0,
+          lng: 127.0,
+        ),
+        _route(
+          id: 'b',
+          distanceKm: 20,
+          windingScore: 5.0,
+          lat: 37.2,
+          lng: 127.2,
+        ),
+      ];
+      final incoming = [
+        _route(
+          id: 'b-new',
+          distanceKm: 20.1,
+          windingScore: 5.2,
+          lat: 37.21,
+          lng: 127.21,
+        ),
+        _route(
+          id: 'c',
+          distanceKm: 30,
+          windingScore: 6.5,
+          lat: 38.0,
+          lng: 128.0,
+        ),
+      ];
+
+      final merged = mergeDiversityRoutes(existing, incoming, limit: 25);
+
+      expect(merged.any((r) => r.id == 'a'), isTrue);
+      expect(merged.any((r) => r.id == 'c'), isTrue);
+      expect(merged.length, 3);
+    },
+  );
+
+  test(
+    'cached routes are reused only when cache center stays near current location',
+    () {
+      expect(
+        shouldUseCachedRoutes(
+          cacheCenter: const LatLng(37.50, 127.00),
+          targetCenter: const LatLng(37.56, 127.04),
+          searchRadiusKm: 50,
+        ),
+        isTrue,
+      );
+
+      expect(
+        shouldUseCachedRoutes(
+          cacheCenter: const LatLng(40.7128, -74.0060),
+          targetCenter: const LatLng(37.5665, 126.9780),
+          searchRadiusKm: 50,
+        ),
+        isFalse,
+      );
+    },
+  );
 
   test('empty overpass payload is treated as suspicious', () {
     expect(
@@ -109,14 +142,16 @@ void main() {
       isTrue,
     );
     expect(
-      looksLikeEmptyOverpassPayload('{"version":0.6,"elements":[{"type":"way"}]}'),
+      looksLikeEmptyOverpassPayload(
+        '{"version":0.6,"elements":[{"type":"way"}]}',
+      ),
       isFalse,
     );
   });
 
-  test('search radius plan expands in two balanced steps', () {
-    expect(buildSearchRadiusPlan(30), [30, 50, 80]);
-    expect(buildSearchRadiusPlan(50), [50, 70, 100]);
+  test('search radius plan expands through broad fallback steps', () {
+    expect(buildSearchRadiusPlan(30), [30, 60, 100, 150]);
+    expect(buildSearchRadiusPlan(50), [50, 80, 120, 170]);
   });
 
   test('balanced thresholds are more permissive than strict thresholds', () {
@@ -126,39 +161,66 @@ void main() {
 
     expect(balanced.minCurvyDistanceKm, lessThan(strict.minCurvyDistanceKm));
     expect(balanced.maxContinuousKmMin, lessThan(strict.maxContinuousKmMin));
-    expect(balanced.maxStraightRunKmMax, greaterThanOrEqualTo(strict.maxStraightRunKmMax));
-    expect(balanced.maxStraightFractionMax, greaterThan(strict.maxStraightFractionMax));
+    expect(
+      balanced.maxStraightRunKmMax,
+      greaterThanOrEqualTo(strict.maxStraightRunKmMax),
+    );
+    expect(
+      balanced.maxStraightFractionMax,
+      greaterThan(strict.maxStraightFractionMax),
+    );
     expect(balanced.maxSignalPerKm, greaterThan(strict.maxSignalPerKm));
-    expect(expanded.maxIntersectionPerKm, greaterThan(strict.maxIntersectionPerKm));
+    expect(
+      expanded.maxIntersectionPerKm,
+      greaterThan(strict.maxIntersectionPerKm),
+    );
     expect(balanced.curvyFractionMin, lessThan(strict.curvyFractionMin));
     expect(expanded.dedupDistanceKm, lessThan(strict.dedupDistanceKm));
-    expect(expanded.maxSelectedRoutes, greaterThanOrEqualTo(balanced.maxSelectedRoutes));
+    expect(
+      expanded.maxSelectedRoutes,
+      greaterThanOrEqualTo(balanced.maxSelectedRoutes),
+    );
   });
 
-  test('mergeDiversityRoutes can relax dedupe distance for low-density regions', () {
-    final existing = [
-      _route(id: 'a', distanceKm: 12, windingScore: 4.0, lat: 45.0, lng: -73.0),
-    ];
-    final incoming = [
-      _route(id: 'b', distanceKm: 18, windingScore: 4.6, lat: 45.035, lng: -73.035),
-    ];
+  test(
+    'mergeDiversityRoutes can relax dedupe distance for low-density regions',
+    () {
+      final existing = [
+        _route(
+          id: 'a',
+          distanceKm: 12,
+          windingScore: 4.0,
+          lat: 45.0,
+          lng: -73.0,
+        ),
+      ];
+      final incoming = [
+        _route(
+          id: 'b',
+          distanceKm: 18,
+          windingScore: 4.6,
+          lat: 45.035,
+          lng: -73.035,
+        ),
+      ];
 
-    final strictMerged = mergeDiversityRoutes(
-      existing,
-      incoming,
-      limit: 25,
-      dedupeDistanceKm: 6.0,
-    );
-    final relaxedMerged = mergeDiversityRoutes(
-      existing,
-      incoming,
-      limit: 25,
-      dedupeDistanceKm: 4.0,
-    );
+      final strictMerged = mergeDiversityRoutes(
+        existing,
+        incoming,
+        limit: 25,
+        dedupeDistanceKm: 6.0,
+      );
+      final relaxedMerged = mergeDiversityRoutes(
+        existing,
+        incoming,
+        limit: 25,
+        dedupeDistanceKm: 4.0,
+      );
 
-    expect(strictMerged.length, 1);
-    expect(relaxedMerged.length, 2);
-  });
+      expect(strictMerged.length, 1);
+      expect(relaxedMerged.length, 2);
+    },
+  );
 
   test('straight dominant routes are rejected even in expanded mode', () {
     final expanded = thresholdsForStage(RouteSearchStage.expanded);
@@ -208,44 +270,47 @@ void main() {
     );
   });
 
-  test('composite fallback can create an extra winding route from nearby candidates', () {
-    final routes = [
-      RevvRoute(
-        id: 'a',
-        name: 'North Twist',
-        nodes: [const LatLng(45.00, -73.00), const LatLng(45.04, -73.04)],
-        distanceKm: 9,
-        windingScore: 6.6,
-        starRating: 4,
-        sharpCurveCount: 8,
-        centerPoint: const LatLng(45.02, -73.02),
-        distanceFromUser: 12,
-        tightCurveKm: 1.8,
-        mediumCurveKm: 1.9,
-        maxContinuousKm: 1.4,
-      ),
-      RevvRoute(
-        id: 'b',
-        name: 'Valley Sweep',
-        nodes: [const LatLng(45.05, -73.05), const LatLng(45.09, -73.08)],
-        distanceKm: 10,
-        windingScore: 6.1,
-        starRating: 4,
-        sharpCurveCount: 7,
-        centerPoint: const LatLng(45.07, -73.065),
-        distanceFromUser: 15,
-        tightCurveKm: 1.2,
-        mediumCurveKm: 2.8,
-        maxContinuousKm: 1.3,
-      ),
-    ];
+  test(
+    'composite fallback can create an extra winding route from nearby candidates',
+    () {
+      final routes = [
+        RevvRoute(
+          id: 'a',
+          name: 'North Twist',
+          nodes: [const LatLng(45.00, -73.00), const LatLng(45.04, -73.04)],
+          distanceKm: 9,
+          windingScore: 6.6,
+          starRating: 4,
+          sharpCurveCount: 8,
+          centerPoint: const LatLng(45.02, -73.02),
+          distanceFromUser: 12,
+          tightCurveKm: 1.8,
+          mediumCurveKm: 1.9,
+          maxContinuousKm: 1.4,
+        ),
+        RevvRoute(
+          id: 'b',
+          name: 'Valley Sweep',
+          nodes: [const LatLng(45.05, -73.05), const LatLng(45.09, -73.08)],
+          distanceKm: 10,
+          windingScore: 6.1,
+          starRating: 4,
+          sharpCurveCount: 7,
+          centerPoint: const LatLng(45.07, -73.065),
+          distanceFromUser: 15,
+          tightCurveKm: 1.2,
+          mediumCurveKm: 2.8,
+          maxContinuousKm: 1.3,
+        ),
+      ];
 
-    final result = buildCompositeFallbackRoutes(routes, targetCount: 3);
+      final result = buildCompositeFallbackRoutes(routes, targetCount: 3);
 
-    expect(result.length, 3);
-    expect(result.last.id, startsWith('combo:'));
-    expect(result.last.distanceKm, greaterThan(19));
-  });
+      expect(result.length, 3);
+      expect(result.last.id, startsWith('combo:'));
+      expect(result.last.distanceKm, greaterThan(19));
+    },
+  );
 
   test('composite fallback skips straight or distant pairings', () {
     final routes = [
@@ -426,149 +491,164 @@ void main() {
     expect(routeDriveabilityMultiplier(good), greaterThan(0.9));
   });
 
-  test('quality guardrails keep named fallback routes when compelling reasons are absent', () {
-    final routes = [
-      RevvRoute(
-        id: 'named-1',
-        name: 'Rue des Galets',
-        nodes: [const LatLng(45.50, -73.60), const LatLng(45.56, -73.54)],
-        distanceKm: 10.5,
-        windingScore: 5.4,
-        starRating: 3,
-        sharpCurveCount: 3,
-        centerPoint: const LatLng(45.53, -73.57),
-        distanceFromUser: 11,
-        tightCurveKm: 0.5,
-        mediumCurveKm: 0.6,
-        maxContinuousKm: 0.4,
-      ),
-      RevvRoute(
-        id: 'named-2',
-        name: 'Belvedere Road',
-        nodes: [const LatLng(45.48, -73.62), const LatLng(45.55, -73.57)],
-        distanceKm: 11.2,
-        windingScore: 5.1,
-        starRating: 3,
-        sharpCurveCount: 4,
-        centerPoint: const LatLng(45.515, -73.595),
-        distanceFromUser: 14,
-        tightCurveKm: 0.4,
-        mediumCurveKm: 0.7,
-        maxContinuousKm: 0.45,
-      ),
-      RevvRoute(
-        id: 'numeric',
-        name: '1216833929',
-        nodes: [const LatLng(45.46, -73.64), const LatLng(45.50, -73.61)],
-        distanceKm: 9.4,
-        windingScore: 5.7,
-        starRating: 3,
-        sharpCurveCount: 5,
-        centerPoint: const LatLng(45.48, -73.625),
-        distanceFromUser: 13,
-        tightCurveKm: 0.7,
-        mediumCurveKm: 0.7,
-        maxContinuousKm: 0.4,
-      ),
-    ];
-
-    final filtered = applyQualityGuardrails(routes);
-
-    expect(filtered.map((route) => route.id), containsAll(['named-1', 'named-2']));
-    expect(filtered.any((route) => route.id == 'numeric'), isFalse);
-  });
-
-  test('supabase candidate filter removes tiny segment rows before ranking', () {
-    final routes = [
-      RevvRoute(
-        id: 'kart',
-        name: 'Karting',
-        nodes: [const LatLng(45.40, -73.60), const LatLng(45.401, -73.601)],
-        distanceKm: 0.3,
-        windingScore: 1700,
-        starRating: 5,
-        sharpCurveCount: 12,
-        centerPoint: const LatLng(45.4005, -73.6005),
-        distanceFromUser: 20,
-      ),
-      RevvRoute(
-        id: 'numeric',
-        name: '1216833929',
-        nodes: [const LatLng(45.41, -73.61), const LatLng(45.412, -73.612)],
-        distanceKm: 0.6,
-        windingScore: 1500,
-        starRating: 5,
-        sharpCurveCount: 10,
-        centerPoint: const LatLng(45.411, -73.611),
-        distanceFromUser: 18,
-      ),
-      RevvRoute(
-        id: 'named-road',
-        name: 'Chemin de la Petite-Cote',
-        nodes: [const LatLng(45.42, -73.62), const LatLng(45.50, -73.54)],
-        distanceKm: 11.9,
-        windingScore: 459,
-        starRating: 4,
-        sharpCurveCount: 18,
-        centerPoint: const LatLng(45.46, -73.58),
-        distanceFromUser: 25,
-      ),
-    ];
-
-    final filtered = filterSupabaseRouteCandidates(routes);
-
-    expect(filtered.map((route) => route.id), ['named-road']);
-  });
-
-  test('quality guardrails prefer keep candidates over major-road-like routes when enough exist', () {
-    RevvRoute keepRoute(String id, String name) => RevvRoute(
-          id: id,
-          name: name,
-          nodes: [const LatLng(45.40, -73.60), const LatLng(45.48, -73.52)],
-          distanceKm: 11.0,
-          windingScore: 5.9,
-          starRating: 4,
+  test(
+    'quality guardrails keep named fallback routes when compelling reasons are absent',
+    () {
+      final routes = [
+        RevvRoute(
+          id: 'named-1',
+          name: 'Rue des Galets',
+          nodes: [const LatLng(45.50, -73.60), const LatLng(45.56, -73.54)],
+          distanceKm: 10.5,
+          windingScore: 5.4,
+          starRating: 3,
+          sharpCurveCount: 3,
+          centerPoint: const LatLng(45.53, -73.57),
+          distanceFromUser: 11,
+          tightCurveKm: 0.5,
+          mediumCurveKm: 0.6,
+          maxContinuousKm: 0.4,
+        ),
+        RevvRoute(
+          id: 'named-2',
+          name: 'Belvedere Road',
+          nodes: [const LatLng(45.48, -73.62), const LatLng(45.55, -73.57)],
+          distanceKm: 11.2,
+          windingScore: 5.1,
+          starRating: 3,
+          sharpCurveCount: 4,
+          centerPoint: const LatLng(45.515, -73.595),
+          distanceFromUser: 14,
+          tightCurveKm: 0.4,
+          mediumCurveKm: 0.7,
+          maxContinuousKm: 0.45,
+        ),
+        RevvRoute(
+          id: 'numeric',
+          name: '1216833929',
+          nodes: [const LatLng(45.46, -73.64), const LatLng(45.50, -73.61)],
+          distanceKm: 9.4,
+          windingScore: 5.7,
+          starRating: 3,
           sharpCurveCount: 5,
-          centerPoint: const LatLng(45.44, -73.56),
-          distanceFromUser: 20,
+          centerPoint: const LatLng(45.48, -73.625),
+          distanceFromUser: 13,
           tightCurveKm: 0.7,
-          mediumCurveKm: 0.8,
-          maxContinuousKm: 0.5,
-        );
-    RevvRoute maybeRoute(String id, String name) => RevvRoute(
-          id: id,
-          name: name,
-          nodes: [const LatLng(45.42, -73.60), const LatLng(45.50, -73.54)],
-          distanceKm: 12.0,
-          windingScore: 6.4,
-          starRating: 4,
-          sharpCurveCount: 6,
-          centerPoint: const LatLng(45.46, -73.57),
+          mediumCurveKm: 0.7,
+          maxContinuousKm: 0.4,
+        ),
+      ];
+
+      final filtered = applyQualityGuardrails(routes);
+
+      expect(
+        filtered.map((route) => route.id),
+        containsAll(['named-1', 'named-2']),
+      );
+      expect(filtered.any((route) => route.id == 'numeric'), isFalse);
+    },
+  );
+
+  test(
+    'supabase candidate filter removes tiny segment rows before ranking',
+    () {
+      final routes = [
+        RevvRoute(
+          id: 'kart',
+          name: 'Karting',
+          nodes: [const LatLng(45.40, -73.60), const LatLng(45.401, -73.601)],
+          distanceKm: 0.3,
+          windingScore: 1700,
+          starRating: 5,
+          sharpCurveCount: 12,
+          centerPoint: const LatLng(45.4005, -73.6005),
+          distanceFromUser: 20,
+        ),
+        RevvRoute(
+          id: 'numeric',
+          name: '1216833929',
+          nodes: [const LatLng(45.41, -73.61), const LatLng(45.412, -73.612)],
+          distanceKm: 0.6,
+          windingScore: 1500,
+          starRating: 5,
+          sharpCurveCount: 10,
+          centerPoint: const LatLng(45.411, -73.611),
           distanceFromUser: 18,
-          tightCurveKm: 0.8,
-          mediumCurveKm: 0.9,
-          maxContinuousKm: 0.6,
-          isMajorRoadLike: true,
-        );
+        ),
+        RevvRoute(
+          id: 'named-road',
+          name: 'Chemin de la Petite-Cote',
+          nodes: [const LatLng(45.42, -73.62), const LatLng(45.50, -73.54)],
+          distanceKm: 11.9,
+          windingScore: 459,
+          starRating: 4,
+          sharpCurveCount: 18,
+          centerPoint: const LatLng(45.46, -73.58),
+          distanceFromUser: 25,
+        ),
+      ];
 
-    final routes = [
-      keepRoute('keep-1', 'Chemin de la Petite-Cote'),
-      keepRoute('keep-2', 'Chemin du Fleuve'),
-      keepRoute('keep-3', 'Rue Main'),
-      keepRoute('keep-4', 'Chemin Saint-Charles'),
-      keepRoute('keep-5', 'Rang de la Riviere Nord'),
-      keepRoute('keep-6', 'Chemin de la Grande-Cote'),
-      keepRoute('keep-7', 'Montee Morel'),
-      keepRoute('keep-8', 'Rang Saint-Marc'),
-      maybeRoute('maybe-1', 'Boulevard Perrot'),
-      maybeRoute('maybe-2', 'Boulevard Gouin Ouest'),
-    ];
+      final filtered = filterSupabaseRouteCandidates(routes);
 
-    final filtered = applyQualityGuardrails(routes);
+      expect(filtered.map((route) => route.id), ['named-road']);
+    },
+  );
 
-    expect(filtered.length, 8);
-    expect(filtered.every((route) => !isMajorRoadLikeRouteName(route.name)), isTrue);
-  });
+  test(
+    'quality guardrails prefer keep candidates over major-road-like routes when enough exist',
+    () {
+      RevvRoute keepRoute(String id, String name) => RevvRoute(
+        id: id,
+        name: name,
+        nodes: [const LatLng(45.40, -73.60), const LatLng(45.48, -73.52)],
+        distanceKm: 11.0,
+        windingScore: 5.9,
+        starRating: 4,
+        sharpCurveCount: 5,
+        centerPoint: const LatLng(45.44, -73.56),
+        distanceFromUser: 20,
+        tightCurveKm: 0.7,
+        mediumCurveKm: 0.8,
+        maxContinuousKm: 0.5,
+      );
+      RevvRoute maybeRoute(String id, String name) => RevvRoute(
+        id: id,
+        name: name,
+        nodes: [const LatLng(45.42, -73.60), const LatLng(45.50, -73.54)],
+        distanceKm: 12.0,
+        windingScore: 6.4,
+        starRating: 4,
+        sharpCurveCount: 6,
+        centerPoint: const LatLng(45.46, -73.57),
+        distanceFromUser: 18,
+        tightCurveKm: 0.8,
+        mediumCurveKm: 0.9,
+        maxContinuousKm: 0.6,
+        isMajorRoadLike: true,
+      );
+
+      final routes = [
+        keepRoute('keep-1', 'Chemin de la Petite-Cote'),
+        keepRoute('keep-2', 'Chemin du Fleuve'),
+        keepRoute('keep-3', 'Rue Main'),
+        keepRoute('keep-4', 'Chemin Saint-Charles'),
+        keepRoute('keep-5', 'Rang de la Riviere Nord'),
+        keepRoute('keep-6', 'Chemin de la Grande-Cote'),
+        keepRoute('keep-7', 'Montee Morel'),
+        keepRoute('keep-8', 'Rang Saint-Marc'),
+        maybeRoute('maybe-1', 'Boulevard Perrot'),
+        maybeRoute('maybe-2', 'Boulevard Gouin Ouest'),
+      ];
+
+      final filtered = applyQualityGuardrails(routes);
+
+      expect(filtered.length, 8);
+      expect(
+        filtered.every((route) => !isMajorRoadLikeRouteName(route.name)),
+        isTrue,
+      );
+    },
+  );
 
   test('recommendationScore prefers flow-aware score fields when present', () {
     final route = RevvRoute(
@@ -652,64 +732,97 @@ void main() {
     expect(routeRejectReason(reject), isNotNull);
   });
 
-  test('route character classifies switchback, sweeper, and hill climb styles', () {
-    final switchback = RevvRoute(
-      id: 'switch',
-      name: 'North Hairpin',
-      nodes: [const LatLng(45.0, -73.0), const LatLng(45.05, -73.03)],
-      distanceKm: 12,
-      windingScore: 6.8,
-      starRating: 4,
-      sharpCurveCount: 14,
-      centerPoint: const LatLng(45.025, -73.015),
-      distanceFromUser: 7,
-      tightCurveKm: 2.8,
-      mediumCurveKm: 0.8,
-      maxContinuousKm: 1.1,
-      elevationDelta: 10,
-    );
-    final sweeper = switchback.copyWith(
-      id: 'sweeper',
-      name: 'Valley Sweep',
-      tightCurveKm: 0.5,
-      mediumCurveKm: 3.2,
-      maxContinuousKm: 1.8,
-    );
-    final hill = switchback.copyWith(
-      id: 'hill',
-      name: 'Mont Rise',
-      tightCurveKm: 0.9,
-      mediumCurveKm: 1.7,
-      maxContinuousKm: 1.4,
-      elevationDelta: 120,
-    );
+  test(
+    'route character classifies switchback, sweeper, and hill climb styles',
+    () {
+      final switchback = RevvRoute(
+        id: 'switch',
+        name: 'North Hairpin',
+        nodes: [const LatLng(45.0, -73.0), const LatLng(45.05, -73.03)],
+        distanceKm: 12,
+        windingScore: 6.8,
+        starRating: 4,
+        sharpCurveCount: 14,
+        centerPoint: const LatLng(45.025, -73.015),
+        distanceFromUser: 7,
+        tightCurveKm: 2.8,
+        mediumCurveKm: 0.8,
+        maxContinuousKm: 1.1,
+        elevationDelta: 10,
+      );
+      final sweeper = switchback.copyWith(
+        id: 'sweeper',
+        name: 'Valley Sweep',
+        tightCurveKm: 0.5,
+        mediumCurveKm: 3.2,
+        maxContinuousKm: 1.8,
+      );
+      final hill = switchback.copyWith(
+        id: 'hill',
+        name: 'Mont Rise',
+        tightCurveKm: 0.9,
+        mediumCurveKm: 1.7,
+        maxContinuousKm: 1.4,
+        elevationDelta: 120,
+      );
 
-    expect(routeCharacter(switchback), 'tight_technical');
-    expect(routeCharacter(sweeper), 'fast_sweeper');
-    expect(routeCharacter(hill), 'hill_climb');
-  });
+      expect(routeCharacter(switchback), 'tight_technical');
+      expect(routeCharacter(sweeper), 'fast_sweeper');
+      expect(routeCharacter(hill), 'hill_climb');
+    },
+  );
 
-  test('route explanation includes core reason and caution note from route data', () {
-    final route = RevvRoute(
-      id: 'explained',
-      name: 'Rue de Test',
-      nodes: [const LatLng(45.0, -73.0), const LatLng(45.08, -73.04)],
-      distanceKm: 13,
-      windingScore: 6.0,
-      starRating: 4,
-      sharpCurveCount: 8,
-      centerPoint: const LatLng(45.04, -73.02),
-      distanceFromUser: 6,
-      tightCurveKm: 1.2,
-      mediumCurveKm: 2.0,
-      maxContinuousKm: 1.7,
-      stopSignCount: 2,
-      stopControlDensity: 0.2,
-      flowScore: 0.93,
-    );
+  test(
+    'route explanation includes core reason and caution note from route data',
+    () {
+      final route = RevvRoute(
+        id: 'explained',
+        name: 'Rue de Test',
+        nodes: [const LatLng(45.0, -73.0), const LatLng(45.08, -73.04)],
+        distanceKm: 13,
+        windingScore: 6.0,
+        starRating: 4,
+        sharpCurveCount: 8,
+        centerPoint: const LatLng(45.04, -73.02),
+        distanceFromUser: 6,
+        tightCurveKm: 1.2,
+        mediumCurveKm: 2.0,
+        maxContinuousKm: 1.7,
+        stopSignCount: 2,
+        stopControlDensity: 0.2,
+        flowScore: 0.93,
+      );
 
-    expect(routePrimaryReason(route), isNotNull);
-    expect(routePrimaryReason(route), contains('루트'));
-    expect(routeCautionNote(route), contains('stop'));
-  });
+      expect(routePrimaryReason(route), isNotNull);
+      expect(routePrimaryReason(route), contains('루트'));
+      expect(routeCautionNote(route), contains('stop'));
+    },
+  );
+
+  test(
+    'hydration preserves injected route copy before generated fallbacks',
+    () {
+      final route = RevvRoute(
+        id: 'copy-injected',
+        name: 'Route des Pins',
+        nodes: [const LatLng(45.0, -73.0), const LatLng(45.08, -73.04)],
+        distanceKm: 18,
+        windingScore: 7.0,
+        starRating: 4,
+        sharpCurveCount: 10,
+        centerPoint: const LatLng(45.04, -73.02),
+        distanceFromUser: 8,
+        tightCurveKm: 0.8,
+        mediumCurveKm: 3.4,
+        maxContinuousKm: 2.2,
+        primaryReason: '강변을 따라 긴 중속 코너가 이어지는 실제 주입 리뷰예요.',
+        cautionNote: '후반부에 짧은 마을 진입 구간이 있어 흐름이 잠깐 느려집니다.',
+      );
+
+      final hydrated = hydrateRouteMetadata(route);
+
+      expect(hydrated.primaryReason, route.primaryReason);
+      expect(hydrated.cautionNote, route.cautionNote);
+    },
+  );
 }

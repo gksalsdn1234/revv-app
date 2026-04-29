@@ -11,9 +11,12 @@ import '../services/route_service.dart';
 import '../services/saved_route_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/revv_copy.dart';
+import '../ui/route_detail_copy.dart';
 import '../ui/ux_contracts.dart';
 import '../widgets/mini_elev_chart.dart';
 import '../widgets/revv_ui.dart';
+import 'route_edit_screen.dart';
 import 'route_preview_screen.dart';
 
 class RouteDetailScreen extends StatelessWidget {
@@ -58,6 +61,18 @@ class RouteDetailScreen extends StatelessWidget {
             svc.previewCompositeRoute ?? svc.selectedCompositeRoute;
         final saveTarget = activeComposite?.toRouteProjection() ?? route;
         final location = context.watch<LocationService>();
+        final startNode = route.nodes.isNotEmpty
+            ? route.nodes.first
+            : route.centerPoint;
+        final startDistanceKm = RevvRoute.haversineKm(
+          LatLng(location.lat, location.lng),
+          startNode,
+        );
+        final copy = RouteDetailCopy.fromRoute(
+          route,
+          startDistanceKm: startDistanceKm,
+          hasComposite: activeComposite != null,
+        );
         final isSaved = context.watch<SavedRouteService>().isSaved(
           saveTarget.id,
         );
@@ -94,6 +109,13 @@ class RouteDetailScreen extends StatelessWidget {
                   color: Colors.white70,
                 ),
               ),
+              IconButton(
+                onPressed: () => _showRouteActions(context, route, svc),
+                icon: const Icon(
+                  Icons.more_horiz_rounded,
+                  color: Colors.white70,
+                ),
+              ),
             ],
           ),
           body: RevvCockpitBackground(
@@ -114,16 +136,12 @@ class RouteDetailScreen extends StatelessWidget {
                   location: location,
                 ),
                 const SizedBox(height: 12),
-                _DecisionSummaryCard(
-                  route: route,
-                  activeComposite: activeComposite,
-                  location: location,
-                ),
+                _DecisionSummaryCard(copy: copy),
                 const SizedBox(height: 12),
                 _SectionCard(
                   title: '왜 이 루트인가',
                   child: Text(
-                    route.primaryReason ?? '지금 달리기 좋은 루트예요.',
+                    copy.heroReason,
                     style: AppText.body(
                       size: 18,
                       weight: FontWeight.w700,
@@ -132,12 +150,12 @@ class RouteDetailScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (route.cautionNote?.isNotEmpty == true) ...[
+                if (copy.cautionLine?.isNotEmpty == true) ...[
                   const SizedBox(height: 12),
                   _SectionCard(
                     title: '주의할 점',
                     child: Text(
-                      route.cautionNote!,
+                      copy.cautionLine!,
                       style: AppText.body(
                         size: 15,
                         height: 1.35,
@@ -271,7 +289,7 @@ class RouteDetailScreen extends StatelessWidget {
                 children: [
                   Expanded(
                     child: RevvGhostButton(
-                      label: '출발 방식 보기',
+                      label: RevvCopy.viewOnMap,
                       onPressed: () {
                         Navigator.push(
                           context,
@@ -288,7 +306,7 @@ class RouteDetailScreen extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: RevvPrimaryButton(
-                      label: '이 루트로 달리기',
+                      label: RevvCopy.startDrive,
                       icon: Icons.bolt_rounded,
                       onPressed: () {
                         context.read<RouteService>().requestSprint(
@@ -323,13 +341,69 @@ class RouteDetailScreen extends StatelessWidget {
   }
 
   Future<void> _shareRoute(RevvRoute route) {
-    final text = StringBuffer()
-      ..writeln('REVV 추천 루트')
-      ..writeln(route.name)
-      ..writeln('${route.distanceDisplay} · ${route.durationDisplay}')
-      ..writeln(describeRouteCharacter(route.routeCharacter))
-      ..writeln(route.primaryReason ?? '지금 달리기 좋은 루트예요.');
-    return Share.share(text.toString().trim());
+    return SharePlus.instance.share(
+      ShareParams(text: RouteDetailCopy.fromRoute(route).shareText),
+    );
+  }
+
+  void _showRouteActions(
+    BuildContext context,
+    RevvRoute route,
+    RouteService svc,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RouteActionsSheet(
+        onEdit: () async {
+          Navigator.pop(context);
+          final result = await Navigator.push<RouteEditResult>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => RouteEditScreen(
+                route: route,
+                otherRoutes: svc.routes.where((r) => r.id != route.id).toList(),
+              ),
+            ),
+          );
+          if (result == null || !context.mounted) return;
+          svc.selectRoute(result.route);
+          if (result.branchRoute != null) {
+            svc.addManualChain(result.branchRoute!);
+          }
+          if (context.mounted) Navigator.pop(context);
+        },
+        onSimilar: () {
+          Navigator.pop(context);
+          svc.fetchRoutes(route.centerPoint.lat, route.centerPoint.lng);
+          Navigator.pop(context);
+        },
+        onReverse: () {
+          Navigator.pop(context);
+          svc.selectRoute(
+            route.copyWith(
+              id: '${route.id}_rev',
+              nodes: route.nodes.reversed.toList(),
+            ),
+          );
+          Navigator.pop(context);
+        },
+        onHeatmap: () {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('히트맵은 주행 전 지도 화면에 맞춰 준비 중이에요.'),
+              backgroundColor: AppColors.panel2,
+            ),
+          );
+        },
+        onHide: () {
+          Navigator.pop(context);
+          svc.excludeRoute(route);
+          Navigator.pop(context);
+        },
+      ),
+    );
   }
 }
 
@@ -429,40 +503,17 @@ class _StartPlanCard extends StatelessWidget {
 }
 
 class _DecisionSummaryCard extends StatelessWidget {
-  final RevvRoute route;
-  final CompositeRoute? activeComposite;
-  final LocationService location;
+  final RouteDetailCopy copy;
 
-  const _DecisionSummaryCard({
-    required this.route,
-    required this.activeComposite,
-    required this.location,
-  });
+  const _DecisionSummaryCard({required this.copy});
 
   @override
   Widget build(BuildContext context) {
-    final startNode = route.nodes.isNotEmpty
-        ? route.nodes.first
-        : route.centerPoint;
-    final startDistanceKm = RevvRoute.haversineKm(
-      LatLng(location.lat, location.lng),
-      startNode,
-    );
-    final bullets = <String>[
-      route.primaryReason ?? '지금 달리기 좋은 루트예요.',
-      buildSprintStartSummary(
-        startDistanceKm,
-        _recommendedMode(startDistanceKm),
-      ),
-      if (route.cautionNote?.isNotEmpty == true) route.cautionNote!,
-      if (activeComposite != null) '체인이 적용돼 첫 구간 뒤에 다음 흐름까지 이어서 볼 수 있어요.',
-    ];
-
     return _SectionCard(
       title: '지금 선택 포인트',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: bullets.take(3).map((line) {
+        children: copy.decisionBullets.map((line) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
@@ -495,11 +546,184 @@ class _DecisionSummaryCard extends StatelessWidget {
       ),
     );
   }
+}
 
-  SprintStartMode _recommendedMode(double startDistanceKm) {
-    if (startDistanceKm < 0.3) return SprintStartMode.auto;
-    if (startDistanceKm < 5.0) return SprintStartMode.guideToStart;
-    return SprintStartMode.joinFromCurrent;
+class _RouteActionsSheet extends StatelessWidget {
+  final VoidCallback onSimilar;
+  final VoidCallback onReverse;
+  final VoidCallback onHeatmap;
+  final VoidCallback onHide;
+  final VoidCallback onEdit;
+
+  const _RouteActionsSheet({
+    required this.onEdit,
+    required this.onSimilar,
+    required this.onReverse,
+    required this.onHeatmap,
+    required this.onHide,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        margin: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
+        decoration: BoxDecoration(
+          color: AppColors.panel2.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.22),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.outline.withValues(alpha: 0.28),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              RevvCopy.more,
+              style: AppText.body(
+                size: 20,
+                weight: FontWeight.w900,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _RouteActionTile(
+              icon: Icons.edit_rounded,
+              label: RevvCopy.edit,
+              body: '구간을 다듬거나 이어지는 분기를 조정해요.',
+              onTap: onEdit,
+            ),
+            _RouteActionTile(
+              icon: Icons.auto_awesome_rounded,
+              label: '비슷한 루트 찾기',
+              body: '이 루트 주변에서 비슷한 흐름의 후보를 다시 찾아요.',
+              onTap: onSimilar,
+            ),
+            _RouteActionTile(
+              icon: Icons.swap_horiz_rounded,
+              label: '방향 반전',
+              body: '같은 라인을 반대 방향 기준으로 다시 봐요.',
+              onTap: onReverse,
+            ),
+            _RouteActionTile(
+              icon: Icons.grid_view_rounded,
+              label: '히트맵',
+              body: '커브 밀도와 흐름 구간을 지도형으로 확인해요.',
+              onTap: onHeatmap,
+            ),
+            const SizedBox(height: 6),
+            Divider(color: AppColors.outlineVariant.withValues(alpha: 0.20)),
+            const SizedBox(height: 6),
+            _RouteActionTile(
+              icon: Icons.block_rounded,
+              label: '이 루트 숨기기',
+              body: '추천 목록에서 이 루트를 제외해요.',
+              destructive: true,
+              onTap: onHide,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteActionTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String body;
+  final bool destructive;
+  final VoidCallback onTap;
+
+  const _RouteActionTile({
+    required this.icon,
+    required this.label,
+    required this.body,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = destructive ? AppColors.red : AppColors.primaryContainer;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.panel.withValues(alpha: 0.62),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: destructive
+                  ? AppColors.red.withValues(alpha: 0.30)
+                  : AppColors.outlineVariant.withValues(alpha: 0.18),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, size: 18, color: color),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: AppText.body(
+                        size: 14,
+                        weight: FontWeight.w900,
+                        color: destructive
+                            ? AppColors.red
+                            : AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      body,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body(
+                        size: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: destructive ? AppColors.red : AppColors.textHint,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

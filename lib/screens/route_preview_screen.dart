@@ -9,6 +9,7 @@ import '../services/route_service.dart';
 import '../services/saved_route_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/route_detail_copy.dart';
 import '../ui/ux_contracts.dart';
 import '../widgets/mini_elev_chart.dart';
 import '../widgets/revv_ui.dart';
@@ -43,6 +44,11 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
       startNode,
     );
     final startSummary = buildSprintStartSummary(startDistanceKm, _startMode);
+    final copy = RouteDetailCopy.fromRoute(
+      displayRoute,
+      startDistanceKm: startDistanceKm,
+      hasComposite: widget.compositeRoute != null,
+    );
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -255,10 +261,7 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
               ),
             ),
             const SizedBox(height: 14),
-            _PreviewDecisionPanel(
-              route: displayRoute,
-              startSummary: startSummary,
-            ),
+            _PreviewDecisionPanel(copy: copy),
             if (widget.compositeRoute == null) ...[
               const SizedBox(height: 12),
               Wrap(
@@ -289,14 +292,14 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
               ),
             ],
             if (widget.compositeRoute == null &&
-                displayRoute.cautionNote?.isNotEmpty == true) ...[
+                copy.cautionLine?.isNotEmpty == true) ...[
               const SizedBox(height: 12),
               RevvGlassCard(
                 padding: const EdgeInsets.all(14),
                 color: AppColors.warning.withValues(alpha: 0.08),
                 borderOpacity: 0.34,
                 child: Text(
-                  displayRoute.cautionNote!,
+                  copy.cautionLine!,
                   style: AppText.body(
                     size: 13,
                     color: AppColors.textSecondary,
@@ -379,33 +382,19 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
   }
 
   Future<void> _shareRoute(RevvRoute route) {
-    final text = StringBuffer()
-      ..writeln('REVV 저장 루트')
-      ..writeln(route.name)
-      ..writeln('${route.distanceDisplay} · ${route.durationDisplay}')
-      ..writeln(describeRouteCharacter(route.routeCharacter))
-      ..writeln(route.primaryReason ?? '지금 달리기 좋은 루트예요.');
-    return Share.share(text.toString().trim());
+    return SharePlus.instance.share(
+      ShareParams(text: RouteDetailCopy.fromRoute(route).shareText),
+    );
   }
 }
 
 class _PreviewDecisionPanel extends StatelessWidget {
-  final RevvRoute route;
-  final String startSummary;
+  final RouteDetailCopy copy;
 
-  const _PreviewDecisionPanel({
-    required this.route,
-    required this.startSummary,
-  });
+  const _PreviewDecisionPanel({required this.copy});
 
   @override
   Widget build(BuildContext context) {
-    final bullets = <String>[
-      route.primaryReason ?? '지금 달리기 좋은 루트예요.',
-      startSummary,
-      if (route.cautionNote?.isNotEmpty == true) route.cautionNote!,
-    ];
-
     return SizedBox(
       width: double.infinity,
       child: RevvGlassCard(
@@ -422,38 +411,36 @@ class _PreviewDecisionPanel extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            ...bullets
-                .take(3)
-                .map(
-                  (line) => Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 5,
-                          height: 5,
-                          margin: const EdgeInsets.only(top: 7),
-                          decoration: const BoxDecoration(
-                            color: AppColors.red,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            line,
-                            style: AppText.body(
-                              size: 13,
-                              height: 1.35,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ),
-                      ],
+            ...copy.decisionBullets.map(
+              (line) => Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 5,
+                      height: 5,
+                      margin: const EdgeInsets.only(top: 7),
+                      decoration: const BoxDecoration(
+                        color: AppColors.red,
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        line,
+                        style: AppText.body(
+                          size: 13,
+                          height: 1.35,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
+              ),
+            ),
           ],
         ),
       ),

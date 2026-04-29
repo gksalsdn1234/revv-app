@@ -1,6 +1,9 @@
+import 'dart:convert';
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'dart:math';
+
 import '../core/supabase_config.dart';
 import '../core/supabase_tables.dart';
 import '../models/revv_route.dart';
@@ -90,13 +93,32 @@ class SupabaseService extends ChangeNotifier {
     }
   }
 
+  Future<Map<String, dynamic>?> invokeFunction(
+    String name, {
+    Map<String, dynamic> body = const {},
+  }) async {
+    if (!_ready || client == null) return null;
+    try {
+      final response = await client!.functions.invoke(name, body: body);
+      final data = response.data;
+      if (data is Map<String, dynamic>) return data;
+      if (data is Map) return Map<String, dynamic>.from(data);
+      if (data is String && data.trim().isNotEmpty) {
+        final decoded = jsonDecode(data);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      }
+    } catch (e) {
+      debugPrint('[Supabase] function $name failed: $e');
+    }
+    return null;
+  }
+
   Future<void> uploadRunDetail(RunTelemetryDetail detail) async {
     if (!_ready || uid == null) return;
     try {
-      await client!.from(SupabaseTables.runDetails).upsert(
-        runDetailToRow(detail, userId: uid!),
-        onConflict: 'run_id',
-      );
+      await client!
+          .from(SupabaseTables.runDetails)
+          .upsert(runDetailToRow(detail, userId: uid!), onConflict: 'run_id');
       debugPrint('[Supabase] run detail uploaded — ${detail.runId}');
     } catch (e) {
       debugPrint('[Supabase] uploadRunDetail failed: $e');
@@ -567,7 +589,7 @@ class SupabaseService extends ChangeNotifier {
       'elevation_delta': route.elevationDelta,
       'source': 'revv',
       if (route.runCount > 0) 'run_count': route.runCount,
-      if (publishedBy != null) 'published_by': publishedBy,
+      'published_by': ?publishedBy,
     };
   }
 

@@ -1,7 +1,8 @@
 import 'dart:convert';
 
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
+
+import 'supabase_service.dart';
 
 class GoogleTtsService {
   GoogleTtsService._();
@@ -38,14 +39,15 @@ class GoogleTtsService {
     },
   ];
 
-  final FirebaseFunctions _fn = FirebaseFunctions.instance;
   List<Map<String, String>> _cachedVoices = const [];
 
   Future<List<Map<String, String>>> fetchVoices() async {
     if (_cachedVoices.isNotEmpty) return _cachedVoices;
     try {
-      final result = await _fn.httpsCallable('listGoogleTtsVoices').call<Map>();
-      final raw = (result.data['voices'] as List?) ?? const [];
+      final data = await SupabaseService().invokeFunction(
+        'list-google-tts-voices',
+      );
+      final raw = (data?['voices'] as List?) ?? const [];
       final voices = raw
           .whereType<Map>()
           .map(
@@ -78,11 +80,11 @@ class GoogleTtsService {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return null;
     try {
-      final result = await _fn.httpsCallable('synthesizeTts').call<Map>({
-        'text': trimmed,
-        'voiceName': voiceName,
-      });
-      final base64Audio = result.data['audioContent'] as String?;
+      final data = await SupabaseService().invokeFunction(
+        'synthesize-tts',
+        body: {'text': trimmed, 'voiceName': voiceName},
+      );
+      final base64Audio = data?['audioContent'] as String?;
       if (base64Audio == null || base64Audio.isEmpty) return null;
       return base64Decode(base64Audio);
     } catch (e) {

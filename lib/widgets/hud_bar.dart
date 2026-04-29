@@ -146,7 +146,7 @@ class _SprintHudBarState extends State<SprintHudBar> {
           ),
           const Spacer(),
           Consumer<LocationService>(
-            builder: (_, loc, __) => Column(
+            builder: (_, loc, _) => Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(

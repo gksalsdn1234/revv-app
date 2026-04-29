@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
 import 'package:provider/provider.dart';
@@ -58,15 +58,18 @@ class MapWidget extends StatefulWidget {
 }
 
 class _MapWidgetState extends State<MapWidget> {
+  static const bool _disableMapbox = bool.fromEnvironment(
+    'REVV_DISABLE_MAPBOX',
+  );
+
   mbx.MapboxMap? _mapController;
   bool _styleLoaded = false;
   bool _locationPuckEnabled = false;
   LocationService? _locationService;
 
-  // ── FollowPuckViewportState: Mapbox 네이티브 위치 추적 ──────────
-  // 수동 flyTo/easeTo 대신 SDK의 viewport 추적 기능 사용.
-  // 스타일 로드 후 setState로 활성화 → SDK가 GPS 추적을 자동 처리.
-  // 사용자 터치로 카메라 이탈 시에도 다음 GPS 업데이트로 재잠금.
+  // ── FollowPuckViewportState 비활성화 ──────────
+  // iOS 실기기에서 스타일 로드 직후 viewport setState + location puck 조합이
+  // 네이티브 EXC_BAD_ACCESS로 이어지는 케이스가 있어 수동 카메라 추적으로 고정한다.
   mbx.ViewportState? _viewportState;
 
   // ── 카메라 업데이트 1-프레임 격리 (viewport 비활성 구간 fallback) ──
@@ -407,6 +410,20 @@ class _MapWidgetState extends State<MapWidget> {
   Future<void> _updateLocationSettings() async {
     final map = _mapController;
     if (map == null) return;
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      await map.location.updateSettings(
+        mbx.LocationComponentSettings(
+          enabled: true,
+          pulsingEnabled: widget.isSprintMode,
+          pulsingColor: widget.isSprintMode
+              ? AppColors.red.withValues(alpha: 0.22).toARGB32()
+              : const Color(0x3326D7FF).toARGB32(),
+        ),
+      );
+      _locationPuckEnabled = true;
+      return;
+    }
+
     await _ensureCustomPuckImages();
     await map.location.updateSettings(
       mbx.LocationComponentSettings(
@@ -431,12 +448,10 @@ class _MapWidgetState extends State<MapWidget> {
   void _activateFollowViewport() {
     final loc = _locationService;
     if (loc == null) return;
-    setState(() {
-      _viewportState = mbx.FollowPuckViewportState(
-        zoom: widget.isSprintMode ? 16.5 : 15.0,
-        pitch: widget.isSprintMode ? 50.0 : 20.0,
-        bearing: const mbx.FollowPuckViewportStateBearingHeading(),
-      );
+    _viewportState = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_styleLoaded) return;
+      _moveCamera(loc.lat, loc.lng, heading: loc.heading, immediate: true);
     });
   }
 
@@ -453,7 +468,7 @@ class _MapWidgetState extends State<MapWidget> {
     _routeFocusApplied = false;
     _originalLayerVisibility.clear();
     await _applyCustomStyle();
-    // FollowPuckViewportState 활성화: 스타일 로드 완료 후 SDK 네이티브 추적 시작
+    // 스타일 로드 완료 후 카메라를 현재 위치로 맞춘다.
     _activateFollowViewport();
     // 폴리라인 재그리기 (스타일 재로드 시)
     if (!widget.routeFocusMode && widget.navPolyline?.isNotEmpty == true) {
@@ -848,6 +863,13 @@ class _MapWidgetState extends State<MapWidget> {
       return _MapFallback();
     }
 
+    if (_disableMapbox) {
+      return const _MapFallback(
+        icon: Icons.map_outlined,
+        message: '지도 엔진 진단 모드',
+      );
+    }
+
     final loc = context.read<LocationService>();
     final weatherIcon = context.read<WeatherService>().weatherIcon;
 
@@ -876,6 +898,14 @@ class _MapWidgetState extends State<MapWidget> {
 }
 
 class _MapFallback extends StatelessWidget {
+  final IconData icon;
+  final String message;
+
+  const _MapFallback({
+    this.icon = Icons.location_off,
+    this.message = '위치 권한이 필요해요',
+  });
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -885,13 +915,13 @@ class _MapFallback extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              Icons.location_off,
+              icon,
               color: AppColors.red.withValues(alpha: 0.5),
               size: 32,
             ),
             const SizedBox(height: 8),
             Text(
-              '위치 권한이 필요해요',
+              message,
               style: TextStyle(
                 color: AppColors.white.withValues(alpha: 0.4),
                 fontSize: 13,

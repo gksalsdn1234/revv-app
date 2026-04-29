@@ -97,7 +97,7 @@ class _JarvisPanelState extends State<JarvisPanel>
                     const SizedBox(width: 8),
                     AnimatedBuilder(
                       animation: _cursor,
-                      builder: (_, __) => Container(
+                      builder: (_, _) => Container(
                         width: 6,
                         height: 6,
                         decoration: BoxDecoration(
@@ -121,7 +121,7 @@ class _JarvisPanelState extends State<JarvisPanel>
                       )
                     : AnimatedBuilder(
                         animation: _cursor,
-                        builder: (_, __) => RichText(
+                        builder: (_, _) => RichText(
                           text: TextSpan(
                             style: GoogleFonts.rajdhani(
                               fontSize: 16,

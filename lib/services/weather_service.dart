@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:cloud_functions/cloud_functions.dart';
+
+import 'supabase_service.dart';
 
 class WeatherService extends ChangeNotifier {
   String weatherDesc = '맑음';
@@ -19,16 +20,17 @@ class WeatherService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await FirebaseFunctions.instance
-          .httpsCallable('getWeather')
-          .call<Map>({'lat': lat, 'lng': lng});
+      final data = await SupabaseService().invokeFunction(
+        'get-weather',
+        body: {'lat': lat, 'lng': lng},
+      );
+      if (data == null) throw StateError('weather function unavailable');
 
-      final data = result.data;
       weatherDesc = data['weather'][0]['description'] as String;
       tempCelsius = (data['main']['temp'] as num).toDouble();
       weatherIcon = data['weather'][0]['icon'] as String;
       roadCondition = _inferRoadCondition(data);
-      _isOffline = false;
+      _isOffline = data['error'] != null;
     } catch (_) {
       _isOffline = true;
     }

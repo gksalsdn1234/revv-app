@@ -181,8 +181,8 @@ class RoutesSelectionPanel extends StatelessWidget {
                     reason: recommendation.reason,
                     characterLabel: characterLabel,
                     qualityLabel: qualityLabel,
-                    signalCount:
-                        route.stopSignCount + route.trafficSignalCount,
+                    signalCount: route.stopSignCount + route.trafficSignalCount,
+                    cautionNote: route.cautionNote,
                   ),
                 ],
                 const SizedBox(height: 8),
@@ -235,14 +235,13 @@ class RoutesSelectionPanel extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    if (onGenerate != null) ...[
+                    if (onPreview != null) ...[
                       Expanded(
                         child: _MainActionButton(
-                          label: isGeneratingExtension ? '찾는중' : '확장',
-                          icon: Icons.auto_fix_high_rounded,
-                          onTap: isGeneratingExtension ? null : onGenerate,
+                          label: '자세히',
+                          icon: Icons.route_rounded,
+                          onTap: onPreview,
                           primary: false,
-                          busy: isGeneratingExtension,
                         ),
                       ),
                       const SizedBox(width: 8),
@@ -284,6 +283,7 @@ class RoutesSelectionPanel extends StatelessWidget {
         onReverse: onReverse,
         onFindSimilar: onFindSimilar,
         onChain: onChain,
+        onGenerate: isGeneratingExtension ? null : onGenerate,
         onHeatmap: onHeatmap,
         onEdit: onEdit,
         onTrim: onTrim,
@@ -298,15 +298,19 @@ class _RouteReviewCard extends StatelessWidget {
   final String characterLabel;
   final String qualityLabel;
   final int signalCount;
+  final String? cautionNote;
 
   const _RouteReviewCard({
     required this.reason,
     required this.characterLabel,
     required this.qualityLabel,
     required this.signalCount,
+    this.cautionNote,
   });
 
   String get _supportingLine {
+    final note = cautionNote?.trim();
+    if (note?.isNotEmpty ?? false) return note!;
     if (signalCount >= 8) {
       return '신호나 정지 구간이 조금 있어 흐름이 끊기지 않는지 먼저 보고 들어가는 편이 좋아요.';
     }
@@ -460,14 +464,12 @@ class _MainActionButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback? onTap;
   final bool primary;
-  final bool busy;
 
   const _MainActionButton({
     required this.label,
     required this.icon,
     required this.onTap,
     required this.primary,
-    this.busy = false,
   });
 
   @override
@@ -500,14 +502,7 @@ class _MainActionButton extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (busy)
-              SizedBox(
-                width: 15,
-                height: 15,
-                child: CircularProgressIndicator(strokeWidth: 1.8, color: fg),
-              )
-            else
-              Icon(icon, size: 16, color: fg),
+            Icon(icon, size: 16, color: fg),
             const SizedBox(width: 6),
             Text(
               label,
@@ -525,6 +520,7 @@ class _AdvancedRouteSheet extends StatelessWidget {
   final VoidCallback? onReverse;
   final VoidCallback? onFindSimilar;
   final VoidCallback? onChain;
+  final VoidCallback? onGenerate;
   final VoidCallback? onHeatmap;
   final VoidCallback? onEdit;
   final VoidCallback? onTrim;
@@ -535,6 +531,7 @@ class _AdvancedRouteSheet extends StatelessWidget {
     this.onReverse,
     this.onFindSimilar,
     this.onChain,
+    this.onGenerate,
     this.onHeatmap,
     this.onEdit,
     this.onTrim,
@@ -574,6 +571,12 @@ class _AdvancedRouteSheet extends StatelessWidget {
                 icon: Icons.add_link_rounded,
                 label: '체인 연결',
                 onTap: onChain,
+                destructive: false,
+              ),
+              (
+                icon: Icons.auto_fix_high_rounded,
+                label: '루트 확장',
+                onTap: onGenerate,
                 destructive: false,
               ),
               (

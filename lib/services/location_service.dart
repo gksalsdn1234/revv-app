@@ -146,8 +146,10 @@ class LocationService extends ChangeNotifier {
 
     try {
       final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.bestForNavigation,
-        timeLimit: timeout,
+        locationSettings: LocationSettings(
+          accuracy: LocationAccuracy.bestForNavigation,
+          timeLimit: timeout,
+        ),
       );
       _applyPosition(position);
       notifyListeners();

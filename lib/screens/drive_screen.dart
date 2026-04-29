@@ -218,8 +218,8 @@ class _DriveScreenState extends State<DriveScreen>
     Navigator.pushReplacement(
       context,
       PageRouteBuilder(
-        pageBuilder: (_, a, __) => RunCardScreen(session: session),
-        transitionsBuilder: (_, a, __, child) =>
+        pageBuilder: (_, a, _) => RunCardScreen(session: session),
+        transitionsBuilder: (_, a, _, child) =>
             FadeTransition(opacity: a, child: child),
         transitionDuration: const Duration(milliseconds: 300),
       ),

@@ -1838,7 +1838,7 @@ class _SpeedHUD extends StatelessWidget {
 class _RunCardRoute extends PageRouteBuilder {
   _RunCardRoute(Widget page)
     : super(
-        pageBuilder: (_, __, ___) => page,
+        pageBuilder: (_, _, _) => page,
         transitionDuration: const Duration(milliseconds: 500),
         transitionsBuilder: (context, animation, _, child) {
           return FadeTransition(

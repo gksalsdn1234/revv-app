@@ -160,7 +160,7 @@ class _WaveformBars extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: Listenable.merge(barAnims),
-      builder: (_, __) {
+      builder: (_, _) {
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,

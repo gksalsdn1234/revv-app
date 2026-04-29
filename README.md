@@ -43,14 +43,37 @@ flutter pub get
 Cloud features stay disabled unless these Dart defines are provided:
 
 ```bash
---dart-define=SUPABASE_URL=...
---dart-define=SUPABASE_ANON_KEY=...
+SUPABASE_URL=...
+SUPABASE_ANON_KEY=...
+```
+
+REVV uses Supabase Edge Functions for optional AI, weather, and Google TTS features. Set server-side secrets in Supabase, not in the app:
+
+```bash
+supabase secrets set AI_API_KEY=...
+supabase secrets set WEATHER_API_KEY=...
+supabase secrets set GOOGLE_TTS_API_KEY=...
+```
+
+Functions used by the app:
+
+- `call-ai`
+- `get-weather`
+- `list-google-tts-voices`
+- `synthesize-tts`
+
+Deploy them with:
+
+```bash
+export SUPABASE_ACCESS_TOKEN=...
+export SUPABASE_PROJECT_REF=zvwgnduuumksuqazpvsf
+bash scripts/deploy_supabase_functions.sh
 ```
 
 ### Run
 
 ```bash
-flutter run --dart-define=SUPABASE_URL=... --dart-define=SUPABASE_ANON_KEY=...
+flutter run --dart-define-from-file=.env
 ```
 
 ### Verify
