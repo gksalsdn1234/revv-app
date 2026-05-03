@@ -304,7 +304,7 @@ class _SavedRoutesScreenState extends State<SavedRoutesScreen> {
     context.read<RouteService>().selectRoute(route);
     context.read<RouteService>().clearCompositeRoute();
     context.read<RouteService>().requestSprint(route: route);
-    Navigator.pop(context);
+    Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
   Future<void> _shareRoute(RevvRoute route) {

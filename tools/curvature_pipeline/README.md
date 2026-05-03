@@ -12,6 +12,9 @@ REVV용 사전 계산 와인딩 도로 파이프라인입니다.
   - 노드 다운샘플링, 중심점, 거리, 곡률 프로파일, `fun_score`, `driveability_penalty`, 안정적 ID를 계산합니다.
 - `enrich_stop_controls.py`
   - Overpass를 사용해 각 루트 주변의 stop sign / traffic signal을 수집하고 `flow_score`를 계산합니다.
+- `enrich_route_context.py`
+  - Overpass를 사용해 루트 주변의 실제 도로명, road ref, surface, maxspeed, viewpoint/POI를 수집합니다.
+  - 결과는 `road_names`, `surface_summary`, `speed_limit_summary`, `nearby_pois`, `route_context`에 저장됩니다.
 - `upload_to_supabase.py`
   - 분석 결과를 Supabase `curvy_roads` 테이블에 upsert합니다.
   - 추천 필드(`fun_score`, `flow_score`, `driveability_penalty`, `road_class_bucket`)까지 함께 적재합니다.
@@ -35,6 +38,7 @@ python tools/curvature_pipeline/download_kmz.py -o data/kmz
 python tools/curvature_pipeline/parse_kml.py data/kmz/sample.kmz -o data/sample.json
 python tools/curvature_pipeline/process_roads.py data/sample.json -o data/analyzed.json
 python tools/curvature_pipeline/enrich_stop_controls.py data/analyzed.json -o data/analyzed.enriched.json
+python tools/curvature_pipeline/enrich_route_context.py data/analyzed.enriched.json -o data/analyzed.context.json
 SUPABASE_URL=... SUPABASE_SERVICE_KEY=... python tools/curvature_pipeline/upload_to_supabase.py data/analyzed.enriched.json
 python tools/curvature_pipeline/enrich_region_batch.py --region montreal
 ```
@@ -64,6 +68,7 @@ python tools/curvature_pipeline/enrich_region_batch.py --region montreal
 
 - Supabase `find_curvy_roads()`로 후보 추출
 - `stop_control_version` 메타데이터로 증분 skip
+- `context_version` 메타데이터로 road/surface/speed/POI context 증분 skip
 - `quality_version` 메타데이터로 quality/character/explanation 증분 skip
 - 타일 캐시 재사용
 - 새 stop-control 또는 quality 메타데이터가 필요한 루트만 업로드
@@ -84,6 +89,12 @@ python tools/curvature_pipeline/enrich_region_batch.py --region montreal
 - `housing_proximity_score`
 - `urban_friction_score`
 - `residential_penalty`
+- `road_names`
+- `surface_summary`
+- `speed_limit_summary`
+- `nearby_pois`
+- `route_context`
+- `elevation_profile`
 
 설계 문서:
 

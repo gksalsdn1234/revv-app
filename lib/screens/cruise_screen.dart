@@ -230,10 +230,12 @@ class _CruiseScreenState extends State<CruiseScreen>
 
   void _enterSprint() {
     _phase = _RidePhase.sprinting;
+    _recenterSignal++;
   }
 
   void _enterDrive() {
     _phase = _RidePhase.driving;
+    _recenterSignal++;
   }
 
   void _exitRide() {
@@ -595,7 +597,12 @@ class _CruiseScreenState extends State<CruiseScreen>
                     if (mounted) setState(() => _sprintNavPolyline = poly);
                   },
                   onRouteFocusChanged: (focused) {
-                    if (mounted) setState(() => _sprintRouteFocus = focused);
+                    if (mounted) {
+                      setState(() {
+                        _sprintRouteFocus = focused;
+                        _recenterSignal++;
+                      });
+                    }
                   },
                 ),
               ),

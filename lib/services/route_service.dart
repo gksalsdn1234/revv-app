@@ -905,6 +905,22 @@ class RouteService extends ChangeNotifier {
     );
   }
 
+  void _logCloudSearchContext({
+    required SupabaseService cloud,
+    required double lat,
+    required double lng,
+    required int radiusKm,
+  }) {
+    debugPrint(
+      '[RouteService] Supabase search context: '
+      'ready=${cloud.isReady} available=${cloud.isCloudAvailable} '
+      'uid=${cloud.uid ?? '(null)'} '
+      'lat=${lat.toStringAsFixed(6)} '
+      'lng=${lng.toStringAsFixed(6)} '
+      'radius=${radiusKm}km',
+    );
+  }
+
   void _emitListenersNow() {
     if (_disposed) return;
     _notifyTimer?.cancel();
@@ -1101,6 +1117,12 @@ class RouteService extends ChangeNotifier {
 
       // ③-a 전역 DB 먼저 조회 (커뮤니티 루트)
       final cloud = SupabaseService();
+      _logCloudSearchContext(
+        cloud: cloud,
+        lat: lat,
+        lng: lng,
+        radiusKm: searchRadiusKm,
+      );
       if (!cloud.isReady) {
         routeDataStatusTitle = '클라우드 루트 연결 안 됨';
         routeDataStatusBody = '저장된 커뮤니티 루트 대신 공개 도로 검색으로 루트를 찾고 있어요.';
@@ -1142,6 +1164,14 @@ class RouteService extends ChangeNotifier {
         'Supabase usable nearby after exclusions',
         globalFiltered,
       );
+      if (supabaseRpcRoutes.isEmpty && supabaseDirectRoutes.isEmpty) {
+        debugPrint(
+          '[RouteService] Supabase returned no nearby routes '
+          '(rpc=0, direct=0) for '
+          '${lat.toStringAsFixed(6)},${lng.toStringAsFixed(6)} '
+          'within ${searchRadiusKm}km',
+        );
+      }
       if (cloud.isReady &&
           lastCloudCandidateCount > 0 &&
           globalFiltered.isEmpty) {

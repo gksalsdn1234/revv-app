@@ -1,12 +1,28 @@
+import { consumeRateLimit } from "../_shared/security.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
 
+const allowedVoices = new Set([
+  "ko-KR-Chirp3-HD-Leda",
+  "ko-KR-Chirp3-HD-Autonoe",
+  "ko-KR-Chirp3-HD-Aoede",
+  "ko-KR-Chirp3-HD-Charon",
+  "ko-KR-Wavenet-D",
+]);
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+  if (req.method !== "POST") {
+    return json({ audioContent: "", error: "method_not_allowed" }, 405);
+  }
+  if (!(await consumeRateLimit(req, "synthesize-tts", 25, 60))) {
+    return json({ audioContent: "", error: "rate_limited" }, 429);
   }
 
   try {
@@ -16,8 +32,11 @@ Deno.serve(async (req) => {
     }
 
     const { text, voiceName } = await req.json();
-    const trimmed = String(text ?? "").trim();
+    const trimmed = String(text ?? "").trim().slice(0, 500);
     if (!trimmed) return json({ audioContent: "" });
+    const selectedVoice = allowedVoices.has(String(voiceName))
+      ? String(voiceName)
+      : "ko-KR-Chirp3-HD-Leda";
 
     const upstream = await fetch(
       `https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`,
@@ -28,7 +47,7 @@ Deno.serve(async (req) => {
           input: { text: trimmed },
           voice: {
             languageCode: "ko-KR",
-            name: voiceName ?? "ko-KR-Chirp3-HD-Leda",
+            name: selectedVoice,
           },
           audioConfig: {
             audioEncoding: "MP3",
@@ -40,7 +59,7 @@ Deno.serve(async (req) => {
     );
 
     if (!upstream.ok) {
-      return json({ audioContent: "", error: await upstream.text() });
+      return json({ audioContent: "", error: "tts_upstream_failed" });
     }
     const data = await upstream.json();
     return json({ audioContent: data.audioContent ?? "" });

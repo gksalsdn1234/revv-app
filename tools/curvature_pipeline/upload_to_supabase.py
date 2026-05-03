@@ -6,7 +6,11 @@ import os
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from supabase import Client, create_client
+try:
+    from supabase import Client, create_client
+except ImportError:  # pragma: no cover - optional CLI dependency in unit tests
+    Client = object  # type: ignore
+    create_client = None  # type: ignore
 
 if __package__:
     from .process_roads import RoadRecord, from_json
@@ -45,6 +49,8 @@ def get_client() -> Client:
     key = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
     if not url or not key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_KEY are required")
+    if create_client is None:
+        raise RuntimeError("supabase package is required for upload")
     return create_client(url, key)
 
 
@@ -98,6 +104,14 @@ def normalize_record(record: RoadRecord) -> dict[str, object]:
         "quality_version": record.get("quality_version", ""),
         "quality_enriched_at": record.get("quality_enriched_at"),
         "elevation_delta": record.get("elevation_delta", 0.0),
+        "elevation_profile": record.get("elevation_profile", []),
+        "road_names": record.get("road_names", []),
+        "surface_summary": record.get("surface_summary", ""),
+        "speed_limit_summary": record.get("speed_limit_summary", ""),
+        "nearby_pois": record.get("nearby_pois", []),
+        "route_context": record.get("route_context", {}),
+        "context_version": record.get("context_version", ""),
+        "context_enriched_at": record.get("context_enriched_at"),
         "geohash4": record.get("geohash4", ""),
         "region": record.get("region", ""),
         "source": record.get("source", "roadcurvature"),

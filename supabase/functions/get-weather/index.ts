@@ -1,3 +1,5 @@
+import { consumeRateLimit } from "../_shared/security.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -8,6 +10,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  if (req.method !== "POST") {
+    return json(defaultWeather("method_not_allowed"), 405);
+  }
+  if (!(await consumeRateLimit(req, "get-weather", 60, 60))) {
+    return json(defaultWeather("rate_limited"), 429);
+  }
 
   try {
     const apiKey = Deno.env.get("WEATHER_API_KEY") ??
@@ -17,9 +25,21 @@ Deno.serve(async (req) => {
     }
 
     const { lat, lng } = await req.json();
+    const latitude = Number(lat);
+    const longitude = Number(lng);
+    if (
+      !Number.isFinite(latitude) ||
+      !Number.isFinite(longitude) ||
+      latitude < -90 ||
+      latitude > 90 ||
+      longitude < -180 ||
+      longitude > 180
+    ) {
+      return json(defaultWeather("invalid_coordinates"), 400);
+    }
     const url = new URL("https://api.openweathermap.org/data/2.5/weather");
-    url.searchParams.set("lat", String(lat));
-    url.searchParams.set("lon", String(lng));
+    url.searchParams.set("lat", latitude.toFixed(5));
+    url.searchParams.set("lon", longitude.toFixed(5));
     url.searchParams.set("appid", apiKey);
     url.searchParams.set("units", "metric");
     url.searchParams.set("lang", "kr");

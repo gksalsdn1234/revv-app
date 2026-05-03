@@ -1949,6 +1949,65 @@ class _ConnectionCard extends StatelessWidget {
             }),
           ],
 
+          if (isConnected) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.bg.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'DATA LINK',
+                    style: GoogleFonts.rajdhani(
+                      fontSize: 10,
+                      color: AppColors.gray,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'PROTO ${obd.activeProtocolLabel}  ·  FAST ${obd.fastPollPidCount} / SLOW ${obd.slowPollPidCount}  ·  TX ${obd.lastCommand ?? "—"}  ·  RX ${obd.rxCount}  ·  PARSED ${obd.parseCount}  ·  MISS ${obd.parseMissCount}  ·  TIMEOUT ${obd.timeoutCount}',
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      color: Colors.white70,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'RAW ${obd.lastRawResponse?.isNotEmpty == true ? obd.lastRawResponse : "—"}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.jetBrainsMono(
+                      fontSize: 10,
+                      color: obd.parseCount > 0
+                          ? const Color(0xFF00FF88)
+                          : Colors.orangeAccent,
+                    ),
+                  ),
+                  if (obd.supportedPids.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'SUPPORTED ${obd.supportedPids.take(12).join(", ")}${obd.supportedPids.length > 12 ? " ..." : ""}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 9,
+                        color: Colors.white38,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+
           const SizedBox(height: 14),
 
           // 메인 버튼

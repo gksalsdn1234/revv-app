@@ -1,3 +1,5 @@
+import { consumeRateLimit } from "../_shared/security.ts";
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -28,6 +30,12 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
+  if (req.method !== "POST") {
+    return json({ voices: fallbackVoices, error: "method_not_allowed" }, 405);
+  }
+  if (!(await consumeRateLimit(req, "list-google-tts-voices", 20, 60))) {
+    return json({ voices: fallbackVoices, error: "rate_limited" }, 429);
+  }
 
   const apiKey = Deno.env.get("GOOGLE_TTS_API_KEY");
   if (!apiKey) {
@@ -42,7 +50,7 @@ Deno.serve(async (req) => {
       `https://texttospeech.googleapis.com/v1/voices?languageCode=ko-KR&key=${apiKey}`,
     );
     if (!upstream.ok) {
-      return json({ voices: fallbackVoices, error: await upstream.text() });
+      return json({ voices: fallbackVoices, error: "tts_upstream_failed" });
     }
     const data = await upstream.json();
     const voices = (data.voices ?? [])

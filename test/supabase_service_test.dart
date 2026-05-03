@@ -114,6 +114,13 @@ void main() {
       'medium_curve_km': 4.4,
       'max_continuous_km': 1.8,
       'is_loop': true,
+      'elevation_profile': [10, 24, 18],
+      'road_names': ['Chemin du Lac', 'North Ridge'],
+      'surface_summary': 'asphalt',
+      'speed_limit_summary': '50',
+      'nearby_pois': [
+        {'name': 'Belvédère Nord', 'category': 'viewpoint'},
+      ],
       'run_count': 7,
       'published_by': 'user-1',
     });
@@ -128,32 +135,40 @@ void main() {
     expect(route.driveabilityPenalty, 0.72);
     expect(route.stopSignCount, 2);
     expect(route.trafficSignalCount, 1);
+    expect(route.elevationProfile, [10, 24, 18]);
+    expect(route.roadNames, ['Chemin du Lac', 'North Ridge']);
+    expect(route.surfaceSummary, 'asphalt');
+    expect(route.speedLimitSummary, '50');
+    expect(route.nearbyPoiNames, ['Belvédère Nord']);
     expect(route.runCount, 7);
     expect(route.publishedBy, 'user-1');
   });
 
-  test('Route rows derive distance when rpc payload omits distance_from_user_km', () {
-    final route = SupabaseService.routeFromRow(
-      {
-        'id': 'route-2',
-        'name': 'North Ridge',
-        'nodes': [
-          {'lat': 45.46, 'lng': -73.62},
-          {'lat': 45.49, 'lng': -73.68},
-        ],
-        'distance_km': 11.2,
-        'winding_score': 5.8,
-        'star_rating': 4,
-        'sharp_curve_count': 8,
-        'center_lat': 45.49,
-        'center_lng': -73.68,
-      },
-      userLat: 45.4627,
-      userLng: -73.6266,
-    );
+  test(
+    'Route rows derive distance when rpc payload omits distance_from_user_km',
+    () {
+      final route = SupabaseService.routeFromRow(
+        {
+          'id': 'route-2',
+          'name': 'North Ridge',
+          'nodes': [
+            {'lat': 45.46, 'lng': -73.62},
+            {'lat': 45.49, 'lng': -73.68},
+          ],
+          'distance_km': 11.2,
+          'winding_score': 5.8,
+          'star_rating': 4,
+          'sharp_curve_count': 8,
+          'center_lat': 45.49,
+          'center_lng': -73.68,
+        },
+        userLat: 45.4627,
+        userLng: -73.6266,
+      );
 
-    expect(route.distanceFromUser, greaterThan(0));
-  });
+      expect(route.distanceFromUser, greaterThan(0));
+    },
+  );
 
   test('route payload only uses columns present in curvy_roads schema', () {
     final payload = SupabaseService.routeToRow(
@@ -179,6 +194,11 @@ void main() {
         trafficSignalCount: 0,
         stopControlDensity: 0.08,
         roadClassBucket: 'rural_named',
+        roadNames: ['Chemin du Lac'],
+        surfaceSummary: 'asphalt',
+        speedLimitSummary: '50',
+        nearbyPoiNames: ['Belvédère Nord'],
+        elevationProfile: [10, 24, 18],
         isNamed: true,
         runCount: 7,
         publishedBy: 'user-1',
@@ -192,38 +212,51 @@ void main() {
     expect(payload['flow_score'], 0.88);
     expect(payload['stop_sign_count'], 1);
     expect(payload['road_class_bucket'], 'rural_named');
+    expect(payload['road_names'], ['Chemin du Lac']);
+    expect(payload['surface_summary'], 'asphalt');
+    expect(payload['speed_limit_summary'], '50');
+    expect(payload['nearby_pois'], [
+      {'name': 'Belvédère Nord', 'category': 'saved'},
+    ]);
+    expect(payload['elevation_profile'], [10, 24, 18]);
     expect(payload['run_count'], 7);
   });
 
-  test('discovered route cache rows are scoped to a user and stored as json', () {
-    final row = SupabaseService.discoveredRouteCacheRow(
-      const RevvRoute(
-        id: 'route-1',
-        name: 'Mountain Sweep',
-        nodes: [LatLng(45.0, -73.0), LatLng(45.1, -73.1)],
-        distanceKm: 18.4,
-        windingScore: 6.3,
-        starRating: 4,
-        sharpCurveCount: 11,
-        centerPoint: LatLng(45.05, -73.05),
-        distanceFromUser: 12.0,
-        tightCurveKm: 3.1,
-        mediumCurveKm: 4.4,
-        maxContinuousKm: 1.8,
-        isLoop: true,
-        runCount: 7,
-      ),
-      userId: 'user-1',
-    );
+  test(
+    'discovered route cache rows are scoped to a user and stored as json',
+    () {
+      final row = SupabaseService.discoveredRouteCacheRow(
+        const RevvRoute(
+          id: 'route-1',
+          name: 'Mountain Sweep',
+          nodes: [LatLng(45.0, -73.0), LatLng(45.1, -73.1)],
+          distanceKm: 18.4,
+          windingScore: 6.3,
+          starRating: 4,
+          sharpCurveCount: 11,
+          centerPoint: LatLng(45.05, -73.05),
+          distanceFromUser: 12.0,
+          tightCurveKm: 3.1,
+          mediumCurveKm: 4.4,
+          maxContinuousKm: 1.8,
+          isLoop: true,
+          runCount: 7,
+        ),
+        userId: 'user-1',
+      );
 
-    expect(row['user_id'], 'user-1');
-    expect(row['route_id'], 'route-1');
-    expect(row['route_data'], isA<Map<String, dynamic>>());
-  });
+      expect(row['user_id'], 'user-1');
+      expect(row['route_id'], 'route-1');
+      expect(row['route_data'], isA<Map<String, dynamic>>());
+    },
+  );
 
-  test('recordRouteRun uses rpc payload instead of read-then-write increment', () {
-    final payload = SupabaseService.recordRouteRunRpcParams('route-1');
+  test(
+    'recordRouteRun uses rpc payload instead of read-then-write increment',
+    () {
+      final payload = SupabaseService.recordRouteRunRpcParams('route-1');
 
-    expect(payload, {'route_id_input': 'route-1'});
-  });
+      expect(payload, {'route_id_input': 'route-1'});
+    },
+  );
 }

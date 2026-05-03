@@ -5,12 +5,19 @@ import json
 from pathlib import Path
 from typing import Any
 
-from supabase import Client
+try:
+    from supabase import Client
+except ImportError:  # pragma: no cover - optional CLI dependency in unit tests
+    Client = Any  # type: ignore
 
 if __package__:
     from .enrich_residential_context import (
         TileResidentialCache,
         enrich_record as enrich_residential_record,
+    )
+    from .enrich_route_context import (
+        TileRouteContextCache,
+        enrich_record as enrich_context_record,
     )
     from .enrich_stop_controls import TileControlCache, enrich_record
     from .quality_metadata import apply_quality_metadata
@@ -23,6 +30,10 @@ else:
         TileResidentialCache,
         enrich_record as enrich_residential_record,
     )
+    from enrich_route_context import (
+        TileRouteContextCache,
+        enrich_record as enrich_context_record,
+    )
     from enrich_stop_controls import TileControlCache, enrich_record
     from quality_metadata import apply_quality_metadata
     from upload_to_supabase import get_client, upload_records
@@ -31,6 +42,7 @@ else:
 DEFAULT_VERSION = "stop-control-v1"
 DEFAULT_RESIDENTIAL_VERSION = "residential-v2"
 DEFAULT_QUALITY_VERSION = "quality-v3"
+DEFAULT_CONTEXT_VERSION = "route-context-v1"
 
 
 def load_regions(path: str | Path) -> list[dict[str, Any]]:
@@ -78,7 +90,8 @@ def fetch_existing_metadata(client: Client, route_ids: list[str]) -> dict[str, d
         response = client.table("curvy_roads").select(
             "id,stop_control_enriched_at,stop_control_version,stop_control_source,"
             "residential_enriched_at,residential_version,"
-            "quality_enriched_at,quality_version"
+            "quality_enriched_at,quality_version,"
+            "context_enriched_at,context_version"
         ).in_("id", batch).execute()
         rows.extend(response.data or [])
     return {row["id"]: dict(row) for row in rows if row.get("id")}
@@ -121,6 +134,19 @@ def should_skip_residential(
     return bool(
         existing_row.get("residential_enriched_at")
         and existing_row.get("residential_version") == version
+    )
+
+
+def should_skip_context(
+    existing_row: dict[str, Any] | None,
+    *,
+    version: str,
+) -> bool:
+    if existing_row is None:
+        return False
+    return bool(
+        existing_row.get("context_enriched_at")
+        and existing_row.get("context_version") == version
     )
 
 
@@ -175,6 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", default="overpass_tile_cache")
     parser.add_argument("--residential-version", default=DEFAULT_RESIDENTIAL_VERSION)
     parser.add_argument("--quality-version", default=DEFAULT_QUALITY_VERSION)
+    parser.add_argument("--context-version", default=DEFAULT_CONTEXT_VERSION)
     parser.add_argument("--no-upload", action="store_true")
     args = parser.parse_args(argv)
 
@@ -210,6 +237,10 @@ def main(argv: list[str] | None = None) -> int:
         route for route in candidates
         if not should_skip_quality(existing.get(str(route.get("id"))), version=args.quality_version)
     ]
+    context_to_update = [
+        route for route in candidates
+        if not should_skip_context(existing.get(str(route.get("id"))), version=args.context_version)
+    ]
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -243,16 +274,39 @@ def main(argv: list[str] | None = None) -> int:
     residential_enriched_by_id = {
         str(route.get("id")): route for route in residential_enriched_routes if route.get("id")
     }
+    context_cache = TileRouteContextCache(
+        tile_size_deg=args.tile_size_deg,
+        cache_dir=(Path(args.tile_cache_dir) / "route_context") if args.tile_cache_dir else None,
+    )
+    context_enriched_routes = [
+        enrich_context_record(
+            residential_enriched_by_id.get(
+                str(route.get("id")),
+                stop_enriched_by_id.get(str(route.get("id")), dict(route)),
+            ),
+            args.padding_deg,
+            args.timeout_seconds,
+            context_cache,
+            args.context_version,
+        )
+        for route in context_to_update
+    ]
+    context_enriched_by_id = {
+        str(route.get("id")): route for route in context_enriched_routes if route.get("id")
+    }
     quality_candidate_ids = {
         str(route.get("id"))
         for route in quality_to_update
         if route.get("id")
-    } | set(stop_enriched_by_id.keys()) | set(residential_enriched_by_id.keys())
+    } | set(stop_enriched_by_id.keys()) | set(residential_enriched_by_id.keys()) | set(context_enriched_by_id.keys())
     quality_enriched_routes = [
         apply_quality_metadata(
-            residential_enriched_by_id.get(
+            context_enriched_by_id.get(
                 str(route.get("id")),
-                stop_enriched_by_id.get(str(route.get("id")), dict(route)),
+                residential_enriched_by_id.get(
+                    str(route.get("id")),
+                    stop_enriched_by_id.get(str(route.get("id")), dict(route)),
+                ),
             ),
             version=args.quality_version,
         )
@@ -264,6 +318,9 @@ def main(argv: list[str] | None = None) -> int:
         if record.get("id"):
             final_updates_by_id[str(record["id"])] = record
     for record in residential_enriched_routes:
+        if record.get("id"):
+            final_updates_by_id[str(record["id"])] = record
+    for record in context_enriched_routes:
         if record.get("id"):
             final_updates_by_id[str(record["id"])] = record
     for record in quality_enriched_routes:
@@ -285,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         "already_enriched": len(already_enriched),
         "newly_enriched": len(enriched_routes),
         "residential_updated": len(residential_enriched_routes),
+        "context_updated": len(context_enriched_routes),
         "quality_updated": len(quality_enriched_routes),
         "tiles_cached": len(cache.payload_cache),
         "cache_hits": cache.cache_hits,
@@ -292,6 +350,9 @@ def main(argv: list[str] | None = None) -> int:
         "residential_tiles_cached": len(residential_cache.payload_cache),
         "residential_cache_hits": residential_cache.cache_hits,
         "residential_cache_misses": residential_cache.cache_misses,
+        "context_tiles_cached": len(context_cache.payload_cache),
+        "context_cache_hits": context_cache.cache_hits,
+        "context_cache_misses": context_cache.cache_misses,
         "uploaded": 0 if args.no_upload else len(final_updates_by_id),
         "subset_path": str(subset_path),
         "enriched_path": str(enriched_path),

@@ -584,6 +584,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
     svc.selectRoute(svc.routes[newIdx]);
   }
 
+  void _closeRouteFinder() {
+    Navigator.of(context).pop();
+  }
+
   // ─────────────────────────────────────────────────────────────
 
   @override
@@ -763,6 +767,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                               svc.selectedRoute;
                           if (routeToStart == null) return;
                           svc.requestSprint(route: routeToStart);
+                          _closeRouteFinder();
                         };
                   if (total == 0 || selected == null) {
                     return _RouteFinderHintBar(
@@ -845,6 +850,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                   if (svc == null) return;
                   svc.selectRoute(loop.segments.first);
                   svc.requestSprint();
+                  _closeRouteFinder();
                 },
               ),
             ),

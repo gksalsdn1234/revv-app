@@ -1,6 +1,6 @@
 # REVV Supabase Edge Functions
 
-These functions replace the old Firebase Functions layer. They are optional
+These functions provide the app's optional cloud helper layer. They are optional
 cloud helpers: if a secret is missing or an upstream API fails, the Flutter app
 falls back to local/default behavior.
 

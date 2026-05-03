@@ -373,7 +373,7 @@ class _RoutePreviewScreenState extends State<RoutePreviewScreen> {
                     widget.compositeRoute?.toRouteProjection() ?? widget.route,
                 startMode: _startMode,
               );
-              Navigator.pop(context);
+              Navigator.of(context).popUntil((route) => route.isFirst);
             },
           ),
         ),

@@ -301,6 +301,7 @@ def analyze_road(road: RoadInput, max_points: int = 300) -> RoadRecord:
     stop_sign_count = int(road.get("stop_sign_count", 0) or 0)
     traffic_signal_count = int(road.get("traffic_signal_count", 0) or 0)
     stop_control_density = float(road.get("stop_control_density", 0.0) or 0.0)
+    elevation_profile = _numeric_list(road.get("elevation_profile"))
     context_adjustment = 1.0
     if distance_km < 8.0:
         context_adjustment *= 0.82
@@ -340,6 +341,7 @@ def analyze_road(road: RoadInput, max_points: int = 300) -> RoadRecord:
         "max_continuous_km": profile["max_continuous_km"],
         "is_loop": is_loop(nodes),
         "elevation_delta": float(road.get("elevation_delta", 0.0) or 0.0),
+        "elevation_profile": elevation_profile,
         "geohash4": encode_geohash(center["lat"], center["lng"], 4),
         "region": road.get("region") or "",
         "source": road.get("source") or "roadcurvature",
@@ -366,6 +368,13 @@ def analyze_road(road: RoadInput, max_points: int = 300) -> RoadRecord:
         "quality_version": road.get("quality_version") or "",
         "quality_enriched_at": road.get("quality_enriched_at"),
         "road_class_bucket": road_class_bucket,
+        "road_names": _string_list(road.get("road_names")),
+        "surface_summary": str(road.get("surface_summary", "") or ""),
+        "speed_limit_summary": str(road.get("speed_limit_summary", "") or ""),
+        "nearby_pois": _dict_list(road.get("nearby_pois")),
+        "route_context": _dict_value(road.get("route_context")),
+        "context_version": road.get("context_version") or "",
+        "context_enriched_at": road.get("context_enriched_at"),
         "is_named": is_named,
         "is_facility_like": is_facility_like,
         "is_bridge_like": is_bridge_like,
@@ -373,6 +382,34 @@ def analyze_road(road: RoadInput, max_points: int = 300) -> RoadRecord:
         "is_major_road_like": is_major_road_like,
         "is_private_like": is_private_like,
     }
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _numeric_list(value: object) -> list[float]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    result: list[float] = []
+    for item in value:
+        if isinstance(item, (int, float)):
+            result.append(float(item))
+    return result
+
+
+def _dict_list(value: object) -> list[dict[str, object]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return [dict(item) for item in value if isinstance(item, Mapping)]
+
+
+def _dict_value(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        return {}
+    return dict(value)
 
 
 def analyze_roads(roads: Iterable[RoadInput], max_points: int = 300) -> list[RoadRecord]:

@@ -313,73 +313,166 @@ class _DriveScreenState extends State<DriveScreen>
         child: Container(
           color: AppColors.bg,
           child: SafeArea(
-            child: Column(
+            child: Stack(
               children: [
-                // ── Top bar ──────────────────────────────────────────
-                _TopBar(
-                  elapsed: _elapsedDisplay,
-                  driveMode: _driveMode,
-                  modeLabel: _driveModeLabel(_driveMode),
-                  modeColor: _driveModeColor(_driveMode),
-                  routeName: widget.selectedRoute?.name,
-                  startMode: widget.startMode,
-                  startSummary: _startModeSummary,
-                ),
-                // ── Route progress ───────────────────────────────────
-                if (widget.selectedRoute != null)
-                  _RouteProgressBar(
-                    progress: _routeProgressPct,
-                    caption: _routeProgressCaption,
-                  ),
-                if (rideContext != null) ...[
-                  const SizedBox(height: 8),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: RideContextCard(
-                      label: rideContext.label,
-                      detail: rideContext.detail,
-                      color: rideContext.color,
+                Column(
+                  children: [
+                    // ── Top bar ──────────────────────────────────────────
+                    _TopBar(
+                      elapsed: _elapsedDisplay,
+                      driveMode: _driveMode,
+                      modeLabel: _driveModeLabel(_driveMode),
+                      modeColor: _driveModeColor(_driveMode),
+                      routeName: widget.selectedRoute?.name,
+                      startMode: widget.startMode,
+                      startSummary: _startModeSummary,
                     ),
-                  ),
-                ],
-                const SizedBox(height: 8),
-                // ── Speed ────────────────────────────────────────────
-                Expanded(
-                  child: SingleChildScrollView(
-                    physics: const NeverScrollableScrollPhysics(),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 24),
-                        _SpeedDisplay(speed: displaySpeed, unit: speedUnit),
-                        const SizedBox(height: 32),
-                        // ── G-force circle + readouts ─────────────────
-                        _GForceSection(
-                          lateralG: _lateralG,
-                          longitudinalG: _longitudinalG,
-                          currentG: _currentG,
-                          maxLateralG: imu.maxLateralG,
-                          maxLonG: imu.maxLonG,
+                    // ── Route progress ───────────────────────────────────
+                    if (widget.selectedRoute != null)
+                      _RouteProgressBar(
+                        progress: _routeProgressPct,
+                        caption: _routeProgressCaption,
+                      ),
+                    if (rideContext != null) ...[
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: RideContextCard(
+                          label: rideContext.label,
+                          detail: rideContext.detail,
+                          color: rideContext.color,
                         ),
-                        const SizedBox(height: 24),
-                        // ── OBD adaptive section ──────────────────────
-                        AnimatedSize(
-                          duration: const Duration(milliseconds: 350),
-                          curve: Curves.easeOutCubic,
-                          child: obd.isConnected && obd.data != null
-                              ? _OBDSection(data: obd.data!)
-                              : const SizedBox.shrink(),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
+                    // ── Speed ────────────────────────────────────────────
+                    Expanded(
+                      child: SingleChildScrollView(
+                        physics: const NeverScrollableScrollPhysics(),
+                        child: Column(
+                          children: [
+                            const SizedBox(height: 24),
+                            _SpeedDisplay(speed: displaySpeed, unit: speedUnit),
+                            const SizedBox(height: 32),
+                            // ── G-force circle + readouts ─────────────────
+                            _GForceSection(
+                              lateralG: _lateralG,
+                              longitudinalG: _longitudinalG,
+                              currentG: _currentG,
+                              maxLateralG: imu.maxLateralG,
+                              maxLonG: imu.maxLonG,
+                            ),
+                            const SizedBox(height: 24),
+                            // ── OBD adaptive section ──────────────────────
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 350),
+                              curve: Curves.easeOutCubic,
+                              child: obd.isConnected && obd.data != null
+                                  ? _OBDSection(data: obd.data!)
+                                  : const SizedBox.shrink(),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
+                    // ── END button ───────────────────────────────────────
+                    _EndButton(onTap: _endRun),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+                Positioned(
+                  top: widget.selectedRoute != null ? 92 : 72,
+                  right: 16,
+                  child: _DriveCompactGMeter(
+                    lateralG: _lateralG,
+                    longitudinalG: _longitudinalG,
+                    totalG: _currentG,
+                    peakG: math.max(imu.maxLateralG, imu.maxLonG),
                   ),
                 ),
-                // ── END button ───────────────────────────────────────
-                _EndButton(onTap: _endRun),
-                const SizedBox(height: 16),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _DriveCompactGMeter extends StatelessWidget {
+  final double lateralG;
+  final double longitudinalG;
+  final double totalG;
+  final double peakG;
+
+  const _DriveCompactGMeter({
+    required this.lateralG,
+    required this.longitudinalG,
+    required this.totalG,
+    required this.peakG,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 108,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.88),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33000000),
+            blurRadius: 24,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'G',
+            style: GoogleFonts.rajdhani(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textHint,
+              letterSpacing: 2,
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: 64,
+            height: 64,
+            child: CustomPaint(
+              painter: _GForcePainter(
+                lateralG: lateralG,
+                longitudinalG: longitudinalG,
+                totalG: totalG,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            totalG.toStringAsFixed(2),
+            style: GoogleFonts.orbitron(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppColors.cyan,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'PK ${peakG.toStringAsFixed(2)}',
+            style: GoogleFonts.rajdhani(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textSecondary,
+              letterSpacing: 1.1,
+            ),
+          ),
+        ],
       ),
     );
   }

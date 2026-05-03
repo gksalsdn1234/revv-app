@@ -10,6 +10,7 @@
 - [ ] iPhone 실기기 실행: `flutter run --dart-define-from-file=.env`
 - [ ] Firebase 의존성 없음 확인: `rg "Firebase|FirebaseFunctions|cloud_functions|firebase_core" lib pubspec.yaml`
 - [ ] Supabase Edge Functions 배포 및 secrets 확인: `call-ai`, `get-weather`, `list-google-tts-voices`, `synthesize-tts`
+- [x] Supabase RLS migration 반영 및 Edge Function rate limit 적용
 - [x] 첫 실행 권한 설명 표시 후 위치/마이크 권한 요청
 - [x] 위치 거부 시 루트 탐색 불가 이유와 설정 이동 안내 표시
 - [x] 마이크 거부 시 음성 기능만 비활성화되고 앱 사용은 계속 가능
@@ -27,6 +28,7 @@
 - [x] AI 분석 실패 시 RunCard fallback 문구 확인
 - [ ] Mapbox/GPS/IMU/TTS/STT listener dispose 누수 점검
 - [ ] TestFlight용 위치/마이크/데이터 저장 설명 문구 정리
+- [ ] 날씨 API 키 관리 제거: `get-weather`를 Open-Meteo 기반 무키 API로 전환
 
 ## P2 - 공개 배포 전
 
@@ -67,6 +69,7 @@ Supabase 서버 secrets:
 AI_API_KEY=...
 WEATHER_API_KEY=...
 GOOGLE_TTS_API_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
 ```
 
 Mapbox token은 현재 `MapboxService` 설정을 사용한다. TestFlight 전에는 토큰 노출 정책을 별도 점검한다.

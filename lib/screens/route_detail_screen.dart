@@ -312,7 +312,7 @@ class RouteDetailScreen extends StatelessWidget {
                         context.read<RouteService>().requestSprint(
                           route: activeComposite?.toRouteProjection(),
                         );
-                        Navigator.pop(context);
+                        Navigator.of(context).popUntil((route) => route.isFirst);
                       },
                     ),
                   ),

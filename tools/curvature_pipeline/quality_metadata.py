@@ -230,14 +230,28 @@ def route_character(route: dict[str, Any]) -> str:
 
 def route_primary_reason(route: dict[str, Any]) -> str | None:
     character = route_character(route)
+    road_names = [str(name) for name in route.get("road_names", []) if str(name).strip()]
+    surface_summary = str(route.get("surface_summary", "") or "").strip()
+    nearby_pois = route.get("nearby_pois", []) or []
+    poi_names = [
+        str(poi.get("name"))
+        for poi in nearby_pois
+        if isinstance(poi, dict) and str(poi.get("name", "")).strip()
+    ]
+    route_subject = road_names[0] if road_names else str(route.get("name", "") or "").strip()
+    route_prefix = f"{route_subject} 기준으로 " if route_subject else ""
+    if poi_names and character in {"fast_sweeper", "rhythmic_flow", "mixed_touring"}:
+        return f"{route_prefix}{poi_names[0]} 주변 맥락과 코너 흐름을 같이 읽는 루트예요."
+    if surface_summary and surface_summary not in {"asphalt", "paved"}:
+        return f"{route_prefix}노면 정보({surface_summary})를 확인하면서 접근해야 하는 루트예요."
     if character == "tight_technical":
-        return "타이트한 코너 비중이 높아 기술적으로 재미있는 루트예요."
+        return f"{route_prefix}타이트한 코너 비중이 높아 라인을 세밀하게 읽는 루트예요."
     if character == "fast_sweeper":
-        return "길게 이어지는 스위퍼 코너가 리듬감 있게 이어지는 루트예요."
+        return f"{route_prefix}길게 이어지는 스위퍼 코너가 리듬감 있게 이어지는 루트예요."
     if character == "rhythmic_flow":
-        return "중간 정지가 적고 코너 리듬이 잘 이어지는 루트예요."
+        return f"{route_prefix}중간 정지가 적고 코너 리듬이 잘 이어지는 루트예요."
     if character == "hill_climb":
-        return "고도 변화가 살아 있어 업힐 몰입감이 좋은 루트예요."
+        return f"{route_prefix}고도 변화가 살아 있어 시야 전환을 같이 읽는 루트예요."
     return primary_route_reason(route) or "커브와 흐름의 균형이 괜찮은 투어링 성향 루트예요."
 
 
@@ -245,6 +259,10 @@ def route_caution_note(route: dict[str, Any]) -> str | None:
     stop_sign_count = int(route.get("stop_sign_count", 0) or 0)
     traffic_signal_count = int(route.get("traffic_signal_count", 0) or 0)
     residential_ratio = float(route.get("residential_ratio", 0.0) or 0.0)
+    speed_limit_summary = str(route.get("speed_limit_summary", "") or "").strip()
+    surface_summary = str(route.get("surface_summary", "") or "").strip()
+    if surface_summary and surface_summary not in {"asphalt", "paved"}:
+        return f"노면 정보가 {surface_summary}로 잡혀 실제 포장 상태를 먼저 확인"
     if stop_sign_count > 0 or traffic_signal_count > 0:
         parts: list[str] = []
         if stop_sign_count > 0:
@@ -259,6 +277,8 @@ def route_caution_note(route: dict[str, Any]) -> str | None:
         return "일부 구간은 간선도로 성격이 섞일 수 있음"
     if bool(route.get("is_bridge_like")) or is_bridge_like_route_name(name):
         return "브리지 연결 구간이 포함될 수 있음"
+    if speed_limit_summary:
+        return f"제한속도 표기가 {speed_limit_summary}로 섞여 현장 표지를 우선 확인"
     return None
 
 

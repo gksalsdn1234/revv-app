@@ -268,6 +268,13 @@ class SupabaseService extends ChangeNotifier {
   }) async {
     if (!_ready) return const [];
     try {
+      debugPrint(
+        '[Supabase] fetchNearbyRoutesDirect request '
+        'lat=${lat.toStringAsFixed(6)} '
+        'lng=${lng.toStringAsFixed(6)} '
+        'radius=${radiusKm.toStringAsFixed(1)}km '
+        'limit=$limit',
+      );
       final latDelta = radiusKm / 111.0;
       final lngScale = cos(_toRadians(lat)).abs().clamp(0.2, 1.0);
       final lngDelta = radiusKm / (111.0 * lngScale);
@@ -316,6 +323,14 @@ class SupabaseService extends ChangeNotifier {
   }) async {
     if (!_ready) return const [];
     try {
+      debugPrint(
+        '[Supabase] findCurvyRoads request '
+        'lat=${lat.toStringAsFixed(6)} '
+        'lng=${lng.toStringAsFixed(6)} '
+        'radius=${radiusM}m '
+        'minScore=$minScore '
+        'maxResults=$maxResults',
+      );
       final rows = await client!.rpc(
         'find_curvy_roads',
         params: {
@@ -326,10 +341,24 @@ class SupabaseService extends ChangeNotifier {
           'max_results': maxResults,
         },
       );
-      return (rows as List)
+      final mapped = (rows as List)
           .whereType<Map<String, dynamic>>()
           .map((row) => routeFromRow(row, userLat: lat, userLng: lng))
           .toList();
+      final preview = mapped
+          .take(5)
+          .map(
+            (route) =>
+                '${route.name.isEmpty ? '(noname)' : route.name}'
+                '[${route.distanceKm.toStringAsFixed(1)}km/'
+                '${route.distanceFromUser.toStringAsFixed(1)}km away]',
+          )
+          .join(', ');
+      debugPrint(
+        '[Supabase] findCurvyRoads response: ${mapped.length} rows'
+        '${preview.isEmpty ? '' : ' -> $preview'}',
+      );
+      return mapped;
     } catch (e) {
       debugPrint('[Supabase] findCurvyRoads failed: $e');
       return const [];
@@ -587,6 +616,14 @@ class SupabaseService extends ChangeNotifier {
       'primary_reason': route.primaryReason,
       'caution_note': route.cautionNote,
       'elevation_delta': route.elevationDelta,
+      if (route.elevationProfile != null)
+        'elevation_profile': route.elevationProfile,
+      'road_names': route.roadNames,
+      'surface_summary': route.surfaceSummary,
+      'speed_limit_summary': route.speedLimitSummary,
+      'nearby_pois': route.nearbyPoiNames
+          .map((name) => {'name': name, 'category': 'saved'})
+          .toList(),
       'source': 'revv',
       if (route.runCount > 0) 'run_count': route.runCount,
       'published_by': ?publishedBy,
@@ -677,6 +714,11 @@ class SupabaseService extends ChangeNotifier {
         routeCharacter: row['route_character'] as String? ?? '',
         primaryReason: row['primary_reason'] as String?,
         cautionNote: row['caution_note'] as String?,
+        roadNames: _stringListFromJson(row['road_names']),
+        surfaceSummary: row['surface_summary'] as String? ?? '',
+        speedLimitSummary: row['speed_limit_summary'] as String? ?? '',
+        nearbyPoiNames: _poiNamesFromJson(row['nearby_pois']),
+        elevationProfile: _doubleListFromJson(row['elevation_profile']),
         runCount: (row['run_count'] as num?)?.toInt() ?? 0,
         publishedBy: row['published_by'] as String?,
       ),
@@ -688,6 +730,36 @@ class SupabaseService extends ChangeNotifier {
     final lng = row['${prefix}_lng'];
     if (lat is! num || lng is! num) return null;
     return LatLng(lat.toDouble(), lng.toDouble());
+  }
+
+  static List<String> _stringListFromJson(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .map((item) => item.toString().trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
+  }
+
+  static List<String> _poiNamesFromJson(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .map((item) {
+          if (item is Map) {
+            return (item['name'] ?? item['category'] ?? '').toString().trim();
+          }
+          return item.toString().trim();
+        })
+        .where((item) => item.isNotEmpty)
+        .toList();
+  }
+
+  static List<double>? _doubleListFromJson(dynamic value) {
+    if (value is! List) return null;
+    final result = value
+        .whereType<num>()
+        .map((item) => item.toDouble())
+        .toList();
+    return result.isEmpty ? null : result;
   }
 
   static double _distanceKmBetween(

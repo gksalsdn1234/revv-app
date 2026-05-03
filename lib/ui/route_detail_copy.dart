@@ -1,5 +1,7 @@
 import '../models/revv_route.dart';
 import '../services/route_loading_policy.dart';
+import 'route_geometry_insight.dart';
+import 'route_reading_context.dart';
 
 class RouteDetailCopy {
   final String heroReason;
@@ -19,10 +21,13 @@ class RouteDetailCopy {
     double? startDistanceKm,
     bool hasComposite = false,
   }) {
-    final hero = _heroReason(route);
-    final caution = _cautionLine(route);
+    final insight = RouteGeometryInsight.fromRoute(route);
+    final context = RouteReadingContext.fromRoute(route);
+    final hero = _heroReason(route, insight);
+    final caution = _cautionLine(route, insight);
     final bullets = _dedupe(
       [
+        ..._balancedInsightBullets(insight.bullets, context.bullets),
         _shapeBullet(route),
         _flowBullet(route),
         _startBullet(startDistanceKm),
@@ -34,16 +39,37 @@ class RouteDetailCopy {
 
     return RouteDetailCopy(
       heroReason: hero,
-      decisionBullets: bullets.take(4).toList(),
+      decisionBullets: bullets.take(6).toList(),
       cautionLine: caution,
       shareText: _shareText(route, hero, caution),
     );
   }
 }
 
-String _heroReason(RevvRoute route) {
+List<String> _balancedInsightBullets(
+  List<String> geometryBullets,
+  List<String> contextBullets,
+) {
+  return [
+    if (geometryBullets.isNotEmpty) geometryBullets[0],
+    if (contextBullets.isNotEmpty) contextBullets[0],
+    if (contextBullets.length > 1) contextBullets[1],
+    if (contextBullets.length > 2) contextBullets[2],
+    if (geometryBullets.length > 1) geometryBullets[1],
+    if (contextBullets.length > 3) contextBullets[3],
+    ...geometryBullets.skip(2),
+    ...contextBullets.skip(4),
+  ];
+}
+
+String _heroReason(RevvRoute route, RouteGeometryInsight insight) {
   final injected = route.primaryReason?.trim();
-  if (injected?.isNotEmpty ?? false) return injected!;
+  if ((injected?.isNotEmpty ?? false) && !_isLowSignalInjectedCopy(injected!)) {
+    return injected;
+  }
+  if (insight.hasGeometry && insight.heroLine.trim().isNotEmpty) {
+    return insight.heroLine;
+  }
 
   final curvyKm = route.tightCurveKm + route.mediumCurveKm;
   final character = route.routeCharacter.isNotEmpty
@@ -105,9 +131,14 @@ String? _controlBullet(RevvRoute route) {
   return 'stop/sign $controls개 · 중간 흐름이 끊기는 지점 확인 필요';
 }
 
-String? _cautionLine(RevvRoute route) {
+String? _cautionLine(RevvRoute route, RouteGeometryInsight insight) {
   final injected = route.cautionNote?.trim();
-  if (injected?.isNotEmpty ?? false) return injected!;
+  if ((injected?.isNotEmpty ?? false) && !_isLowSignalInjectedCopy(injected!)) {
+    return injected;
+  }
+  if (insight.cautionLine?.trim().isNotEmpty ?? false) {
+    return insight.cautionLine;
+  }
 
   final controls = route.stopSignCount + route.trafficSignalCount;
   if (controls >= 6) {
@@ -157,6 +188,17 @@ List<String> _dedupe(List<String?> lines, {Set<String> blocked = const {}}) {
 
 String _normalize(String value) =>
     value.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
+
+bool _isLowSignalInjectedCopy(String value) {
+  final normalized = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (normalized.length >= 48) return false;
+  if (RegExp(r'\d').hasMatch(normalized)) return false;
+  final hasSpecificCue = RegExp(
+    r'(초반|중반|후반|강변|호수|산|고도|마을|브리지|교차|정지|합류|진입|탈출|오르막|내리막)',
+  ).hasMatch(normalized);
+  if (hasSpecificCue) return false;
+  return RegExp(r'(스위퍼|와인딩|리듬|좋은|추천|드라이브|코스|루트예요)').hasMatch(normalized);
+}
 
 String _distanceLabel(double distanceKm) {
   if (distanceKm < 1) return '${(distanceKm * 1000).round()}m';

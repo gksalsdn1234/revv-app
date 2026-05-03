@@ -10,9 +10,14 @@ from tools.curvature_pipeline.enrich_stop_controls import (
 from tools.curvature_pipeline.enrich_region_batch import (
     load_regions,
     should_skip_residential,
+    should_skip_context,
     select_region,
     should_skip_quality,
     should_skip_route,
+)
+from tools.curvature_pipeline.enrich_route_context import (
+    TileRouteContextCache,
+    summarize_route_context,
 )
 from tools.curvature_pipeline.quality_metadata import (
     apply_quality_metadata,
@@ -211,6 +216,70 @@ class CurvaturePipelineTest(unittest.TestCase):
         self.assertTrue(should_skip_residential(existing, version="residential-v1"))
         self.assertFalse(should_skip_residential(existing, version="residential-v2"))
 
+    def test_skip_logic_uses_context_version_metadata(self) -> None:
+        existing = {
+            "id": "route-1",
+            "context_enriched_at": "2026-04-30T00:00:00Z",
+            "context_version": "route-context-v1",
+        }
+
+        self.assertTrue(should_skip_context(existing, version="route-context-v1"))
+        self.assertFalse(should_skip_context(existing, version="route-context-v2"))
+
+    def test_route_context_summarizes_roads_surface_speed_and_pois(self) -> None:
+        route_nodes = [
+            {"lat": 45.5000, "lng": -73.6000},
+            {"lat": 45.5040, "lng": -73.5960},
+        ]
+        elements = [
+            {
+                "type": "way",
+                "tags": {
+                    "highway": "secondary",
+                    "name": "Chemin du Lac",
+                    "surface": "asphalt",
+                    "maxspeed": "50",
+                },
+                "geometry": [
+                    {"lat": 45.5001, "lon": -73.6001},
+                    {"lat": 45.5039, "lon": -73.5961},
+                ],
+            },
+            {
+                "type": "node",
+                "lat": 45.502,
+                "lon": -73.598,
+                "tags": {"tourism": "viewpoint", "name": "Belvédère Nord"},
+            },
+        ]
+
+        context = summarize_route_context(route_nodes, elements)
+
+        self.assertEqual(context["road_names"], ["Chemin du Lac"])
+        self.assertEqual(context["surface_summary"], "asphalt")
+        self.assertEqual(context["speed_limit_summary"], "50")
+        self.assertEqual(context["nearby_pois"][0]["name"], "Belvédère Nord")
+
+    def test_route_context_tile_cache_reuses_overlapping_payloads(self) -> None:
+        calls: list[tuple[float, float, float, float]] = []
+
+        def fake_loader(bbox: tuple[float, float, float, float], timeout_seconds: int) -> dict[str, object]:
+            calls.append(bbox)
+            return {"elements": []}
+
+        cache = TileRouteContextCache(loader=fake_loader, tile_size_deg=0.15)
+        route = [
+            {"lat": 45.5000, "lng": -73.6000},
+            {"lat": 45.5040, "lng": -73.5960},
+        ]
+
+        cache.fetch_for_route(route, padding_deg=0.0008, timeout_seconds=8)
+        first_call_count = len(calls)
+        cache.fetch_for_route(route, padding_deg=0.0008, timeout_seconds=8)
+
+        self.assertGreater(first_call_count, 0)
+        self.assertEqual(len(calls), first_call_count)
+
     def test_quality_metadata_classifies_and_explains_route(self) -> None:
         route = {
             "id": "route-1",
@@ -234,6 +303,8 @@ class CurvaturePipelineTest(unittest.TestCase):
             "is_connector_like": False,
             "is_major_road_like": False,
             "is_private_like": False,
+            "road_names": ["North Ridge Road"],
+            "surface_summary": "asphalt",
         }
 
         enriched = apply_quality_metadata(route, version="quality-v1")
@@ -241,7 +312,7 @@ class CurvaturePipelineTest(unittest.TestCase):
         self.assertEqual(route_character(route), "tight_technical")
         self.assertEqual(enriched["quality_label"], "keep")
         self.assertEqual(enriched["route_character"], "tight_technical")
-        self.assertIn("기술적으로 재미있는", enriched["primary_reason"])
+        self.assertIn("North Ridge Road", enriched["primary_reason"])
         self.assertIn("stop sign", enriched["caution_note"])
         self.assertEqual(enriched["quality_version"], "quality-v1")
 

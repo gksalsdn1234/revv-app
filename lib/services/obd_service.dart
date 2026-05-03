@@ -35,11 +35,29 @@ class OBDService extends ChangeNotifier {
   OBDState _state = OBDState.disconnected;
   OBDData? _data;
   String? _errorMsg;
+  String? _lastCommand;
+  String? _lastRawResponse;
+  String? _lastParsedPid;
+  String _activeProtocolLabel = 'AUTO';
+  int _rxCount = 0;
+  int _parseCount = 0;
+  int _timeoutCount = 0;
+  int _parseMissCount = 0;
 
   OBDState get state => _state;
   OBDData? get data => _data;
   String? get errorMsg => _errorMsg;
   bool get isConnected => _state == OBDState.ready;
+  String? get lastCommand => _lastCommand;
+  String? get lastRawResponse => _lastRawResponse;
+  String? get lastParsedPid => _lastParsedPid;
+  String get activeProtocolLabel => _activeProtocolLabel;
+  int get fastPollPidCount => _activeFastPids.length;
+  int get slowPollPidCount => _activeSlowPids.length;
+  int get rxCount => _rxCount;
+  int get parseCount => _parseCount;
+  int get timeoutCount => _timeoutCount;
+  int get parseMissCount => _parseMissCount;
 
   /// 순간 연비 (L/100km) — 속도 5km/h 이상일 때만 유효
   double? get instantFuelEconomyL100 {
@@ -185,6 +203,19 @@ class OBDService extends ChangeNotifier {
     '010D',
     '0104',
     '0111',
+    '012F',
+    '0105',
+    '015C',
+    '010F',
+    '010B',
+    '0110',
+    '015E',
+    '0149',
+    '0142',
+    '0145',
+  ];
+  static const List<String> _fastPollOrder = ['010C', '010D', '0111', '0104'];
+  static const List<String> _slowPollOrder = [
     '012F',
     '0105',
     '015C',
@@ -395,9 +426,30 @@ class OBDService extends ChangeNotifier {
       c.properties.notify || c.properties.indicate;
 
   int _pidIdx = 0;
+  int _fastPidIdx = 0;
+  int _slowPidIdx = 0;
+  int _pollTick = 0;
   final StringBuffer _buf = StringBuffer();
   Completer<String>? _responseCompleter;
   bool _cmdInFlight = false; // 폴링 중복 방지
+  final bool _verboseObdLog = true;
+  List<String> _activeFastPids = const [];
+  List<String> _activeSlowPids = const [];
+  static const int _slowPollEvery = 8;
+  static const Duration _pollInterval = Duration(milliseconds: 90);
+  static const Duration _pidTimeout = Duration(milliseconds: 850);
+
+  static const List<(String, String)> _protocolCandidates = [
+    ('6', 'CAN 11/500'),
+    ('7', 'CAN 29/500'),
+    ('8', 'CAN 11/250'),
+    ('9', 'CAN 29/250'),
+    ('5', 'KWP2000 FAST'),
+    ('4', 'KWP2000 5BAUD'),
+    ('3', 'ISO9141-2'),
+    ('2', 'J1850 VPW'),
+    ('1', 'J1850 PWM'),
+  ];
 
   // 자동 재연결
   int _consecutiveFailures = 0;
@@ -572,13 +624,7 @@ class OBDService extends ChangeNotifier {
       _notifySub = _notifyChar!.onValueReceived.listen(_onBytes);
 
       // ELM327 초기화
-      await _cmd('ATZ');
-      await Future.delayed(const Duration(milliseconds: 1000));
-      await _cmd('ATE0'); // 에코 끄기
-      await _cmd('ATH0'); // 헤더 숨기기
-      await _cmd('ATS0'); // 공백 제거
-      await _cmd('ATL0'); // 개행 제거
-      await _cmd('ATSP0'); // 프로토콜 자동 감지
+      await _initializeElm();
 
       // 차량별 지원 PID 감지
       _supportedPids = await _detectSupportedPids();
@@ -591,15 +637,33 @@ class OBDService extends ChangeNotifier {
     }
   }
 
+  Future<void> _initializeElm() async {
+    _rxCount = 0;
+    _parseCount = 0;
+    _timeoutCount = 0;
+    _parseMissCount = 0;
+    _activeProtocolLabel = 'AUTO';
+
+    await _cmd('ATZ', timeout: const Duration(seconds: 5));
+    await Future.delayed(const Duration(milliseconds: 1000));
+    await _cmd('ATE0'); // 에코 끄기
+    await _cmd('ATH0'); // 헤더 숨기기
+    await _cmd('ATS0'); // 공백 제거
+    await _cmd('ATL0'); // 개행 제거
+    await _cmd('ATAT1'); // adaptive timing
+    await _cmd('ATST64'); // timeout 여유
+    await _cmd('ATSP0', timeout: const Duration(seconds: 5)); // 프로토콜 자동 감지
+    final voltage = await _cmd('ATRV', timeout: const Duration(seconds: 4));
+    debugPrint('[OBD] ELM 초기화 완료 ATRV="$voltage"');
+  }
+
   /// OBD 표준 PID 지원 비트맵 쿼리 (0100 / 0120 / 0140)
   /// 응답 없거나 실패하면 기본 폴링 목록 전체 사용
   Future<Set<String>> _detectSupportedPids() async {
     final supported = <String>{};
     // 쿼리할 지원 비트맵 PID 목록 (각각 다음 32개 PID 지원 여부 반환)
     for (final queryPid in ['0100', '0120', '0140']) {
-      final resp = await _cmd(
-        queryPid,
-      ).timeout(const Duration(seconds: 5), onTimeout: () => '');
+      final resp = await _cmd(queryPid, timeout: const Duration(seconds: 5));
       if (resp.isEmpty) continue;
       final parsed = _parseSupportBitmap(queryPid, resp);
       supported.addAll(parsed);
@@ -610,10 +674,33 @@ class OBDService extends ChangeNotifier {
     // 지원 PID가 하나도 감지 안 되면 (구형 차 또는 응답 파싱 실패)
     // 기존 폴링 목록 전체를 사용
     if (supported.isEmpty) {
+      final probed = await _probeVehicleProtocol();
+      if (probed.isNotEmpty) return probed;
       debugPrint('[OBD] PID 지원 감지 실패 → 기본 목록 전체 사용');
       return _pollOrder.toSet();
     }
     return supported;
+  }
+
+  Future<Set<String>> _probeVehicleProtocol() async {
+    debugPrint('[OBD] AUTO 프로토콜 실패 → 차량 프로토콜 직접 탐색');
+    for (final (code, label) in _protocolCandidates) {
+      await _cmd('ATSP$code', timeout: const Duration(seconds: 4));
+      await Future.delayed(const Duration(milliseconds: 250));
+      final response = await _cmd('0100', timeout: const Duration(seconds: 5));
+      final parsed = _parseSupportBitmap('0100', response);
+      debugPrint(
+        '[OBD] 프로토콜 후보 $label 응답="${_compactForLog(response)}" parsed=${parsed.length}',
+      );
+      if (parsed.isNotEmpty || _cleanObdPayload(response).contains('4100')) {
+        _activeProtocolLabel = label;
+        debugPrint('[OBD] 프로토콜 선택: $label');
+        return parsed.isNotEmpty ? parsed : _pollOrder.toSet();
+      }
+    }
+    await _cmd('ATSP0', timeout: const Duration(seconds: 4));
+    _activeProtocolLabel = 'AUTO';
+    return const {};
   }
 
   /// OBD 지원 비트맵 응답 파싱 → 지원되는 PID 집합 반환
@@ -644,6 +731,9 @@ class OBDService extends ChangeNotifier {
 
   void _onBytes(List<int> bytes) {
     final str = utf8.decode(bytes, allowMalformed: true);
+    if (_verboseObdLog) {
+      debugPrint('[OBD RX] ${_compactForLog(str)}');
+    }
     _buf.write(str);
     final current = _buf.toString();
     final promptIdx = current.indexOf('>');
@@ -661,32 +751,49 @@ class OBDService extends ChangeNotifier {
     }
   }
 
-  Future<String> _cmd(String command) async {
+  Future<String> _cmd(
+    String command, {
+    Duration timeout = const Duration(seconds: 3),
+  }) async {
     final c = _writeChar;
     if (c == null) return '';
     _buf.clear();
-    _responseCompleter?.complete('');
-    _responseCompleter = Completer<String>();
+    final oldCompleter = _responseCompleter;
+    if (oldCompleter != null && !oldCompleter.isCompleted) {
+      oldCompleter.complete('');
+    }
+    final completer = Completer<String>();
+    _responseCompleter = completer;
+    _lastCommand = command;
+    if (_verboseObdLog) {
+      debugPrint('[OBD TX] $command');
+    }
     try {
       await _writeCommand(c, command);
     } catch (e) {
       debugPrint('[OBD] Write failed [$command]: $e');
-      _responseCompleter = null;
+      if (_responseCompleter == completer) _responseCompleter = null;
       return '';
     }
-    return _responseCompleter!.future.timeout(
-      const Duration(seconds: 3),
+    final raw = await completer.future.timeout(
+      timeout,
       onTimeout: () {
-        _responseCompleter = null;
+        _timeoutCount++;
+        if (_responseCompleter == completer) _responseCompleter = null;
+        debugPrint('[OBD] Timeout [$command]');
         return '';
       },
     );
+    final normalized = _normalizeResponse(raw, command);
+    _lastRawResponse = normalized;
+    _rxCount++;
+    if (_verboseObdLog) {
+      debugPrint('[OBD RESP] $command => ${_compactForLog(normalized)}');
+    }
+    return normalized;
   }
 
-  Future<void> _writeCommand(
-    BluetoothCharacteristic c,
-    String command,
-  ) async {
+  Future<void> _writeCommand(BluetoothCharacteristic c, String command) async {
     final bytes = utf8.encode('$command\r');
     final canWithout = c.properties.writeWithoutResponse;
     final canWith = c.properties.write;
@@ -725,34 +832,73 @@ class OBDService extends ChangeNotifier {
 
   void _startPolling() {
     _pidIdx = 0;
+    _fastPidIdx = 0;
+    _slowPidIdx = 0;
+    _pollTick = 0;
     _consecutiveFailures = 0;
     // 이 차량이 지원하는 PID만 폴링 (없으면 전체)
-    final activePids = _pollOrder
+    final supported = _supportedPids;
+    _activeFastPids = _fastPollOrder
+        .where((p) => supported.isEmpty || supported.contains(p))
+        .toList();
+    _activeSlowPids = _slowPollOrder
+        .where((p) => supported.isEmpty || supported.contains(p))
+        .toList();
+    var fallbackPids = _pollOrder
         .where((p) => _supportedPids.isEmpty || _supportedPids.contains(p))
         .toList();
-    debugPrint('[OBD] 폴링 PID ${activePids.length}개: $activePids');
+    if (_activeFastPids.isEmpty && _activeSlowPids.isEmpty) {
+      debugPrint('[OBD] 지원 PID와 폴링 목록 교집합 없음 → 기본 핵심 PID 폴링');
+      _activeFastPids = const ['010C', '010D', '0111', '0104'];
+      _activeSlowPids = const ['0105', '0142'];
+      fallbackPids = [..._activeFastPids, ..._activeSlowPids];
+    }
+    debugPrint(
+      '[OBD] 폴링 PID fast=${_activeFastPids.length} $_activeFastPids '
+      'slow=${_activeSlowPids.length} $_activeSlowPids',
+    );
 
-    _pollTimer = Timer.periodic(const Duration(milliseconds: 200), (_) async {
+    _pollTimer = Timer.periodic(_pollInterval, (_) async {
       if (_state != OBDState.ready) return;
-      if (activePids.isEmpty) return;
+      if (_activeFastPids.isEmpty && _activeSlowPids.isEmpty) return;
       if (_cmdInFlight) return; // 이전 명령 완료 전 스킵 → 레이스 컨디션 방지
       _cmdInFlight = true;
-      final pid = activePids[_pidIdx % activePids.length];
-      _pidIdx = (_pidIdx + 1) % activePids.length;
-      final resp = await _cmd(pid);
-      _cmdInFlight = false;
-      if (resp.isNotEmpty) {
-        _consecutiveFailures = 0;
-        _parse(pid, resp);
-      } else {
-        _consecutiveFailures++;
-        if (_consecutiveFailures >= _maxConsecutiveFailures) {
+      try {
+        final pid = _nextPollPid(fallbackPids);
+        final resp = await _cmd(pid, timeout: _pidTimeout);
+        if (resp.isNotEmpty) {
           _consecutiveFailures = 0;
-          debugPrint('[OBD] 연속 $_maxConsecutiveFailures회 응답 없음 → 자동 재연결');
-          _autoReconnect();
+          final parsed = _parse(pid, resp);
+          if (!parsed) _parseMissCount++;
+        } else {
+          _consecutiveFailures++;
+          if (_consecutiveFailures >= _maxConsecutiveFailures) {
+            _consecutiveFailures = 0;
+            debugPrint('[OBD] 연속 $_maxConsecutiveFailures회 응답 없음 → 자동 재연결');
+            _autoReconnect();
+          }
         }
+      } finally {
+        _cmdInFlight = false;
       }
     });
+  }
+
+  String _nextPollPid(List<String> fallbackPids) {
+    _pollTick++;
+    if (_activeSlowPids.isNotEmpty && _pollTick % _slowPollEvery == 0) {
+      final pid = _activeSlowPids[_slowPidIdx % _activeSlowPids.length];
+      _slowPidIdx = (_slowPidIdx + 1) % _activeSlowPids.length;
+      return pid;
+    }
+    if (_activeFastPids.isNotEmpty) {
+      final pid = _activeFastPids[_fastPidIdx % _activeFastPids.length];
+      _fastPidIdx = (_fastPidIdx + 1) % _activeFastPids.length;
+      return pid;
+    }
+    final pid = fallbackPids[_pidIdx % fallbackPids.length];
+    _pidIdx = (_pidIdx + 1) % fallbackPids.length;
+    return pid;
   }
 
   Future<void> _autoReconnect() async {
@@ -772,13 +918,20 @@ class OBDService extends ChangeNotifier {
 
   // ── PID 파싱 ─────────────────────────────────────────────
 
-  void _parse(String pid, String raw) {
-    final s = raw.replaceAll(RegExp(r'\s'), '').toUpperCase();
+  bool _parse(String pid, String raw) {
+    final s = _cleanObdPayload(raw);
     final prefix = '41${pid.substring(2).toUpperCase()}';
     final idx = s.indexOf(prefix);
-    if (idx < 0) return;
+    if (idx < 0) {
+      if (_verboseObdLog && !s.contains('NODATA') && !s.contains('?')) {
+        debugPrint(
+          '[OBD] Parse miss [$pid] raw=${_compactForLog(raw)} clean=$s',
+        );
+      }
+      return false;
+    }
     final hex = s.substring(idx + prefix.length);
-    if (hex.length < 2) return;
+    if (hex.length < 2) return false;
 
     try {
       final cur = _data ?? OBDData(timestamp: DateTime.now());
@@ -875,6 +1028,8 @@ class OBDService extends ChangeNotifier {
 
       if (upd != null) {
         _data = upd;
+        _lastParsedPid = pid;
+        _parseCount++;
         // 런 트래킹 집계
         if (_trackingRun) {
           if (upd.rpm != null && (upd.rpm! > (_maxRpm ?? 0))) _maxRpm = upd.rpm;
@@ -890,10 +1045,44 @@ class OBDService extends ChangeNotifier {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           notifyListeners();
         });
+        return true;
       }
     } catch (e) {
       debugPrint('[OBD] Parse error [$pid]: $e');
     }
+    return false;
+  }
+
+  String _normalizeResponse(String raw, String command) {
+    var out = raw
+        .replaceAll('\r', '\n')
+        .replaceAll('>', '')
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .where((line) => line.toUpperCase() != command.toUpperCase())
+        .map(
+          (line) => line.replaceAll(
+            RegExp(r'SEARCHING\.{0,3}', caseSensitive: false),
+            '',
+          ),
+        )
+        .join('');
+    if (out.isEmpty) out = raw.trim();
+    return out;
+  }
+
+  String _cleanObdPayload(String raw) {
+    return raw
+        .replaceAll(RegExp(r'[\s\r\n>]'), '')
+        .replaceAll(RegExp(r'BUSINIT:OK|SEARCHING', caseSensitive: false), '')
+        .toUpperCase();
+  }
+
+  String _compactForLog(String value) {
+    final compact = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (compact.length <= 120) return compact;
+    return '${compact.substring(0, 120)}…';
   }
 
   // ── 런 트래킹 ────────────────────────────────────────────

@@ -57,11 +57,13 @@ class DirectionsService {
       '?geometries=geojson&overview=full&access_token=${MapboxService.accessToken}',
     );
     try {
-      debugPrint('[DirectionsService] fetching: $url');
+      debugPrint(
+        '[DirectionsService] fetching route with ${waypoints.length} waypoints',
+      );
       final res = await http.get(url).timeout(const Duration(seconds: 15));
       debugPrint('[DirectionsService] status: ${res.statusCode}');
       if (res.statusCode != 200) {
-        debugPrint('[DirectionsService] body: ${res.body}');
+        debugPrint('[DirectionsService] non-200 response from Mapbox');
         return [];
       }
       final data = jsonDecode(res.body) as Map<String, dynamic>;
