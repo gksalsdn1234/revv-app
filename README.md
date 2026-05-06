@@ -1,28 +1,27 @@
 # REVV
 
-REVV is a Flutter driving companion centered on three flows:
+REVV is a Flutter driving companion centered on one lean MVP flow:
 
 - discover a good driving route
-- drive with a focused HUD and optional telemetry
-- save and review the run afterward
+- drive with a focused map HUD
+- save the run afterward
 
-This repository is in MVP stabilization mode. The current backend target is Supabase for route data, run sync, saved routes, and rankings.
+The `lean_mvp` branch intentionally removes non-essential product experiments. `main` remains the full experimental app; this branch is the clean core used to rebuild product quality.
 
 ## Current MVP Scope
 
-- app boot and loading flow
-- route browse/select flow
-- cruise, drive, and sprint driving flows
-- run save and history view
-- optional OBD, AI, and Supabase cloud features that must fail safely
+- `LoadingScreen` asks only for location permission.
+- `LeanHomeScreen` exposes one primary action: route finding.
+- `LeanRouteFinderScreen` shows the map, nearby route candidates, and a compact route ticket.
+- `LeanDriveScreen` tracks current location, route progress, next curve, speed, and G meter.
+- `LeanRunSummaryScreen` saves `RunSummary` and `RunTelemetryDetail`.
+- Supabase remains the route/run backend and must fail safely.
 
-## Temporarily Reduced Areas
+## Removed From Lean MVP
 
-- detailed analysis screen
-- richer route preview expansion
-- elevation enrichment stays lightweight and non-blocking
-
-These areas are kept build-safe so they do not block the main user flow.
+- Garage, rankings, saved-route management, route editor, route wizard, trip planner, and advanced history UI.
+- OBD UI/service, AI review, Google TTS, STT, always-listening, weather briefing, loop builder, chain extension, and advanced route preview.
+- Legacy large route cards, bottom sheets, and HUD-heavy screens.
 
 ## Setup
 
@@ -47,28 +46,7 @@ SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
 ```
 
-REVV uses Supabase Edge Functions for optional AI, weather, and Google TTS features. Set server-side secrets in Supabase, not in the app:
-
-```bash
-supabase secrets set AI_API_KEY=...
-supabase secrets set WEATHER_API_KEY=...
-supabase secrets set GOOGLE_TTS_API_KEY=...
-```
-
-Functions used by the app:
-
-- `call-ai`
-- `get-weather`
-- `list-google-tts-voices`
-- `synthesize-tts`
-
-Deploy them with:
-
-```bash
-export SUPABASE_ACCESS_TOKEN=...
-export SUPABASE_PROJECT_REF=zvwgnduuumksuqazpvsf
-bash scripts/deploy_supabase_functions.sh
-```
+Supabase Edge Functions may still exist in the project, but the lean app path does not depend on AI, Google TTS, or weather functions.
 
 ### Run
 
@@ -87,15 +65,20 @@ python -m unittest discover -s test -p "curvature_pipeline_test.py"
 ## Key Project Areas
 
 - `lib/main.dart`: app bootstrap and provider wiring
-- `lib/services/supabase_service.dart`: Supabase auth, runs, saved routes, rankings, curvy road RPC access
-- `lib/services/route_service.dart`: local cache + Supabase-first route loading + Overpass enrichment fallback
-- `lib/models/`: route, run, and telemetry contracts
+- `lib/screens/lean_home_screen.dart`: lean start hub
+- `lib/screens/lean_route_finder_screen.dart`: map-first route selection
+- `lib/screens/lean_drive_screen.dart`: route drive HUD
+- `lib/screens/lean_run_summary_screen.dart`: run save confirmation
+- `lib/services/route_service.dart`: Supabase-first route loading, cache, selection, node hydration
+- `lib/services/supabase_service.dart`: Supabase auth, runs, run details, curvy road RPC access
+- `lib/models/`: route, run, OBD summary, and telemetry contracts
 - `tools/curvature_pipeline/`: KMZ to Supabase preprocessing pipeline
 - `tools/supabase_migrations/`: PostGIS schema and RPC setup
 
 ## Stability Rules For This Phase
 
-- OBD must remain optional
-- AI failures must fall back locally
-- Supabase failures must not block local save/use
-- missing or incomplete expansion features should degrade gracefully instead of breaking build/runtime
+- Keep the app path to `Loading → Home → RouteFinder → Drive → RunSummary`.
+- Do not reintroduce legacy screens into the lean flow.
+- Supabase failures must not block app startup or local run saving.
+- RouteFinder must stay map-first and avoid large overlapping cards.
+- Drive UI must keep only essential controls: next curve, speed, G meter, and end run.
