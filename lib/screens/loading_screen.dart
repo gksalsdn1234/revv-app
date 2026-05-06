@@ -2,13 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../widgets/corner_brackets.dart';
 import '../widgets/revv_ui.dart';
-import 'cruise_screen.dart';
-import 'calibration_screen.dart';
+import 'lean_home_screen.dart';
 
 class LoadingScreen extends StatefulWidget {
   const LoadingScreen({super.key});
@@ -74,31 +72,19 @@ class _LoadingScreenState extends State<LoadingScreen>
       final permissions = await _requestPermissions();
       await _showPermissionResultIfNeeded(permissions);
 
-      // 클라우드 함수 설정이 없거나 TTS 엔진 초기화 중인 환경에서 시작 크래시를 피하기 위해
-      // 첫 진입 자동 음성 안내는 하지 않는다. 날씨는 CruiseScreen 진입 후 갱신한다.
-
       await Future.delayed(const Duration(milliseconds: 1200));
       if (mounted) {
-        final prefs = await SharedPreferences.getInstance();
-        final calibDone = prefs.getBool(kCalibrationDoneKey) ?? false;
-        if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) =>
-                calibDone ? const CruiseScreen() : const CalibrationScreen(),
-          ),
+          MaterialPageRoute(builder: (_) => const LeanHomeScreen()),
         );
       }
     });
   }
 
-  /// 위치 + 마이크 권한 요청 — 이미 허용됐으면 즉시 반환
+  /// MVP에서는 위치 권한만 시작 시 확인한다.
   Future<Map<Permission, PermissionStatus>> _requestPermissions() async {
-    final statuses = await [
-      Permission.locationWhenInUse,
-      Permission.microphone,
-    ].request();
+    final statuses = await [Permission.locationWhenInUse].request();
     for (final entry in statuses.entries) {
       debugPrint('[LoadingScreen] ${entry.key} → ${entry.value}');
     }
@@ -107,8 +93,7 @@ class _LoadingScreenState extends State<LoadingScreen>
 
   Future<void> _showPermissionIntroIfNeeded() async {
     final location = await Permission.locationWhenInUse.status;
-    final mic = await Permission.microphone.status;
-    if (!mounted || (location.isGranted && mic.isGranted)) return;
+    if (!mounted || location.isGranted) return;
     await showModalBottomSheet<void>(
       context: context,
       isDismissible: false,
@@ -124,14 +109,12 @@ class _LoadingScreenState extends State<LoadingScreen>
   ) async {
     if (!mounted) return;
     final location = statuses[Permission.locationWhenInUse];
-    final mic = statuses[Permission.microphone];
-    if ((location?.isGranted ?? false) && (mic?.isGranted ?? false)) return;
+    if (location?.isGranted ?? false) return;
     await showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (_) => _PermissionResultSheet(
         locationGranted: location?.isGranted ?? false,
-        microphoneGranted: mic?.isGranted ?? false,
         onSettings: () {
           openAppSettings();
           Navigator.pop(context);
@@ -352,11 +335,6 @@ class _PermissionIntroSheet extends StatelessWidget {
               title: '위치',
               body: '현재 위치 주변 루트 탐색, 시작점 거리 계산, 주행 기록 저장에 사용합니다.',
             ),
-            const _PermissionReasonTile(
-              icon: Icons.mic_rounded,
-              title: '마이크',
-              body: '코파일럿 음성 명령에만 사용합니다. 꺼도 루트 탐색과 주행은 가능합니다.',
-            ),
             const SizedBox(height: 16),
             RevvPrimaryButton(
               label: '권한 설정 계속',
@@ -372,13 +350,11 @@ class _PermissionIntroSheet extends StatelessWidget {
 
 class _PermissionResultSheet extends StatelessWidget {
   final bool locationGranted;
-  final bool microphoneGranted;
   final VoidCallback onSettings;
   final VoidCallback onContinue;
 
   const _PermissionResultSheet({
     required this.locationGranted,
-    required this.microphoneGranted,
     required this.onSettings,
     required this.onContinue,
   });
@@ -398,7 +374,7 @@ class _PermissionResultSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              locationBlocked ? '위치 권한이 필요해요' : '음성 기능은 나중에 켤 수 있어요',
+              locationBlocked ? '위치 권한이 필요해요' : '준비됐어요',
               style: AppText.body(
                 size: 20,
                 weight: FontWeight.w900,
@@ -409,9 +385,7 @@ class _PermissionResultSheet extends StatelessWidget {
             Text(
               locationBlocked
                   ? '주변 루트 탐색은 위치 권한이 있어야 정확히 동작합니다. 설정에서 위치 권한을 켜면 바로 다시 찾을 수 있어요.'
-                  : microphoneGranted
-                  ? '필수 권한이 준비됐어요.'
-                  : '마이크 권한이 없어도 루트 탐색과 주행은 가능합니다. 음성 명령만 비활성화돼요.',
+                  : '필수 권한이 준비됐어요.',
               style: AppText.body(
                 size: 13,
                 height: 1.35,

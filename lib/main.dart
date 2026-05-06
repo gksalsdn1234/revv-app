@@ -6,17 +6,11 @@ import 'theme/text_styles.dart';
 import 'screens/loading_screen.dart';
 import 'services/location_service.dart';
 import 'services/weather_service.dart';
-import 'services/jarvis_service.dart';
 import 'services/route_service.dart';
 import 'services/run_session_service.dart';
 import 'services/run_history_service.dart';
-import 'services/home_location_service.dart';
-import 'services/saved_route_service.dart';
-import 'services/obd_service.dart';
 import 'services/imu_service.dart';
-import 'services/driving_context_service.dart';
 import 'services/settings_service.dart';
-import 'services/garage_service.dart';
 import 'services/supabase_service.dart';
 
 void main() async {
@@ -25,14 +19,8 @@ void main() async {
 
   final history = RunHistoryService();
   await history.load();
-  final homeLocation = HomeLocationService();
-  await homeLocation.load();
-  final savedRoutes = SavedRouteService();
-  await savedRoutes.load();
   final settings = SettingsService();
   await settings.load();
-  final garage = GarageService();
-  await garage.load();
 
   history.syncWithCloud();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -42,31 +30,13 @@ void main() async {
       statusBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(
-    RevvApp(
-      history: history,
-      homeLocation: homeLocation,
-      savedRoutes: savedRoutes,
-      settings: settings,
-      garage: garage,
-    ),
-  );
+  runApp(RevvApp(history: history, settings: settings));
 }
 
 class RevvApp extends StatelessWidget {
   final RunHistoryService history;
-  final HomeLocationService homeLocation;
-  final SavedRouteService savedRoutes;
   final SettingsService settings;
-  final GarageService garage;
-  const RevvApp({
-    super.key,
-    required this.history,
-    required this.homeLocation,
-    required this.savedRoutes,
-    required this.settings,
-    required this.garage,
-  });
+  const RevvApp({super.key, required this.history, required this.settings});
 
   @override
   Widget build(BuildContext context) {
@@ -77,34 +47,9 @@ class RevvApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => RouteService()),
         ChangeNotifierProvider(create: (_) => RunSessionService()),
         ChangeNotifierProvider<RunHistoryService>.value(value: history),
-        ChangeNotifierProvider<HomeLocationService>.value(value: homeLocation),
-        ChangeNotifierProvider<SavedRouteService>.value(value: savedRoutes),
         ChangeNotifierProvider<SettingsService>.value(value: settings),
-        ChangeNotifierProxyProvider<SettingsService, JarvisService>(
-          create: (_) => JarvisService(),
-          update: (_, settings, jarvis) {
-            jarvis ??= JarvisService();
-            jarvis.applySettings(settings);
-            return jarvis;
-          },
-        ),
-        ChangeNotifierProvider<GarageService>.value(value: garage),
         ChangeNotifierProvider.value(value: SupabaseService()),
-        ChangeNotifierProvider(create: (_) => OBDService()),
         ChangeNotifierProvider(create: (_) => ImuService()),
-        ChangeNotifierProxyProvider2<
-          LocationService,
-          OBDService,
-          DrivingContextService
-        >(
-          create: (_) => DrivingContextService(),
-          update: (_, loc, obd, ctx) {
-            ctx ??= DrivingContextService();
-            ctx.updateFromGPS(loc.currentPosition?.heading, loc.speedKmh);
-            ctx.updateFromOBD(obd.data?.rpm, obd.data?.speedKmh);
-            return ctx;
-          },
-        ),
       ],
       child: MaterialApp(
         title: 'REVV',
