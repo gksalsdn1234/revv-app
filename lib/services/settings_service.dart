@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/storage_keys.dart';
-import 'jarvis_script.dart';
 
 /// 앱 전역 사용자 설정
 class SettingsService extends ChangeNotifier {
@@ -12,7 +11,6 @@ class SettingsService extends ChangeNotifier {
   bool _showSpeedHud = true;
   bool _offRouteAlert = true;
   bool _alwaysListen = false;
-  JarvisPersona _jarvisPersona = JarvisPersona.engineer;
   String _ttsRatePreset = 'relaxed';
   String _ttsEngine = 'google';
   String? _ttsVoiceName;
@@ -26,7 +24,6 @@ class SettingsService extends ChangeNotifier {
   bool get showSpeedHud => _showSpeedHud;
   bool get offRouteAlert => _offRouteAlert;
   bool get alwaysListen => _alwaysListen;
-  JarvisPersona get jarvisPersona => _jarvisPersona;
   String get ttsRatePreset => _ttsRatePreset;
   String get ttsEngine => _ttsEngine;
   String? get ttsVoiceName => _ttsVoiceName;
@@ -43,10 +40,6 @@ class SettingsService extends ChangeNotifier {
     _showSpeedHud = p.getBool(StorageKeys.showSpeedHud) ?? true;
     _offRouteAlert = p.getBool(StorageKeys.offRouteAlert) ?? true;
     _alwaysListen = p.getBool(StorageKeys.alwaysListen) ?? false;
-    final rawPersona = p.getString(StorageKeys.jarvisPersona) ?? 'engineer';
-    _jarvisPersona = rawPersona == 'friendly'
-        ? JarvisPersona.friendly
-        : JarvisPersona.engineer;
     _ttsRatePreset = p.getString(StorageKeys.ttsRatePreset) ?? 'relaxed';
     _ttsEngine = p.getString(StorageKeys.ttsEngine) ?? 'google';
     _ttsVoiceName = p.getString(StorageKeys.ttsVoiceName);
@@ -112,14 +105,6 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
     final p = await SharedPreferences.getInstance();
     await p.setBool(StorageKeys.alwaysListen, v);
-  }
-
-  Future<void> setJarvisPersona(JarvisPersona v) async {
-    if (_jarvisPersona == v) return;
-    _jarvisPersona = v;
-    notifyListeners();
-    final p = await SharedPreferences.getInstance();
-    await p.setString(StorageKeys.jarvisPersona, v.name);
   }
 
   Future<void> setTtsRatePreset(String value) async {
