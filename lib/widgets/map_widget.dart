@@ -51,6 +51,7 @@ class MapWidget extends StatefulWidget {
   /// 루트파인더에서 선택되지 않은 보조 후보 루트들.
   /// 선택 루트보다 얇고 muted 톤으로 그려서 지도에서 선택지를 읽을 수 있게 한다.
   final List<List<LatLng>> candidatePolylines;
+  final List<List<LatLng>> curveHeatmapPolylines;
   final List<RouteCandidateMarker> candidateMarkers;
 
   /// 커브 밀도 히트맵 모드 (파랑→초록→노랑→주황→빨강)
@@ -68,6 +69,7 @@ class MapWidget extends StatefulWidget {
     this.navPolyline,
     this.routePolyline,
     this.candidatePolylines = const [],
+    this.curveHeatmapPolylines = const [],
     this.candidateMarkers = const [],
     this.showCurveHeatmap = false,
     this.routeFocusMode = false,
@@ -294,6 +296,12 @@ class _MapWidgetState extends State<MapWidget> {
           Colors.blue.toARGB32(),
           4.0,
         );
+      }
+      if (!_samePolylineGroups(
+        oldWidget.curveHeatmapPolylines,
+        widget.curveHeatmapPolylines,
+      )) {
+        _drawCurveFieldHeatmap(widget.curveHeatmapPolylines);
       }
       if (!_samePolylineGroups(
         oldWidget.candidatePolylines,
@@ -581,6 +589,7 @@ class _MapWidgetState extends State<MapWidget> {
         4.0,
       );
     }
+    await _drawCurveFieldHeatmap(widget.curveHeatmapPolylines);
     await _drawCandidatePolylines(widget.candidatePolylines);
     await _drawCandidateMarkers(widget.candidateMarkers);
     if (widget.routePolyline?.isNotEmpty == true) {
@@ -836,6 +845,8 @@ class _MapWidgetState extends State<MapWidget> {
   // ── 커브 히트맵 레이어 ────────────────────────────────────────────
   static const _hmIds = ['hm-straight', 'hm-gentle', 'hm-medium', 'hm-tight'];
   static const _hmColors = [0xFF3B82F6, 0xFF22C55E, 0xFFF59E0B, 0xFFEF4444];
+  static const _fieldHmBuckets = [2, 3];
+  static const _fieldHmIds = ['curve-field-medium', 'curve-field-tight'];
 
   Future<void> _clearHeatmap() async {
     final map = _mapController;
@@ -843,6 +854,22 @@ class _MapWidgetState extends State<MapWidget> {
     for (final id in _hmIds) {
       try {
         await map.style.removeStyleLayer('$id-layer');
+      } catch (_) {}
+      try {
+        await map.style.removeStyleSource('$id-source');
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _clearCurveFieldHeatmap() async {
+    final map = _mapController;
+    if (map == null) return;
+    for (final id in _fieldHmIds) {
+      try {
+        await map.style.removeStyleLayer('$id-core-layer');
+      } catch (_) {}
+      try {
+        await map.style.removeStyleLayer('$id-glow-layer');
       } catch (_) {}
       try {
         await map.style.removeStyleSource('$id-source');
@@ -895,6 +922,96 @@ class _MapWidgetState extends State<MapWidget> {
     if (ratePerKm < 200) return 1;
     if (ratePerKm < 400) return 2;
     return 3;
+  }
+
+  Future<void> _drawCurveFieldHeatmap(List<List<LatLng>> routes) async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded) return;
+    await _clearCurveFieldHeatmap();
+    if (routes.isEmpty) return;
+
+    final buckets = <int, List<List<List<double>>>>{
+      2: <List<List<double>>>[],
+      3: <List<List<double>>>[],
+    };
+
+    for (final nodes in routes.take(32)) {
+      if (nodes.length < 3) continue;
+      for (var i = 1; i < nodes.length - 1; i++) {
+        final prev = nodes[i - 1];
+        final current = nodes[i];
+        final next = nodes[i + 1];
+        final b1 = _bearing(prev.lat, prev.lng, current.lat, current.lng);
+        final b2 = _bearing(current.lat, current.lng, next.lat, next.lng);
+        final dist = _haversineKm(prev.lat, prev.lng, next.lat, next.lng);
+        if (dist <= 0.00001) continue;
+        final bucket = _curveBucket(_bearingDiff(b1, b2) / dist);
+        if (bucket < 2) continue;
+        buckets[bucket]?.add([
+          [prev.lng, prev.lat],
+          [current.lng, current.lat],
+          [next.lng, next.lat],
+        ]);
+      }
+    }
+
+    for (var i = 0; i < _fieldHmBuckets.length; i++) {
+      final bucket = _fieldHmBuckets[i];
+      final segments = buckets[bucket] ?? const <List<List<double>>>[];
+      if (segments.isEmpty) continue;
+
+      final sourceId = '${_fieldHmIds[i]}-source';
+      final features = segments
+          .map(
+            (coords) => {
+              'type': 'Feature',
+              'geometry': {'type': 'LineString', 'coordinates': coords},
+              'properties': {},
+            },
+          )
+          .toList();
+      final geoJson = jsonEncode({
+        'type': 'FeatureCollection',
+        'features': features,
+      });
+
+      final color = bucket == 3 ? 0xFFFF3B30 : 0xFFFFB020;
+      final glowOpacity = bucket == 3 ? 0.38 : 0.24;
+      final coreOpacity = bucket == 3 ? 0.74 : 0.46;
+      final coreWidth = bucket == 3 ? 5.0 : 3.8;
+
+      try {
+        await map.style.addSource(
+          mbx.GeoJsonSource(id: sourceId, data: geoJson),
+        );
+        await map.style.addLayer(
+          mbx.LineLayer(
+            id: '${_fieldHmIds[i]}-glow-layer',
+            sourceId: sourceId,
+            lineColor: color,
+            lineWidth: coreWidth + 9.0,
+            lineOpacity: glowOpacity,
+            lineBlur: 4.0,
+            lineCap: mbx.LineCap.ROUND,
+            lineJoin: mbx.LineJoin.ROUND,
+          ),
+        );
+        await map.style.addLayer(
+          mbx.LineLayer(
+            id: '${_fieldHmIds[i]}-core-layer',
+            sourceId: sourceId,
+            lineColor: color,
+            lineWidth: coreWidth,
+            lineOpacity: coreOpacity,
+            lineBlur: 0.6,
+            lineCap: mbx.LineCap.ROUND,
+            lineJoin: mbx.LineJoin.ROUND,
+          ),
+        );
+      } catch (e) {
+        debugPrint('[MapWidget] curve field heatmap bucket $bucket: $e');
+      }
+    }
   }
 
   Future<void> _drawCurveHeatmap(List<LatLng> nodes) async {

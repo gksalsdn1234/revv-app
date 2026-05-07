@@ -261,6 +261,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                   visibleRoutes,
                   selected,
                 ),
+                curveHeatmapPolylines: _curveHeatmapPolylines(visibleRoutes),
                 candidateMarkers: _candidateMarkers(
                   visibleRoutes,
                   selected,
@@ -295,6 +296,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       routes: routes,
                       onChanged: _setLens,
                     ),
+                    const SizedBox(height: 8),
+                    const _CurveHeatLegend(),
                   ],
                 ),
               ),
@@ -971,6 +974,81 @@ class _LensChip extends StatelessWidget {
   }
 }
 
+class _CurveHeatLegend extends StatelessWidget {
+  const _CurveHeatLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.bg.withValues(alpha: 0.70),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.22),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.22),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const _HeatDot(color: Color(0xFFFFB020)),
+            const SizedBox(width: 5),
+            Text(
+              '중간 커브',
+              style: AppText.body(
+                size: 10,
+                weight: FontWeight.w900,
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const _HeatDot(color: Color(0xFFFF3B30)),
+            const SizedBox(width: 5),
+            Text(
+              '급커브 밀집',
+              style: AppText.body(
+                size: 10,
+                weight: FontWeight.w900,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeatDot extends StatelessWidget {
+  final Color color;
+
+  const _HeatDot({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(color: color.withValues(alpha: 0.65), blurRadius: 8),
+        ],
+      ),
+    );
+  }
+}
+
 class _Metric extends StatelessWidget {
   final String label;
   final String value;
@@ -1185,6 +1263,14 @@ List<List<LatLng>> _candidatePolylines(
   return routes
       .where((route) => route.id != selectedId && route.nodes.length > 1)
       .take(5)
+      .map((route) => route.nodes)
+      .toList(growable: false);
+}
+
+List<List<LatLng>> _curveHeatmapPolylines(List<RevvRoute> routes) {
+  return routes
+      .where((route) => route.nodes.length > 2)
+      .take(32)
       .map((route) => route.nodes)
       .toList(growable: false);
 }

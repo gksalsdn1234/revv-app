@@ -16,9 +16,9 @@
 - [x] `flutter build ios --release --no-codesign --dart-define-from-file=.env`를 통과한다.
 - [ ] Apple Distribution certificate와 App Store provisioning profile을 준비한다.
 - [ ] `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39` export를 통과한다.
-- [ ] 위치 권한 허용/거부 첫 실행 플로우를 확인한다.
+- [x] 위치 권한 허용/거부 첫 실행 플로우를 확인한다.
 - [ ] Supabase 정상, 미설정, 네트워크 실패, 후보 0개, 캐시 사용 상태 안내를 확인한다.
-- [ ] 루트 선택 -> 주행 시작 -> 현재 위치 추적 -> 주행 종료 -> 요약 저장 -> 앱 재시작 후 기록 복원을 확인한다.
+- [x] 루트 선택 -> 주행 시작 -> 현재 위치 추적 -> 주행 종료 -> 요약 저장 -> 앱 재시작 후 기록 복원을 확인한다.
 - [ ] 실기기 10분 주행 smoke test 중 크래시가 없어야 한다.
 - [ ] 주행 중 화면은 필수 정보와 종료 버튼만 명확히 보여야 한다.
 - [ ] 위험 주행을 자극하는 속도/경쟁 문구가 없어야 한다.
