@@ -209,19 +209,28 @@ List<RevvRoute> diversifyRouteSlots(
     int count, {
     double centerDistanceKm = 3.0,
   }) {
+    var added = 0;
     for (final route in ranked.where(test)) {
-      if (selected.where(test).length >= count) return;
-      addCandidate(route, centerDistanceKm: centerDistanceKm);
+      if (added >= count || selected.length >= limit) return;
+      if (selected.any((current) => current.id == route.id)) continue;
+      if (addCandidate(route, centerDistanceKm: centerDistanceKm)) {
+        added++;
+      }
     }
   }
 
-  addFromSlot((route) => route.distanceFromUser <= 18, 4);
-  addFromSlot((route) => routeCharacter(route) == 'tight_technical', 3);
-  addFromSlot((route) => routeCharacter(route) == 'fast_sweeper', 3);
-  addFromSlot((route) => routeCharacter(route) == 'rhythmic_flow', 3);
-  addFromSlot((route) => route.isLoop, 2, centerDistanceKm: 2.4);
+  // Keep the single strongest recommendation first, then preserve slot order
+  // so nearby/tight/sweeper/flow/long routes stay visibly mixed in the UI.
+  addCandidate(ranked.first);
+
+  addFromSlot((route) => route.distanceFromUser <= 18, 2);
+  addFromSlot((route) => routeCharacter(route) == 'tight_technical', 2);
+  addFromSlot((route) => routeCharacter(route) == 'fast_sweeper', 2);
+  addFromSlot((route) => routeCharacter(route) == 'rhythmic_flow', 2);
   addFromSlot((route) => route.distanceKm >= 24, 2);
+  addFromSlot((route) => route.isLoop, 2, centerDistanceKm: 2.4);
   addFromSlot((route) => route.elevationDelta >= 45, 2);
+  addFromSlot((route) => recommendationTier(route) == 'maybe', 2);
 
   for (final route in ranked) {
     if (selected.length >= limit) break;
@@ -231,7 +240,11 @@ List<RevvRoute> diversifyRouteSlots(
   if (selected.length < math.min(limit, minimumVisibleRoutes)) {
     for (final route in ranked) {
       if (selected.length >= limit) break;
-      if (!selected.any((current) => current.id == route.id)) {
+      final duplicate = selected.any(
+        (current) =>
+            areRoutesNearDuplicate(current, route, centerDistanceKm: 1.2),
+      );
+      if (!duplicate) {
         selected.add(route);
       }
     }

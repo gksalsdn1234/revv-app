@@ -1,75 +1,92 @@
 # REVV iOS TestFlight Release Quality Checklist
 
-목표: 1차 배포는 iOS TestFlight 베타 기준으로 안정성, 첫 경험, 실제 주행 플로우를 먼저 닫는다.
+목표: `lean_mvp`를 1차 iOS TestFlight 베타 후보로 만든다. 범위는 루트 찾기, 주행, 요약 저장까지이며 OBD, AI, TTS, STT, Garage, 고급 리포트는 이번 배포에서 제외한다.
+
+실행 순서와 다음 세션 재개 방법은 `docs/testflight_execution_plan.md`를 기준으로 한다.
 
 ## P0 - TestFlight 차단 항목
 
-- [x] `flutter analyze` 통과
-- [x] `flutter test` 통과
-- [ ] `.env` 또는 `--dart-define-from-file=.env`로 Supabase/Mapbox 설정 확인
-- [ ] iPhone 실기기 실행: `flutter run --dart-define-from-file=.env`
-- [ ] Firebase 의존성 없음 확인: `rg "Firebase|FirebaseFunctions|cloud_functions|firebase_core" lib pubspec.yaml`
-- [ ] Supabase Edge Functions 배포 및 secrets 확인: `call-ai`, `get-weather`, `list-google-tts-voices`, `synthesize-tts`
-- [x] Supabase RLS migration 반영 및 Edge Function rate limit 적용
-- [x] 첫 실행 권한 설명 표시 후 위치/마이크 권한 요청
-- [x] 위치 거부 시 루트 탐색 불가 이유와 설정 이동 안내 표시
-- [x] 마이크 거부 시 음성 기능만 비활성화되고 앱 사용은 계속 가능
-- [ ] Supabase 정상/미설정/네트워크 실패/캐시 있음/캐시 없음/루트 0개 상태 안내 확인
-- [ ] 루트 선택 -> 주행 시작 -> 이탈/복귀 -> 종료 -> RunCard 저장 플로우 확인
-- [ ] 실기기 10분 주행 smoke test 중 크래시 없음
-- [ ] 주행 중 필수 버튼만 노출: 종료, 음소거, 핵심 경고
-- [ ] 과속/위험 주행을 자극하는 문구 없음
+- [x] `lean_mvp` 브랜치에서 작업한다. `main`은 안정 백업으로 유지한다.
+- [x] `.env.example`에 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `MAPBOX_ACCESS_TOKEN`을 문서화한다.
+- [x] 미사용 Flutter 의존성 및 iOS Pod 흔적이 제거됐는지 확인한다.
+- [x] iOS 권한 문구는 위치 When-In-Use만 남긴다.
+- [x] Firebase, Bluetooth, Speech, TTS, Audio 관련 문자열이 앱/Pod lock에서 사라졌는지 확인한다.
+- [x] Privacy manifest가 Runner 리소스에 포함됐는지 확인한다.
+- [x] `flutter analyze`와 `flutter test`를 통과한다.
+- [x] `flutter build ios --release --no-codesign --dart-define-from-file=.env`를 통과한다.
+- [ ] Apple Distribution certificate와 App Store provisioning profile을 준비한다.
+- [ ] `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39` export를 통과한다.
+- [ ] 위치 권한 허용/거부 첫 실행 플로우를 확인한다.
+- [ ] Supabase 정상, 미설정, 네트워크 실패, 후보 0개, 캐시 사용 상태 안내를 확인한다.
+- [ ] 루트 선택 -> 주행 시작 -> 현재 위치 추적 -> 주행 종료 -> 요약 저장 -> 앱 재시작 후 기록 복원을 확인한다.
+- [ ] 실기기 10분 주행 smoke test 중 크래시가 없어야 한다.
+- [ ] 주행 중 화면은 필수 정보와 종료 버튼만 명확히 보여야 한다.
+- [ ] 위험 주행을 자극하는 속도/경쟁 문구가 없어야 한다.
 
 ## P1 - 베타 완성도
 
-- [ ] 홈/루트파인더/저장/기록/Garage CTA 언어 통일
-- [x] 저장 루트에서 지도 보기, 주행, 편집 재사용 흐름 확인
-- [x] GPS path 없는 짧은 세션 저장 fallback 확인
-- [x] AI 분석 실패 시 RunCard fallback 문구 확인
-- [ ] Mapbox/GPS/IMU/TTS/STT listener dispose 누수 점검
-- [ ] TestFlight용 위치/마이크/데이터 저장 설명 문구 정리
-- [ ] 날씨 API 키 관리 제거: `get-weather`를 Open-Meteo 기반 무키 API로 전환
+- [ ] 홈, 루트파인더, 주행, 요약 화면의 CTA를 `루트 찾기`, `주행 시작`, `주행 종료`, `요약 보기` 중심으로 통일한다.
+- [ ] 루트 데이터 실패 상태를 사용자 문구로 분리한다.
+- [ ] 날씨 실패는 조용히 fallback하고 출시 차단으로 두지 않는다.
+- [ ] App Store Connect 베타 노트, 개인정보 답변, 스크린샷, 피드백 이메일을 준비한다.
+- [x] 기본 Flutter 아이콘/런치이미지를 고유 REVV 에셋으로 교체한다.
+- [ ] 표시 이름 `Revv App`이 TestFlight에서 의도대로 보이는지 확인한다.
 
 ## P2 - 공개 배포 전
 
-- [ ] App Store 개인정보 라벨/권한 설명 검토
-- [ ] Android 권한/백그라운드 정책 별도 검증
-- [ ] Supabase RLS/콘솔 설정 최종 검토
-- [ ] 앱 아이콘, 스크린샷, 베타 피드백 링크 준비
+- [ ] Open-Meteo 같은 무키 날씨 API로 단순화한다.
+- [ ] 저장 루트/고급 기록/OBD/AI 리뷰를 제품 완성도 기준으로 다시 설계한다.
+- [ ] Android 권한과 배포 정책은 별도 검증한다.
+- [ ] Supabase RLS와 콘솔 설정을 최종 보안 리뷰한다.
 
-## Manual Smoke Test Script
-
-1. 앱 삭제 후 재설치
-2. 첫 실행 권한 설명 확인
-3. 위치 허용, 마이크 허용 케이스로 홈 진입
-4. 루트 찾기에서 현재 위치 기준 루트 표시 확인
-5. 루트 선택 후 주행 시작
-6. 10분 주행 유지, TTS/경고/지도 안정성 확인
-7. 종료 후 RunCard 저장 확인
-8. 앱 재실행 후 기록/저장 루트 확인
-
-## Environment
+## Local Verification
 
 ```sh
 flutter analyze
 flutter test
-flutter run --dart-define-from-file=.env
+flutter build ios --release --no-codesign --dart-define-from-file=.env
 ```
+
+TestFlight 후보 빌드:
+
+```sh
+flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39
+```
+
+미사용 의존성 검증:
+
+```sh
+rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flutter_tts|audioplayers|share_plus|url_launcher" lib pubspec.yaml ios/Podfile.lock
+```
+
+위 명령은 결과가 없어야 한다.
+
+## Manual Smoke Test Script
+
+1. 앱 삭제 후 재설치
+2. 첫 실행 위치 권한 설명 확인
+3. 위치 허용 후 홈 진입 확인
+4. 위치 거부 시 루트 탐색 제한 안내 확인
+5. 루트 찾기에서 후보 표시 확인
+6. 루트 선택 후 주행 시작
+7. 10분 주행 유지, 현재 위치 추적과 다음 커브 안내 확인
+8. 주행 종료 후 요약 저장 확인
+9. 앱 재실행 후 기록 복원 확인
+
+## App Store Privacy Notes
+
+- Tracking: 사용하지 않음.
+- Location: 루트 추천, 주행 중 현재 위치 표시, 주행 기록 저장에 사용.
+- User ID: Supabase 익명/인증 사용자 식별자로 개인 기록을 분리하는 데 사용.
+- Run data: 주행 거리, 시간, 경로 샘플, G 값은 기록 복원과 향후 리포트 생성을 위해 저장.
+- Microphone, Speech Recognition, Bluetooth, OBD: `lean_mvp` TestFlight 범위에서 사용하지 않음.
+
+## Environment
 
 필수 `.env` 키:
 
 ```sh
 SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
+MAPBOX_ACCESS_TOKEN=...
 ```
-
-Supabase 서버 secrets:
-
-```sh
-AI_API_KEY=...
-WEATHER_API_KEY=...
-GOOGLE_TTS_API_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
-```
-
-Mapbox token은 현재 `MapboxService` 설정을 사용한다. TestFlight 전에는 토큰 노출 정책을 별도 점검한다.

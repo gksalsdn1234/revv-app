@@ -28,7 +28,7 @@ The `lean_mvp` branch intentionally removes non-essential product experiments. `
 ### Requirements
 
 - Flutter SDK
-- a valid Mapbox access token configured in the project
+- a valid Mapbox access token provided through Dart defines
 - a Supabase project if cloud features should be enabled
 
 ### Install
@@ -44,9 +44,10 @@ Cloud features stay disabled unless these Dart defines are provided:
 ```bash
 SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
+MAPBOX_ACCESS_TOKEN=...
 ```
 
-Supabase Edge Functions may still exist in the project, but the lean app path does not depend on AI, Google TTS, or weather functions.
+Supabase Edge Functions may still exist in the project, but the lean app path does not depend on AI, Google TTS, or speech functions. Weather must fail safely and is not a TestFlight blocker.
 
 ### Run
 
@@ -59,7 +60,13 @@ flutter run --dart-define-from-file=.env
 ```bash
 flutter analyze
 flutter test
-python -m unittest discover -s test -p "curvature_pipeline_test.py"
+flutter build ios --release --no-codesign --dart-define-from-file=.env
+```
+
+For a TestFlight candidate, keep the marketing version and increment the build number:
+
+```bash
+flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39
 ```
 
 ## Key Project Areas
@@ -82,3 +89,4 @@ python -m unittest discover -s test -p "curvature_pipeline_test.py"
 - Supabase failures must not block app startup or local run saving.
 - RouteFinder must stay map-first and avoid large overlapping cards.
 - Drive UI must keep only essential controls: next curve, speed, G meter, and end run.
+- iOS permission metadata must match the lean app: location When-In-Use only.

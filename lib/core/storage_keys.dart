@@ -16,6 +16,7 @@ class StorageKeys {
   /// RunSummary 배열 JSON (run_history_service.dart)
   static const runs = 'run_history';
   static const runDetailPrefix = 'run_detail_';
+  static const routeFeedback = 'route_feedback';
 
   // ── 루트 (SavedRouteService, RouteService) ──────────────────
   /// 북마크된 RevvRoute 배열 JSON
@@ -61,4 +62,7 @@ class StorageKeys {
   static const imuOy = 'imu_oy';
   static const imuOz = 'imu_oz';
   static const imuCal = 'imu_cal';
+
+  // ── 클라우드 인증 (SupabaseService) ────────────────────────
+  static const supabaseSession = 'supabase_session';
 }

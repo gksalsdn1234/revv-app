@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase/supabase.dart';
 
 import '../core/supabase_config.dart';
+import '../core/storage_keys.dart';
 import '../core/supabase_tables.dart';
 import '../models/revv_route.dart';
+import '../models/route_feedback.dart';
 import '../models/run_telemetry_detail.dart';
 import '../models/run_summary.dart';
 import 'route_loading_policy.dart';
@@ -24,6 +28,8 @@ class SupabaseService extends ChangeNotifier {
   SyncStatus get status => _status;
   String? _lastFailureReason;
   String? get lastFailureReason => _lastFailureReason;
+  SupabaseClient? _client;
+  StreamSubscription<AuthState>? _authSubscription;
 
   bool _ready = false;
   bool get isReady => _ready;
@@ -36,18 +42,14 @@ class SupabaseService extends ChangeNotifier {
 
   String? get uid {
     try {
-      return Supabase.instance.client.auth.currentUser?.id;
+      return _client?.auth.currentUser?.id;
     } catch (_) {
       return null;
     }
   }
 
   SupabaseClient? get client {
-    try {
-      return Supabase.instance.client;
-    } catch (_) {
-      return null;
-    }
+    return _client;
   }
 
   Future<void> init({SupabaseConfig? config}) async {
@@ -63,11 +65,14 @@ class SupabaseService extends ChangeNotifier {
     }
 
     try {
-      await Supabase.initialize(url: _config!.url, anonKey: _config!.anonKey);
-      final auth = Supabase.instance.client.auth;
+      _client = SupabaseClient(_config!.url, _config!.anonKey);
+      final auth = _client!.auth;
+      await _recoverPersistedSession();
       if (auth.currentUser == null) {
         await auth.signInAnonymously();
+        await _persistCurrentSession();
       }
+      _listenForAuthPersistence();
       _ready = true;
       _lastFailureReason = null;
       _setStatus(SyncStatus.done);
@@ -79,6 +84,46 @@ class SupabaseService extends ChangeNotifier {
       debugPrint('[Supabase] init failed: $e');
     }
     notifyListeners();
+  }
+
+  Future<void> _recoverPersistedSession() async {
+    final stored = (await SharedPreferences.getInstance()).getString(
+      StorageKeys.supabaseSession,
+    );
+    if (stored == null || stored.isEmpty || _client == null) return;
+    try {
+      await _client!.auth.recoverSession(stored);
+    } catch (e) {
+      await (await SharedPreferences.getInstance()).remove(
+        StorageKeys.supabaseSession,
+      );
+      debugPrint('[Supabase] stored session recovery failed: $e');
+    }
+  }
+
+  void _listenForAuthPersistence() {
+    _authSubscription?.cancel();
+    _authSubscription = _client?.auth.onAuthStateChange.listen((state) async {
+      final session = state.session;
+      final prefs = await SharedPreferences.getInstance();
+      if (session == null) {
+        await prefs.remove(StorageKeys.supabaseSession);
+        return;
+      }
+      await prefs.setString(
+        StorageKeys.supabaseSession,
+        jsonEncode(session.toJson()),
+      );
+    });
+  }
+
+  Future<void> _persistCurrentSession() async {
+    final session = _client?.auth.currentSession;
+    if (session == null) return;
+    await (await SharedPreferences.getInstance()).setString(
+      StorageKeys.supabaseSession,
+      jsonEncode(session.toJson()),
+    );
   }
 
   Future<void> uploadRun(RunSummary summary) async {
@@ -122,6 +167,18 @@ class SupabaseService extends ChangeNotifier {
       debugPrint('[Supabase] run detail uploaded — ${detail.runId}');
     } catch (e) {
       debugPrint('[Supabase] uploadRunDetail failed: $e');
+    }
+  }
+
+  Future<void> uploadRouteFeedback(RouteFeedback feedback) async {
+    if (!_ready || uid == null) return;
+    try {
+      await client!
+          .from(SupabaseTables.routeFeedback)
+          .upsert(routeFeedbackToRow(feedback, userId: uid!), onConflict: 'id');
+      debugPrint('[Supabase] route feedback uploaded — ${feedback.id}');
+    } catch (e) {
+      debugPrint('[Supabase] uploadRouteFeedback failed: $e');
     }
   }
 
@@ -577,6 +634,21 @@ class SupabaseService extends ChangeNotifier {
     throw FormatException('Invalid telemetry_json for run ${row['run_id']}');
   }
 
+  static Map<String, dynamic> routeFeedbackToRow(
+    RouteFeedback feedback, {
+    required String userId,
+  }) {
+    return {
+      'id': feedback.id,
+      'user_id': userId,
+      'run_id': feedback.runId,
+      'route_id': feedback.routeId,
+      'route_name': feedback.routeName,
+      'feedback_type': feedback.feedbackType,
+      'created_at': feedback.createdAt.toIso8601String(),
+    };
+  }
+
   static Map<String, dynamic> routeToRow(
     RevvRoute route, {
     String? publishedBy,
@@ -786,5 +858,11 @@ class SupabaseService extends ChangeNotifier {
   void _setStatus(SyncStatus s) {
     _status = s;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
   }
 }

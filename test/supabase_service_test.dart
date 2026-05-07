@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/supabase_config.dart';
 import 'package:revv_app/models/obd_data.dart';
 import 'package:revv_app/models/revv_route.dart';
+import 'package:revv_app/models/route_feedback.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
 import 'package:revv_app/models/run_summary.dart';
 import 'package:revv_app/services/supabase_service.dart';
@@ -79,6 +80,25 @@ void main() {
     expect(row['telemetry_json'], isA<Map<String, dynamic>>());
     expect(restored.samples.single.speedKmh, 42);
     expect(restored.obdSummary?.maxRpm, 4200);
+  });
+
+  test('RouteFeedback serializes into Supabase route_feedback payload', () {
+    final feedback = RouteFeedback(
+      id: 'run-1_liked',
+      runId: 'run-1',
+      routeId: 'route-1',
+      routeName: 'Mountain Sweep',
+      feedbackType: 'liked',
+      createdAt: DateTime.parse('2026-04-01T10:03:00Z'),
+    );
+
+    final row = SupabaseService.routeFeedbackToRow(feedback, userId: 'user-1');
+
+    expect(row['id'], 'run-1_liked');
+    expect(row['user_id'], 'user-1');
+    expect(row['run_id'], 'run-1');
+    expect(row['route_id'], 'route-1');
+    expect(row['feedback_type'], 'liked');
   });
 
   test('Route rows map back into RevvRoute models', () {

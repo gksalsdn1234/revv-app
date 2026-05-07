@@ -19,11 +19,13 @@ class RouteService extends ChangeNotifier {
   bool isRefreshingDiversity = false;
   String? errorMessage;
   String? backgroundStatusMessage;
+  String? routeSuggestionMessage;
   String? routeDataStatusTitle;
   String? routeDataStatusBody;
   String routeDataSourceLabel = '준비 중';
 
   int lastCloudCandidateCount = 0;
+  int lastFilteredRouteCount = 0;
   int lastUsableCloudRouteCount = 0;
   int searchRadiusKm = 50;
   int visibleRouteLimit = defaultVisibleRoutes;
@@ -72,6 +74,7 @@ class RouteService extends ChangeNotifier {
     isLoading = true;
     isLoadingInitial = routes.isEmpty;
     errorMessage = null;
+    routeSuggestionMessage = null;
     backgroundStatusMessage = '주변 루트를 찾는 중';
     routeDataStatusTitle = '루트 탐색 중';
     routeDataStatusBody = '현재 위치 기준 ${searchRadiusKm}km 안에서 후보를 불러옵니다.';
@@ -108,6 +111,13 @@ class RouteService extends ChangeNotifier {
       lastUsableCloudRouteCount = visible.length;
       routes = visible;
       selectedRoute = visible.isNotEmpty ? visible.first : null;
+      debugPrint(
+        '[RouteService] route pool '
+        'radius=${searchRadiusKm}km '
+        'raw=${candidates.length} '
+        'filtered=$lastFilteredRouteCount '
+        'visible=${visible.length}/$visibleRouteLimit',
+      );
 
       if (visible.isEmpty) {
         errorMessage = '주변 루트를 찾지 못했어요';
@@ -115,6 +125,9 @@ class RouteService extends ChangeNotifier {
         routeDataStatusBody = '검색 반경을 넓히거나 위치를 옮겨 다시 찾아보세요.';
       } else {
         errorMessage = null;
+        routeSuggestionMessage = visible.length < 8 && searchRadiusKm < 100
+            ? '후보가 적어요. 반경을 100km로 넓혀볼까요?'
+            : null;
         routeDataStatusTitle = '루트 준비 완료';
         routeDataStatusBody = '${visible.length}개 후보를 불러왔어요.';
         unawaited(_saveToCache(visible));
@@ -126,12 +139,22 @@ class RouteService extends ChangeNotifier {
       if (cached != null && cached.isNotEmpty) {
         routes = _prepareVisibleRoutes(cached);
         selectedRoute = routes.isEmpty ? null : routes.first;
+        debugPrint(
+          '[RouteService] cached route pool '
+          'radius=${searchRadiusKm}km '
+          'filtered=$lastFilteredRouteCount '
+          'visible=${routes.length}/$visibleRouteLimit',
+        );
         routeDataSourceLabel = '로컬 캐시';
         errorMessage = null;
+        routeSuggestionMessage = routes.length < 8 && searchRadiusKm < 100
+            ? '후보가 적어요. 반경을 100km로 넓혀볼까요?'
+            : null;
         routeDataStatusTitle = '캐시 사용 중';
         routeDataStatusBody = '네트워크 실패로 마지막 루트 목록을 사용합니다.';
       } else {
         errorMessage = '루트를 불러오지 못했어요';
+        routeSuggestionMessage = null;
         routeDataStatusTitle = '루트 로드 실패';
         routeDataStatusBody = '네트워크 또는 Supabase 설정을 확인해 주세요.';
       }
@@ -172,6 +195,7 @@ class RouteService extends ChangeNotifier {
         .where((route) => route.distanceKm >= 3.0)
         .where((route) => route.qualityRejectReason == null)
         .toList();
+    lastFilteredRouteCount = filtered.length;
     return diversifyRouteSlots(filtered, limit: visibleRouteLimit);
   }
 

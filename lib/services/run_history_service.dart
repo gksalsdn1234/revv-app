@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/storage_keys.dart';
 import '../models/revv_route.dart';
+import '../models/route_feedback.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
@@ -10,15 +11,21 @@ import 'supabase_service.dart';
 
 class RunHistoryService extends ChangeNotifier {
   List<RunSummary> _history = [];
+  List<RouteFeedback> _feedback = [];
   List<RunSummary> get history => List.unmodifiable(_history);
+  List<RouteFeedback> get feedback => List.unmodifiable(_feedback);
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(StorageKeys.runs);
     if (raw != null) {
       _history = RunSummary.listFromJson(raw);
-      notifyListeners();
     }
+    final feedbackRaw = prefs.getString(StorageKeys.routeFeedback);
+    if (feedbackRaw != null) {
+      _feedback = RouteFeedback.listFromJson(feedbackRaw);
+    }
+    notifyListeners();
   }
 
   /// 로컬에 없는 클라우드 런을 가져와 병합 + 로컬에 없는 런을 클라우드에도 업로드
@@ -93,6 +100,28 @@ class RunHistoryService extends ChangeNotifier {
       jsonEncode(detail.toJson()),
     );
     SupabaseService().uploadRunDetail(detail);
+  }
+
+  Future<void> saveFeedback(RouteFeedback feedback) async {
+    final existingIndex = _feedback.indexWhere(
+      (item) => item.runId == feedback.runId,
+    );
+    if (existingIndex >= 0) {
+      _feedback[existingIndex] = feedback;
+    } else {
+      _feedback.insert(0, feedback);
+    }
+    await _persistFeedback();
+    notifyListeners();
+    SupabaseService().uploadRouteFeedback(feedback);
+  }
+
+  Future<void> _persistFeedback() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      StorageKeys.routeFeedback,
+      RouteFeedback.listToJson(_feedback),
+    );
   }
 
   Future<RunTelemetryDetail?> loadDetail(String runId) async {

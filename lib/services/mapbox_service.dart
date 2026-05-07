@@ -1,6 +1,10 @@
 class MapboxService {
-  static const accessToken =
-      'pk.eyJ1IjoibWluZ3dvbyIsImEiOiJjbW1kdnp2bTUwM3VuMnJuMzRzeGdienVvIn0.CXykIJuDYcPt99tQJQnRhQ';
+  static const accessToken = String.fromEnvironment(
+    'MAPBOX_ACCESS_TOKEN',
+    defaultValue: '',
+  );
+
+  static bool get isConfigured => accessToken.isNotEmpty;
 
   /// 크루즈 모드 — 아웃도어 (지형, 등고선)
   static const cruiseStyle = 'mapbox://styles/mapbox/outdoors-v12';

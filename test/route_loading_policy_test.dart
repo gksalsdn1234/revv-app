@@ -6,20 +6,35 @@ RevvRoute _route({
   required String id,
   required double distanceKm,
   required double windingScore,
+  String? name,
   double distanceFromUser = 10,
   double lat = 37.0,
   double lng = 127.0,
+  double routeRankScore = 0,
+  double tightCurveKm = 0,
+  double mediumCurveKm = 0,
+  double maxContinuousKm = 0,
+  double flowScore = 0,
+  double elevationDelta = 0,
+  bool isLoop = false,
 }) {
   return RevvRoute(
     id: id,
-    name: 'route-$id',
+    name: name ?? 'route-$id',
     nodes: [LatLng(lat, lng), LatLng(lat + 0.1, lng + 0.1)],
     distanceKm: distanceKm,
     windingScore: windingScore,
     starRating: 4,
     sharpCurveCount: 10,
+    elevationDelta: elevationDelta,
     centerPoint: LatLng(lat + 0.05, lng + 0.05),
     distanceFromUser: distanceFromUser,
+    tightCurveKm: tightCurveKm,
+    mediumCurveKm: mediumCurveKm,
+    maxContinuousKm: maxContinuousKm,
+    isLoop: isLoop,
+    routeRankScore: routeRankScore,
+    flowScore: flowScore,
   );
 }
 
@@ -135,6 +150,150 @@ void main() {
       );
     },
   );
+
+  test(
+    'diversifyRouteSlots keeps top score first and then mixes route styles',
+    () {
+      final routes = [
+        _route(
+          id: 'best',
+          distanceKm: 14,
+          windingScore: 7.0,
+          distanceFromUser: 65,
+          routeRankScore: 99,
+          lat: 45.0,
+          lng: -73.0,
+        ),
+        _route(
+          id: 'near',
+          distanceKm: 9,
+          windingScore: 5.3,
+          distanceFromUser: 5,
+          routeRankScore: 10,
+          lat: 45.5,
+          lng: -73.5,
+        ),
+        _route(
+          id: 'tight',
+          distanceKm: 12,
+          windingScore: 6.4,
+          distanceFromUser: 28,
+          routeRankScore: 9,
+          tightCurveKm: 2.4,
+          mediumCurveKm: 0.7,
+          maxContinuousKm: 0.9,
+          lat: 46.0,
+          lng: -74.0,
+        ),
+        _route(
+          id: 'sweeper',
+          distanceKm: 18,
+          windingScore: 6.2,
+          distanceFromUser: 32,
+          routeRankScore: 8,
+          tightCurveKm: 0.4,
+          mediumCurveKm: 3.2,
+          maxContinuousKm: 1.8,
+          lat: 46.5,
+          lng: -74.5,
+        ),
+        _route(
+          id: 'flow',
+          distanceKm: 16,
+          windingScore: 6.0,
+          distanceFromUser: 36,
+          routeRankScore: 7,
+          tightCurveKm: 0.8,
+          mediumCurveKm: 1.5,
+          maxContinuousKm: 2.2,
+          flowScore: 0.86,
+          lat: 47.0,
+          lng: -75.0,
+        ),
+        _route(
+          id: 'long',
+          distanceKm: 36,
+          windingScore: 5.8,
+          distanceFromUser: 42,
+          routeRankScore: 6,
+          lat: 47.5,
+          lng: -75.5,
+        ),
+        _route(
+          id: 'loop',
+          distanceKm: 20,
+          windingScore: 5.6,
+          distanceFromUser: 48,
+          routeRankScore: 5,
+          isLoop: true,
+          lat: 48.0,
+          lng: -76.0,
+        ),
+        _route(
+          id: 'elevation',
+          distanceKm: 15,
+          windingScore: 5.5,
+          distanceFromUser: 52,
+          routeRankScore: 4,
+          elevationDelta: 90,
+          lat: 48.5,
+          lng: -76.5,
+        ),
+      ];
+
+      final diversified = diversifyRouteSlots(routes, limit: 8);
+
+      expect(diversified.map((route) => route.id), [
+        'best',
+        'near',
+        'tight',
+        'sweeper',
+        'flow',
+        'long',
+        'loop',
+        'elevation',
+      ]);
+    },
+  );
+
+  test('diversifyRouteSlots avoids near-duplicate route repetition', () {
+    final routes = [
+      _route(
+        id: 'original',
+        name: 'Rang Saint-Simon',
+        distanceKm: 12,
+        windingScore: 6.2,
+        routeRankScore: 10,
+        lat: 45.0,
+        lng: -73.0,
+      ),
+      _route(
+        id: 'duplicate-name',
+        name: 'Rang Saint-Simon',
+        distanceKm: 13,
+        windingScore: 6.0,
+        routeRankScore: 9,
+        lat: 45.01,
+        lng: -73.01,
+      ),
+      _route(
+        id: 'distinct',
+        name: 'Chemin des Pins',
+        distanceKm: 16,
+        windingScore: 5.8,
+        routeRankScore: 8,
+        lat: 46.0,
+        lng: -74.0,
+      ),
+    ];
+
+    final diversified = diversifyRouteSlots(routes, limit: 8);
+    final ids = diversified.map((route) => route.id).toList();
+
+    expect(ids, contains('original'));
+    expect(ids, contains('distinct'));
+    expect(ids, isNot(contains('duplicate-name')));
+  });
 
   test('empty overpass payload is treated as suspicious', () {
     expect(

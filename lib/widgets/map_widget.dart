@@ -27,6 +27,18 @@ class _LineLayerSpec {
   });
 }
 
+class RouteCandidateMarker {
+  final String routeId;
+  final int index;
+  final LatLng point;
+
+  const RouteCandidateMarker({
+    required this.routeId,
+    required this.index,
+    required this.point,
+  });
+}
+
 class MapWidget extends StatefulWidget {
   final bool isSprintMode;
 
@@ -36,21 +48,32 @@ class MapWidget extends StatefulWidget {
   /// 선택한 드라이빙 루트 (빨간 선)
   final List<LatLng>? routePolyline;
 
+  /// 루트파인더에서 선택되지 않은 보조 후보 루트들.
+  /// 선택 루트보다 얇고 muted 톤으로 그려서 지도에서 선택지를 읽을 수 있게 한다.
+  final List<List<LatLng>> candidatePolylines;
+  final List<RouteCandidateMarker> candidateMarkers;
+
   /// 커브 밀도 히트맵 모드 (파랑→초록→노랑→주황→빨강)
   final bool showCurveHeatmap;
 
   /// 본 루트 진입 후 지도 배경 정보를 최소화하고 루트만 강조한다.
   final bool routeFocusMode;
   final int recenterSignal;
+  final ValueChanged<LatLng>? onCameraCenterChanged;
+  final ValueChanged<String>? onCandidateMarkerTap;
 
   const MapWidget({
     super.key,
     this.isSprintMode = false,
     this.navPolyline,
     this.routePolyline,
+    this.candidatePolylines = const [],
+    this.candidateMarkers = const [],
     this.showCurveHeatmap = false,
     this.routeFocusMode = false,
     this.recenterSignal = 0,
+    this.onCameraCenterChanged,
+    this.onCandidateMarkerTap,
   });
 
   @override
@@ -76,6 +99,7 @@ class _MapWidgetState extends State<MapWidget> {
   bool _cameraPending = false;
   final Map<String, Object?> _originalLayerVisibility = {};
   bool _routeFocusApplied = false;
+  LatLng? _lastReportedCameraCenter;
   Uint8List? _puckTopImage;
   Uint8List? _puckBearingImage;
   Uint8List? _puckShadowImage;
@@ -88,6 +112,7 @@ class _MapWidgetState extends State<MapWidget> {
   ) {
     final isRoute = id == 'route';
     final isNav = id == 'nav';
+    final isCandidate = id.startsWith('candidate-');
 
     if (isRoute) {
       return [
@@ -118,6 +143,32 @@ class _MapWidgetState extends State<MapWidget> {
           color: 0xFFEBFCFF,
           width: math.max(1.4, width * 0.28),
           opacity: widget.routeFocusMode ? 0.42 : 0.30,
+        ),
+      ];
+    }
+
+    if (isCandidate) {
+      return [
+        _LineLayerSpec(
+          id: '$id-shadow-layer',
+          sourceId: sourceId,
+          color: 0x8804070B,
+          width: width + 3.0,
+          opacity: 0.44,
+        ),
+        _LineLayerSpec(
+          id: '$id-track-layer',
+          sourceId: sourceId,
+          color: 0xFF111B20,
+          width: width + 1.2,
+          opacity: 0.42,
+        ),
+        _LineLayerSpec(
+          id: '$id-core-layer',
+          sourceId: sourceId,
+          color: colorArgb,
+          width: width,
+          opacity: 0.34,
         ),
       ];
     }
@@ -176,7 +227,13 @@ class _MapWidgetState extends State<MapWidget> {
   @override
   void initState() {
     super.initState();
-    mbx.MapboxOptions.setAccessToken(MapboxService.accessToken);
+    if (MapboxService.isConfigured) {
+      mbx.MapboxOptions.setAccessToken(MapboxService.accessToken);
+    } else {
+      debugPrint(
+        '[MapWidget] MAPBOX_ACCESS_TOKEN missing; map fallback active',
+      );
+    }
   }
 
   @override
@@ -238,6 +295,29 @@ class _MapWidgetState extends State<MapWidget> {
           4.0,
         );
       }
+      if (!_samePolylineGroups(
+        oldWidget.candidatePolylines,
+        widget.candidatePolylines,
+      )) {
+        _drawCandidatePolylines(widget.candidatePolylines).then((_) {
+          if (!mounted ||
+              !_styleLoaded ||
+              widget.showCurveHeatmap ||
+              widget.routePolyline?.isNotEmpty != true) {
+            return;
+          }
+          // 후보 라인 갱신 후 선택 라인을 한 번 더 올려 선택지가 묻히지 않게 한다.
+          _drawPolyline(
+            'route',
+            widget.routePolyline!,
+            AppColors.red.toARGB32(),
+            5.5,
+          );
+        });
+      }
+      if (!_sameMarkers(oldWidget.candidateMarkers, widget.candidateMarkers)) {
+        _drawCandidateMarkers(widget.candidateMarkers);
+      }
       if (oldWidget.routePolyline != widget.routePolyline ||
           oldWidget.showCurveHeatmap != widget.showCurveHeatmap) {
         if (widget.showCurveHeatmap &&
@@ -290,6 +370,34 @@ class _MapWidgetState extends State<MapWidget> {
     _mapController = controller;
   }
 
+  void _onCameraChanged(mbx.CameraChangedEventData data) {
+    _reportCameraCenter(data.cameraState);
+  }
+
+  Future<void> _onMapIdle(mbx.MapIdleEventData _) async {
+    final map = _mapController;
+    if (map == null) return;
+    try {
+      _reportCameraCenter(await map.getCameraState());
+    } catch (_) {}
+  }
+
+  void _reportCameraCenter(mbx.CameraState cameraState) {
+    final callback = widget.onCameraCenterChanged;
+    if (callback == null) return;
+    final coordinates = cameraState.center.coordinates;
+    final center = LatLng(
+      coordinates.lat.toDouble(),
+      coordinates.lng.toDouble(),
+    );
+    final previous = _lastReportedCameraCenter;
+    if (previous != null && RevvRoute.haversineKm(previous, center) < 0.2) {
+      return;
+    }
+    _lastReportedCameraCenter = center;
+    callback(center);
+  }
+
   Future<Uint8List> _drawPuckImage({
     required double size,
     required void Function(Canvas canvas, Size size) painter,
@@ -324,11 +432,10 @@ class _MapWidgetState extends State<MapWidget> {
           ..style = PaintingStyle.stroke
           ..strokeWidth = 3;
         final corePaint = Paint()
-          ..shader = ui.Gradient.radial(
-            center,
-            size.width * 0.24,
-            const [Color(0xFF9CF3FF), Color(0xFF43D9FF)],
-          );
+          ..shader = ui.Gradient.radial(center, size.width * 0.24, const [
+            Color(0xFF9CF3FF),
+            Color(0xFF43D9FF),
+          ]);
 
         canvas.drawCircle(center, size.width * 0.18, ringPaint);
         canvas.drawCircle(center, size.width * 0.18, ringStroke);
@@ -372,8 +479,7 @@ class _MapWidgetState extends State<MapWidget> {
         canvas.drawPath(path, strokePaint);
 
         final center = Offset(centerX, centerY);
-        final ring = Paint()
-          ..color = const Color(0xE0141820);
+        final ring = Paint()..color = const Color(0xE0141820);
         final ringStroke = Paint()
           ..color = const Color(0x8837DFFF)
           ..style = PaintingStyle.stroke
@@ -393,15 +499,11 @@ class _MapWidgetState extends State<MapWidget> {
         canvas.drawCircle(center, size.width * 0.18, shadowPaint);
 
         final haloPaint = Paint()
-          ..shader = ui.Gradient.radial(
-            center,
-            size.width * 0.30,
-            const [
-              Color(0x2234E6FF),
-              Color(0x08131A22),
-              Color(0x00000000),
-            ],
-          );
+          ..shader = ui.Gradient.radial(center, size.width * 0.30, const [
+            Color(0x2234E6FF),
+            Color(0x08131A22),
+            Color(0x00000000),
+          ]);
         canvas.drawCircle(center, size.width * 0.28, haloPaint);
       },
     );
@@ -479,6 +581,8 @@ class _MapWidgetState extends State<MapWidget> {
         4.0,
       );
     }
+    await _drawCandidatePolylines(widget.candidatePolylines);
+    await _drawCandidateMarkers(widget.candidateMarkers);
     if (widget.routePolyline?.isNotEmpty == true) {
       if (widget.showCurveHeatmap) {
         await _drawCurveHeatmap(widget.routePolyline!);
@@ -491,6 +595,183 @@ class _MapWidgetState extends State<MapWidget> {
         );
       }
     }
+  }
+
+  static bool _samePolylineGroups(List<List<LatLng>> a, List<List<LatLng>> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final pa = a[i];
+      final pb = b[i];
+      if (pa.length != pb.length) return false;
+      for (var j = 0; j < pa.length; j++) {
+        if (pa[j].lat != pb[j].lat || pa[j].lng != pb[j].lng) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  static bool _sameMarkers(
+    List<RouteCandidateMarker> a,
+    List<RouteCandidateMarker> b,
+  ) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final left = a[i];
+      final right = b[i];
+      if (left.routeId != right.routeId ||
+          left.index != right.index ||
+          left.point.lat != right.point.lat ||
+          left.point.lng != right.point.lng) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<void> _drawCandidatePolylines(List<List<LatLng>> polylines) async {
+    const maxCandidateLayers = 5;
+    for (var i = 0; i < maxCandidateLayers; i++) {
+      final points = i < polylines.length ? polylines[i] : const <LatLng>[];
+      await _drawPolyline('candidate-$i', points, 0xFF82D9E6, 2.8);
+    }
+  }
+
+  Future<void> _drawCandidateMarkers(
+    List<RouteCandidateMarker> markers,
+  ) async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded) return;
+    const sourceId = 'candidate-anchor-source';
+    const layerIds = [
+      'candidate-anchor-label-layer',
+      'candidate-anchor-core-layer',
+      'candidate-anchor-halo-layer',
+    ];
+
+    for (final layerId in layerIds) {
+      try {
+        await map.style.removeStyleLayer(layerId);
+      } catch (_) {}
+    }
+    try {
+      await map.style.removeStyleSource(sourceId);
+    } catch (_) {}
+
+    if (markers.isEmpty) return;
+
+    final features = markers.take(12).map((marker) {
+      final point = marker.point;
+      return {
+        'type': 'Feature',
+        'geometry': {
+          'type': 'Point',
+          'coordinates': [point.lng, point.lat],
+        },
+        'properties': {
+          'index': '${marker.index + 1}',
+          'routeId': marker.routeId,
+        },
+      };
+    }).toList();
+
+    final geoJson = jsonEncode({
+      'type': 'FeatureCollection',
+      'features': features,
+    });
+
+    try {
+      await map.style.addSource(mbx.GeoJsonSource(id: sourceId, data: geoJson));
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'candidate-anchor-halo-layer',
+          sourceId: sourceId,
+          circleColor: const Color(0xFF071014).toARGB32(),
+          circleRadius: 16.0,
+          circleOpacity: 0.80,
+          circleStrokeColor: const Color(0x7737E7FF).toARGB32(),
+          circleStrokeWidth: 1.8,
+        ),
+      );
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'candidate-anchor-core-layer',
+          sourceId: sourceId,
+          circleColor: const Color(0xFF46DFFF).toARGB32(),
+          circleRadius: 6.2,
+          circleOpacity: 0.95,
+        ),
+      );
+      await map.style.addLayer(
+        mbx.SymbolLayer(
+          id: 'candidate-anchor-label-layer',
+          sourceId: sourceId,
+          textField: '{index}',
+          textSize: 11.0,
+          textColor: const Color(0xFF041116).toARGB32(),
+          textHaloColor: const Color(0xFF46DFFF).toARGB32(),
+          textHaloWidth: 1.8,
+          textAllowOverlap: true,
+          textIgnorePlacement: true,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[MapWidget] candidate anchors: $e');
+    }
+  }
+
+  Future<void> _onMapTap(mbx.MapContentGestureContext context) async {
+    final map = _mapController;
+    final onTap = widget.onCandidateMarkerTap;
+    if (map == null || onTap == null || !_styleLoaded) return;
+
+    final touch = context.touchPosition;
+    const hitPadding = 24.0;
+    final queryBox = mbx.ScreenBox(
+      min: mbx.ScreenCoordinate(
+        x: math.max(0, touch.x - hitPadding),
+        y: math.max(0, touch.y - hitPadding),
+      ),
+      max: mbx.ScreenCoordinate(
+        x: touch.x + hitPadding,
+        y: touch.y + hitPadding,
+      ),
+    );
+
+    try {
+      final features = await map.queryRenderedFeatures(
+        mbx.RenderedQueryGeometry.fromScreenBox(queryBox),
+        mbx.RenderedQueryOptions(
+          layerIds: const [
+            'candidate-anchor-label-layer',
+            'candidate-anchor-core-layer',
+            'candidate-anchor-halo-layer',
+          ],
+        ),
+      );
+      for (final result in features) {
+        if (result == null) continue;
+        final routeId = _routeIdFromFeature(result.queriedFeature.feature);
+        if (routeId == null || routeId.isEmpty) continue;
+        onTap(routeId);
+        return;
+      }
+    } catch (e) {
+      debugPrint('[MapWidget] candidate marker tap: $e');
+    }
+  }
+
+  static String? _routeIdFromFeature(Map<String?, Object?> feature) {
+    final properties = feature['properties'];
+    if (properties is Map) {
+      final value = properties['routeId'] ?? properties['route_id'];
+      if (value != null) return value.toString();
+    }
+    final directValue = feature['routeId'] ?? feature['route_id'];
+    return directValue?.toString();
   }
 
   Future<void> _drawPolyline(
@@ -753,12 +1034,6 @@ class _MapWidgetState extends State<MapWidget> {
     await _applyRouteFocusStyle();
   }
 
-  bool _isRevvOverlayLayer(String id) {
-    return id.startsWith('route-') ||
-        id.startsWith('nav-') ||
-        id.startsWith('hm-');
-  }
-
   Future<void> _applyRouteFocusStyle() async {
     final map = _mapController;
     if (map == null || !_styleLoaded) return;
@@ -782,29 +1057,13 @@ class _MapWidgetState extends State<MapWidget> {
       return;
     }
 
-    if (_routeFocusApplied) return;
-    try {
-      final layers = await map.style.getStyleLayers();
-      for (final layer in layers.whereType<mbx.StyleObjectInfo>()) {
-        if (_isRevvOverlayLayer(layer.id)) continue;
-        if (layer.type == 'background') continue;
-        try {
-          final original = await map.style.getStyleLayerProperty(
-            layer.id,
-            'visibility',
-          );
-          _originalLayerVisibility[layer.id] = original.value;
-        } catch (_) {
-          _originalLayerVisibility[layer.id] = null;
-        }
-        try {
-          await map.style.setStyleLayerProperty(layer.id, 'visibility', 'none');
-        } catch (_) {}
-      }
-      _routeFocusApplied = true;
-    } catch (e) {
-      debugPrint('[MapWidget] route focus style: $e');
-    }
+    // 주행 모드에서도 기본 지도 레이어는 유지한다.
+    //
+    // 예전 구현은 REVV overlay를 제외한 모든 style layer를 숨겨서 루트만 남겼는데,
+    // iOS 실기기에서는 타일이 잘려 보이거나 빈 지도처럼 느껴지는 문제가 있었다.
+    // 이제 route focus는 _applyCustomStyle()의 라벨/테마 축소만 사용하고,
+    // 실제 도로/지형 레이어는 Mapbox가 정상 렌더링하도록 둔다.
+    _routeFocusApplied = false;
   }
 
   Future<void> _moveCamera(
@@ -818,7 +1077,9 @@ class _MapWidgetState extends State<MapWidget> {
     final cameraOpts = mbx.CameraOptions(
       center: mbx.Point(coordinates: mbx.Position(lng, lat)),
       zoom: widget.isSprintMode ? 16.5 : 15.0,
-      pitch: widget.isSprintMode ? 50.0 : 20.0,
+      // iOS 실기기에서 높은 pitch가 플랫폼뷰/지도 타일이 잘려 보이는 느낌을 만들 수 있어
+      // 출시용 lean HUD에서는 낮은 각도로 안정성을 우선한다.
+      pitch: widget.isSprintMode ? 22.0 : 0.0,
       bearing: (widget.isSprintMode && heading != null) ? heading : null,
     );
 
@@ -870,6 +1131,13 @@ class _MapWidgetState extends State<MapWidget> {
       );
     }
 
+    if (!MapboxService.isConfigured) {
+      return const _MapFallback(
+        icon: Icons.map_outlined,
+        message: '지도 설정이 필요해요',
+      );
+    }
+
     final loc = context.read<LocationService>();
     final weatherIcon = context.read<WeatherService>().weatherIcon;
 
@@ -879,20 +1147,30 @@ class _MapWidgetState extends State<MapWidget> {
     // !_debugDoingThisLayout assertion + touch 먹통 유발.
     // TLHC_VD(Texture Layer Hybrid Composition + VirtualDisplay fallback) +
     // textureView=true → 텍스처 기반 합성으로 layout phase 간섭 차단.
-    return mbx.MapWidget(
-      styleUri: widget.isSprintMode
-          ? MapboxService.sprintStyle(weatherIcon)
-          : MapboxService.cruiseStyle,
-      cameraOptions: mbx.CameraOptions(
-        center: mbx.Point(coordinates: mbx.Position(loc.lng, loc.lat)),
-        zoom: widget.isSprintMode ? 16.5 : 15.0,
-        pitch: widget.isSprintMode ? 50.0 : 20.0,
+    return ClipRect(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SizedBox.expand(
+            child: mbx.MapWidget(
+              styleUri: widget.isSprintMode
+                  ? MapboxService.sprintStyle(weatherIcon)
+                  : MapboxService.cruiseStyle,
+              cameraOptions: mbx.CameraOptions(
+                center: mbx.Point(coordinates: mbx.Position(loc.lng, loc.lat)),
+                zoom: widget.isSprintMode ? 16.5 : 15.0,
+                pitch: widget.isSprintMode ? 22.0 : 0.0,
+              ),
+              // FollowPuckViewportState: 스타일 로드 후 활성화 → Mapbox 네이티브 GPS 추적
+              viewport: _viewportState,
+              onMapCreated: _onMapCreated,
+              onStyleLoadedListener: _onStyleLoaded,
+              onCameraChangeListener: _onCameraChanged,
+              onMapIdleListener: _onMapIdle,
+              onTapListener: _onMapTap,
+            ),
+          );
+        },
       ),
-      // FollowPuckViewportState: 스타일 로드 후 활성화 → Mapbox 네이티브 GPS 추적
-      viewport: _viewportState,
-      textureView: true,
-      onMapCreated: _onMapCreated,
-      onStyleLoadedListener: _onStyleLoaded,
     );
   }
 }
@@ -914,11 +1192,7 @@ class _MapFallback extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              color: AppColors.red.withValues(alpha: 0.5),
-              size: 32,
-            ),
+            Icon(icon, color: AppColors.red.withValues(alpha: 0.5), size: 32),
             const SizedBox(height: 8),
             Text(
               message,

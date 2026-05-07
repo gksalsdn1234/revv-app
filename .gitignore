@@ -46,6 +46,7 @@ app.*.map.json
 .worktrees/
 node_modules/
 functions/lib/
+.lazyweb/
 
 # Supabase secrets (service_role key — never commit)
 .env

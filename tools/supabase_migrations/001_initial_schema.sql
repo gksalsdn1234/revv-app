@@ -215,6 +215,26 @@ CREATE POLICY records_owner ON route_records
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+CREATE TABLE IF NOT EXISTS route_feedback (
+  id TEXT PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id),
+  run_id TEXT,
+  route_id TEXT,
+  route_name TEXT NOT NULL,
+  feedback_type TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_route_feedback_user ON route_feedback(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_route_feedback_route ON route_feedback(route_id, feedback_type);
+
+ALTER TABLE route_feedback ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS route_feedback_owner ON route_feedback;
+CREATE POLICY route_feedback_owner ON route_feedback
+  FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
 CREATE TABLE IF NOT EXISTS saved_routes (
   user_id UUID NOT NULL REFERENCES auth.users(id),
   route_id TEXT NOT NULL,

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/route_feedback.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
@@ -21,6 +22,8 @@ class LeanRunSummaryScreen extends StatefulWidget {
 
 class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
   Future<RunSummary?>? _saveFuture;
+  String? _selectedFeedback;
+  bool _feedbackSaved = false;
 
   @override
   void initState() {
@@ -36,6 +39,23 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
     final detail = RunTelemetryDetail.fromSession(summary.id, session);
     unawaited(history.saveDetail(detail));
     return summary;
+  }
+
+  Future<void> _saveFeedback(RunSummary summary, String feedbackType) async {
+    final feedback = RouteFeedback(
+      id: '${summary.id}_$feedbackType',
+      runId: summary.id,
+      routeId: summary.routeId,
+      routeName: summary.routeName,
+      feedbackType: feedbackType,
+      createdAt: DateTime.now(),
+    );
+    await context.read<RunHistoryService>().saveFeedback(feedback);
+    if (!mounted) return;
+    setState(() {
+      _selectedFeedback = feedbackType;
+      _feedbackSaved = true;
+    });
   }
 
   @override
@@ -104,6 +124,17 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                         ),
                       ],
                     ),
+                  if (session != null) ...[
+                    const SizedBox(height: 16),
+                    _RouteFeedbackCard(
+                      enabled: summary != null,
+                      selected: _selectedFeedback,
+                      saved: _feedbackSaved,
+                      onSelected: summary == null
+                          ? null
+                          : (type) => _saveFeedback(summary, type),
+                    ),
+                  ],
                   const Spacer(),
                   _SaveStateCard(
                     summary: summary,
@@ -203,6 +234,132 @@ class _SummaryGrid extends StatelessWidget {
             ),
           )
           .toList(),
+    );
+  }
+}
+
+class _FeedbackOption {
+  final String type;
+  final String label;
+  final IconData icon;
+
+  const _FeedbackOption({
+    required this.type,
+    required this.label,
+    required this.icon,
+  });
+}
+
+const _feedbackOptions = [
+  _FeedbackOption(
+    type: 'liked',
+    label: '좋았음',
+    icon: Icons.thumb_up_alt_rounded,
+  ),
+  _FeedbackOption(type: 'not_for_me', label: '별로', icon: Icons.tune_rounded),
+  _FeedbackOption(
+    type: 'unsafe_or_closed',
+    label: '위험/폐쇄',
+    icon: Icons.warning_amber_rounded,
+  ),
+  _FeedbackOption(
+    type: 'hide_route',
+    label: '다시 추천 안 함',
+    icon: Icons.visibility_off_rounded,
+  ),
+];
+
+class _RouteFeedbackCard extends StatelessWidget {
+  final bool enabled;
+  final String? selected;
+  final bool saved;
+  final ValueChanged<String>? onSelected;
+
+  const _RouteFeedbackCard({
+    required this.enabled,
+    required this.selected,
+    required this.saved,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.28),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.route_rounded,
+                color: AppColors.primaryContainer,
+                size: 19,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  saved ? '피드백 저장됨' : '이 루트 어땠나요?',
+                  style: AppText.body(
+                    size: 14,
+                    weight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 11),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _feedbackOptions.map((option) {
+              final active = selected == option.type;
+              return OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: active
+                      ? AppColors.onPrimary
+                      : AppColors.textSecondary,
+                  backgroundColor: active
+                      ? AppColors.primaryContainer
+                      : AppColors.surface.withValues(alpha: 0.72),
+                  side: BorderSide(
+                    color: active
+                        ? AppColors.primaryContainer
+                        : AppColors.outlineVariant.withValues(alpha: 0.34),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 11,
+                    vertical: 9,
+                  ),
+                ),
+                onPressed: enabled ? () => onSelected?.call(option.type) : null,
+                icon: Icon(option.icon, size: 16),
+                label: Text(
+                  option.label,
+                  style: AppText.body(
+                    size: 12,
+                    weight: FontWeight.w900,
+                    color: active
+                        ? AppColors.onPrimary
+                        : AppColors.textSecondary,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
     );
   }
 }

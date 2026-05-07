@@ -6,5 +6,6 @@ class SupabaseTables {
   static const String runs = 'runs';
   static const String runDetails = 'run_details';
   static const String routeRecords = 'route_records';
+  static const String routeFeedback = 'route_feedback';
   static const String savedRoutes = 'saved_routes';
 }
