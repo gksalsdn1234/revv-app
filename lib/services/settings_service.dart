@@ -2,14 +2,17 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/storage_keys.dart';
+import 'route_loading_policy.dart';
 
 class SettingsService extends ChangeNotifier {
   bool _ttsMuted = false;
   int _searchRadius = 50;
+  RouteFilterStrength _routeFilterStrength = RouteFilterStrength.balanced;
   String _distUnit = 'km';
 
   bool get ttsMuted => _ttsMuted;
   int get searchRadiusKm => _searchRadius;
+  RouteFilterStrength get routeFilterStrength => _routeFilterStrength;
   String get distUnit => _distUnit;
 
   Future<void> load() async {
@@ -17,6 +20,9 @@ class SettingsService extends ChangeNotifier {
     _ttsMuted = prefs.getBool(StorageKeys.ttsMuted) ?? false;
     _searchRadius = _normalizeSearchRadius(
       prefs.getInt(StorageKeys.searchRadius) ?? 50,
+    );
+    _routeFilterStrength = routeFilterStrengthFromStorage(
+      prefs.getString(StorageKeys.routeFilterStrength),
     );
     _distUnit = prefs.getString(StorageKeys.distUnit) ?? 'km';
     notifyListeners();
@@ -37,6 +43,17 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(StorageKeys.searchRadius, next);
+  }
+
+  Future<void> setRouteFilterStrength(RouteFilterStrength value) async {
+    if (_routeFilterStrength == value) return;
+    _routeFilterStrength = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      StorageKeys.routeFilterStrength,
+      routeFilterStrengthStorageValue(value),
+    );
   }
 
   Future<void> setDistUnit(String value) async {

@@ -6,15 +6,21 @@ import 'package:provider/provider.dart';
 
 import '../models/revv_route.dart';
 import '../services/location_service.dart';
+import '../services/route_loading_policy.dart';
 import '../services/route_service.dart';
 import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/copilot_briefing.dart';
+import '../ui/route_quality_profile.dart';
+import '../widgets/copilot_start_sheet.dart';
 import '../widgets/map_widget.dart';
 import 'lean_drive_screen.dart';
 import 'lean_route_detail_screen.dart';
 
 enum _RouteLens { all, nearby, sweeper, tight, flow, loop }
+
+enum _RouteMapMode { wide, balanced, close }
 
 class LeanRouteFinderScreen extends StatefulWidget {
   const LeanRouteFinderScreen({super.key});
@@ -30,6 +36,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   LatLng? _mapCenterPoint;
   LatLng? _lastSearchPoint;
   String? _localStatusMessage;
+  double _mapZoom = 11.0;
 
   @override
   void initState() {
@@ -71,6 +78,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final settings = context.read<SettingsService>();
     final routes = context.read<RouteService>();
     routes.searchRadiusKm = settings.searchRadiusKm;
+    routes.filterStrength = settings.routeFilterStrength;
     final recommendedLimit = _recommendedVisibleLimitForRadius(
       settings.searchRadiusKm,
     );
@@ -156,6 +164,31 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     _resetVisibleSelection(service.routes);
   }
 
+  Future<void> _selectFilterStrength() async {
+    final settings = context.read<SettingsService>();
+    final current = settings.routeFilterStrength;
+    final selected = await showModalBottomSheet<RouteFilterStrength>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RouteStrengthSheet(selectedValue: current),
+    );
+    if (!mounted || selected == null || selected == current) return;
+    await _applyFilterStrength(selected);
+  }
+
+  Future<void> _applyFilterStrength(RouteFilterStrength strength) async {
+    final settings = context.read<SettingsService>();
+    await settings.setRouteFilterStrength(strength);
+    final point =
+        _mapCenterPoint ?? _lastSearchPoint ?? await _resolveSearchPoint();
+    if (!mounted || point == null) return;
+    _lastSearchPoint = point;
+    final service = context.read<RouteService>();
+    await service.changeFilterStrength(strength, point.lat, point.lng);
+    if (!mounted) return;
+    _resetVisibleSelection(service.routes);
+  }
+
   void _resetVisibleSelection(List<RevvRoute> routes) {
     setState(() {
       _lens = _RouteLens.all;
@@ -187,7 +220,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     }
   }
 
-  void _startDrive(RevvRoute route) {
+  Future<void> _startDrive(RevvRoute route) async {
+    final shouldStart = await showCopilotStartSheet(context, route: route);
+    if (!mounted || shouldStart != true) return;
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => LeanDriveScreen(route: route)),
@@ -201,11 +236,16 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     );
   }
 
-  void _handleCameraCenterChanged(LatLng center) {
+  void _handleCameraViewportChanged(RouteMapViewport viewport) {
     final previous = _mapCenterPoint;
+    final previousMode = _mapModeForZoom(_mapZoom);
+    final nextMode = _mapModeForZoom(viewport.zoom);
     final shouldRefreshMarkers =
-        previous == null || RevvRoute.haversineKm(previous, center) >= 4.0;
-    _mapCenterPoint = center;
+        previous == null ||
+        RevvRoute.haversineKm(previous, viewport.center) >= 4.0 ||
+        previousMode != nextMode;
+    _mapCenterPoint = viewport.center;
+    _mapZoom = viewport.zoom;
     if (shouldRefreshMarkers && mounted) {
       setState(() {});
     }
@@ -236,7 +276,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         },
         onGo: () {
           Navigator.pop(sheetContext);
-          _startDrive(route);
+          unawaited(_startDrive(route));
         },
       ),
     );
@@ -254,18 +294,28 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final selected = visibleRoutes.isEmpty
         ? null
         : visibleRoutes[effectiveIndex];
+    final mapMode = _mapModeForZoom(_mapZoom);
+    final filterEmpty = routes.isNotEmpty && visibleRoutes.isEmpty;
+    final canBroadenStrength =
+        service.lastCloudCandidateCount > 0 &&
+        service.lastFilteredRouteCount == 0 &&
+        service.filterStrength != RouteFilterStrength.broad;
     final status = service.isLoading
         ? '루트 찾는 중'
+        : filterEmpty
+        ? '${_lensLabel(_lens)} 후보가 없어요. 전체로 돌아가세요.'
         : _localStatusMessage ??
               service.errorMessage ??
               service.routeSuggestionMessage ??
               service.backgroundStatusMessage;
-    final emptyTitle =
-        _localStatusMessage ??
-        service.routeDataStatusTitle ??
-        '지도에서 루트를 불러오지 못했어요.';
-    final emptyBody =
-        service.routeDataStatusBody ?? '현재 위치와 클라우드 연결 상태를 확인한 뒤 다시 시도해 주세요.';
+    final emptyTitle = filterEmpty
+        ? '${_lensLabel(_lens)} 후보 없음'
+        : _localStatusMessage ??
+              service.routeDataStatusTitle ??
+              '지도에서 루트를 불러오지 못했어요.';
+    final emptyBody = filterEmpty
+        ? '전체 ${routes.length}개 중 이 필터에 맞는 루트가 없어요. 전체 후보로 다시 비교해 보세요.'
+        : _emptyRouteBody(service);
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -279,16 +329,21 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                 candidatePolylines: _candidatePolylines(
                   visibleRoutes,
                   selected,
+                  mapMode,
                 ),
-                curveHeatmapPolylines: _curveHeatmapPolylines(visibleRoutes),
+                curveHeatmapPolylines: _curveHeatmapPolylines(
+                  visibleRoutes,
+                  mapMode,
+                ),
                 candidateMarkers: _candidateMarkers(
                   visibleRoutes,
                   selected,
                   _mapCenterPoint,
+                  _markerLimitForMapMode(mapMode),
                 ),
                 routeFocusMode: false,
                 recenterSignal: _recenterSignal,
-                onCameraCenterChanged: _handleCameraCenterChanged,
+                onCameraViewportChanged: _handleCameraViewportChanged,
                 onCandidateMarkerTap: _handleCandidateMarkerTap,
               ),
             ),
@@ -303,10 +358,12 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       busy: service.isLoading,
                       radiusKm: settings.searchRadiusKm,
                       visibleLimit: service.visibleRouteLimit,
+                      filterStrength: service.filterStrength,
                       onBack: () => Navigator.pop(context),
                       onSearch: _searchHere,
                       onRadius: _selectRadius,
                       onLimit: _selectVisibleLimit,
+                      onStrength: _selectFilterStrength,
                       onRecenter: () => setState(() => _recenterSignal++),
                     ),
                     const SizedBox(height: 8),
@@ -336,7 +393,17 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                   ? _LeanEmptyTicket(
                       title: emptyTitle,
                       body: emptyBody,
-                      onSearch: _searchHere,
+                      actionLabel: filterEmpty
+                          ? '전체로 보기'
+                          : canBroadenStrength
+                          ? '넓게 보기'
+                          : '다시 찾기',
+                      onAction: filterEmpty
+                          ? () => _setLens(_RouteLens.all)
+                          : canBroadenStrength
+                          ? () =>
+                                _applyFilterStrength(RouteFilterStrength.broad)
+                          : _searchHere,
                     )
                   : _LeanRouteTicket(
                       route: selected,
@@ -350,7 +417,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                           ? () =>
                                 _selectIndex(visibleRoutes, effectiveIndex + 1)
                           : null,
-                      onGo: () => _startDrive(selected),
+                      onGo: () => unawaited(_startDrive(selected)),
                       onDetails: () => _showRouteDetails(selected),
                     ),
             ),
@@ -366,10 +433,12 @@ class _LeanRouteTopBar extends StatelessWidget {
   final bool busy;
   final int radiusKm;
   final int visibleLimit;
+  final RouteFilterStrength filterStrength;
   final VoidCallback onBack;
   final VoidCallback onSearch;
   final VoidCallback onRadius;
   final VoidCallback onLimit;
+  final VoidCallback onStrength;
   final VoidCallback onRecenter;
 
   const _LeanRouteTopBar({
@@ -377,10 +446,12 @@ class _LeanRouteTopBar extends StatelessWidget {
     required this.busy,
     required this.radiusKm,
     required this.visibleLimit,
+    required this.filterStrength,
     required this.onBack,
     required this.onSearch,
     required this.onRadius,
     required this.onLimit,
+    required this.onStrength,
     required this.onRecenter,
   });
 
@@ -409,7 +480,13 @@ class _LeanRouteTopBar extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           _LeanMiniButton(
-            label: '표시 $visibleLimit',
+            label: routeFilterStrengthLabel(filterStrength),
+            icon: Icons.tune_rounded,
+            onTap: busy ? null : onStrength,
+          ),
+          const SizedBox(width: 6),
+          _LeanMiniButton(
+            label: '$visibleLimit',
             icon: Icons.view_week_rounded,
             onTap: busy ? null : onLimit,
           ),
@@ -548,6 +625,122 @@ class _RouteOptionTile extends StatelessWidget {
   }
 }
 
+class _RouteStrengthSheet extends StatelessWidget {
+  final RouteFilterStrength selectedValue;
+
+  const _RouteStrengthSheet({required this.selectedValue});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        child: _LeanGlass(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '필터 강도',
+                style: AppText.body(
+                  size: 18,
+                  weight: FontWeight.w900,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '후보가 너무 적으면 넓게, 너무 잡다하면 정밀로 조절하세요.',
+                style: AppText.body(
+                  size: 12,
+                  weight: FontWeight.w700,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              for (final strength in RouteFilterStrength.values)
+                _RouteStrengthTile(
+                  strength: strength,
+                  selected: strength == selectedValue,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RouteStrengthTile extends StatelessWidget {
+  final RouteFilterStrength strength;
+  final bool selected;
+
+  const _RouteStrengthTile({required this.strength, required this.selected});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => Navigator.pop(context, strength),
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.primaryContainer.withValues(alpha: 0.16)
+              : AppColors.surface.withValues(alpha: 0.58),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: selected
+                ? AppColors.primaryContainer.withValues(alpha: 0.62)
+                : AppColors.outlineVariant.withValues(alpha: 0.26),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected
+                  ? Icons.radio_button_checked_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              color: selected
+                  ? AppColors.primaryContainer
+                  : AppColors.textSecondary,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    routeFilterStrengthLabel(strength),
+                    style: AppText.body(
+                      size: 14,
+                      weight: FontWeight.w900,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    routeFilterStrengthDescription(strength),
+                    style: AppText.body(
+                      size: 12,
+                      weight: FontWeight.w700,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _LeanRouteTicket extends StatelessWidget {
   final RevvRoute route;
   final int index;
@@ -569,6 +762,12 @@ class _LeanRouteTicket extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final profile = RouteQualityProfile.fromRoute(route);
+    final briefing = CopilotRouteBriefing.fromRoute(
+      route,
+      profile: profile,
+      startDistanceKm: route.distanceFromUser,
+    );
     return GestureDetector(
       onHorizontalDragEnd: (details) {
         final dx = details.primaryVelocity ?? 0;
@@ -596,7 +795,7 @@ class _LeanRouteTicket extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '후보 ${index + 1} / $total · ${_routeTypeLabel(route)} · ${route.distanceFromUserDisplay}',
+                        '후보 ${index + 1} / $total · ${profile.typeLabel} · ${route.distanceFromUserDisplay}',
                         style: AppText.technicalLabel(
                           size: 10,
                           color: AppColors.primaryContainer,
@@ -614,6 +813,17 @@ class _LeanRouteTicket extends StatelessWidget {
                           color: AppColors.textPrimary,
                         ),
                       ),
+                      const SizedBox(height: 3),
+                      Text(
+                        briefing.primaryAdvice,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.body(
+                          size: 11,
+                          weight: FontWeight.w800,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -627,12 +837,20 @@ class _LeanRouteTicket extends StatelessWidget {
             const SizedBox(height: 12),
             Row(
               children: [
-                _Metric(label: '거리', value: route.distanceDisplay),
-                const SizedBox(width: 8),
-                _Metric(label: '예상', value: route.durationDisplay),
-                const SizedBox(width: 8),
-                _Metric(label: '커브', value: '${route.sharpCurveCount}'),
-                const Spacer(),
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      children: [
+                        for (final metric in profile.quickMetrics.take(4)) ...[
+                          _Metric(label: metric.label, value: metric.value),
+                          const SizedBox(width: 8),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
                 _LeanCircleButton(
                   icon: Icons.info_outline_rounded,
                   onTap: onDetails,
@@ -685,6 +903,12 @@ class _MarkerRouteSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final profile = RouteQualityProfile.fromRoute(route);
+    final briefing = CopilotRouteBriefing.fromRoute(
+      route,
+      profile: profile,
+      startDistanceKm: route.distanceFromUser,
+    );
     return SafeArea(
       top: false,
       child: Padding(
@@ -712,7 +936,7 @@ class _MarkerRouteSheet extends StatelessWidget {
                       ),
                     ),
                     child: Text(
-                      '후보 ${index + 1} / $total · ${_routeTypeLabel(route)}',
+                      '후보 ${index + 1} / $total · ${profile.typeLabel}',
                       style: AppText.technicalLabel(
                         size: 10,
                         color: AppColors.primaryContainer,
@@ -741,7 +965,7 @@ class _MarkerRouteSheet extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                _markerReason(route),
+                briefing.primaryAdvice,
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
                 style: AppText.body(
@@ -755,10 +979,8 @@ class _MarkerRouteSheet extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _Metric(label: '거리', value: route.distanceDisplay),
-                  _Metric(label: '예상', value: route.durationDisplay),
-                  _Metric(label: '시작점', value: route.distanceFromUserDisplay),
-                  _Metric(label: '커브', value: '${route.sharpCurveCount}'),
+                  for (final metric in profile.quickMetrics.take(5))
+                    _Metric(label: metric.label, value: metric.value),
                 ],
               ),
               const SizedBox(height: 14),
@@ -818,12 +1040,14 @@ class _MarkerRouteSheet extends StatelessWidget {
 class _LeanEmptyTicket extends StatelessWidget {
   final String title;
   final String body;
-  final VoidCallback onSearch;
+  final String actionLabel;
+  final VoidCallback onAction;
 
   const _LeanEmptyTicket({
     required this.title,
     required this.body,
-    required this.onSearch,
+    required this.actionLabel,
+    required this.onAction,
   });
 
   @override
@@ -869,9 +1093,13 @@ class _LeanEmptyTicket extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           _LeanTextButton(
-            label: '다시 찾기',
-            icon: Icons.refresh_rounded,
-            onTap: onSearch,
+            label: actionLabel,
+            icon: actionLabel == '전체로 보기'
+                ? Icons.layers_rounded
+                : actionLabel == '넓게 보기'
+                ? Icons.tune_rounded
+                : Icons.refresh_rounded,
+            onTap: onAction,
           ),
         ],
       ),
@@ -1250,21 +1478,6 @@ class _LeanGlass extends StatelessWidget {
   }
 }
 
-String _routeTypeLabel(RevvRoute route) {
-  if (route.isLoop) return '루프';
-  if (route.distanceFromUser <= 18) return '근처';
-  if (route.curveStyle == 'SWITCHBACK' || route.tightCurveKm >= 1.2) {
-    return '타이트';
-  }
-  if (route.curveStyle == 'SWEEPER') return '스위퍼';
-  if (route.maxContinuousKm >= 2.0 || route.flowScore >= 0.55) {
-    return '흐름';
-  }
-  if (route.distanceKm >= 24) return '긴 루트';
-  if (route.elevationDelta >= 45) return '고도 변화';
-  return '숨은 후보';
-}
-
 String _lensLabel(_RouteLens lens) {
   return switch (lens) {
     _RouteLens.all => '전체',
@@ -1277,49 +1490,54 @@ String _lensLabel(_RouteLens lens) {
 }
 
 List<RevvRoute> _filterRoutes(List<RevvRoute> routes, _RouteLens lens) {
+  bool hasTag(RevvRoute route, RouteQualityTag tag) =>
+      RouteQualityProfile.fromRoute(route).hasTag(tag);
+
   return switch (lens) {
     _RouteLens.all => routes,
     _RouteLens.nearby =>
-      routes
-          .where(
-            (route) => route.distanceFromUser <= 25 || route.distanceKm <= 10,
-          )
-          .toList(),
+      routes.where((route) => hasTag(route, RouteQualityTag.nearby)).toList(),
     _RouteLens.sweeper =>
-      routes.where((route) => route.curveStyle == 'SWEEPER').toList(),
+      routes.where((route) => hasTag(route, RouteQualityTag.sweeper)).toList(),
     _RouteLens.tight =>
-      routes
-          .where(
-            (route) =>
-                route.curveStyle == 'SWITCHBACK' || route.tightCurveKm >= 1.2,
-          )
-          .toList(),
+      routes.where((route) => hasTag(route, RouteQualityTag.tight)).toList(),
     _RouteLens.flow =>
-      routes
-          .where(
-            (route) => route.maxContinuousKm >= 2.0 || route.flowScore >= 0.55,
-          )
-          .toList(),
-    _RouteLens.loop => routes.where((route) => route.isLoop).toList(),
+      routes.where((route) => hasTag(route, RouteQualityTag.flow)).toList(),
+    _RouteLens.loop =>
+      routes.where((route) => hasTag(route, RouteQualityTag.loop)).toList(),
   };
 }
 
 List<List<LatLng>> _candidatePolylines(
   List<RevvRoute> routes,
   RevvRoute? selected,
+  _RouteMapMode mode,
 ) {
   final selectedId = selected?.id;
+  final limit = switch (mode) {
+    _RouteMapMode.wide => 2,
+    _RouteMapMode.balanced => 5,
+    _RouteMapMode.close => 5,
+  };
   return routes
       .where((route) => route.id != selectedId && route.nodes.length > 1)
-      .take(5)
+      .take(limit)
       .map((route) => route.nodes)
       .toList(growable: false);
 }
 
-List<List<LatLng>> _curveHeatmapPolylines(List<RevvRoute> routes) {
+List<List<LatLng>> _curveHeatmapPolylines(
+  List<RevvRoute> routes,
+  _RouteMapMode mode,
+) {
+  final limit = switch (mode) {
+    _RouteMapMode.wide => 32,
+    _RouteMapMode.balanced => 24,
+    _RouteMapMode.close => 12,
+  };
   return routes
       .where((route) => route.nodes.length > 2)
-      .take(32)
+      .take(limit)
       .map((route) => route.nodes)
       .toList(growable: false);
 }
@@ -1328,10 +1546,11 @@ List<RouteCandidateMarker> _candidateMarkers(
   List<RevvRoute> routes,
   RevvRoute? selected,
   LatLng? mapCenter,
+  int maxMarkers,
 ) {
   final selectedId = selected?.id;
   final markers = <RouteCandidateMarker>[];
-  for (var i = 0; i < routes.length && markers.length < 12; i++) {
+  for (var i = 0; i < routes.length && markers.length < maxMarkers; i++) {
     final route = routes[i];
     if (route.id == selectedId) continue;
     markers.add(
@@ -1377,22 +1596,26 @@ LatLng _markerPointForRoute(RevvRoute route, LatLng? focus, int ordinal) {
   return nodes[distributedIndex];
 }
 
-String _markerReason(RevvRoute route) {
-  final injected = route.primaryReason?.trim();
-  if (injected != null && injected.isNotEmpty) return injected;
+_RouteMapMode _mapModeForZoom(double zoom) {
+  if (zoom < 10.5) return _RouteMapMode.wide;
+  if (zoom < 13.5) return _RouteMapMode.balanced;
+  return _RouteMapMode.close;
+}
 
-  final parts = <String>[
-    '${route.distanceDisplay} ${_routeTypeLabel(route)} 후보',
-    '시작점 ${route.distanceFromUserDisplay}',
-  ];
-  if (route.tightCurveKm >= 1.0) {
-    parts.add('타이트 구간 ${route.tightCurveKm.toStringAsFixed(1)}km');
-  } else if (route.mediumCurveKm >= 1.0) {
-    parts.add('중간 커브 ${route.mediumCurveKm.toStringAsFixed(1)}km');
-  } else if (route.maxContinuousKm >= 1.5) {
-    parts.add('연속 흐름 ${route.maxContinuousKm.toStringAsFixed(1)}km');
-  } else {
-    parts.add('커브 ${route.sharpCurveCount}개');
+int _markerLimitForMapMode(_RouteMapMode mode) {
+  return switch (mode) {
+    _RouteMapMode.wide => 16,
+    _RouteMapMode.balanced => 12,
+    _RouteMapMode.close => 8,
+  };
+}
+
+String _emptyRouteBody(RouteService service) {
+  final base =
+      service.routeDataStatusBody ?? '현재 위치와 클라우드 연결 상태를 확인한 뒤 다시 시도해 주세요.';
+  if (service.lastCloudCandidateCount == 0 &&
+      service.lastFilteredRouteCount == 0) {
+    return base;
   }
-  return '${parts.join(' · ')} 기준으로 비교해볼 만한 루트예요.';
+  return '$base · 원본 ${service.lastCloudCandidateCount}개 / 필터 ${service.lastFilteredRouteCount}개 / 표시 ${service.lastUsableCloudRouteCount}개';
 }

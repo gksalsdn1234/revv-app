@@ -24,10 +24,25 @@ class DriveCurveCue {
   });
 }
 
+class DriveRhythmBrief {
+  final String rhythmLabel;
+  final String advice;
+  final String horizonText;
+  final int severity;
+
+  const DriveRhythmBrief({
+    required this.rhythmLabel,
+    required this.advice,
+    required this.horizonText,
+    required this.severity,
+  });
+}
+
 class DriveRouteState {
   final double progress;
   final double remainingKm;
   final DriveCurveCue? cue;
+  final DriveRhythmBrief rhythmBrief;
   final DriveRouteStatus status;
   final double distanceFromRouteM;
   final double distanceToStartM;
@@ -36,6 +51,7 @@ class DriveRouteState {
     required this.progress,
     required this.remainingKm,
     required this.cue,
+    required this.rhythmBrief,
     required this.status,
     required this.distanceFromRouteM,
     required this.distanceToStartM,
@@ -48,6 +64,12 @@ DriveRouteState readDriveRouteState(LatLng position, List<LatLng> nodes) {
       progress: 0,
       remainingKm: 0,
       cue: null,
+      rhythmBrief: DriveRhythmBrief(
+        rhythmLabel: '경로 대기',
+        advice: '루트 데이터가 부족해 지도 라인을 먼저 확인해야 해요.',
+        horizonText: 'WAIT',
+        severity: 0,
+      ),
       status: DriveRouteStatus.approachingStart,
       distanceFromRouteM: double.infinity,
       distanceToStartM: double.infinity,
@@ -61,6 +83,12 @@ DriveRouteState readDriveRouteState(LatLng position, List<LatLng> nodes) {
       progress: 0,
       remainingKm: 0,
       cue: null,
+      rhythmBrief: DriveRhythmBrief(
+        rhythmLabel: '경로 대기',
+        advice: '루트 길이를 계산하지 못했어요. 지도 라인을 먼저 확인하세요.',
+        horizonText: 'WAIT',
+        severity: 0,
+      ),
       status: DriveRouteStatus.approachingStart,
       distanceFromRouteM: double.infinity,
       distanceToStartM: double.infinity,
@@ -93,6 +121,7 @@ DriveRouteState readDriveRouteState(LatLng position, List<LatLng> nodes) {
         nextGapM: null,
         severity: 0,
       ),
+      rhythmBrief: _rhythmForApproachingStart(distanceToStartM),
     );
   }
 
@@ -111,6 +140,7 @@ DriveRouteState readDriveRouteState(LatLng position, List<LatLng> nodes) {
         nextGapM: null,
         severity: 2,
       ),
+      rhythmBrief: _rhythmForOffRoute(nearest.distanceM),
     );
   }
 
@@ -129,16 +159,24 @@ DriveRouteState readDriveRouteState(LatLng position, List<LatLng> nodes) {
         nextGapM: null,
         severity: 0,
       ),
+      rhythmBrief: const DriveRhythmBrief(
+        rhythmLabel: '루트 완료',
+        advice: '주행을 종료하고 오늘의 리듬을 저장하세요.',
+        horizonText: 'DONE',
+        severity: 0,
+      ),
     );
   }
 
+  final cue = _nextCurveCue(nodes, cumulativeM, nearest.alongM);
   return DriveRouteState(
     progress: progress,
     remainingKm: remainingM / 1000,
     status: status,
     distanceFromRouteM: nearest.distanceM,
     distanceToStartM: distanceToStartM,
-    cue: _nextCurveCue(nodes, cumulativeM, nearest.alongM),
+    cue: cue,
+    rhythmBrief: _rhythmForOnRoute(cue),
   );
 }
 
@@ -164,6 +202,64 @@ DriveRouteStatus _routeStatus({
   }
   if (distanceFromRouteM > 120) return DriveRouteStatus.offRoute;
   return DriveRouteStatus.onRoute;
+}
+
+DriveRhythmBrief _rhythmForApproachingStart(double distanceToStartM) {
+  return DriveRhythmBrief(
+    rhythmLabel: '시작 준비',
+    advice:
+        '시작점까지 ${formatDriveMeters(distanceToStartM)}. 루트 가까이 오면 커브 리듬 안내를 시작합니다.',
+    horizonText: 'START',
+    severity: 0,
+  );
+}
+
+DriveRhythmBrief _rhythmForOffRoute(double distanceFromRouteM) {
+  return DriveRhythmBrief(
+    rhythmLabel: '루트 복귀',
+    advice:
+        '지도 라인까지 약 ${formatDriveMeters(distanceFromRouteM)}. 가까워지면 안내를 이어갑니다.',
+    horizonText: 'REJOIN',
+    severity: 2,
+  );
+}
+
+DriveRhythmBrief _rhythmForOnRoute(DriveCurveCue? cue) {
+  if (cue == null) {
+    return const DriveRhythmBrief(
+      rhythmLabel: '흐름 구간',
+      advice: '30-800m 안에 큰 기준 커브가 없어요. 라인을 부드럽게 유지하세요.',
+      horizonText: 'CLEAR',
+      severity: 0,
+    );
+  }
+
+  final gap = cue.nextGapM;
+  if (gap != null && gap <= 360) {
+    return DriveRhythmBrief(
+      rhythmLabel: '연속 코너 구간',
+      advice:
+          '${formatDriveMeters(cue.distanceM)} 뒤 ${cue.label}, 이후 ${formatDriveMeters(gap)} 안에 다음 커브가 이어져요.',
+      horizonText: 'NEXT ${formatDriveMeters(cue.distanceM)}',
+      severity: cue.severity,
+    );
+  }
+  if (gap != null) {
+    return DriveRhythmBrief(
+      rhythmLabel: '리듬 연결',
+      advice:
+          '${formatDriveMeters(cue.distanceM)} 뒤 ${cue.label}. 이후 ${formatDriveMeters(gap)} 정도 여유가 있어요.',
+      horizonText: 'NEXT ${formatDriveMeters(cue.distanceM)}',
+      severity: cue.severity,
+    );
+  }
+  return DriveRhythmBrief(
+    rhythmLabel: '단일 커브',
+    advice:
+        '${formatDriveMeters(cue.distanceM)} 뒤 ${cue.label}. 이후 다음 기준 커브를 다시 감지합니다.',
+    horizonText: 'NEXT ${formatDriveMeters(cue.distanceM)}',
+    severity: cue.severity,
+  );
 }
 
 DriveCurveCue? _nextCurveCue(

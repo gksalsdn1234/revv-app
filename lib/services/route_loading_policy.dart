@@ -27,6 +27,40 @@ final _numericOnlyRouteNamePattern = RegExp(r'^[\d\-\s_]+$');
 
 enum RouteSearchStage { strict, balanced, expanded }
 
+enum RouteFilterStrength { precise, balanced, broad }
+
+RouteFilterStrength routeFilterStrengthFromStorage(String? value) {
+  return switch (value) {
+    'precise' => RouteFilterStrength.precise,
+    'broad' => RouteFilterStrength.broad,
+    _ => RouteFilterStrength.balanced,
+  };
+}
+
+String routeFilterStrengthStorageValue(RouteFilterStrength strength) {
+  return switch (strength) {
+    RouteFilterStrength.precise => 'precise',
+    RouteFilterStrength.balanced => 'balanced',
+    RouteFilterStrength.broad => 'broad',
+  };
+}
+
+String routeFilterStrengthLabel(RouteFilterStrength strength) {
+  return switch (strength) {
+    RouteFilterStrength.precise => '정밀',
+    RouteFilterStrength.balanced => '균형',
+    RouteFilterStrength.broad => '넓게',
+  };
+}
+
+String routeFilterStrengthDescription(RouteFilterStrength strength) {
+  return switch (strength) {
+    RouteFilterStrength.precise => '품질 높은 와인딩 후보만 봅니다.',
+    RouteFilterStrength.balanced => '품질과 후보 수를 균형 있게 봅니다.',
+    RouteFilterStrength.broad => '안전 최저선은 유지하고 더 다양한 후보를 봅니다.',
+  };
+}
+
 class RouteFilterThresholds {
   final double minLoopDistanceKm;
   final double minLinearDistanceKm;
@@ -124,6 +158,49 @@ List<RevvRoute> mergeDiversityRoutes(
   }
   pool.sort((a, b) => recommendationScore(b).compareTo(recommendationScore(a)));
   return pool.take(limit).toList();
+}
+
+List<RevvRoute> filterRoutesForStrength(
+  Iterable<RevvRoute> routes,
+  RouteFilterStrength strength,
+) {
+  return routes.where((route) {
+    return switch (strength) {
+      RouteFilterStrength.precise => _passesPreciseFilter(route),
+      RouteFilterStrength.balanced => _passesBalancedFilter(route),
+      RouteFilterStrength.broad => _passesBroadFilter(route),
+    };
+  }).toList();
+}
+
+bool _passesPreciseFilter(RevvRoute route) {
+  if (route.distanceKm < 3.0) return false;
+  if (routeRejectReason(route) != null) return false;
+  if (recommendationTier(route) != 'keep') return false;
+  if (route.isFacilityLike || route.isPrivateLike) return false;
+  if (route.isConnectorLike || route.isMajorRoadLike || route.isBridgeLike) {
+    return false;
+  }
+  return true;
+}
+
+bool _passesBalancedFilter(RevvRoute route) {
+  return route.distanceKm >= 3.0 && route.qualityRejectReason == null;
+}
+
+bool _passesBroadFilter(RevvRoute route) {
+  if (route.distanceKm < 3.0) return false;
+  if (route.isFacilityLike || hasFacilityLikeName(route.name)) return false;
+  if (route.isPrivateLike) return false;
+  if (route.isConnectorLike || isConnectorLikeRouteName(route.name)) {
+    return false;
+  }
+  if (hasNumericOnlyName(route.name) && route.distanceKm < 8.0) return false;
+  if (route.stopSignCount >= 5 && route.distanceKm < 12.0) return false;
+  if (route.stopControlDensity >= 0.65 && route.maxContinuousKm < 1.2) {
+    return false;
+  }
+  return true;
 }
 
 double routePolylineOverlapRatio(RevvRoute a, RevvRoute b) {

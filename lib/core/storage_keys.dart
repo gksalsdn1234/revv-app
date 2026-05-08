@@ -43,6 +43,7 @@ class StorageKeys {
   // ── 앱 설정 (SettingsService) ───────────────────────────────
   static const ttsMuted = 'setting_ttsMuted';
   static const searchRadius = 'setting_searchRadius';
+  static const routeFilterStrength = 'setting_routeFilterStrength';
   static const distUnit = 'setting_distUnit';
   static const showSpeedHud = 'setting_showSpeedHud';
   static const offRouteAlert = 'setting_offRouteAlert';

@@ -16,7 +16,15 @@ RevvRoute _route({
   double maxContinuousKm = 0,
   double flowScore = 0,
   double elevationDelta = 0,
+  int stopSignCount = 0,
+  double stopControlDensity = 0,
   bool isLoop = false,
+  bool isFacilityLike = false,
+  bool isBridgeLike = false,
+  bool isConnectorLike = false,
+  bool isMajorRoadLike = false,
+  bool isPrivateLike = false,
+  String? qualityRejectReason,
 }) {
   return RevvRoute(
     id: id,
@@ -35,6 +43,14 @@ RevvRoute _route({
     isLoop: isLoop,
     routeRankScore: routeRankScore,
     flowScore: flowScore,
+    stopSignCount: stopSignCount,
+    stopControlDensity: stopControlDensity,
+    isFacilityLike: isFacilityLike,
+    isBridgeLike: isBridgeLike,
+    isConnectorLike: isConnectorLike,
+    isMajorRoadLike: isMajorRoadLike,
+    isPrivateLike: isPrivateLike,
+    qualityRejectReason: qualityRejectReason,
   );
 }
 
@@ -294,6 +310,96 @@ void main() {
     expect(ids, contains('distinct'));
     expect(ids, isNot(contains('duplicate-name')));
   });
+
+  test(
+    'filterRoutesForStrength precise keeps only high-confidence keep routes',
+    () {
+      final keep = _route(
+        id: 'keep',
+        name: 'Chemin des Pins',
+        distanceKm: 14,
+        windingScore: 6.4,
+        tightCurveKm: 1.4,
+        mediumCurveKm: 2.2,
+        maxContinuousKm: 1.5,
+        routeRankScore: 7,
+      );
+      final major = keep.copyWith(id: 'major', isMajorRoadLike: true);
+      final bridge = keep.copyWith(id: 'bridge', isBridgeLike: true);
+      final softReject = keep.copyWith(
+        id: 'soft',
+        qualityRejectReason: 'soft reject',
+      );
+
+      final filtered = filterRoutesForStrength([
+        keep,
+        major,
+        bridge,
+        softReject,
+      ], RouteFilterStrength.precise);
+
+      expect(filtered.map((route) => route.id), ['keep']);
+    },
+  );
+
+  test(
+    'filterRoutesForStrength balanced preserves qualityRejectReason behavior',
+    () {
+      final keep = _route(id: 'keep', distanceKm: 8, windingScore: 5.2);
+      final rejected = _route(
+        id: 'rejected',
+        distanceKm: 8,
+        windingScore: 5.2,
+        qualityRejectReason: 'too weak',
+      );
+      final short = _route(id: 'short', distanceKm: 2.9, windingScore: 8);
+
+      final filtered = filterRoutesForStrength([
+        keep,
+        rejected,
+        short,
+      ], RouteFilterStrength.balanced);
+
+      expect(filtered.map((route) => route.id), ['keep']);
+    },
+  );
+
+  test(
+    'filterRoutesForStrength broad includes maybe routes but blocks hard rejects',
+    () {
+      final base = _route(
+        id: 'base',
+        name: 'Chemin du Lac',
+        distanceKm: 14,
+        windingScore: 5.8,
+        tightCurveKm: 0.8,
+        mediumCurveKm: 1.8,
+        maxContinuousKm: 1.4,
+      );
+      final major = base.copyWith(id: 'major', isMajorRoadLike: true);
+      final bridge = base.copyWith(id: 'bridge', isBridgeLike: true);
+      final facility = base.copyWith(id: 'facility', isFacilityLike: true);
+      final connector = base.copyWith(id: 'connector', isConnectorLike: true);
+      final private = base.copyWith(id: 'private', isPrivateLike: true);
+      final stopHeavy = base.copyWith(
+        id: 'stop-heavy',
+        distanceKm: 8,
+        stopSignCount: 5,
+      );
+
+      final filtered = filterRoutesForStrength([
+        base,
+        major,
+        bridge,
+        facility,
+        connector,
+        private,
+        stopHeavy,
+      ], RouteFilterStrength.broad);
+
+      expect(filtered.map((route) => route.id), ['base', 'major', 'bridge']);
+    },
+  );
 
   test('empty overpass payload is treated as suspicious', () {
     expect(

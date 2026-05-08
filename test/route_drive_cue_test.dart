@@ -20,6 +20,7 @@ void main() {
     expect(state.status, DriveRouteStatus.approachingStart);
     expect(state.progress, 0);
     expect(state.cue?.label, '시작점까지 이동');
+    expect(state.rhythmBrief.rhythmLabel, '시작 준비');
   });
 
   test('on-route state exposes the next meaningful curve within 30-800m', () {
@@ -32,6 +33,7 @@ void main() {
     expect(state.cue, isNotNull);
     expect(state.cue!.distanceM, inInclusiveRange(30, 800));
     expect(state.cue!.label, anyOf(contains('커브'), contains('헤어핀')));
+    expect(state.rhythmBrief.rhythmLabel, anyOf('연속 코너 구간', '리듬 연결', '단일 커브'));
   });
 
   test(
@@ -44,6 +46,7 @@ void main() {
 
       expect(state.status, DriveRouteStatus.offRoute);
       expect(state.cue?.label, '루트에서 벗어남');
+      expect(state.rhythmBrief.rhythmLabel, '루트 복귀');
       expect(state.distanceFromRouteM, greaterThan(120));
     },
   );
@@ -57,5 +60,25 @@ void main() {
     expect(state.status, DriveRouteStatus.completed);
     expect(state.remainingKm, lessThan(0.05));
     expect(state.cue?.label, '루트 마무리');
+    expect(state.rhythmBrief.rhythmLabel, '루트 완료');
+  });
+
+  test('on-route state without nearby curves exposes flow rhythm fallback', () {
+    const straightNodes = [
+      LatLng(45.0000, -73.0000),
+      LatLng(45.0020, -73.0000),
+      LatLng(45.0040, -73.0000),
+      LatLng(45.0060, -73.0000),
+    ];
+
+    final state = readDriveRouteState(
+      const LatLng(45.0022, -73.0000),
+      straightNodes,
+    );
+
+    expect(state.status, DriveRouteStatus.onRoute);
+    expect(state.cue, isNull);
+    expect(state.rhythmBrief.rhythmLabel, '흐름 구간');
+    expect(state.rhythmBrief.advice, contains('30-800m'));
   });
 }

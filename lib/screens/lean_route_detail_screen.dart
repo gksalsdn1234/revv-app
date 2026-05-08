@@ -5,7 +5,10 @@ import 'package:flutter/material.dart';
 import '../models/revv_route.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/copilot_briefing.dart';
 import '../ui/route_detail_copy.dart';
+import '../ui/route_quality_profile.dart';
+import '../widgets/copilot_start_sheet.dart';
 import 'lean_drive_screen.dart';
 
 class LeanRouteDetailScreen extends StatelessWidget {
@@ -13,7 +16,9 @@ class LeanRouteDetailScreen extends StatelessWidget {
 
   const LeanRouteDetailScreen({super.key, required this.route});
 
-  void _startDrive(BuildContext context) {
+  Future<void> _startDrive(BuildContext context) async {
+    final shouldStart = await showCopilotStartSheet(context, route: route);
+    if (!context.mounted || shouldStart != true) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => LeanDriveScreen(route: route)),
@@ -26,7 +31,14 @@ class LeanRouteDetailScreen extends StatelessWidget {
       route,
       startDistanceKm: route.distanceFromUser,
     );
+    final profile = RouteQualityProfile.fromRoute(route);
+    final briefing = CopilotRouteBriefing.fromRoute(
+      route,
+      profile: profile,
+      startDistanceKm: route.distanceFromUser,
+    );
     final bestFor = _bestFor(route);
+    final cautionBody = _cautionBody(copy, profile);
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -72,7 +84,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         _RouteShapeHero(route: route),
                         const SizedBox(height: 18),
                         Text(
-                          _routeTypeLabel(route),
+                          profile.typeLabel,
                           style: AppText.technicalLabel(
                             size: 10,
                             color: AppColors.primaryContainer,
@@ -89,6 +101,10 @@ class LeanRouteDetailScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 18),
+                        _RouteConfidenceSection(profile: profile),
+                        const SizedBox(height: 12),
+                        _CopilotJudgementCard(briefing: briefing),
+                        const SizedBox(height: 12),
                         _MetricsGrid(route: route),
                         const SizedBox(height: 18),
                         _DetailSection(
@@ -102,9 +118,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         _DetailSection(
                           title: '주의할 점',
                           icon: Icons.warning_amber_rounded,
-                          body:
-                              copy.cautionLine ??
-                              '지도 데이터만으로 노면과 교통 상황을 모두 알 수는 없어요. 현장 표지와 도로 상태를 우선하세요.',
+                          body: cautionBody,
                           accent: AppColors.warning,
                         ),
                         const SizedBox(height: 12),
@@ -128,6 +142,94 @@ class LeanRouteDetailScreen extends StatelessWidget {
             child: _StickyStartBar(
               onStart: () => _startDrive(context),
               onBack: () => Navigator.pop(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CopilotJudgementCard extends StatelessWidget {
+  final CopilotRouteBriefing briefing;
+
+  const _CopilotJudgementCard({required this.briefing});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xE80F1214),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.26),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '코파일럿 판단',
+            style: AppText.technicalLabel(
+              size: 10,
+              color: AppColors.primaryContainer,
+              letterSpacing: 1.6,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _CopilotJudgementRow(label: '추천 판단', text: briefing.primaryAdvice),
+          _CopilotJudgementRow(label: '시작 방식', text: briefing.startAdvice),
+          _CopilotJudgementRow(label: '주의 포인트', text: briefing.riskAdvice),
+          _CopilotJudgementRow(
+            label: '맞는 운전자',
+            text: briefing.fitLabel,
+            last: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CopilotJudgementRow extends StatelessWidget {
+  final String label;
+  final String text;
+  final bool last;
+
+  const _CopilotJudgementRow({
+    required this.label,
+    required this.text,
+    this.last = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76,
+            child: Text(
+              label,
+              style: AppText.technicalLabel(
+                size: 9,
+                color: AppColors.textHint,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: AppText.body(
+                size: 13,
+                height: 1.36,
+                weight: FontWeight.w800,
+                color: AppColors.textSecondary,
+              ),
             ),
           ),
         ],
@@ -188,6 +290,142 @@ class _RouteShapeHero extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _RouteConfidenceSection extends StatelessWidget {
+  final RouteQualityProfile profile;
+
+  const _RouteConfidenceSection({required this.profile});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xE80F1214),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.24),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.primaryContainer.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: AppColors.primaryContainer.withValues(alpha: 0.42),
+                  ),
+                ),
+                child: Text(
+                  '${profile.qualityScore}',
+                  style: AppText.body(
+                    size: 22,
+                    weight: FontWeight.w900,
+                    color: AppColors.primaryContainer,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Route Confidence',
+                      style: AppText.technicalLabel(
+                        size: 10,
+                        color: AppColors.primaryContainer,
+                        letterSpacing: 1.6,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '${profile.typeLabel} · ${profile.curveDensityLabel}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body(
+                        size: 16,
+                        weight: FontWeight.w900,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      profile.reasonLabel,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body(
+                        size: 12,
+                        height: 1.3,
+                        weight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final metric in profile.quickMetrics)
+                _ConfidenceChip(label: metric.label, value: metric.value),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            profile.riskLabel,
+            style: AppText.body(
+              size: 12,
+              height: 1.3,
+              weight: FontWeight.w800,
+              color: AppColors.warning,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConfidenceChip extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ConfidenceChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.68),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.20),
+        ),
+      ),
+      child: Text(
+        '$label $value',
+        style: AppText.body(
+          size: 11,
+          weight: FontWeight.w900,
+          color: AppColors.textSecondary,
+        ),
       ),
     );
   }
@@ -582,14 +820,6 @@ class _RouteShapePainter extends CustomPainter {
   }
 }
 
-String _routeTypeLabel(RevvRoute route) {
-  if (route.isLoop) return '루프';
-  if (route.maxContinuousKm >= 2.5) return '흐름 중심';
-  if (route.curveStyle == 'SWEEPER') return '스위퍼';
-  if (route.curveStyle == 'SWITCHBACK') return '타이트';
-  return '와인딩';
-}
-
 String _bestFor(RevvRoute route) {
   if (route.isLoop) return '출발지 근처로 돌아오는 짧은 확인 주행에 잘 맞아요.';
   if (route.curveStyle == 'SWITCHBACK') {
@@ -602,4 +832,11 @@ String _bestFor(RevvRoute route) {
 
 String _curveKm(RevvRoute route) {
   return (route.tightCurveKm + route.mediumCurveKm).toStringAsFixed(1);
+}
+
+String _cautionBody(RouteDetailCopy copy, RouteQualityProfile profile) {
+  final caution = copy.cautionLine?.trim();
+  if (caution == null || caution.isEmpty) return profile.riskLabel;
+  if (profile.riskLabel.startsWith('기본 주의')) return caution;
+  return '${profile.riskLabel}\n$caution';
 }

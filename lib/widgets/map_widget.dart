@@ -27,6 +27,13 @@ class _LineLayerSpec {
   });
 }
 
+class RouteMapViewport {
+  final LatLng center;
+  final double zoom;
+
+  const RouteMapViewport({required this.center, required this.zoom});
+}
+
 class RouteCandidateMarker {
   final String routeId;
   final int index;
@@ -61,6 +68,7 @@ class MapWidget extends StatefulWidget {
   final bool routeFocusMode;
   final int recenterSignal;
   final ValueChanged<LatLng>? onCameraCenterChanged;
+  final ValueChanged<RouteMapViewport>? onCameraViewportChanged;
   final ValueChanged<String>? onCandidateMarkerTap;
 
   const MapWidget({
@@ -75,6 +83,7 @@ class MapWidget extends StatefulWidget {
     this.routeFocusMode = false,
     this.recenterSignal = 0,
     this.onCameraCenterChanged,
+    this.onCameraViewportChanged,
     this.onCandidateMarkerTap,
   });
 
@@ -102,6 +111,7 @@ class _MapWidgetState extends State<MapWidget> {
   final Map<String, Object?> _originalLayerVisibility = {};
   bool _routeFocusApplied = false;
   LatLng? _lastReportedCameraCenter;
+  double? _lastReportedCameraZoom;
   Uint8List? _puckTopImage;
   Uint8List? _puckBearingImage;
   Uint8List? _puckShadowImage;
@@ -391,19 +401,28 @@ class _MapWidgetState extends State<MapWidget> {
   }
 
   void _reportCameraCenter(mbx.CameraState cameraState) {
-    final callback = widget.onCameraCenterChanged;
-    if (callback == null) return;
+    final centerCallback = widget.onCameraCenterChanged;
+    final viewportCallback = widget.onCameraViewportChanged;
+    if (centerCallback == null && viewportCallback == null) return;
+
     final coordinates = cameraState.center.coordinates;
     final center = LatLng(
       coordinates.lat.toDouble(),
       coordinates.lng.toDouble(),
     );
+    final zoom = cameraState.zoom.toDouble();
     final previous = _lastReportedCameraCenter;
-    if (previous != null && RevvRoute.haversineKm(previous, center) < 0.2) {
-      return;
-    }
+    final previousZoom = _lastReportedCameraZoom;
+    final centerMoved =
+        previous == null || RevvRoute.haversineKm(previous, center) >= 0.2;
+    final zoomChanged =
+        previousZoom == null || (previousZoom - zoom).abs() >= 0.35;
+    if (!centerMoved && !zoomChanged) return;
+
     _lastReportedCameraCenter = center;
-    callback(center);
+    _lastReportedCameraZoom = zoom;
+    centerCallback?.call(center);
+    viewportCallback?.call(RouteMapViewport(center: center, zoom: zoom));
   }
 
   Future<Uint8List> _drawPuckImage({
@@ -649,9 +668,7 @@ class _MapWidgetState extends State<MapWidget> {
     }
   }
 
-  Future<void> _drawCandidateMarkers(
-    List<RouteCandidateMarker> markers,
-  ) async {
+  Future<void> _drawCandidateMarkers(List<RouteCandidateMarker> markers) async {
     final map = _mapController;
     if (map == null || !_styleLoaded) return;
     const sourceId = 'candidate-anchor-source';

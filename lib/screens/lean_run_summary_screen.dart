@@ -10,6 +10,7 @@ import '../models/run_telemetry_detail.dart';
 import '../services/run_history_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/copilot_run_summary.dart';
 
 class LeanRunSummaryScreen extends StatefulWidget {
   final RunSession? session;
@@ -70,11 +71,17 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
             future: _saveFuture,
             builder: (context, snapshot) {
               final summary = snapshot.data;
+              final copy = session == null
+                  ? null
+                  : CopilotRunSummaryCopy.fromSession(
+                      session,
+                      summary: summary,
+                    );
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'RUN SAVED',
+                    'COPILOT SUMMARY',
                     style: AppText.technicalLabel(
                       size: 12,
                       letterSpacing: 3,
@@ -83,7 +90,9 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    session == null ? '저장할 주행이 없어요' : '주행 기록 저장 완료',
+                    session == null
+                        ? '저장할 주행이 없어요'
+                        : copy?.headline ?? '오늘 주행 요약',
                     style: AppText.display(
                       size: 42,
                       height: 0.96,
@@ -94,7 +103,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                   Text(
                     session == null
                         ? '세션이 만들어지기 전에 종료됐습니다. 홈으로 돌아가 다시 시작해 주세요.'
-                        : '목록은 가볍게, 텔레메트리 상세는 별도로 저장했습니다.',
+                        : copy?.summaryLine ?? '목록은 가볍게, 텔레메트리 상세는 별도로 저장했습니다.',
                     style: AppText.body(
                       size: 14,
                       height: 1.45,
@@ -102,29 +111,20 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                     ),
                   ),
                   const SizedBox(height: 28),
-                  if (session != null)
+                  if (session != null && copy != null)
                     _SummaryGrid(
-                      items: [
-                        _SummaryItem(
-                          label: '거리',
-                          value: '${session.distanceKm.toStringAsFixed(2)} km',
-                        ),
-                        _SummaryItem(
-                          label: '시간',
-                          value: session.durationDisplay,
-                        ),
-                        _SummaryItem(
-                          label: '평균',
-                          value:
-                              '${session.avgSpeedKmh.toStringAsFixed(0)} km/h',
-                        ),
-                        _SummaryItem(
-                          label: '최고 G',
-                          value: session.maxLateralG.toStringAsFixed(2),
-                        ),
-                      ],
+                      items: copy.notableStats
+                          .map(
+                            (stat) => _SummaryItem(
+                              label: stat.label,
+                              value: stat.value,
+                            ),
+                          )
+                          .toList(),
                     ),
-                  if (session != null) ...[
+                  if (session != null && copy != null) ...[
+                    const SizedBox(height: 16),
+                    _CopilotNextCard(text: copy.nextSuggestion),
                     const SizedBox(height: 16),
                     _RouteFeedbackCard(
                       enabled: summary != null,
@@ -256,11 +256,15 @@ const _feedbackOptions = [
     label: '좋았음',
     icon: Icons.thumb_up_alt_rounded,
   ),
-  _FeedbackOption(type: 'not_for_me', label: '별로', icon: Icons.tune_rounded),
   _FeedbackOption(
-    type: 'unsafe_or_closed',
-    label: '위험/폐쇄',
-    icon: Icons.warning_amber_rounded,
+    type: 'too_short',
+    label: '너무 짧음',
+    icon: Icons.short_text_rounded,
+  ),
+  _FeedbackOption(
+    type: 'flow_broken',
+    label: '흐름 끊김',
+    icon: Icons.sync_problem_rounded,
   ),
   _FeedbackOption(
     type: 'hide_route',
@@ -268,6 +272,62 @@ const _feedbackOptions = [
     icon: Icons.visibility_off_rounded,
   ),
 ];
+
+class _CopilotNextCard extends StatelessWidget {
+  final String text;
+
+  const _CopilotNextCard({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.24),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.psychology_rounded,
+            color: AppColors.primaryContainer,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '다음 추천 힌트',
+                  style: AppText.technicalLabel(
+                    size: 10,
+                    color: AppColors.primaryContainer,
+                    letterSpacing: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  text,
+                  style: AppText.body(
+                    size: 13,
+                    height: 1.36,
+                    weight: FontWeight.w800,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _RouteFeedbackCard extends StatelessWidget {
   final bool enabled;

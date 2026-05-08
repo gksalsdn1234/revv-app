@@ -29,6 +29,7 @@ class RouteService extends ChangeNotifier {
   int lastUsableCloudRouteCount = 0;
   int searchRadiusKm = 50;
   int visibleRouteLimit = defaultVisibleRoutes;
+  RouteFilterStrength filterStrength = RouteFilterStrength.balanced;
 
   bool sprintRequested = false;
   SprintStartMode sprintStartMode = SprintStartMode.auto;
@@ -69,15 +70,26 @@ class RouteService extends ChangeNotifier {
     await fetchRoutes(lat, lng);
   }
 
+  Future<void> changeFilterStrength(
+    RouteFilterStrength strength,
+    double lat,
+    double lng,
+  ) async {
+    filterStrength = strength;
+    await fetchRoutes(lat, lng);
+  }
+
   Future<void> fetchRoutes(double lat, double lng) async {
     final token = ++_fetchToken;
     isLoading = true;
     isLoadingInitial = routes.isEmpty;
     errorMessage = null;
     routeSuggestionMessage = null;
+    final strengthLabel = routeFilterStrengthLabel(filterStrength);
     backgroundStatusMessage = '주변 루트를 찾는 중';
     routeDataStatusTitle = '루트 탐색 중';
-    routeDataStatusBody = '현재 위치 기준 ${searchRadiusKm}km 안에서 후보를 불러옵니다.';
+    routeDataStatusBody =
+        '현재 위치 기준 ${searchRadiusKm}km 안에서 $strengthLabel 필터로 후보를 불러옵니다.';
     notifyListeners();
 
     try {
@@ -97,6 +109,7 @@ class RouteService extends ChangeNotifier {
           searchRadiusKm.toDouble(),
           limit: 160,
         );
+        lastCloudCandidateCount = candidates.length;
       }
 
       if (candidates.isEmpty) {
@@ -115,6 +128,7 @@ class RouteService extends ChangeNotifier {
       debugPrint(
         '[RouteService] route pool '
         'radius=${searchRadiusKm}km '
+        'strength=${routeFilterStrengthStorageValue(filterStrength)} '
         'raw=${candidates.length} '
         'filtered=$lastFilteredRouteCount '
         'visible=${visible.length}/$visibleRouteLimit',
@@ -133,15 +147,14 @@ class RouteService extends ChangeNotifier {
         } else {
           errorMessage = '주변 루트를 찾지 못했어요';
           routeDataStatusTitle = '루트 후보 없음';
-          routeDataStatusBody = '검색 반경을 넓히거나 위치를 옮겨 다시 찾아보세요.';
+          routeDataStatusBody = _emptyRouteStatusBody(candidates.length);
         }
       } else {
         errorMessage = null;
-        routeSuggestionMessage = visible.length < 8 && searchRadiusKm < 100
-            ? '후보가 적어요. 반경을 100km로 넓혀볼까요?'
-            : null;
+        routeSuggestionMessage = _routeSuggestionForCount(visible.length);
         routeDataStatusTitle = '루트 준비 완료';
-        routeDataStatusBody = '${visible.length}개 후보를 불러왔어요.';
+        routeDataStatusBody =
+            '$strengthLabel 필터로 ${visible.length}개 후보를 불러왔어요.';
         unawaited(_saveToCache(visible));
         unawaited(_hydrateSelectedRouteNodes());
       }
@@ -154,14 +167,13 @@ class RouteService extends ChangeNotifier {
         debugPrint(
           '[RouteService] cached route pool '
           'radius=${searchRadiusKm}km '
+          'strength=${routeFilterStrengthStorageValue(filterStrength)} '
           'filtered=$lastFilteredRouteCount '
           'visible=${routes.length}/$visibleRouteLimit',
         );
         routeDataSourceLabel = '로컬 캐시';
         errorMessage = null;
-        routeSuggestionMessage = routes.length < 8 && searchRadiusKm < 100
-            ? '후보가 적어요. 반경을 100km로 넓혀볼까요?'
-            : null;
+        routeSuggestionMessage = _routeSuggestionForCount(routes.length);
         routeDataStatusTitle = '캐시 사용 중';
         routeDataStatusBody = '네트워크 실패로 마지막 루트 목록을 사용합니다.';
       } else {
@@ -203,12 +215,24 @@ class RouteService extends ChangeNotifier {
     for (final route in candidates) {
       unique[route.id] = route;
     }
-    final filtered = unique.values
-        .where((route) => route.distanceKm >= 3.0)
-        .where((route) => route.qualityRejectReason == null)
-        .toList();
+    final filtered = filterRoutesForStrength(unique.values, filterStrength);
     lastFilteredRouteCount = filtered.length;
     return diversifyRouteSlots(filtered, limit: visibleRouteLimit);
+  }
+
+  String? _routeSuggestionForCount(int count) {
+    if (count >= 8) return null;
+    if (filterStrength != RouteFilterStrength.broad) {
+      return '후보가 적어요. 필터를 넓게로 바꿔볼까요?';
+    }
+    return searchRadiusKm < 100 ? '후보가 적어요. 반경을 100km로 넓혀볼까요?' : null;
+  }
+
+  String _emptyRouteStatusBody(int rawCount) {
+    if (rawCount > 0 && filterStrength != RouteFilterStrength.broad) {
+      return '원본 후보 $rawCount개가 있었지만 ${routeFilterStrengthLabel(filterStrength)} 필터를 통과하지 못했어요. 넓게 보기로 다시 비교해 보세요.';
+    }
+    return '검색 반경을 넓히거나 위치를 옮겨 다시 찾아보세요.';
   }
 
   Future<void> _hydrateSelectedRouteNodes() async {

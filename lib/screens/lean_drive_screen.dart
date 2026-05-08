@@ -37,6 +37,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   double _progress = 0;
   double _remainingKm = 0;
   DriveCurveCue? _cue;
+  DriveRhythmBrief? _rhythmBrief;
   DriveRouteStatus _routeStatus = DriveRouteStatus.approachingStart;
   String? _routeEventMessage;
   DateTime? _routeEventUntil;
@@ -87,6 +88,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
         _progress = routeState.progress;
         _remainingKm = routeState.remainingKm;
         _cue = routeState.cue;
+        _rhythmBrief = routeState.rhythmBrief;
         _routeStatus = routeState.status;
         if (nextEvent != null) {
           _routeEventMessage = nextEvent;
@@ -183,6 +185,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                   const SizedBox(height: 10),
                   _NextCurveBanner(
                     cue: cue,
+                    rhythmBrief: _rhythmBrief,
                     status: _routeStatus,
                     eventMessage: routeEvent,
                   ),
@@ -284,11 +287,13 @@ class _DriveTopBar extends StatelessWidget {
 
 class _NextCurveBanner extends StatelessWidget {
   final DriveCurveCue? cue;
+  final DriveRhythmBrief? rhythmBrief;
   final DriveRouteStatus status;
   final String? eventMessage;
 
   const _NextCurveBanner({
     required this.cue,
+    required this.rhythmBrief,
     required this.status,
     required this.eventMessage,
   });
@@ -296,7 +301,9 @@ class _NextCurveBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = cue;
-    final severityColor = _severityColor(data?.severity ?? 0);
+    final rhythm = rhythmBrief;
+    final severity = math.max(data?.severity ?? 0, rhythm?.severity ?? 0);
+    final severityColor = _severityColor(severity);
     final fallback = _fallbackCue(status);
     return _DriveGlass(
       child: Column(
@@ -314,6 +321,23 @@ class _NextCurveBanner extends StatelessWidget {
               ),
               child: Text(
                 eventMessage!,
+                style: AppText.technicalLabel(size: 10, color: severityColor),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          if (rhythm != null) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: severityColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(
+                  color: severityColor.withValues(alpha: 0.24),
+                ),
+              ),
+              child: Text(
+                '${rhythm.rhythmLabel} · ${rhythm.horizonText}',
                 style: AppText.technicalLabel(size: 10, color: severityColor),
               ),
             ),
@@ -372,7 +396,7 @@ class _NextCurveBanner extends StatelessWidget {
               const SizedBox(width: 7),
               Expanded(
                 child: Text(
-                  data?.detail ?? fallback.detail,
+                  rhythm?.advice ?? data?.detail ?? fallback.detail,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppText.body(
