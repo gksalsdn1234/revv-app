@@ -29,6 +29,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   _RouteLens _lens = _RouteLens.all;
   LatLng? _mapCenterPoint;
   LatLng? _lastSearchPoint;
+  String? _localStatusMessage;
 
   @override
   void initState() {
@@ -51,8 +52,18 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   Future<LatLng?> _resolveSearchPoint() async {
     final location = context.read<LocationService>();
     await location.requestPermission();
+    if (!mounted) return null;
+    if (!location.hasPermission && !location.hasBestKnownLocation) {
+      setState(() => _localStatusMessage = location.lastFailureReason);
+      return null;
+    }
     await location.startTracking();
-    return location.ensureLiveLocation();
+    final point = await location.ensureLiveLocation();
+    if (!mounted) return point;
+    setState(() {
+      _localStatusMessage = point == null ? '현재 위치를 확인하지 못했어요.' : null;
+    });
+    return point;
   }
 
   Future<void> _fetchAtPoint(LatLng point) async {
@@ -71,6 +82,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     setState(() {
       _lens = _RouteLens.all;
       _selectedIndex = 0;
+      _localStatusMessage = null;
     });
     final first = routes.routes.isNotEmpty ? routes.routes.first : null;
     if (first != null) routes.selectRoute(first);
@@ -244,9 +256,16 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         : visibleRoutes[effectiveIndex];
     final status = service.isLoading
         ? '루트 찾는 중'
-        : service.errorMessage ??
+        : _localStatusMessage ??
+              service.errorMessage ??
               service.routeSuggestionMessage ??
               service.backgroundStatusMessage;
+    final emptyTitle =
+        _localStatusMessage ??
+        service.routeDataStatusTitle ??
+        '지도에서 루트를 불러오지 못했어요.';
+    final emptyBody =
+        service.routeDataStatusBody ?? '현재 위치와 클라우드 연결 상태를 확인한 뒤 다시 시도해 주세요.';
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -314,7 +333,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
               right: 14,
               bottom: MediaQuery.paddingOf(context).bottom + 14,
               child: selected == null
-                  ? _LeanEmptyTicket(onSearch: _searchHere)
+                  ? _LeanEmptyTicket(
+                      title: emptyTitle,
+                      body: emptyBody,
+                      onSearch: _searchHere,
+                    )
                   : _LeanRouteTicket(
                       route: selected,
                       index: effectiveIndex,
@@ -793,9 +816,15 @@ class _MarkerRouteSheet extends StatelessWidget {
 }
 
 class _LeanEmptyTicket extends StatelessWidget {
+  final String title;
+  final String body;
   final VoidCallback onSearch;
 
-  const _LeanEmptyTicket({required this.onSearch});
+  const _LeanEmptyTicket({
+    required this.title,
+    required this.body,
+    required this.onSearch,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -810,15 +839,35 @@ class _LeanEmptyTicket extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              '지도에서 루트를 불러오지 못했어요.',
-              style: AppText.body(
-                size: 14,
-                weight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 14,
+                    weight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  body,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 11,
+                    weight: FontWeight.w700,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
+          const SizedBox(width: 8),
           _LeanTextButton(
             label: '다시 찾기',
             icon: Icons.refresh_rounded,

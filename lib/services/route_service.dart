@@ -82,6 +82,7 @@ class RouteService extends ChangeNotifier {
 
     try {
       final cloud = SupabaseService();
+      final cloudReady = cloud.isCloudAvailable;
       var candidates = await cloud.fetchNearbyRoutes(
         lat,
         lng,
@@ -120,9 +121,20 @@ class RouteService extends ChangeNotifier {
       );
 
       if (visible.isEmpty) {
-        errorMessage = '주변 루트를 찾지 못했어요';
-        routeDataStatusTitle = '루트 후보 없음';
-        routeDataStatusBody = '검색 반경을 넓히거나 위치를 옮겨 다시 찾아보세요.';
+        if (!cloudReady) {
+          errorMessage = '클라우드 설정이 필요해요';
+          routeDataStatusTitle = '클라우드 설정 없음';
+          routeDataStatusBody =
+              cloud.lastFailureReason ?? 'Supabase URL과 anon key를 확인해 주세요.';
+        } else if (cloud.lastFailureReason != null) {
+          errorMessage = '네트워크 연결을 확인해 주세요';
+          routeDataStatusTitle = '루트 로드 실패';
+          routeDataStatusBody = '클라우드 요청이 실패했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요.';
+        } else {
+          errorMessage = '주변 루트를 찾지 못했어요';
+          routeDataStatusTitle = '루트 후보 없음';
+          routeDataStatusBody = '검색 반경을 넓히거나 위치를 옮겨 다시 찾아보세요.';
+        }
       } else {
         errorMessage = null;
         routeSuggestionMessage = visible.length < 8 && searchRadiusKm < 100

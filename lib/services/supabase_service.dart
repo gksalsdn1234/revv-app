@@ -324,6 +324,7 @@ class SupabaseService extends ChangeNotifier {
     int limit = 200,
   }) async {
     if (!_ready) return const [];
+    _lastFailureReason = null;
     try {
       debugPrint(
         '[Supabase] fetchNearbyRoutesDirect request '
@@ -366,6 +367,7 @@ class SupabaseService extends ChangeNotifier {
       );
       return routes;
     } catch (e) {
+      _lastFailureReason = 'Supabase direct query failed: $e';
       debugPrint('[Supabase] fetchNearbyRoutesDirect failed: $e');
       return const [];
     }
@@ -379,6 +381,7 @@ class SupabaseService extends ChangeNotifier {
     int maxResults = 30,
   }) async {
     if (!_ready) return const [];
+    _lastFailureReason = null;
     try {
       debugPrint(
         '[Supabase] findCurvyRoads request '
@@ -417,6 +420,7 @@ class SupabaseService extends ChangeNotifier {
       );
       return mapped;
     } catch (e) {
+      _lastFailureReason = 'Supabase RPC failed: $e';
       debugPrint('[Supabase] findCurvyRoads failed: $e');
       return const [];
     }

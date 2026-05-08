@@ -44,6 +44,7 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 - [ ] IPA export
 - [ ] App Store Connect 업로드
 - [x] 실기기 핵심 플로우 smoke test
+- [x] 실패 상태 사용자 문구 보강 및 no-env 빌드 검증
 - [ ] 실기기 10분 주행 smoke test
 - [ ] 외부 TestFlight 베타 오픈
 
@@ -129,6 +130,7 @@ flutter run --release --dart-define-from-file=.env -d 00008120-000621623E90A01E
 
 시나리오:
 
+- [x] `.env` 없이 release build: 앱이 빌드 단계에서 크래시 없이 생성되는지 확인
 - [ ] `.env` 없이 실행: 클라우드/지도 설정 안내 확인
 - [ ] Supabase 설정 정상: 루트 후보 로드 확인
 - [ ] Supabase 후보 0개: 반경 확장 제안 확인
@@ -136,6 +138,17 @@ flutter run --release --dart-define-from-file=.env -d 00008120-000621623E90A01E
 - [ ] 위치 권한 거부: 설정 이동 안내 확인
 - [ ] 캐시 있음: 캐시 기반 후보 표시 확인
 - [ ] 캐시 없음: 후보 없음 안내 확인
+
+구현 상태:
+
+- [x] Supabase 미설정과 후보 0개 문구 분리
+- [x] Supabase RPC/direct query 실패 시 네트워크 실패 문구로 분리
+- [x] 위치 권한/현재 위치 없음 상태를 루트파인더 빈 티켓에 표시
+- [x] 빈 티켓이 고정 문구 대신 현재 실패 원인과 다음 액션을 표시
+- [x] `flutter analyze` 통과
+- [x] `flutter test` 통과
+- [x] `flutter build ios --release --no-codesign` 통과
+- [x] `flutter build ios --release --no-codesign --dart-define-from-file=.env` 통과
 
 확인할 사용자 문구:
 
