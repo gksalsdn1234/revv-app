@@ -4,6 +4,31 @@
 
 이 문서는 다음 Codex 세션에서도 바로 이어서 작업할 수 있는 실행 계획서다. 작업을 재개하면 먼저 이 파일과 `docs/release_quality_checklist.md`를 읽고, 현재 상태를 확인한 뒤 아래 순서대로 진행한다.
 
+## Current Distribution Decision
+
+2026-05-07 기준으로 TestFlight 배포는 의도적으로 보류한다.
+
+이유:
+
+- Apple Developer Program 유료 멤버십이 아직 활성화되어 있지 않다.
+- `Runner.xcarchive` 생성은 성공했지만 `.ipa` export는 Apple Distribution certificate와 App Store provisioning profile 부재로 막혔다.
+- 현재 목표는 유료 가입 전까지 실기기 직접 실행으로 핵심 제품 품질을 계속 올리는 것이다.
+
+보류 중 진행할 작업:
+
+- `flutter run --release --dart-define-from-file=.env` 기반 실기기 테스트
+- 루트파인더, 루트 상세, 주행 HUD, 요약 저장 품질 개선
+- 10분 실제 주행 smoke test
+- 베타 피드백 질문/문서 준비
+
+TestFlight를 재개하려면:
+
+- Apple Developer Program 가입
+- App Store Connect provider 연결 확인
+- Apple Distribution certificate 생성
+- `com.revv.revvApp` App Store provisioning profile 생성
+- `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39` 재실행
+
 ## Resume Protocol
 
 1. 현재 브랜치를 확인한다.
@@ -41,12 +66,12 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 - [x] Bundle ID: `com.revv.revvApp`
 - [x] Apple Team: `BMG2X5W7V9`
 - [x] 릴리즈 후보 커밋/푸시
-- [ ] IPA export
-- [ ] App Store Connect 업로드
+- [ ] IPA export: Apple Developer Program 가입 전까지 보류
+- [ ] App Store Connect 업로드: Apple Developer Program 가입 전까지 보류
 - [x] 실기기 핵심 플로우 smoke test
 - [x] 실패 상태 사용자 문구 보강 및 no-env 빌드 검증
 - [ ] 실기기 10분 주행 smoke test
-- [ ] 외부 TestFlight 베타 오픈
+- [ ] 외부 TestFlight 베타 오픈: Apple Developer Program 가입 전까지 보류
 
 ## Execution Blocks
 
@@ -167,6 +192,27 @@ flutter run --release --dart-define-from-file=.env -d 00008120-000621623E90A01E
 
 목표: App Store Connect에 올릴 수 있는 `.ipa`를 만든다.
 
+상태: 보류.
+
+2026-05-07 실행 결과:
+
+- `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39`는 archive 단계까지 성공했다.
+- 생성된 archive: `build/ios/archive/Runner.xcarchive`
+- IPA export는 Apple Developer/App Store Connect 권한과 배포 서명 부재로 실패했다.
+- 확인된 에러:
+
+```text
+No provider associated with App Store Connect user
+No signing certificate "iOS Distribution" found
+Team "MinWoo Han" does not have permission to create "iOS App Store" provisioning profiles
+No profiles for 'com.revv.revvApp' were found
+```
+
+결론:
+
+- 앱 코드/Flutter 빌드 문제는 아니다.
+- Apple Developer Program 가입과 App Store 배포 서명 설정 전까지 이 블록은 진행하지 않는다.
+
 사전 확인:
 
 - [ ] Apple Developer 계정 활성
@@ -276,6 +322,8 @@ Privacy 답변 기준:
 
 아래 항목이 모두 체크되면 외부 TestFlight를 열 수 있다.
 
+현재 상태: Apple Developer Program 가입 전까지 gate는 닫혀 있다.
+
 - [ ] Block 1 완료
 - [ ] Block 2 완료
 - [ ] Block 3 주요 실패 상태 확인
@@ -320,11 +368,10 @@ TestFlight 전에는 아래 기능을 추가하지 않는다.
 
 ## Next Action
 
-현재 다음 액션은 Block 1이다.
+현재 다음 액션은 TestFlight export가 아니라 실기기 직접 테스트 기반 제품 품질 개선이다.
 
-1. 변경사항 확인
-2. 민감정보 grep
-3. `analyze/test/release no-codesign build`
-4. 문서 체크 갱신
-5. 커밋
-6. 푸시
+1. `flutter run --release --dart-define-from-file=.env`로 iPhone에서 계속 검증한다.
+2. 10분 실제 주행 smoke test를 수행한다.
+3. 루트파인더에서 루트 다양성, 마커, 히트맵, 상세 진입 UX를 다듬는다.
+4. 주행 HUD에서 다음 커브 안내와 종료/요약 플로우를 안정화한다.
+5. TestFlight는 Apple Developer Program 가입 후 Block 4부터 재개한다.

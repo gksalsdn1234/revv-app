@@ -4,6 +4,10 @@
 
 실행 순서와 다음 세션 재개 방법은 `docs/testflight_execution_plan.md`를 기준으로 한다.
 
+## Distribution Status
+
+2026-05-07 기준으로 TestFlight 배포는 Apple Developer Program 가입 전까지 보류한다. Archive 생성은 성공했지만 IPA export는 Apple Distribution certificate, App Store provisioning profile, App Store Connect provider 권한 부재로 실패했다. 유료 가입 전까지는 실기기 직접 실행으로 테스트를 계속한다.
+
 ## P0 - TestFlight 차단 항목
 
 - [x] `lean_mvp` 브랜치에서 작업한다. `main`은 안정 백업으로 유지한다.
@@ -14,8 +18,8 @@
 - [x] Privacy manifest가 Runner 리소스에 포함됐는지 확인한다.
 - [x] `flutter analyze`와 `flutter test`를 통과한다.
 - [x] `flutter build ios --release --no-codesign --dart-define-from-file=.env`를 통과한다.
-- [ ] Apple Distribution certificate와 App Store provisioning profile을 준비한다.
-- [ ] `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39` export를 통과한다.
+- [ ] Apple Distribution certificate와 App Store provisioning profile을 준비한다. Apple Developer Program 가입 전까지 보류.
+- [ ] `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39` export를 통과한다. 현재는 Apple 배포 서명/권한 부재로 보류.
 - [x] 위치 권한 허용/거부 첫 실행 플로우를 확인한다.
 - [ ] Supabase 정상, 미설정, 네트워크 실패, 후보 0개, 캐시 사용 상태 안내를 실기기에서 확인한다.
 - [x] 루트 선택 -> 주행 시작 -> 현재 위치 추적 -> 주행 종료 -> 요약 저장 -> 앱 재시작 후 기록 복원을 확인한다.
@@ -29,7 +33,7 @@
 - [ ] 루트 데이터 실패 상태를 사용자 문구로 분리한다.
 - [x] 루트 데이터 실패 상태를 사용자 문구로 분리하는 코드 보강을 완료한다.
 - [ ] 날씨 실패는 조용히 fallback하고 출시 차단으로 두지 않는다.
-- [ ] App Store Connect 베타 노트, 개인정보 답변, 스크린샷, 피드백 이메일을 준비한다.
+- [ ] App Store Connect 베타 노트, 개인정보 답변, 스크린샷, 피드백 이메일을 준비한다. TestFlight 재개 전까지 초안만 준비한다.
 - [x] 기본 Flutter 아이콘/런치이미지를 고유 REVV 에셋으로 교체한다.
 - [ ] 표시 이름 `Revv App`이 TestFlight에서 의도대로 보이는지 확인한다.
 
@@ -53,6 +57,8 @@ TestFlight 후보 빌드:
 ```sh
 flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39
 ```
+
+현재 이 명령은 Apple Developer Program 가입과 배포 서명 설정 전까지 보류한다.
 
 미사용 의존성 검증:
 
