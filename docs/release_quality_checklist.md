@@ -44,6 +44,13 @@
 - [ ] Android 권한과 배포 정책은 별도 검증한다.
 - [ ] Supabase RLS와 콘솔 설정을 최종 보안 리뷰한다.
 
+## Cloud Data Controls
+
+- [ ] 클라우드 기록 저장 토글이 기본 켜짐으로 표시된다.
+- [ ] 토글을 끄면 상세 telemetry가 업로드/영구저장되지 않는다.
+- [ ] 기록 삭제가 로컬 캐시와 Supabase 주행 데이터를 삭제한다.
+- [ ] 업로드 성공 후 로컬 pending detail이 삭제된다.
+
 ## Local Verification
 
 ```sh
@@ -85,7 +92,7 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 - Tracking: 사용하지 않음.
 - Location: 루트 추천, 주행 중 현재 위치 표시, 주행 기록 저장에 사용.
 - User ID: Supabase 익명/인증 사용자 식별자로 개인 기록을 분리하는 데 사용.
-- Run data: 주행 거리, 시간, 경로 샘플, G 값은 기록 복원과 향후 리포트 생성을 위해 저장.
+- Run data: 주행 거리, 시간, 경로 샘플, 속도, G 값, 피드백은 기록 복원과 향후 리포트 생성을 위해 저장. 사용자는 클라우드 기록 저장을 끄거나 기록을 삭제할 수 있음.
 - Microphone, Speech Recognition, Bluetooth, OBD: `lean_mvp` TestFlight 범위에서 사용하지 않음.
 
 ## Environment

@@ -1,15 +1,78 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../core/storage_keys.dart';
 import '../models/revv_route.dart';
 import '../models/route_feedback.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
+import 'run_pending_upload_store.dart';
 import 'supabase_service.dart';
 
+abstract class RunHistoryCloudClient {
+  bool get isReady;
+  Future<bool> uploadRun(RunSummary summary);
+  Future<bool> uploadRunDetail(RunTelemetryDetail detail);
+  Future<bool> uploadRouteFeedback(RouteFeedback feedback);
+  Future<List<RunSummary>> fetchMissingRuns(Set<String> localIds);
+  Future<Set<String>> fetchRunIds();
+  Future<RunTelemetryDetail?> fetchRunDetail(String runId);
+  Future<void> recordRouteRun(String? routeId);
+  Future<bool> deleteUserRunData();
+}
+
+class SupabaseRunHistoryCloudClient implements RunHistoryCloudClient {
+  SupabaseRunHistoryCloudClient({SupabaseService? service})
+    : _service = service ?? SupabaseService();
+
+  final SupabaseService _service;
+
+  @override
+  bool get isReady => _service.isReady;
+
+  @override
+  Future<bool> uploadRun(RunSummary summary) => _service.uploadRun(summary);
+
+  @override
+  Future<bool> uploadRunDetail(RunTelemetryDetail detail) =>
+      _service.uploadRunDetail(detail);
+
+  @override
+  Future<bool> uploadRouteFeedback(RouteFeedback feedback) =>
+      _service.uploadRouteFeedback(feedback);
+
+  @override
+  Future<List<RunSummary>> fetchMissingRuns(Set<String> localIds) =>
+      _service.fetchMissingRuns(localIds);
+
+  @override
+  Future<Set<String>> fetchRunIds() => _service.fetchRunIds();
+
+  @override
+  Future<RunTelemetryDetail?> fetchRunDetail(String runId) =>
+      _service.fetchRunDetail(runId);
+
+  @override
+  Future<void> recordRouteRun(String? routeId) =>
+      _service.recordRouteRun(routeId);
+
+  @override
+  Future<bool> deleteUserRunData() => _service.deleteUserRunData();
+}
+
 class RunHistoryService extends ChangeNotifier {
+  RunHistoryService({
+    RunPendingUploadStore pendingStore = const RunPendingUploadStore(),
+    RunHistoryCloudClient? cloudClient,
+  }) : _pendingStore = pendingStore,
+       _cloud = cloudClient ?? SupabaseRunHistoryCloudClient();
+
+  final RunPendingUploadStore _pendingStore;
+  final RunHistoryCloudClient _cloud;
   List<RunSummary> _history = [];
   List<RouteFeedback> _feedback = [];
   List<RunSummary> get history => List.unmodifiable(_history);
@@ -28,10 +91,13 @@ class RunHistoryService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 로컬에 없는 클라우드 런을 가져와 병합 + 로컬에 없는 런을 클라우드에도 업로드
+  /// 클라우드 원본을 우선하되, 실패한 pending 업로드를 먼저 비운다.
   Future<void> syncWithCloud() async {
-    final sync = SupabaseService();
+    if (!await _cloudUploadEnabled()) return;
+    final sync = _cloud;
     if (!sync.isReady) return;
+
+    await retryPendingUploads();
 
     final localIds = _history.map((r) => r.id).toSet();
     final missing = await sync.fetchMissingRuns(localIds);
@@ -41,16 +107,30 @@ class RunHistoryService extends ChangeNotifier {
       await _persist();
       notifyListeners();
     }
-
-    final cloudIds = await _fetchCloudIds(sync);
-    final localOnly = _history.where((r) => !cloudIds.contains(r.id)).toList();
-    if (localOnly.isNotEmpty) {
-      await sync.uploadAll(localOnly);
-    }
   }
 
-  Future<Set<String>> _fetchCloudIds(SupabaseService sync) async {
-    return sync.fetchRunIds();
+  Future<void> retryPendingUploads() async {
+    if (!await _cloudUploadEnabled()) return;
+    final sync = _cloud;
+    if (!sync.isReady) return;
+
+    for (final summary in await _pendingStore.loadSummaries()) {
+      if (await sync.uploadRun(summary)) {
+        await _pendingStore.removeSummary(summary.id);
+      }
+    }
+
+    for (final detail in await _pendingStore.loadDetails()) {
+      if (await sync.uploadRunDetail(detail)) {
+        await _pendingStore.removeDetail(detail.runId);
+      }
+    }
+
+    for (final item in await _pendingStore.loadFeedback()) {
+      if (await sync.uploadRouteFeedback(item)) {
+        await _pendingStore.removeFeedback(item.id);
+      }
+    }
   }
 
   Future<RunSummary> save(RunSession session) async {
@@ -79,13 +159,24 @@ class RunHistoryService extends ChangeNotifier {
     await _persist();
     notifyListeners();
 
-    final sync = SupabaseService();
-    sync.uploadRun(summary);
+    if (await _cloudUploadEnabled()) {
+      await _pendingStore.saveSummary(summary);
+      unawaited(_uploadSummaryAndClearPending(summary));
+    }
+
+    final sync = _cloud;
     if (session.route?.id != null) {
-      sync.recordRouteRun(session.route!.id);
+      unawaited(sync.recordRouteRun(session.route!.id));
     }
 
     return summary;
+  }
+
+  Future<void> _uploadSummaryAndClearPending(RunSummary summary) async {
+    final sync = _cloud;
+    if (await sync.uploadRun(summary)) {
+      await _pendingStore.removeSummary(summary.id);
+    }
   }
 
   Future<void> _persist() async {
@@ -94,12 +185,12 @@ class RunHistoryService extends ChangeNotifier {
   }
 
   Future<void> saveDetail(RunTelemetryDetail detail) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      '${StorageKeys.runDetailPrefix}${detail.runId}',
-      jsonEncode(detail.toJson()),
-    );
-    SupabaseService().uploadRunDetail(detail);
+    if (!await _cloudUploadEnabled()) return;
+    await _pendingStore.saveDetail(detail);
+    final sync = _cloud;
+    if (await sync.uploadRunDetail(detail)) {
+      await _pendingStore.removeDetail(detail.runId);
+    }
   }
 
   Future<void> saveFeedback(RouteFeedback feedback) async {
@@ -113,7 +204,14 @@ class RunHistoryService extends ChangeNotifier {
     }
     await _persistFeedback();
     notifyListeners();
-    SupabaseService().uploadRouteFeedback(feedback);
+
+    if (await _cloudUploadEnabled()) {
+      await _pendingStore.saveFeedback(feedback);
+      final sync = _cloud;
+      if (await sync.uploadRouteFeedback(feedback)) {
+        await _pendingStore.removeFeedback(feedback.id);
+      }
+    }
   }
 
   Future<void> _persistFeedback() async {
@@ -125,6 +223,15 @@ class RunHistoryService extends ChangeNotifier {
   }
 
   Future<RunTelemetryDetail?> loadDetail(String runId) async {
+    final remote = await _cloud.fetchRunDetail(runId);
+    if (remote != null) {
+      await _pendingStore.removeDetail(runId);
+      return remote;
+    }
+
+    final pending = await _pendingStore.loadDetail(runId);
+    if (pending != null) return pending;
+
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('${StorageKeys.runDetailPrefix}$runId');
     if (raw != null) {
@@ -133,17 +240,26 @@ class RunHistoryService extends ChangeNotifier {
           jsonDecode(raw) as Map<String, dynamic>,
         );
       } catch (e) {
-        debugPrint('[RunHistory] detail decode failed: $e');
+        if (kDebugMode) debugPrint('[RunHistory] detail decode failed: $e');
       }
     }
-    final remote = await SupabaseService().fetchRunDetail(runId);
-    if (remote != null) {
-      await prefs.setString(
-        '${StorageKeys.runDetailPrefix}$runId',
-        jsonEncode(remote.toJson()),
-      );
-    }
-    return remote;
+    return null;
+  }
+
+  Future<void> deleteAllRunData() async {
+    _history = [];
+    _feedback = [];
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(StorageKeys.runs);
+    await prefs.remove(StorageKeys.routeFeedback);
+    await _pendingStore.clearAll();
+    await _cloud.deleteUserRunData();
+    notifyListeners();
+  }
+
+  Future<bool> _cloudUploadEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(StorageKeys.cloudRunStorageEnabled) ?? true;
   }
 
   int visitCount(String? routeId) {

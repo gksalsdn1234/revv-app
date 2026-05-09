@@ -3,17 +3,16 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
 
 import '../core/supabase_config.dart';
-import '../core/storage_keys.dart';
 import '../core/supabase_tables.dart';
 import '../models/revv_route.dart';
 import '../models/route_feedback.dart';
 import '../models/run_telemetry_detail.dart';
 import '../models/run_summary.dart';
 import 'route_loading_policy.dart';
+import 'secure_session_store.dart';
 
 enum SyncStatus { idle, syncing, done, error }
 
@@ -30,6 +29,7 @@ class SupabaseService extends ChangeNotifier {
   String? get lastFailureReason => _lastFailureReason;
   SupabaseClient? _client;
   StreamSubscription<AuthState>? _authSubscription;
+  SecureSessionStore sessionStore = SecureSessionStore();
 
   bool _ready = false;
   bool get isReady => _ready;
@@ -60,7 +60,7 @@ class SupabaseService extends ChangeNotifier {
       _ready = false;
       _lastFailureReason = 'Supabase 설정이 없어 클라우드 기능을 비활성화했어요.';
       _setStatus(SyncStatus.idle);
-      debugPrint('[Supabase] configuration missing; cloud features disabled');
+      _debugLog('[Supabase] configuration missing; cloud features disabled');
       return;
     }
 
@@ -76,28 +76,24 @@ class SupabaseService extends ChangeNotifier {
       _ready = true;
       _lastFailureReason = null;
       _setStatus(SyncStatus.done);
-      debugPrint('[Supabase] initialized — uid: $uid');
+      _debugLog('[Supabase] initialized — uid: ${_masked(uid)}');
     } catch (e) {
       _ready = false;
-      _lastFailureReason = '$e';
+      _lastFailureReason = '클라우드 연결에 실패했어요.';
       _setStatus(SyncStatus.error);
-      debugPrint('[Supabase] init failed: $e');
+      _debugLog('[Supabase] init failed: ${_safeError(e)}');
     }
     notifyListeners();
   }
 
   Future<void> _recoverPersistedSession() async {
-    final stored = (await SharedPreferences.getInstance()).getString(
-      StorageKeys.supabaseSession,
-    );
+    final stored = await sessionStore.readSession();
     if (stored == null || stored.isEmpty || _client == null) return;
     try {
       await _client!.auth.recoverSession(stored);
     } catch (e) {
-      await (await SharedPreferences.getInstance()).remove(
-        StorageKeys.supabaseSession,
-      );
-      debugPrint('[Supabase] stored session recovery failed: $e');
+      await sessionStore.deleteSession();
+      _debugLog('[Supabase] stored session recovery failed: ${_safeError(e)}');
     }
   }
 
@@ -105,36 +101,31 @@ class SupabaseService extends ChangeNotifier {
     _authSubscription?.cancel();
     _authSubscription = _client?.auth.onAuthStateChange.listen((state) async {
       final session = state.session;
-      final prefs = await SharedPreferences.getInstance();
       if (session == null) {
-        await prefs.remove(StorageKeys.supabaseSession);
+        await sessionStore.deleteSession();
         return;
       }
-      await prefs.setString(
-        StorageKeys.supabaseSession,
-        jsonEncode(session.toJson()),
-      );
+      await sessionStore.writeSession(jsonEncode(session.toJson()));
     });
   }
 
   Future<void> _persistCurrentSession() async {
     final session = _client?.auth.currentSession;
     if (session == null) return;
-    await (await SharedPreferences.getInstance()).setString(
-      StorageKeys.supabaseSession,
-      jsonEncode(session.toJson()),
-    );
+    await sessionStore.writeSession(jsonEncode(session.toJson()));
   }
 
-  Future<void> uploadRun(RunSummary summary) async {
-    if (!_ready || uid == null) return;
+  Future<bool> uploadRun(RunSummary summary) async {
+    if (!_ready || uid == null) return false;
     try {
       await client!
           .from(SupabaseTables.runs)
           .upsert(runSummaryToRow(summary, userId: uid!), onConflict: 'id');
-      debugPrint('[Supabase] run uploaded — ${summary.id}');
+      _debugLog('[Supabase] run uploaded — ${summary.id}');
+      return true;
     } catch (e) {
-      debugPrint('[Supabase] uploadRun failed: $e');
+      _debugLog('[Supabase] uploadRun failed: ${_safeError(e)}');
+      return false;
     }
   }
 
@@ -153,32 +144,36 @@ class SupabaseService extends ChangeNotifier {
         if (decoded is Map) return Map<String, dynamic>.from(decoded);
       }
     } catch (e) {
-      debugPrint('[Supabase] function $name failed: $e');
+      _debugLog('[Supabase] function $name failed: ${_safeError(e)}');
     }
     return null;
   }
 
-  Future<void> uploadRunDetail(RunTelemetryDetail detail) async {
-    if (!_ready || uid == null) return;
+  Future<bool> uploadRunDetail(RunTelemetryDetail detail) async {
+    if (!_ready || uid == null) return false;
     try {
       await client!
           .from(SupabaseTables.runDetails)
           .upsert(runDetailToRow(detail, userId: uid!), onConflict: 'run_id');
-      debugPrint('[Supabase] run detail uploaded — ${detail.runId}');
+      _debugLog('[Supabase] run detail uploaded — ${detail.runId}');
+      return true;
     } catch (e) {
-      debugPrint('[Supabase] uploadRunDetail failed: $e');
+      _debugLog('[Supabase] uploadRunDetail failed: ${_safeError(e)}');
+      return false;
     }
   }
 
-  Future<void> uploadRouteFeedback(RouteFeedback feedback) async {
-    if (!_ready || uid == null) return;
+  Future<bool> uploadRouteFeedback(RouteFeedback feedback) async {
+    if (!_ready || uid == null) return false;
     try {
       await client!
           .from(SupabaseTables.routeFeedback)
           .upsert(routeFeedbackToRow(feedback, userId: uid!), onConflict: 'id');
-      debugPrint('[Supabase] route feedback uploaded — ${feedback.id}');
+      _debugLog('[Supabase] route feedback uploaded — ${feedback.id}');
+      return true;
     } catch (e) {
-      debugPrint('[Supabase] uploadRouteFeedback failed: $e');
+      _debugLog('[Supabase] uploadRouteFeedback failed: ${_safeError(e)}');
+      return false;
     }
   }
 
@@ -194,7 +189,7 @@ class SupabaseService extends ChangeNotifier {
       if (row == null) return null;
       return runDetailFromRow(row);
     } catch (e) {
-      debugPrint('[Supabase] fetchRunDetail failed: $e');
+      _debugLog('[Supabase] fetchRunDetail failed: ${_safeError(e)}');
       return null;
     }
   }
@@ -217,7 +212,7 @@ class SupabaseService extends ChangeNotifier {
       _setStatus(SyncStatus.done);
       return missing;
     } catch (e) {
-      debugPrint('[Supabase] fetchMissingRuns failed: $e');
+      _debugLog('[Supabase] fetchMissingRuns failed: ${_safeError(e)}');
       _setStatus(SyncStatus.error);
       return const [];
     }
@@ -236,13 +231,13 @@ class SupabaseService extends ChangeNotifier {
           .whereType<String>()
           .toSet();
     } catch (e) {
-      debugPrint('[Supabase] fetchRunIds failed: $e');
+      _debugLog('[Supabase] fetchRunIds failed: ${_safeError(e)}');
       return const {};
     }
   }
 
-  Future<void> uploadAll(List<RunSummary> runs) async {
-    if (!_ready || uid == null || runs.isEmpty) return;
+  Future<bool> uploadAll(List<RunSummary> runs) async {
+    if (!_ready || uid == null || runs.isEmpty) return false;
     _setStatus(SyncStatus.syncing);
     try {
       await client!
@@ -252,10 +247,12 @@ class SupabaseService extends ChangeNotifier {
             onConflict: 'id',
           );
       _setStatus(SyncStatus.done);
-      debugPrint('[Supabase] bulk upload ${runs.length} runs');
+      _debugLog('[Supabase] bulk upload ${runs.length} runs');
+      return true;
     } catch (e) {
-      debugPrint('[Supabase] uploadAll failed: $e');
+      _debugLog('[Supabase] uploadAll failed: ${_safeError(e)}');
       _setStatus(SyncStatus.error);
+      return false;
     }
   }
 
@@ -270,9 +267,9 @@ class SupabaseService extends ChangeNotifier {
                 .toList(),
             onConflict: 'user_id,route_id',
           );
-      debugPrint('[Supabase] route pool saved — ${routes.length}');
+      _debugLog('[Supabase] route pool saved — ${routes.length}');
     } catch (e) {
-      debugPrint('[Supabase] saveDiscoveredRoutes failed: $e');
+      _debugLog('[Supabase] saveDiscoveredRoutes failed: ${_safeError(e)}');
     }
   }
 
@@ -292,14 +289,14 @@ class SupabaseService extends ChangeNotifier {
           .map(routeFromRow)
           .toList();
     } catch (e) {
-      debugPrint('[Supabase] loadDiscoveredRoutes failed: $e');
+      _debugLog('[Supabase] loadDiscoveredRoutes failed: ${_safeError(e)}');
       return const [];
     }
   }
 
   Future<void> publishRoute(RevvRoute route) async {
     if (!_ready) return;
-    debugPrint(
+    _debugLog(
       '[Supabase] publishRoute skipped: curvy_roads is canonical read-only',
     );
   }
@@ -326,10 +323,10 @@ class SupabaseService extends ChangeNotifier {
     if (!_ready) return const [];
     _lastFailureReason = null;
     try {
-      debugPrint(
+      _debugLog(
         '[Supabase] fetchNearbyRoutesDirect request '
-        'lat=${lat.toStringAsFixed(6)} '
-        'lng=${lng.toStringAsFixed(6)} '
+        'lat=${lat.toStringAsFixed(3)} '
+        'lng=${lng.toStringAsFixed(3)} '
         'radius=${radiusKm.toStringAsFixed(1)}km '
         'limit=$limit',
       );
@@ -361,14 +358,14 @@ class SupabaseService extends ChangeNotifier {
               return a.distanceFromUser.compareTo(b.distanceFromUser);
             });
 
-      debugPrint(
+      _debugLog(
         '[Supabase] direct nearby fallback: ${routes.length} rows '
-        '(lat=${lat.toStringAsFixed(4)}, lng=${lng.toStringAsFixed(4)}, r=${radiusKm.toStringAsFixed(0)}km)',
+        '(lat=${lat.toStringAsFixed(2)}, lng=${lng.toStringAsFixed(2)}, r=${radiusKm.toStringAsFixed(0)}km)',
       );
       return routes;
     } catch (e) {
-      _lastFailureReason = 'Supabase direct query failed: $e';
-      debugPrint('[Supabase] fetchNearbyRoutesDirect failed: $e');
+      _lastFailureReason = '클라우드 루트 조회에 실패했어요.';
+      _debugLog('[Supabase] fetchNearbyRoutesDirect failed: ${_safeError(e)}');
       return const [];
     }
   }
@@ -383,10 +380,10 @@ class SupabaseService extends ChangeNotifier {
     if (!_ready) return const [];
     _lastFailureReason = null;
     try {
-      debugPrint(
+      _debugLog(
         '[Supabase] findCurvyRoads request '
-        'lat=${lat.toStringAsFixed(6)} '
-        'lng=${lng.toStringAsFixed(6)} '
+        'lat=${lat.toStringAsFixed(3)} '
+        'lng=${lng.toStringAsFixed(3)} '
         'radius=${radiusM}m '
         'minScore=$minScore '
         'maxResults=$maxResults',
@@ -414,14 +411,14 @@ class SupabaseService extends ChangeNotifier {
                 '${route.distanceFromUser.toStringAsFixed(1)}km away]',
           )
           .join(', ');
-      debugPrint(
+      _debugLog(
         '[Supabase] findCurvyRoads response: ${mapped.length} rows'
         '${preview.isEmpty ? '' : ' -> $preview'}',
       );
       return mapped;
     } catch (e) {
-      _lastFailureReason = 'Supabase RPC failed: $e';
-      debugPrint('[Supabase] findCurvyRoads failed: $e');
+      _lastFailureReason = '클라우드 루트 검색에 실패했어요.';
+      _debugLog('[Supabase] findCurvyRoads failed: ${_safeError(e)}');
       return const [];
     }
   }
@@ -445,7 +442,7 @@ class SupabaseService extends ChangeNotifier {
           )
           .toList();
     } catch (e) {
-      debugPrint('[Supabase] fetchRouteNodes failed: $e');
+      _debugLog('[Supabase] fetchRouteNodes failed: ${_safeError(e)}');
       return const [];
     }
   }
@@ -458,7 +455,7 @@ class SupabaseService extends ChangeNotifier {
         params: recordRouteRunRpcParams(routeId),
       );
     } catch (e) {
-      debugPrint('[Supabase] recordRouteRun failed: $e');
+      _debugLog('[Supabase] recordRouteRun failed: ${_safeError(e)}');
     }
   }
 
@@ -480,7 +477,7 @@ class SupabaseService extends ChangeNotifier {
       }
       return map;
     } catch (e) {
-      debugPrint('[Supabase] fetchRouteRecords failed: $e');
+      _debugLog('[Supabase] fetchRouteRecords failed: ${_safeError(e)}');
       return const {};
     }
   }
@@ -503,7 +500,7 @@ class SupabaseService extends ChangeNotifier {
         'last_run_at': lastRunAt.toIso8601String(),
       }, onConflict: 'user_id,route_id');
     } catch (e) {
-      debugPrint('[Supabase] upsertRouteRecord failed: $e');
+      _debugLog('[Supabase] upsertRouteRecord failed: ${_safeError(e)}');
     }
   }
 
@@ -521,7 +518,7 @@ class SupabaseService extends ChangeNotifier {
           .map(routeFromRow)
           .toList();
     } catch (e) {
-      debugPrint('[Supabase] fetchTopRoutes failed: $e');
+      _debugLog('[Supabase] fetchTopRoutes failed: ${_safeError(e)}');
       return const [];
     }
   }
@@ -541,7 +538,7 @@ class SupabaseService extends ChangeNotifier {
           .map(routeFromRow)
           .toList();
     } catch (e) {
-      debugPrint('[Supabase] loadSavedRoutes failed: $e');
+      _debugLog('[Supabase] loadSavedRoutes failed: ${_safeError(e)}');
       return const [];
     }
   }
@@ -565,7 +562,31 @@ class SupabaseService extends ChangeNotifier {
             .eq('route_id', route.id);
       }
     } catch (e) {
-      debugPrint('[Supabase] saveRouteBookmark failed: $e');
+      _debugLog('[Supabase] saveRouteBookmark failed: ${_safeError(e)}');
+    }
+  }
+
+  Future<bool> deleteUserRunData() async {
+    if (!_ready || uid == null) return false;
+    try {
+      await client!
+          .from(SupabaseTables.runDetails)
+          .delete()
+          .eq('user_id', uid!);
+      await client!
+          .from(SupabaseTables.routeFeedback)
+          .delete()
+          .eq('user_id', uid!);
+      await client!
+          .from(SupabaseTables.routeRecords)
+          .delete()
+          .eq('user_id', uid!);
+      await client!.from(SupabaseTables.runs).delete().eq('user_id', uid!);
+      _debugLog('[Supabase] user run data deleted');
+      return true;
+    } catch (e) {
+      _debugLog('[Supabase] deleteUserRunData failed: ${_safeError(e)}');
+      return false;
     }
   }
 
@@ -862,6 +883,20 @@ class SupabaseService extends ChangeNotifier {
   void _setStatus(SyncStatus s) {
     _status = s;
     notifyListeners();
+  }
+
+  void _debugLog(String message) {
+    if (kDebugMode) debugPrint(message);
+  }
+
+  String _masked(String? value) {
+    if (value == null || value.length < 8) return 'anonymous';
+    return '${value.substring(0, 4)}…${value.substring(value.length - 4)}';
+  }
+
+  String _safeError(Object error) {
+    if (kDebugMode) return error.toString();
+    return error.runtimeType.toString();
   }
 
   @override

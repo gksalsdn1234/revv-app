@@ -17,6 +17,9 @@ class StorageKeys {
   static const runs = 'run_history';
   static const runDetailPrefix = 'run_detail_';
   static const routeFeedback = 'route_feedback';
+  static const pendingRunSummaries = 'pending_run_summaries';
+  static const pendingRunDetails = 'pending_run_details';
+  static const pendingRouteFeedback = 'pending_route_feedback';
 
   // ── 루트 (SavedRouteService, RouteService) ──────────────────
   /// 북마크된 RevvRoute 배열 JSON
@@ -45,6 +48,7 @@ class StorageKeys {
   static const searchRadius = 'setting_searchRadius';
   static const routeFilterStrength = 'setting_routeFilterStrength';
   static const distUnit = 'setting_distUnit';
+  static const cloudRunStorageEnabled = 'setting_cloudRunStorageEnabled';
   static const showSpeedHud = 'setting_showSpeedHud';
   static const offRouteAlert = 'setting_offRouteAlert';
   static const jarvisPersona =

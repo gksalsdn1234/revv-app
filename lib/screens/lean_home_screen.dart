@@ -32,6 +32,36 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
     await location.startTracking();
   }
 
+  Future<void> _confirmDeleteRunData(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.panel,
+        title: Text(
+          '주행 기록을 삭제할까요?',
+          style: AppText.body(size: 20, weight: FontWeight.w900),
+        ),
+        content: Text(
+          '로컬 캐시와 클라우드에 저장된 주행 기록, 상세 텔레메트리, 피드백을 삭제합니다.',
+          style: AppText.body(size: 14, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    await context.read<RunHistoryService>().deleteAllRunData();
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = context.watch<LocationService>();
@@ -117,9 +147,9 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
                     active: history.totalRuns > 0,
                   ),
                   _LeanStatusItem(
-                    label: '음성',
-                    value: settings.ttsMuted ? '꺼짐' : '켜짐',
-                    active: !settings.ttsMuted,
+                    label: '클라우드 기록',
+                    value: settings.cloudRunStorageEnabled ? '저장' : '꺼짐',
+                    active: settings.cloudRunStorageEnabled,
                   ),
                 ],
               ),
@@ -141,6 +171,32 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
                           ? Icons.volume_up_rounded
                           : Icons.volume_off_rounded,
                       onTap: () => settings.setTtsMuted(!settings.ttsMuted),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _LeanGhostButton(
+                      label: settings.cloudRunStorageEnabled
+                          ? '클라우드 기록 끄기'
+                          : '클라우드 기록 켜기',
+                      icon: settings.cloudRunStorageEnabled
+                          ? Icons.cloud_done_rounded
+                          : Icons.cloud_off_rounded,
+                      onTap: () => settings.setCloudRunStorageEnabled(
+                        !settings.cloudRunStorageEnabled,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _LeanGhostButton(
+                      label: '기록 삭제',
+                      icon: Icons.delete_outline_rounded,
+                      onTap: () => _confirmDeleteRunData(context),
                     ),
                   ),
                 ],

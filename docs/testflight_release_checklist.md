@@ -50,7 +50,7 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 - [ ] Location: 루트 추천, 지도 현재 위치 표시, 주행 기록 저장에 사용.
 - [ ] User ID: Supabase 사용자 식별 및 사용자별 기록 분리에 사용.
 - [ ] Usage Data / Diagnostics: 현재 명시적으로 수집하는 항목만 입력한다.
-- [ ] Run Data: 주행 거리, 시간, 경로 샘플, G 값, 피드백을 저장한다면 해당 목적을 명시한다.
+- [ ] Run Data: 주행 거리, 시간, 경로 샘플, 속도, G 값, 피드백을 저장하며 클라우드 저장 토글과 삭제 기능을 제공한다고 명시한다.
 - [ ] Microphone, Speech Recognition, Bluetooth, Contacts, Photos는 이번 MVP에서 사용하지 않음으로 정리한다.
 - [ ] 개인정보 처리방침 URL을 준비한다. 임시라도 랜딩 페이지에 `/privacy`를 만든다.
 - [ ] Beta App Review Notes에 위치 권한이 필요한 이유와 테스트 방법을 적는다.

@@ -9,11 +9,13 @@ class SettingsService extends ChangeNotifier {
   int _searchRadius = 50;
   RouteFilterStrength _routeFilterStrength = RouteFilterStrength.balanced;
   String _distUnit = 'km';
+  bool _cloudRunStorageEnabled = true;
 
   bool get ttsMuted => _ttsMuted;
   int get searchRadiusKm => _searchRadius;
   RouteFilterStrength get routeFilterStrength => _routeFilterStrength;
   String get distUnit => _distUnit;
+  bool get cloudRunStorageEnabled => _cloudRunStorageEnabled;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -25,6 +27,8 @@ class SettingsService extends ChangeNotifier {
       prefs.getString(StorageKeys.routeFilterStrength),
     );
     _distUnit = prefs.getString(StorageKeys.distUnit) ?? 'km';
+    _cloudRunStorageEnabled =
+        prefs.getBool(StorageKeys.cloudRunStorageEnabled) ?? true;
     notifyListeners();
   }
 
@@ -63,6 +67,14 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(StorageKeys.distUnit, next);
+  }
+
+  Future<void> setCloudRunStorageEnabled(bool value) async {
+    if (_cloudRunStorageEnabled == value) return;
+    _cloudRunStorageEnabled = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(StorageKeys.cloudRunStorageEnabled, value);
   }
 
   int _normalizeSearchRadius(int value) {

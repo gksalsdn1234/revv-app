@@ -33,4 +33,19 @@ void main() {
 
     expect(reloaded.routeFilterStrength, RouteFilterStrength.broad);
   });
+
+  test('SettingsService persists cloud run storage toggle', () async {
+    SharedPreferences.setMockInitialValues({});
+
+    final settings = SettingsService();
+    await settings.load();
+    expect(settings.cloudRunStorageEnabled, isTrue);
+
+    await settings.setCloudRunStorageEnabled(false);
+    expect(settings.cloudRunStorageEnabled, isFalse);
+
+    final reloaded = SettingsService();
+    await reloaded.load();
+    expect(reloaded.cloudRunStorageEnabled, isFalse);
+  });
 }

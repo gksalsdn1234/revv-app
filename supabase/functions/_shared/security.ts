@@ -6,7 +6,7 @@ export async function consumeRateLimit(
   limit: number,
   windowSeconds: number,
 ) {
-  const key = clientKey(req);
+  const key = await clientKey(req);
   const fromDb = await consumeDbRateLimit(
     functionName,
     key,
@@ -21,10 +21,12 @@ export async function consumeRateLimit(
   );
 }
 
-export function clientKey(req: Request) {
-  return jwtSub(req.headers.get("authorization")) ??
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    "unknown";
+export async function clientKey(req: Request) {
+  const verifiedSub = await verifiedJwtSub(req.headers.get("authorization"));
+  if (verifiedSub) return `user:${verifiedSub}`;
+  const forwardedFor = req.headers.get("x-forwarded-for")?.split(",")[0]
+    ?.trim();
+  return forwardedFor ? `ip:${forwardedFor}` : "ip:unknown";
 }
 
 async function consumeDbRateLimit(
@@ -72,14 +74,22 @@ function consumeMemoryRateLimit(key: string, limit: number, windowMs: number) {
   return true;
 }
 
-function jwtSub(authorization: string | null) {
-  const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
-  const payload = token?.split(".")[1];
-  if (!payload) return null;
+async function verifiedJwtSub(authorization: string | null) {
+  if (!authorization?.match(/^Bearer\s+.+/i)) return null;
+  const url = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!url || !anonKey) return null;
+
   try {
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const decoded = JSON.parse(atob(normalized));
-    return typeof decoded.sub === "string" ? decoded.sub : null;
+    const response = await fetch(`${url}/auth/v1/user`, {
+      headers: {
+        "apikey": anonKey,
+        "authorization": authorization,
+      },
+    });
+    if (!response.ok) return null;
+    const user = await response.json();
+    return typeof user.id === "string" ? user.id : null;
   } catch {
     return null;
   }
