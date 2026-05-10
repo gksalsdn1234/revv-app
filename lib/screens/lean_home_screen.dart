@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../core/app_links.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/run_history_service.dart';
@@ -60,6 +62,33 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
     );
     if (confirmed != true || !context.mounted) return;
     await context.read<RunHistoryService>().deleteAllRunData();
+  }
+
+  Future<void> _openPrivacyPolicy() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final uri = AppLinks.privacyPolicyUri;
+    if (uri == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('개인정보 처리방침 URL이 설정되지 않았어요.')),
+      );
+      return;
+    }
+
+    try {
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('개인정보 처리방침을 열지 못했어요.')),
+        );
+      }
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('개인정보 처리방침을 열지 못했어요.')),
+      );
+    }
   }
 
   @override
@@ -200,6 +229,21 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              Center(
+                child: TextButton.icon(
+                  onPressed: _openPrivacyPolicy,
+                  icon: const Icon(Icons.privacy_tip_outlined, size: 16),
+                  label: Text(
+                    '개인정보 처리방침',
+                    style: AppText.body(
+                      size: 12,
+                      weight: FontWeight.w800,
+                      color: AppColors.textHint,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),

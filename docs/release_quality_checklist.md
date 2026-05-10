@@ -70,7 +70,7 @@ flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --b
 미사용 의존성 검증:
 
 ```sh
-rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flutter_tts|audioplayers|share_plus|url_launcher" lib pubspec.yaml ios/Podfile.lock
+rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flutter_tts|audioplayers|share_plus" lib pubspec.yaml ios/Podfile.lock
 ```
 
 위 명령은 결과가 없어야 한다.

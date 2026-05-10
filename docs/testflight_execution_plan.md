@@ -256,7 +256,7 @@ flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --b
 - [ ] 카테고리 선택
 - [ ] 앱 설명 작성
 - [ ] 스크린샷 준비
-- [ ] 개인정보 처리방침 URL 준비
+- [ ] 개인정보 처리방침 URL 준비: 1차 TestFlight는 Notion 공개 페이지를 사용하고, 앱 홈 화면의 `개인정보 처리방침` 링크도 같은 URL을 연다.
 - [ ] App Privacy 답변 작성
 - [ ] Beta App Review Notes 작성
 - [ ] 내부 테스터 추가
@@ -267,6 +267,8 @@ Beta Review Notes 초안:
 
 ```text
 REVV is a route discovery and driving rhythm copilot app. Testers can grant location permission, find nearby driving routes, preview a route, start a drive, and save a post-drive summary. No login is required for the current beta. Location permission is required for route recommendations and active drive tracking.
+
+Privacy policy is available in-app from the home screen and in App Store Connect metadata.
 ```
 
 Privacy 답변 기준:

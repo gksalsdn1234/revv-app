@@ -310,8 +310,14 @@ class SupabaseService extends ChangeNotifier {
       lat: lat,
       lng: lng,
       radiusM: (radiusKm * 1000).round(),
-      maxResults: 200,
+      maxResults: _nearbyRouteFetchLimit(radiusKm),
     );
+  }
+
+  int _nearbyRouteFetchLimit(double radiusKm) {
+    if (radiusKm >= 160) return 650;
+    if (radiusKm >= 100) return 400;
+    return 250;
   }
 
   Future<List<RevvRoute>> fetchNearbyRoutesDirect(

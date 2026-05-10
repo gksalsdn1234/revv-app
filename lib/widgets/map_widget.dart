@@ -60,6 +60,7 @@ class MapWidget extends StatefulWidget {
   final List<List<LatLng>> candidatePolylines;
   final List<List<LatLng>> curveHeatmapPolylines;
   final List<RouteCandidateMarker> candidateMarkers;
+  final bool strongCurveFieldHeatmap;
 
   /// 커브 밀도 히트맵 모드 (파랑→초록→노랑→주황→빨강)
   final bool showCurveHeatmap;
@@ -79,6 +80,7 @@ class MapWidget extends StatefulWidget {
     this.candidatePolylines = const [],
     this.curveHeatmapPolylines = const [],
     this.candidateMarkers = const [],
+    this.strongCurveFieldHeatmap = false,
     this.showCurveHeatmap = false,
     this.routeFocusMode = false,
     this.recenterSignal = 0,
@@ -308,9 +310,10 @@ class _MapWidgetState extends State<MapWidget> {
         );
       }
       if (!_samePolylineGroups(
-        oldWidget.curveHeatmapPolylines,
-        widget.curveHeatmapPolylines,
-      )) {
+            oldWidget.curveHeatmapPolylines,
+            widget.curveHeatmapPolylines,
+          ) ||
+          oldWidget.strongCurveFieldHeatmap != widget.strongCurveFieldHeatmap) {
         _drawCurveFieldHeatmap(widget.curveHeatmapPolylines);
       }
       if (!_samePolylineGroups(
@@ -689,7 +692,7 @@ class _MapWidgetState extends State<MapWidget> {
 
     if (markers.isEmpty) return;
 
-    final features = markers.take(12).map((marker) {
+    final features = markers.map((marker) {
       final point = marker.point;
       return {
         'type': 'Feature',
@@ -862,8 +865,12 @@ class _MapWidgetState extends State<MapWidget> {
   // ── 커브 히트맵 레이어 ────────────────────────────────────────────
   static const _hmIds = ['hm-straight', 'hm-gentle', 'hm-medium', 'hm-tight'];
   static const _hmColors = [0xFF3B82F6, 0xFF22C55E, 0xFFF59E0B, 0xFFEF4444];
-  static const _fieldHmBuckets = [2, 3];
-  static const _fieldHmIds = ['curve-field-medium', 'curve-field-tight'];
+  static const _fieldHmBuckets = [1, 2, 3];
+  static const _fieldHmIds = [
+    'curve-field-gentle',
+    'curve-field-medium',
+    'curve-field-tight',
+  ];
 
   Future<void> _clearHeatmap() async {
     final map = _mapController;
@@ -948,11 +955,12 @@ class _MapWidgetState extends State<MapWidget> {
     if (routes.isEmpty) return;
 
     final buckets = <int, List<List<List<double>>>>{
+      1: <List<List<double>>>[],
       2: <List<List<double>>>[],
       3: <List<List<double>>>[],
     };
 
-    for (final nodes in routes.take(32)) {
+    for (final nodes in routes) {
       if (nodes.length < 3) continue;
       for (var i = 1; i < nodes.length - 1; i++) {
         final prev = nodes[i - 1];
@@ -963,7 +971,7 @@ class _MapWidgetState extends State<MapWidget> {
         final dist = _haversineKm(prev.lat, prev.lng, next.lat, next.lng);
         if (dist <= 0.00001) continue;
         final bucket = _curveBucket(_bearingDiff(b1, b2) / dist);
-        if (bucket < 2) continue;
+        if (bucket < 1) continue;
         buckets[bucket]?.add([
           [prev.lng, prev.lat],
           [current.lng, current.lat],
@@ -992,10 +1000,27 @@ class _MapWidgetState extends State<MapWidget> {
         'features': features,
       });
 
-      final color = bucket == 3 ? 0xFFFF3B30 : 0xFFFFB020;
-      final glowOpacity = bucket == 3 ? 0.38 : 0.24;
-      final coreOpacity = bucket == 3 ? 0.74 : 0.46;
-      final coreWidth = bucket == 3 ? 5.0 : 3.8;
+      final color = switch (bucket) {
+        3 => 0xFFFF3B30,
+        2 => 0xFFFFB020,
+        _ => 0xFF37E7FF,
+      };
+      final strong = widget.strongCurveFieldHeatmap;
+      final glowOpacity = switch (bucket) {
+        3 => strong ? 0.58 : 0.36,
+        2 => strong ? 0.42 : 0.22,
+        _ => strong ? 0.28 : 0.10,
+      };
+      final coreOpacity = switch (bucket) {
+        3 => strong ? 0.94 : 0.72,
+        2 => strong ? 0.76 : 0.48,
+        _ => strong ? 0.46 : 0.22,
+      };
+      final coreWidth = switch (bucket) {
+        3 => strong ? 6.2 : 5.0,
+        2 => strong ? 4.8 : 3.8,
+        _ => strong ? 3.5 : 2.4,
+      };
 
       try {
         await map.style.addSource(

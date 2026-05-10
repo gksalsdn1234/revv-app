@@ -37,6 +37,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   LatLng? _lastSearchPoint;
   String? _localStatusMessage;
   double _mapZoom = 11.0;
+  bool _curveRoadView = false;
 
   @override
   void initState() {
@@ -252,14 +253,24 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   void _handleCandidateMarkerTap(String routeId) {
-    final visibleRoutes = _filterRoutes(
-      context.read<RouteService>().routes,
-      _lens,
-    );
+    final service = context.read<RouteService>();
+    final visibleRoutes = _filterRoutes(service.routes, _lens);
     final index = visibleRoutes.indexWhere((route) => route.id == routeId);
-    if (index < 0) return;
-    _selectIndex(visibleRoutes, index);
-    _showMarkerRouteSheet(visibleRoutes[index], index, visibleRoutes.length);
+    if (index >= 0) {
+      _selectIndex(visibleRoutes, index);
+      _showMarkerRouteSheet(visibleRoutes[index], index, visibleRoutes.length);
+      return;
+    }
+
+    final visualIndex = service.mapVisualRoutes.indexWhere(
+      (route) => route.id == routeId,
+    );
+    if (visualIndex < 0) return;
+    _showMarkerRouteSheet(
+      service.mapVisualRoutes[visualIndex],
+      visualIndex,
+      service.mapVisualRoutes.length,
+    );
   }
 
   void _showMarkerRouteSheet(RevvRoute route, int index, int total) {
@@ -288,6 +299,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final settings = context.watch<SettingsService>();
     final routes = service.routes;
     final visibleRoutes = _filterRoutes(routes, _lens);
+    final mapDisplayRoutes = service.mapVisualRoutes.isNotEmpty
+        ? service.mapVisualRoutes
+        : visibleRoutes;
     final effectiveIndex = visibleRoutes.isEmpty
         ? 0
         : _selectedIndex.clamp(0, visibleRoutes.length - 1);
@@ -327,20 +341,26 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
               child: MapWidget(
                 routePolyline: selected?.nodes,
                 candidatePolylines: _candidatePolylines(
-                  visibleRoutes,
+                  mapDisplayRoutes,
                   selected,
                   mapMode,
+                  heatmapMode: _curveRoadView,
                 ),
                 curveHeatmapPolylines: _curveHeatmapPolylines(
-                  visibleRoutes,
+                  mapDisplayRoutes,
                   mapMode,
+                  heatmapMode: _curveRoadView,
                 ),
                 candidateMarkers: _candidateMarkers(
-                  visibleRoutes,
+                  mapDisplayRoutes,
                   selected,
                   _mapCenterPoint,
-                  _markerLimitForMapMode(mapMode),
+                  _markerLimitForMapModeWithHeatmap(
+                    mapMode,
+                    heatmapMode: _curveRoadView,
+                  ),
                 ),
+                strongCurveFieldHeatmap: _curveRoadView,
                 routeFocusMode: false,
                 recenterSignal: _recenterSignal,
                 onCameraViewportChanged: _handleCameraViewportChanged,
@@ -364,6 +384,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       onRadius: _selectRadius,
                       onLimit: _selectVisibleLimit,
                       onStrength: _selectFilterStrength,
+                      curveRoadView: _curveRoadView,
+                      onCurveRoadView: () =>
+                          setState(() => _curveRoadView = !_curveRoadView),
                       onRecenter: () => setState(() => _recenterSignal++),
                     ),
                     const SizedBox(height: 8),
@@ -373,7 +396,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       onChanged: _setLens,
                     ),
                     const SizedBox(height: 8),
-                    const _CurveHeatLegend(),
+                    if (_curveRoadView) const _CurveHeatLegend(),
                   ],
                 ),
               ),
@@ -439,6 +462,8 @@ class _LeanRouteTopBar extends StatelessWidget {
   final VoidCallback onRadius;
   final VoidCallback onLimit;
   final VoidCallback onStrength;
+  final bool curveRoadView;
+  final VoidCallback onCurveRoadView;
   final VoidCallback onRecenter;
 
   const _LeanRouteTopBar({
@@ -452,49 +477,66 @@ class _LeanRouteTopBar extends StatelessWidget {
     required this.onRadius,
     required this.onLimit,
     required this.onStrength,
+    required this.curveRoadView,
+    required this.onCurveRoadView,
     required this.onRecenter,
   });
 
   @override
   Widget build(BuildContext context) {
     return _LeanGlass(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
       child: Row(
         children: [
           _LeanCircleButton(icon: Icons.arrow_back_rounded, onTap: onBack),
-          const SizedBox(width: 10),
+          const SizedBox(width: 6),
           Expanded(
-            child: Text(
-              busy ? '루트 탐색 중' : '루트 $count',
-              style: AppText.body(
-                size: 16,
-                weight: FontWeight.w900,
-                color: AppColors.textPrimary,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              child: Row(
+                children: [
+                  if (busy) ...[
+                    const _LeanInfoPill(
+                      label: '탐색 중',
+                      icon: Icons.sync_rounded,
+                      busy: true,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  _LeanMiniButton(
+                    label: '${radiusKm}km',
+                    icon: Icons.radar_rounded,
+                    onTap: busy ? null : onRadius,
+                  ),
+                  const SizedBox(width: 6),
+                  _LeanMiniButton(
+                    label: routeFilterStrengthLabel(filterStrength),
+                    icon: Icons.tune_rounded,
+                    onTap: busy ? null : onStrength,
+                  ),
+                  const SizedBox(width: 6),
+                  _LeanMiniButton(
+                    label: '$visibleLimit',
+                    icon: Icons.view_week_rounded,
+                    onTap: busy ? null : onLimit,
+                  ),
+                  const SizedBox(width: 6),
+                  _LeanMiniButton(
+                    label: '이 지역',
+                    icon: Icons.travel_explore_rounded,
+                    onTap: busy ? null : onSearch,
+                  ),
+                  const SizedBox(width: 6),
+                  _LeanMiniButton(
+                    label: curveRoadView ? '커브 ON' : '커브길',
+                    icon: Icons.timeline_rounded,
+                    onTap: onCurveRoadView,
+                    selected: curveRoadView,
+                  ),
+                ],
               ),
             ),
-          ),
-          _LeanMiniButton(
-            label: '${radiusKm}km',
-            icon: Icons.radar_rounded,
-            onTap: busy ? null : onRadius,
-          ),
-          const SizedBox(width: 6),
-          _LeanMiniButton(
-            label: routeFilterStrengthLabel(filterStrength),
-            icon: Icons.tune_rounded,
-            onTap: busy ? null : onStrength,
-          ),
-          const SizedBox(width: 6),
-          _LeanMiniButton(
-            label: '$visibleLimit',
-            icon: Icons.view_week_rounded,
-            onTap: busy ? null : onLimit,
-          ),
-          const SizedBox(width: 6),
-          _LeanMiniButton(
-            label: '이 지역',
-            icon: Icons.travel_explore_rounded,
-            onTap: busy ? null : onSearch,
           ),
           const SizedBox(width: 6),
           _LeanCircleButton(icon: Icons.gps_fixed_rounded, onTap: onRecenter),
@@ -1277,6 +1319,17 @@ class _CurveHeatLegend extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            const _HeatDot(color: Color(0xFF37E7FF)),
+            const SizedBox(width: 5),
+            Text(
+              '와인딩',
+              style: AppText.body(
+                size: 10,
+                weight: FontWeight.w900,
+                color: AppColors.primaryContainer,
+              ),
+            ),
+            const SizedBox(width: 10),
             const _HeatDot(color: Color(0xFFFFB020)),
             const SizedBox(width: 5),
             Text(
@@ -1397,15 +1450,72 @@ class _LeanTextButton extends StatelessWidget {
   }
 }
 
+class _LeanInfoPill extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool busy;
+
+  const _LeanInfoPill({
+    required this.label,
+    required this.icon,
+    required this.busy,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 40,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: AppColors.primaryContainer.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.28),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (busy)
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.8,
+                color: AppColors.primaryContainer,
+              ),
+            )
+          else
+            Icon(icon, size: 15, color: AppColors.primaryContainer),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.fade,
+            style: AppText.body(
+              size: 11,
+              weight: FontWeight.w900,
+              color: AppColors.primaryContainer,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _LeanMiniButton extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback? onTap;
+  final bool selected;
 
   const _LeanMiniButton({
     required this.label,
     required this.icon,
     required this.onTap,
+    this.selected = false,
   });
 
   @override
@@ -1418,10 +1528,14 @@ class _LeanMiniButton extends StatelessWidget {
         height: 40,
         padding: const EdgeInsets.symmetric(horizontal: 9),
         decoration: BoxDecoration(
-          color: AppColors.surface.withValues(alpha: 0.72),
+          color: selected
+              ? AppColors.primaryContainer
+              : AppColors.surface.withValues(alpha: 0.72),
           borderRadius: BorderRadius.circular(15),
           border: Border.all(
-            color: AppColors.outlineVariant.withValues(alpha: 0.22),
+            color: selected
+                ? AppColors.primaryContainer.withValues(alpha: 0.82)
+                : AppColors.outlineVariant.withValues(alpha: 0.22),
           ),
         ),
         child: Row(
@@ -1430,15 +1544,24 @@ class _LeanMiniButton extends StatelessWidget {
             Icon(
               icon,
               size: 15,
-              color: enabled ? AppColors.primaryContainer : AppColors.textHint,
+              color: selected
+                  ? AppColors.onPrimary
+                  : enabled
+                  ? AppColors.primaryContainer
+                  : AppColors.textHint,
             ),
             const SizedBox(width: 4),
             Text(
               label,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.fade,
               style: AppText.body(
                 size: 11,
                 weight: FontWeight.w900,
-                color: enabled
+                color: selected
+                    ? AppColors.onPrimary
+                    : enabled
                     ? AppColors.primaryContainer
                     : AppColors.textHint,
               ),
@@ -1511,8 +1634,10 @@ List<RevvRoute> _filterRoutes(List<RevvRoute> routes, _RouteLens lens) {
 List<List<LatLng>> _candidatePolylines(
   List<RevvRoute> routes,
   RevvRoute? selected,
-  _RouteMapMode mode,
-) {
+  _RouteMapMode mode, {
+  required bool heatmapMode,
+}) {
+  if (heatmapMode) return const [];
   final selectedId = selected?.id;
   final limit = switch (mode) {
     _RouteMapMode.wide => 2,
@@ -1528,12 +1653,13 @@ List<List<LatLng>> _candidatePolylines(
 
 List<List<LatLng>> _curveHeatmapPolylines(
   List<RevvRoute> routes,
-  _RouteMapMode mode,
-) {
+  _RouteMapMode mode, {
+  required bool heatmapMode,
+}) {
   final limit = switch (mode) {
-    _RouteMapMode.wide => 32,
-    _RouteMapMode.balanced => 24,
-    _RouteMapMode.close => 12,
+    _RouteMapMode.wide => heatmapMode ? 180 : 120,
+    _RouteMapMode.balanced => heatmapMode ? 140 : 80,
+    _RouteMapMode.close => heatmapMode ? 72 : 24,
   };
   return routes
       .where((route) => route.nodes.length > 2)
@@ -1602,11 +1728,14 @@ _RouteMapMode _mapModeForZoom(double zoom) {
   return _RouteMapMode.close;
 }
 
-int _markerLimitForMapMode(_RouteMapMode mode) {
+int _markerLimitForMapModeWithHeatmap(
+  _RouteMapMode mode, {
+  required bool heatmapMode,
+}) {
   return switch (mode) {
-    _RouteMapMode.wide => 16,
-    _RouteMapMode.balanced => 12,
-    _RouteMapMode.close => 8,
+    _RouteMapMode.wide => heatmapMode ? 12 : 36,
+    _RouteMapMode.balanced => heatmapMode ? 10 : 24,
+    _RouteMapMode.close => heatmapMode ? 8 : 12,
   };
 }
 
@@ -1617,5 +1746,5 @@ String _emptyRouteBody(RouteService service) {
       service.lastFilteredRouteCount == 0) {
     return base;
   }
-  return '$base · 원본 ${service.lastCloudCandidateCount}개 / 필터 ${service.lastFilteredRouteCount}개 / 표시 ${service.lastUsableCloudRouteCount}개';
+  return '$base · 원본 ${service.lastCloudCandidateCount}개 / 필터 ${service.lastFilteredRouteCount}개 / 추천 ${service.lastUsableCloudRouteCount}개';
 }

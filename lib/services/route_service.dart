@@ -11,6 +11,8 @@ import 'supabase_service.dart';
 enum SprintStartMode { auto, guideToStart, joinFromCurrent }
 
 class RouteService extends ChangeNotifier {
+  List<RevvRoute> rawCandidateRoutes = [];
+  List<RevvRoute> mapVisualRoutes = [];
   List<RevvRoute> routes = [];
   RevvRoute? selectedRoute;
 
@@ -107,7 +109,7 @@ class RouteService extends ChangeNotifier {
           lat,
           lng,
           searchRadiusKm.toDouble(),
-          limit: 160,
+          limit: _fetchLimitForRadius(searchRadiusKm),
         );
         lastCloudCandidateCount = candidates.length;
       }
@@ -121,6 +123,8 @@ class RouteService extends ChangeNotifier {
 
       if (token != _fetchToken) return;
 
+      rawCandidateRoutes = List<RevvRoute>.unmodifiable(candidates);
+      mapVisualRoutes = _prepareMapVisualRoutes(candidates);
       final visible = _prepareVisibleRoutes(candidates);
       lastUsableCloudRouteCount = visible.length;
       routes = visible;
@@ -131,6 +135,7 @@ class RouteService extends ChangeNotifier {
         'strength=${routeFilterStrengthStorageValue(filterStrength)} '
         'raw=${candidates.length} '
         'filtered=$lastFilteredRouteCount '
+        'map=${mapVisualRoutes.length} '
         'visible=${visible.length}/$visibleRouteLimit',
       );
 
@@ -154,7 +159,7 @@ class RouteService extends ChangeNotifier {
         routeSuggestionMessage = _routeSuggestionForCount(visible.length);
         routeDataStatusTitle = '루트 준비 완료';
         routeDataStatusBody =
-            '$strengthLabel 필터로 ${visible.length}개 후보를 불러왔어요.';
+            '$strengthLabel 필터로 ${visible.length}개 추천 후보를 불러왔고, 지도에는 ${mapVisualRoutes.length}개 커브 후보를 표시합니다.';
         unawaited(_saveToCache(visible));
         unawaited(_hydrateSelectedRouteNodes());
       }
@@ -162,6 +167,8 @@ class RouteService extends ChangeNotifier {
       if (token != _fetchToken) return;
       final cached = await _loadFromCache();
       if (cached != null && cached.isNotEmpty) {
+        rawCandidateRoutes = List<RevvRoute>.unmodifiable(cached);
+        mapVisualRoutes = _prepareMapVisualRoutes(cached);
         routes = _prepareVisibleRoutes(cached);
         selectedRoute = routes.isEmpty ? null : routes.first;
         debugPrint(
@@ -169,6 +176,7 @@ class RouteService extends ChangeNotifier {
           'radius=${searchRadiusKm}km '
           'strength=${routeFilterStrengthStorageValue(filterStrength)} '
           'filtered=$lastFilteredRouteCount '
+          'map=${mapVisualRoutes.length} '
           'visible=${routes.length}/$visibleRouteLimit',
         );
         routeDataSourceLabel = '로컬 캐시';
@@ -204,10 +212,18 @@ class RouteService extends ChangeNotifier {
   }
 
   void resetCache() {
+    rawCandidateRoutes = [];
+    mapVisualRoutes = [];
     routes = [];
     selectedRoute = null;
     routeDataSourceLabel = '초기화됨';
     notifyListeners();
+  }
+
+  int _fetchLimitForRadius(int radiusKm) {
+    if (radiusKm >= 160) return 650;
+    if (radiusKm >= 100) return 400;
+    return 250;
   }
 
   List<RevvRoute> _prepareVisibleRoutes(List<RevvRoute> candidates) {
@@ -218,6 +234,18 @@ class RouteService extends ChangeNotifier {
     final filtered = filterRoutesForStrength(unique.values, filterStrength);
     lastFilteredRouteCount = filtered.length;
     return diversifyRouteSlots(filtered, limit: visibleRouteLimit);
+  }
+
+  List<RevvRoute> _prepareMapVisualRoutes(List<RevvRoute> candidates) {
+    final unique = <String, RevvRoute>{};
+    for (final route in candidates) {
+      unique[route.id] = route;
+    }
+    final visual = filterRoutesForStrength(
+      unique.values,
+      RouteFilterStrength.broad,
+    );
+    return List<RevvRoute>.unmodifiable(visual.take(180));
   }
 
   String? _routeSuggestionForCount(int count) {

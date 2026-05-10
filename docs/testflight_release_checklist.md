@@ -18,7 +18,7 @@
 - [ ] Firebase, Bluetooth, Speech, TTS, Audio 관련 문자열이 남아 있지 않은지 확인한다.
 
 ```sh
-rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flutter_tts|audioplayers|share_plus|url_launcher" lib pubspec.yaml ios/Podfile.lock
+rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flutter_tts|audioplayers|share_plus" lib pubspec.yaml ios/Podfile.lock
 ```
 
 위 명령은 결과가 없어야 한다.
@@ -52,7 +52,8 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 - [ ] Usage Data / Diagnostics: 현재 명시적으로 수집하는 항목만 입력한다.
 - [ ] Run Data: 주행 거리, 시간, 경로 샘플, 속도, G 값, 피드백을 저장하며 클라우드 저장 토글과 삭제 기능을 제공한다고 명시한다.
 - [ ] Microphone, Speech Recognition, Bluetooth, Contacts, Photos는 이번 MVP에서 사용하지 않음으로 정리한다.
-- [ ] 개인정보 처리방침 URL을 준비한다. 임시라도 랜딩 페이지에 `/privacy`를 만든다.
+- [ ] 개인정보 처리방침 URL을 준비한다. 1차 TestFlight는 Notion 공개 페이지를 사용하고, 앱 내부 `개인정보 처리방침` 링크도 같은 URL을 연다.
+- [ ] `.env`의 `PRIVACY_POLICY_URL`에 Notion 공개 URL을 입력한다.
 - [ ] Beta App Review Notes에 위치 권한이 필요한 이유와 테스트 방법을 적는다.
 
 ## 5. 릴리즈 빌드 생성
