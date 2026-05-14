@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +12,11 @@ import 'supabase_service.dart';
 enum SprintStartMode { auto, guideToStart, joinFromCurrent }
 
 class RouteService extends ChangeNotifier {
+  static const int routeFieldRadiusKm = 160;
+  static const int routeFieldFetchLimit = 650;
+  static const double routeFieldCacheReuseKm = 40;
+  static const Duration routeFieldCacheTtl = Duration(hours: 24);
+
   List<RevvRoute> rawCandidateRoutes = [];
   List<RevvRoute> mapVisualRoutes = [];
   List<RevvRoute> routes = [];
@@ -29,17 +35,34 @@ class RouteService extends ChangeNotifier {
   int lastCloudCandidateCount = 0;
   int lastFilteredRouteCount = 0;
   int lastUsableCloudRouteCount = 0;
-  int searchRadiusKm = 50;
+  int searchRadiusKm = routeFieldRadiusKm;
   int visibleRouteLimit = defaultVisibleRoutes;
   RouteFilterStrength filterStrength = RouteFilterStrength.balanced;
+  LatLng? routeFieldCenter;
+  DateTime? routeFieldFetchedAt;
+  bool routeFieldFromCache = false;
 
   bool sprintRequested = false;
   SprintStartMode sprintStartMode = SprintStartMode.auto;
   RevvRoute? sprintRoute;
+  RevvRoute? pendingGuideRoute;
+  DateTime? pendingGuideStartedAt;
 
   int _fetchToken = 0;
 
   RevvRoute? get effectiveSprintRoute => sprintRoute ?? selectedRoute;
+
+  void beginGuideToStart(RevvRoute route) {
+    pendingGuideRoute = route;
+    pendingGuideStartedAt = DateTime.now();
+    notifyListeners();
+  }
+
+  void clearGuideToStart() {
+    pendingGuideRoute = null;
+    pendingGuideStartedAt = null;
+    notifyListeners();
+  }
 
   void requestSprint({
     RevvRoute? route,
@@ -69,7 +92,8 @@ class RouteService extends ChangeNotifier {
     double lng,
   ) async {
     visibleRouteLimit = limit.clamp(4, 32);
-    await fetchRoutes(lat, lng);
+    _rebuildRecommendations();
+    notifyListeners();
   }
 
   Future<void> changeFilterStrength(
@@ -78,10 +102,68 @@ class RouteService extends ChangeNotifier {
     double lng,
   ) async {
     filterStrength = strength;
-    await fetchRoutes(lat, lng);
+    _rebuildRecommendations();
+    routeSuggestionMessage = _routeSuggestionForCount(routes.length);
+    routeDataStatusTitle = rawCandidateRoutes.isEmpty ? '루트 후보 없음' : '추천 후보 갱신';
+    routeDataStatusBody = rawCandidateRoutes.isEmpty
+        ? '지도 영역을 옮겨 다시 불러와 보세요.'
+        : '${routeFilterStrengthLabel(filterStrength)} 필터로 ${routes.length}개 추천 후보를 다시 골랐고, 지도에는 ${mapVisualRoutes.length}개 커브길을 유지합니다.';
+    notifyListeners();
+  }
+
+  Future<void> prefetchRouteField(
+    double lat,
+    double lng, {
+    bool forceRefresh = false,
+  }) async {
+    searchRadiusKm = routeFieldRadiusKm;
+    final point = LatLng(lat, lng);
+    final token = ++_fetchToken;
+    isLoading = true;
+    isLoadingInitial = rawCandidateRoutes.isEmpty;
+    errorMessage = null;
+    routeSuggestionMessage = null;
+    backgroundStatusMessage = '주변 커브길 불러오는 중';
+    routeDataStatusTitle = '커브길 필드 로딩 중';
+    routeDataStatusBody =
+        '현재 위치 기준 ${routeFieldRadiusKm}km 안의 커브길을 한 번에 불러옵니다.';
+    notifyListeners();
+
+    final cached = forceRefresh ? null : await _loadRouteFieldCache(point);
+    if (token != _fetchToken) return;
+
+    if (cached != null) {
+      _applyRouteField(
+        _routesRelativeTo(cached.routes, point),
+        center: cached.center,
+        fetchedAt: cached.fetchedAt,
+        sourceLabel: '로컬 캐시',
+        fromCache: true,
+      );
+      final ageMinutes = DateTime.now()
+          .difference(cached.fetchedAt)
+          .inMinutes
+          .clamp(0, 1440);
+      routeDataStatusTitle = '캐시 사용 중';
+      routeDataStatusBody =
+          '$routeFieldRadiusKm km 커브길 캐시 ${mapVisualRoutes.length}개를 먼저 표시합니다. $ageMinutes분 전 데이터예요.';
+      isLoading = false;
+      isLoadingInitial = false;
+      backgroundStatusMessage = null;
+      notifyListeners();
+      unawaited(_refreshRouteField(point, token));
+      return;
+    }
+
+    await _refreshRouteField(point, token, allowCacheFallback: true);
   }
 
   Future<void> fetchRoutes(double lat, double lng) async {
+    searchRadiusKm = searchRadiusKm <= 0 ? routeFieldRadiusKm : searchRadiusKm;
+    await _fetchRoutesAt(LatLng(lat, lng), radiusKm: searchRadiusKm);
+  }
+
+  Future<void> _fetchRoutesAt(LatLng point, {required int radiusKm}) async {
     final token = ++_fetchToken;
     isLoading = true;
     isLoadingInitial = routes.isEmpty;
@@ -91,31 +173,34 @@ class RouteService extends ChangeNotifier {
     backgroundStatusMessage = '주변 루트를 찾는 중';
     routeDataStatusTitle = '루트 탐색 중';
     routeDataStatusBody =
-        '현재 위치 기준 ${searchRadiusKm}km 안에서 $strengthLabel 필터로 후보를 불러옵니다.';
+        '현재 위치 기준 ${radiusKm}km 안에서 $strengthLabel 필터로 후보를 불러옵니다.';
     notifyListeners();
 
     try {
       final cloud = SupabaseService();
       final cloudReady = cloud.isCloudAvailable;
       var candidates = await cloud.fetchNearbyRoutes(
-        lat,
-        lng,
-        searchRadiusKm.toDouble(),
+        point.lat,
+        point.lng,
+        radiusKm.toDouble(),
       );
       lastCloudCandidateCount = candidates.length;
 
       if (candidates.isEmpty) {
         candidates = await cloud.fetchNearbyRoutesDirect(
-          lat,
-          lng,
-          searchRadiusKm.toDouble(),
-          limit: _fetchLimitForRadius(searchRadiusKm),
+          point.lat,
+          point.lng,
+          radiusKm.toDouble(),
+          limit: _fetchLimitForRadius(radiusKm),
         );
         lastCloudCandidateCount = candidates.length;
       }
 
       if (candidates.isEmpty) {
-        candidates = await _loadFromCache() ?? const [];
+        final cached = await _loadRouteFieldCache(point);
+        candidates = cached == null
+            ? const []
+            : _routesRelativeTo(cached.routes, point);
         routeDataSourceLabel = candidates.isEmpty ? '루트 없음' : '로컬 캐시';
       } else {
         routeDataSourceLabel = 'Supabase';
@@ -123,23 +208,26 @@ class RouteService extends ChangeNotifier {
 
       if (token != _fetchToken) return;
 
-      rawCandidateRoutes = List<RevvRoute>.unmodifiable(candidates);
-      mapVisualRoutes = _prepareMapVisualRoutes(candidates);
-      final visible = _prepareVisibleRoutes(candidates);
-      lastUsableCloudRouteCount = visible.length;
-      routes = visible;
-      selectedRoute = visible.isNotEmpty ? visible.first : null;
-      debugPrint(
-        '[RouteService] route pool '
-        'radius=${searchRadiusKm}km '
-        'strength=${routeFilterStrengthStorageValue(filterStrength)} '
-        'raw=${candidates.length} '
-        'filtered=$lastFilteredRouteCount '
-        'map=${mapVisualRoutes.length} '
-        'visible=${visible.length}/$visibleRouteLimit',
+      _applyRouteField(
+        candidates,
+        center: point,
+        fetchedAt: DateTime.now(),
+        sourceLabel: routeDataSourceLabel,
+        fromCache: routeDataSourceLabel == '로컬 캐시',
       );
+      if (kDebugMode) {
+        debugPrint(
+          '[RouteService] route pool '
+          'radius=${radiusKm}km '
+          'strength=${routeFilterStrengthStorageValue(filterStrength)} '
+          'raw=${rawCandidateRoutes.length} '
+          'filtered=$lastFilteredRouteCount '
+          'map=${mapVisualRoutes.length} '
+          'visible=${routes.length}/$visibleRouteLimit',
+        );
+      }
 
-      if (visible.isEmpty) {
+      if (routes.isEmpty) {
         if (!cloudReady) {
           errorMessage = '클라우드 설정이 필요해요';
           routeDataStatusTitle = '클라우드 설정 없음';
@@ -156,29 +244,36 @@ class RouteService extends ChangeNotifier {
         }
       } else {
         errorMessage = null;
-        routeSuggestionMessage = _routeSuggestionForCount(visible.length);
+        routeSuggestionMessage = _routeSuggestionForCount(routes.length);
         routeDataStatusTitle = '루트 준비 완료';
         routeDataStatusBody =
-            '$strengthLabel 필터로 ${visible.length}개 추천 후보를 불러왔고, 지도에는 ${mapVisualRoutes.length}개 커브 후보를 표시합니다.';
-        unawaited(_saveToCache(visible));
+            '$strengthLabel 필터로 ${routes.length}개 추천 후보를 불러왔고, 지도에는 ${mapVisualRoutes.length}개 커브 후보를 표시합니다.';
+        if (routeDataSourceLabel == 'Supabase') {
+          unawaited(_saveRouteFieldCache(point, radiusKm, candidates));
+        }
         unawaited(_hydrateSelectedRouteNodes());
       }
     } catch (e) {
       if (token != _fetchToken) return;
-      final cached = await _loadFromCache();
-      if (cached != null && cached.isNotEmpty) {
-        rawCandidateRoutes = List<RevvRoute>.unmodifiable(cached);
-        mapVisualRoutes = _prepareMapVisualRoutes(cached);
-        routes = _prepareVisibleRoutes(cached);
-        selectedRoute = routes.isEmpty ? null : routes.first;
-        debugPrint(
-          '[RouteService] cached route pool '
-          'radius=${searchRadiusKm}km '
-          'strength=${routeFilterStrengthStorageValue(filterStrength)} '
-          'filtered=$lastFilteredRouteCount '
-          'map=${mapVisualRoutes.length} '
-          'visible=${routes.length}/$visibleRouteLimit',
+      final cached = await _loadRouteFieldCache(point);
+      if (cached != null) {
+        _applyRouteField(
+          _routesRelativeTo(cached.routes, point),
+          center: cached.center,
+          fetchedAt: cached.fetchedAt,
+          sourceLabel: '로컬 캐시',
+          fromCache: true,
         );
+        if (kDebugMode) {
+          debugPrint(
+            '[RouteService] cached route pool '
+            'radius=${radiusKm}km '
+            'strength=${routeFilterStrengthStorageValue(filterStrength)} '
+            'filtered=$lastFilteredRouteCount '
+            'map=${mapVisualRoutes.length} '
+            'visible=${routes.length}/$visibleRouteLimit',
+          );
+        }
         routeDataSourceLabel = '로컬 캐시';
         errorMessage = null;
         routeSuggestionMessage = _routeSuggestionForCount(routes.length);
@@ -189,6 +284,100 @@ class RouteService extends ChangeNotifier {
         routeSuggestionMessage = null;
         routeDataStatusTitle = '루트 로드 실패';
         routeDataStatusBody = '네트워크 또는 Supabase 설정을 확인해 주세요.';
+      }
+    } finally {
+      if (token == _fetchToken) {
+        isLoading = false;
+        isLoadingInitial = false;
+        backgroundStatusMessage = null;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> _refreshRouteField(
+    LatLng point,
+    int token, {
+    bool allowCacheFallback = false,
+  }) async {
+    try {
+      final cloud = SupabaseService();
+      var candidates = await cloud.fetchNearbyRoutes(
+        point.lat,
+        point.lng,
+        routeFieldRadiusKm.toDouble(),
+      );
+      lastCloudCandidateCount = candidates.length;
+
+      if (candidates.isEmpty) {
+        candidates = await cloud.fetchNearbyRoutesDirect(
+          point.lat,
+          point.lng,
+          routeFieldRadiusKm.toDouble(),
+          limit: routeFieldFetchLimit,
+        );
+        lastCloudCandidateCount = candidates.length;
+      }
+
+      if (token != _fetchToken) return;
+
+      if (candidates.isEmpty) {
+        if (allowCacheFallback) {
+          final cached = await _loadRouteFieldCache(point, ignoreTtl: true);
+          if (cached != null) {
+            _applyRouteField(
+              _routesRelativeTo(cached.routes, point),
+              center: cached.center,
+              fetchedAt: cached.fetchedAt,
+              sourceLabel: '로컬 캐시',
+              fromCache: true,
+            );
+          }
+        }
+        errorMessage = rawCandidateRoutes.isEmpty ? '주변 커브길을 찾지 못했어요' : null;
+        routeDataStatusTitle = rawCandidateRoutes.isEmpty
+            ? '커브길 없음'
+            : '캐시 유지 중';
+        routeDataStatusBody = rawCandidateRoutes.isEmpty
+            ? '지도 영역을 옮겨 다시 불러와 보세요.'
+            : '최신 데이터를 가져오지 못해 기존 커브길 캐시를 유지합니다.';
+        return;
+      }
+
+      _applyRouteField(
+        candidates,
+        center: point,
+        fetchedAt: DateTime.now(),
+        sourceLabel: 'Supabase',
+        fromCache: false,
+      );
+      await _saveRouteFieldCache(point, routeFieldRadiusKm, candidates);
+      routeDataStatusTitle = '커브길 준비 완료';
+      routeDataStatusBody =
+          '지도에는 ${mapVisualRoutes.length}개 커브길을 깔고, ${routes.length}개 추천 후보를 골랐습니다.';
+      routeSuggestionMessage = _routeSuggestionForCount(routes.length);
+      if (kDebugMode) {
+        debugPrint(
+          '[RouteService] route field refreshed '
+          'fieldRaw=${rawCandidateRoutes.length} '
+          'fieldMap=${mapVisualRoutes.length} '
+          'recommended=${routes.length}/$visibleRouteLimit '
+          'cacheAge=0m',
+        );
+      }
+    } catch (e) {
+      if (token != _fetchToken) return;
+      errorMessage = rawCandidateRoutes.isEmpty ? '커브길을 불러오지 못했어요' : null;
+      routeDataStatusTitle = rawCandidateRoutes.isEmpty
+          ? '루트 로드 실패'
+          : '캐시 유지 중';
+      routeDataStatusBody = rawCandidateRoutes.isEmpty
+          ? '네트워크 또는 Supabase 설정을 확인해 주세요.'
+          : '최신 데이터 요청이 실패해 기존 커브길 캐시를 유지합니다.';
+      if (kDebugMode) {
+        debugPrint(
+          '[RouteService] route field refresh failed: ${e.runtimeType}',
+        );
       }
     } finally {
       if (token == _fetchToken) {
@@ -216,6 +405,9 @@ class RouteService extends ChangeNotifier {
     mapVisualRoutes = [];
     routes = [];
     selectedRoute = null;
+    routeFieldCenter = null;
+    routeFieldFetchedAt = null;
+    routeFieldFromCache = false;
     routeDataSourceLabel = '초기화됨';
     notifyListeners();
   }
@@ -236,16 +428,45 @@ class RouteService extends ChangeNotifier {
     return diversifyRouteSlots(filtered, limit: visibleRouteLimit);
   }
 
+  void _applyRouteField(
+    List<RevvRoute> candidates, {
+    required LatLng center,
+    required DateTime fetchedAt,
+    required String sourceLabel,
+    required bool fromCache,
+  }) {
+    rawCandidateRoutes = List<RevvRoute>.unmodifiable(candidates);
+    mapVisualRoutes = _prepareMapVisualRoutes(candidates);
+    _rebuildRecommendations();
+    selectedRoute = routes.isNotEmpty ? routes.first : null;
+    routeFieldCenter = center;
+    routeFieldFetchedAt = fetchedAt;
+    routeFieldFromCache = fromCache;
+    routeDataSourceLabel = sourceLabel;
+  }
+
+  void _rebuildRecommendations() {
+    final visible = _prepareVisibleRoutes(rawCandidateRoutes);
+    lastUsableCloudRouteCount = visible.length;
+    routes = visible;
+    if (selectedRoute != null &&
+        !rawCandidateRoutes.any((route) => route.id == selectedRoute!.id)) {
+      selectedRoute = visible.isNotEmpty ? visible.first : null;
+    }
+  }
+
   List<RevvRoute> _prepareMapVisualRoutes(List<RevvRoute> candidates) {
     final unique = <String, RevvRoute>{};
     for (final route in candidates) {
-      unique[route.id] = route;
+      if (route.nodes.length > 1) {
+        unique[route.id] = route;
+      }
     }
-    final visual = filterRoutesForStrength(
-      unique.values,
-      RouteFilterStrength.broad,
-    );
-    return List<RevvRoute>.unmodifiable(visual.take(180));
+
+    // The map layer is intentionally broader than the recommendation list.
+    // Cards still use quality filters, but the map should show the full
+    // curvature field so users can visually pick roads like Curvature.
+    return List<RevvRoute>.unmodifiable(unique.values);
   }
 
   String? _routeSuggestionForCount(int count) {
@@ -253,14 +474,14 @@ class RouteService extends ChangeNotifier {
     if (filterStrength != RouteFilterStrength.broad) {
       return '후보가 적어요. 필터를 넓게로 바꿔볼까요?';
     }
-    return searchRadiusKm < 100 ? '후보가 적어요. 반경을 100km로 넓혀볼까요?' : null;
+    return '후보가 적어요. 지도 영역을 옮겨 다시 불러와 보세요.';
   }
 
   String _emptyRouteStatusBody(int rawCount) {
     if (rawCount > 0 && filterStrength != RouteFilterStrength.broad) {
       return '원본 후보 $rawCount개가 있었지만 ${routeFilterStrengthLabel(filterStrength)} 필터를 통과하지 못했어요. 넓게 보기로 다시 비교해 보세요.';
     }
-    return '검색 반경을 넓히거나 위치를 옮겨 다시 찾아보세요.';
+    return '지도 영역을 옮겨 다시 불러와 보세요.';
   }
 
   Future<void> _hydrateSelectedRouteNodes() async {
@@ -276,27 +497,101 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _saveToCache(List<RevvRoute> routes) async {
+  Future<void> _saveRouteFieldCache(
+    LatLng center,
+    int radiusKm,
+    List<RevvRoute> routes,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         StorageKeys.routeCache,
-        RevvRoute.listToJson(routes),
+        jsonEncode({
+          'version': 2,
+          'centerLat': center.lat,
+          'centerLng': center.lng,
+          'radiusKm': radiusKm,
+          'fetchedAt': DateTime.now().toIso8601String(),
+          'routes': routes.map((route) => route.toJson()).toList(),
+        }),
       );
     } catch (e) {
-      debugPrint('[RouteService] cache save failed: $e');
+      if (kDebugMode) {
+        debugPrint('[RouteService] cache save failed: ${e.runtimeType}');
+      }
     }
   }
 
-  Future<List<RevvRoute>?> _loadFromCache() async {
+  Future<_RouteFieldCache?> _loadRouteFieldCache(
+    LatLng target, {
+    bool ignoreTtl = false,
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(StorageKeys.routeCache);
       if (raw == null || raw.isEmpty) return null;
-      return RevvRoute.listFromJson(raw);
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return null;
+
+      final center = LatLng(
+        (decoded['centerLat'] as num).toDouble(),
+        (decoded['centerLng'] as num).toDouble(),
+      );
+      final radiusKm = (decoded['radiusKm'] as num?)?.toInt() ?? 0;
+      final fetchedAt =
+          DateTime.tryParse(decoded['fetchedAt']?.toString() ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final routes = ((decoded['routes'] as List?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(RevvRoute.fromJson)
+          .toList();
+      if (routes.isEmpty) return null;
+
+      final cache = _RouteFieldCache(
+        center: center,
+        radiusKm: radiusKm,
+        fetchedAt: fetchedAt,
+        routes: routes,
+      );
+      if (!ignoreTtl && !_isRouteFieldCacheUsable(cache, target)) return null;
+      return cache;
     } catch (e) {
-      debugPrint('[RouteService] cache load failed: $e');
+      if (kDebugMode) {
+        debugPrint('[RouteService] cache load failed: ${e.runtimeType}');
+      }
       return null;
     }
   }
+
+  bool _isRouteFieldCacheUsable(_RouteFieldCache cache, LatLng target) {
+    if (cache.radiusKm < routeFieldRadiusKm) return false;
+    final age = DateTime.now().difference(cache.fetchedAt);
+    if (age > routeFieldCacheTtl) return false;
+    final distanceKm = RevvRoute.haversineKm(cache.center, target);
+    return distanceKm <= routeFieldCacheReuseKm;
+  }
+
+  List<RevvRoute> _routesRelativeTo(List<RevvRoute> routes, LatLng target) {
+    return routes
+        .map(
+          (route) => route.copyWith(
+            distanceFromUser: RevvRoute.haversineKm(target, route.centerPoint),
+          ),
+        )
+        .toList(growable: false);
+  }
+}
+
+class _RouteFieldCache {
+  final LatLng center;
+  final int radiusKm;
+  final DateTime fetchedAt;
+  final List<RevvRoute> routes;
+
+  const _RouteFieldCache({
+    required this.center,
+    required this.radiusKm,
+    required this.fetchedAt,
+    required this.routes,
+  });
 }

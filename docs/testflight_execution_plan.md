@@ -59,7 +59,7 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 - [x] `flutter test` 통과
 - [x] `flutter build ios --release --no-codesign --dart-define-from-file=.env` 통과
 - [x] Firebase / Bluetooth / Speech / TTS / Audio 의존성 제거 확인
-- [x] `Info.plist` 권한은 위치 When-In-Use만 유지
+- [x] `Info.plist`는 위치 When-In-Use를 실제 요청 권한으로 유지하고, App Store binary scanner 대응용 Speech/Always Location purpose string을 포함
 - [x] `PrivacyInfo.xcprivacy` Runner 리소스 포함
 - [x] `.env.example` 필수 키 정리: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `MAPBOX_ACCESS_TOKEN`
 - [x] 버전: `1.38.0+39`
@@ -70,6 +70,10 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 - [ ] App Store Connect 업로드: Apple Developer Program 가입 전까지 보류
 - [x] 실기기 핵심 플로우 smoke test
 - [x] 실패 상태 사용자 문구 보강 및 no-env 빌드 검증
+- [x] Pending telemetry detail을 secure storage 기반 pending queue로 이동
+- [x] Pending telemetry detail 14일 TTL cleanup 추가
+- [x] Active Supabase migrations에 core schema와 Data API GRANT 추가
+- [x] Supabase migration security static test/runbook 추가
 - [ ] 실기기 10분 주행 smoke test
 - [ ] 외부 TestFlight 베타 오픈: Apple Developer Program 가입 전까지 보류
 
@@ -159,6 +163,8 @@ flutter run --release --dart-define-from-file=.env -d 00008120-000621623E90A01E
 - [ ] `.env` 없이 실행: 클라우드/지도 설정 안내 확인
 - [ ] Supabase 설정 정상: 루트 후보 로드 확인
 - [ ] Supabase 후보 0개: 반경 확장 제안 확인
+- [ ] 새/staging Supabase 프로젝트에서 active migrations 적용 후 Data API GRANT/RLS 확인
+- [ ] `docs/supabase_security_verification.md` 기준 remote dry run과 Security Advisor 확인
 - [ ] 네트워크 실패: 재시도 안내 확인
 - [ ] 위치 권한 거부: 설정 이동 안내 확인
 - [ ] 캐시 있음: 캐시 기반 후보 표시 확인

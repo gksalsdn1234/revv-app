@@ -8,8 +8,10 @@ import 'package:provider/provider.dart';
 import '../models/revv_route.dart';
 import '../services/location_service.dart';
 import '../services/mapbox_service.dart';
+import '../services/settings_service.dart';
 import '../services/weather_service.dart';
 import '../theme/colors.dart';
+import '../ui/app_copy.dart';
 
 class _LineLayerSpec {
   final String id;
@@ -34,15 +36,19 @@ class RouteMapViewport {
   const RouteMapViewport({required this.center, required this.zoom});
 }
 
-class RouteCandidateMarker {
+class RouteDifficultyLine {
   final String routeId;
-  final int index;
-  final LatLng point;
+  final List<LatLng> points;
+  final int colorArgb;
+  final double width;
+  final double opacity;
 
-  const RouteCandidateMarker({
+  const RouteDifficultyLine({
     required this.routeId,
-    required this.index,
-    required this.point,
+    required this.points,
+    required this.colorArgb,
+    required this.width,
+    required this.opacity,
   });
 }
 
@@ -59,7 +65,7 @@ class MapWidget extends StatefulWidget {
   /// 선택 루트보다 얇고 muted 톤으로 그려서 지도에서 선택지를 읽을 수 있게 한다.
   final List<List<LatLng>> candidatePolylines;
   final List<List<LatLng>> curveHeatmapPolylines;
-  final List<RouteCandidateMarker> candidateMarkers;
+  final List<RouteDifficultyLine> difficultyLines;
   final bool strongCurveFieldHeatmap;
 
   /// 커브 밀도 히트맵 모드 (파랑→초록→노랑→주황→빨강)
@@ -67,10 +73,12 @@ class MapWidget extends StatefulWidget {
 
   /// 본 루트 진입 후 지도 배경 정보를 최소화하고 루트만 강조한다.
   final bool routeFocusMode;
+  final LatLng? simulatedPosition;
+  final double? navigationBearing;
   final int recenterSignal;
   final ValueChanged<LatLng>? onCameraCenterChanged;
   final ValueChanged<RouteMapViewport>? onCameraViewportChanged;
-  final ValueChanged<String>? onCandidateMarkerTap;
+  final ValueChanged<String>? onRouteLineTap;
 
   const MapWidget({
     super.key,
@@ -79,14 +87,16 @@ class MapWidget extends StatefulWidget {
     this.routePolyline,
     this.candidatePolylines = const [],
     this.curveHeatmapPolylines = const [],
-    this.candidateMarkers = const [],
+    this.difficultyLines = const [],
     this.strongCurveFieldHeatmap = false,
     this.showCurveHeatmap = false,
     this.routeFocusMode = false,
+    this.simulatedPosition,
+    this.navigationBearing,
     this.recenterSignal = 0,
     this.onCameraCenterChanged,
     this.onCameraViewportChanged,
-    this.onCandidateMarkerTap,
+    this.onRouteLineTap,
   });
 
   @override
@@ -96,6 +106,14 @@ class MapWidget extends StatefulWidget {
 class _MapWidgetState extends State<MapWidget> {
   static const bool _disableMapbox = bool.fromEnvironment(
     'REVV_DISABLE_MAPBOX',
+  );
+  static final mbx.MbxEdgeInsets _driveCameraPadding = mbx.MbxEdgeInsets(
+    // Heading-up navigation should keep the car below center so the driver sees
+    // more upcoming road than the path already driven.
+    top: 300,
+    left: 24,
+    bottom: 170,
+    right: 24,
   );
 
   mbx.MapboxMap? _mapController;
@@ -129,34 +147,39 @@ class _MapWidgetState extends State<MapWidget> {
     final isCandidate = id.startsWith('candidate-');
 
     if (isRoute) {
+      final casingExtra = widget.routeFocusMode ? 7.0 : 3.4;
+      final trackExtra = widget.routeFocusMode ? 2.4 : 1.1;
+      final ribbonWidth = widget.routeFocusMode
+          ? math.max(1.4, width * 0.28)
+          : math.max(0.7, width * 0.22);
       return [
         _LineLayerSpec(
           id: '$id-shadow-layer',
           sourceId: sourceId,
           color: 0xCC05080D,
-          width: width + 7.0,
-          opacity: widget.routeFocusMode ? 0.96 : 0.90,
+          width: width + casingExtra,
+          opacity: widget.routeFocusMode ? 0.96 : 0.62,
         ),
         _LineLayerSpec(
           id: '$id-track-layer',
           sourceId: sourceId,
           color: widget.routeFocusMode ? 0xFF0E2932 : 0xFF12242C,
-          width: width + 2.4,
-          opacity: 0.98,
+          width: width + trackExtra,
+          opacity: widget.routeFocusMode ? 0.98 : 0.72,
         ),
         _LineLayerSpec(
           id: '$id-core-layer',
           sourceId: sourceId,
           color: widget.routeFocusMode ? 0xFF29E0FF : 0xFF19C8E6,
           width: width,
-          opacity: 0.96,
+          opacity: widget.routeFocusMode ? 0.96 : 0.86,
         ),
         _LineLayerSpec(
           id: '$id-ribbon-layer',
           sourceId: sourceId,
           color: 0xFFEBFCFF,
-          width: math.max(1.4, width * 0.28),
-          opacity: widget.routeFocusMode ? 0.42 : 0.30,
+          width: ribbonWidth,
+          opacity: widget.routeFocusMode ? 0.42 : 0.18,
         ),
       ];
     }
@@ -167,22 +190,22 @@ class _MapWidgetState extends State<MapWidget> {
           id: '$id-shadow-layer',
           sourceId: sourceId,
           color: 0x8804070B,
-          width: width + 3.0,
-          opacity: 0.44,
+          width: width + 1.6,
+          opacity: 0.30,
         ),
         _LineLayerSpec(
           id: '$id-track-layer',
           sourceId: sourceId,
           color: 0xFF111B20,
-          width: width + 1.2,
-          opacity: 0.42,
+          width: width + 0.8,
+          opacity: 0.28,
         ),
         _LineLayerSpec(
           id: '$id-core-layer',
           sourceId: sourceId,
           color: colorArgb,
           width: width,
-          opacity: 0.34,
+          opacity: 0.24,
         ),
       ];
     }
@@ -244,9 +267,11 @@ class _MapWidgetState extends State<MapWidget> {
     if (MapboxService.isConfigured) {
       mbx.MapboxOptions.setAccessToken(MapboxService.accessToken);
     } else {
-      debugPrint(
-        '[MapWidget] MAPBOX_ACCESS_TOKEN missing; map fallback active',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          '[MapWidget] MAPBOX_ACCESS_TOKEN missing; map fallback active',
+        );
+      }
     }
   }
 
@@ -267,7 +292,8 @@ class _MapWidgetState extends State<MapWidget> {
 
     // Sprint 모드 전환 시 스타일 URI가 바뀌어 Mapbox가 스타일을 재로드함
     // → _styleLoaded를 false로 초기화해야 _onStyleLoaded 재호출 대기
-    if (oldWidget.isSprintMode != widget.isSprintMode) {
+    if (oldWidget.isSprintMode != widget.isSprintMode ||
+        oldWidget.strongCurveFieldHeatmap != widget.strongCurveFieldHeatmap) {
       _styleLoaded = false;
       _locationPuckEnabled = false;
       _viewportState = null; // 스타일 재로드 후 _onStyleLoaded에서 재활성화
@@ -278,6 +304,27 @@ class _MapWidgetState extends State<MapWidget> {
     if (_styleLoaded) {
       if (oldWidget.recenterSignal != widget.recenterSignal) {
         _recenterOnUser();
+      }
+      if (oldWidget.simulatedPosition != widget.simulatedPosition) {
+        _drawSimulationMarker(widget.simulatedPosition);
+        if (widget.isSprintMode && widget.simulatedPosition != null) {
+          _moveCameraToPoint(
+            widget.simulatedPosition!,
+            zoom: 16.3,
+            pitch: 22.0,
+            bearing: widget.navigationBearing,
+          );
+        }
+      }
+      if (oldWidget.navigationBearing != widget.navigationBearing &&
+          widget.isSprintMode &&
+          widget.simulatedPosition != null) {
+        _moveCameraToPoint(
+          widget.simulatedPosition!,
+          zoom: 16.3,
+          pitch: 22.0,
+          bearing: widget.navigationBearing,
+        );
       }
       if (oldWidget.routeFocusMode != widget.routeFocusMode) {
         _applyRouteFocusStyle();
@@ -297,7 +344,7 @@ class _MapWidgetState extends State<MapWidget> {
             'route',
             widget.routePolyline!,
             AppColors.red.toARGB32(),
-            5.5,
+            widget.routeFocusMode ? 5.5 : 2.8,
           );
         }
       }
@@ -332,12 +379,15 @@ class _MapWidgetState extends State<MapWidget> {
             'route',
             widget.routePolyline!,
             AppColors.red.toARGB32(),
-            5.5,
+            widget.routeFocusMode ? 5.5 : 2.8,
           );
         });
       }
-      if (!_sameMarkers(oldWidget.candidateMarkers, widget.candidateMarkers)) {
-        _drawCandidateMarkers(widget.candidateMarkers);
+      if (!_sameDifficultyLines(
+        oldWidget.difficultyLines,
+        widget.difficultyLines,
+      )) {
+        _drawDifficultyLines(widget.difficultyLines);
       }
       if (oldWidget.routePolyline != widget.routePolyline ||
           oldWidget.showCurveHeatmap != widget.showCurveHeatmap) {
@@ -350,8 +400,11 @@ class _MapWidgetState extends State<MapWidget> {
             'route',
             widget.routePolyline ?? [],
             AppColors.red.toARGB32(),
-            5.5,
+            widget.routeFocusMode ? 5.5 : 2.8,
           );
+        }
+        if (!widget.isSprintMode && widget.routePolyline?.isNotEmpty == true) {
+          _focusRoutePolyline(widget.routePolyline!);
         }
       }
     }
@@ -367,6 +420,8 @@ class _MapWidgetState extends State<MapWidget> {
 
   void _onLocationChanged() {
     if (_locationService == null || !_styleLoaded) return;
+    if (!widget.isSprintMode) return;
+    if (widget.simulatedPosition != null) return;
     // FollowPuckViewportState가 활성화돼 있으면 SDK가 자동 추적한다.
     // GPS 업데이트마다 viewport를 다시 생성하면 platform view 전체가 재빌드돼
     // 실기기에서 지도 프레임이 쉽게 떨어진다.
@@ -381,7 +436,11 @@ class _MapWidgetState extends State<MapWidget> {
         if (!mounted || !_styleLoaded) return;
         final loc = _locationService;
         if (loc != null) {
-          _moveCamera(loc.lat, loc.lng, heading: loc.heading);
+          _moveCamera(
+            loc.lat,
+            loc.lng,
+            heading: widget.navigationBearing ?? loc.heading,
+          );
         }
       });
     }
@@ -542,6 +601,13 @@ class _MapWidgetState extends State<MapWidget> {
   Future<void> _updateLocationSettings() async {
     final map = _mapController;
     if (map == null) return;
+    if (widget.simulatedPosition != null) {
+      await map.location.updateSettings(
+        mbx.LocationComponentSettings(enabled: false),
+      );
+      _locationPuckEnabled = false;
+      return;
+    }
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       await map.location.updateSettings(
         mbx.LocationComponentSettings(
@@ -578,12 +644,32 @@ class _MapWidgetState extends State<MapWidget> {
   }
 
   void _activateFollowViewport() {
+    final simulated = widget.simulatedPosition;
+    if (simulated != null) {
+      _viewportState = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_styleLoaded) return;
+        _moveCameraToPoint(
+          simulated,
+          zoom: 16.3,
+          pitch: 22.0,
+          bearing: widget.navigationBearing,
+          immediate: true,
+        );
+      });
+      return;
+    }
     final loc = _locationService;
     if (loc == null) return;
     _viewportState = null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_styleLoaded) return;
-      _moveCamera(loc.lat, loc.lng, heading: loc.heading, immediate: true);
+      _moveCamera(
+        loc.lat,
+        loc.lng,
+        heading: widget.navigationBearing ?? loc.heading,
+        immediate: true,
+      );
     });
   }
 
@@ -591,7 +677,12 @@ class _MapWidgetState extends State<MapWidget> {
     final loc = _locationService;
     if (loc == null || !_styleLoaded) return;
     _activateFollowViewport();
-    _moveCamera(loc.lat, loc.lng, heading: loc.heading, immediate: true);
+    _moveCamera(
+      loc.lat,
+      loc.lng,
+      heading: widget.navigationBearing ?? loc.heading,
+      immediate: true,
+    );
   }
 
   Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
@@ -600,8 +691,14 @@ class _MapWidgetState extends State<MapWidget> {
     _routeFocusApplied = false;
     _originalLayerVisibility.clear();
     await _applyCustomStyle();
-    // 스타일 로드 완료 후 카메라를 현재 위치로 맞춘다.
-    _activateFollowViewport();
+    try {
+      await _updateLocationSettings();
+    } catch (_) {}
+    // 스타일 로드 완료 후 자동 추적은 주행 화면에서만 켠다.
+    // 루트파인더에서는 사용자가 지도를 움직이는 탐색 동작을 방해하지 않는다.
+    if (widget.isSprintMode) {
+      _activateFollowViewport();
+    }
     // 폴리라인 재그리기 (스타일 재로드 시)
     if (!widget.routeFocusMode && widget.navPolyline?.isNotEmpty == true) {
       await _drawPolyline(
@@ -612,8 +709,8 @@ class _MapWidgetState extends State<MapWidget> {
       );
     }
     await _drawCurveFieldHeatmap(widget.curveHeatmapPolylines);
+    await _drawDifficultyLines(widget.difficultyLines);
     await _drawCandidatePolylines(widget.candidatePolylines);
-    await _drawCandidateMarkers(widget.candidateMarkers);
     if (widget.routePolyline?.isNotEmpty == true) {
       if (widget.showCurveHeatmap) {
         await _drawCurveHeatmap(widget.routePolyline!);
@@ -622,10 +719,14 @@ class _MapWidgetState extends State<MapWidget> {
           'route',
           widget.routePolyline!,
           AppColors.red.toARGB32(),
-          5.5,
+          widget.routeFocusMode ? 5.5 : 2.8,
         );
       }
+      if (!widget.isSprintMode) {
+        await _focusRoutePolyline(widget.routePolyline!, immediate: true);
+      }
     }
+    await _drawSimulationMarker(widget.simulatedPosition);
   }
 
   static bool _samePolylineGroups(List<List<LatLng>> a, List<List<LatLng>> b) {
@@ -644,9 +745,9 @@ class _MapWidgetState extends State<MapWidget> {
     return true;
   }
 
-  static bool _sameMarkers(
-    List<RouteCandidateMarker> a,
-    List<RouteCandidateMarker> b,
+  static bool _sameDifficultyLines(
+    List<RouteDifficultyLine> a,
+    List<RouteDifficultyLine> b,
   ) {
     if (identical(a, b)) return true;
     if (a.length != b.length) return false;
@@ -654,10 +755,17 @@ class _MapWidgetState extends State<MapWidget> {
       final left = a[i];
       final right = b[i];
       if (left.routeId != right.routeId ||
-          left.index != right.index ||
-          left.point.lat != right.point.lat ||
-          left.point.lng != right.point.lng) {
+          left.colorArgb != right.colorArgb ||
+          left.width != right.width ||
+          left.opacity != right.opacity ||
+          left.points.length != right.points.length) {
         return false;
+      }
+      for (var j = 0; j < left.points.length; j++) {
+        if (left.points[j].lat != right.points[j].lat ||
+            left.points[j].lng != right.points[j].lng) {
+          return false;
+        }
       }
     }
     return true;
@@ -667,140 +775,172 @@ class _MapWidgetState extends State<MapWidget> {
     const maxCandidateLayers = 5;
     for (var i = 0; i < maxCandidateLayers; i++) {
       final points = i < polylines.length ? polylines[i] : const <LatLng>[];
-      await _drawPolyline('candidate-$i', points, 0xFF82D9E6, 2.8);
+      await _drawPolyline('candidate-$i', points, 0xFF82D9E6, 1.4);
     }
   }
 
-  Future<void> _drawCandidateMarkers(List<RouteCandidateMarker> markers) async {
-    final map = _mapController;
-    if (map == null || !_styleLoaded) return;
-    const sourceId = 'candidate-anchor-source';
-    const layerIds = [
-      'candidate-anchor-label-layer',
-      'candidate-anchor-core-layer',
-      'candidate-anchor-halo-layer',
-    ];
+  static const _difficultyLayerIds = [
+    'difficulty-muted',
+    'difficulty-gentle',
+    'difficulty-winding',
+    'difficulty-tight',
+  ];
 
-    for (final layerId in layerIds) {
+  String _difficultyLayerId(RouteDifficultyLine line) {
+    return switch (line.colorArgb) {
+      0xFFFF2E38 => 'difficulty-tight',
+      0xFFFF7A1A => 'difficulty-winding',
+      0xFFFFE94A => 'difficulty-gentle',
+      _ => 'difficulty-muted',
+    };
+  }
+
+  Future<void> _clearDifficultyLines() async {
+    final map = _mapController;
+    if (map == null) return;
+    for (final id in _difficultyLayerIds) {
       try {
-        await map.style.removeStyleLayer(layerId);
+        await map.style.removeStyleLayer('$id-glow-layer');
+      } catch (_) {}
+      try {
+        await map.style.removeStyleLayer('$id-core-layer');
+      } catch (_) {}
+      try {
+        await map.style.removeStyleSource('$id-source');
       } catch (_) {}
     }
-    try {
-      await map.style.removeStyleSource(sourceId);
-    } catch (_) {}
+  }
 
-    if (markers.isEmpty) return;
+  Future<void> _drawDifficultyLines(List<RouteDifficultyLine> lines) async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded) return;
+    await _clearDifficultyLines();
+    if (lines.isEmpty) return;
 
-    final features = markers.map((marker) {
-      final point = marker.point;
-      return {
-        'type': 'Feature',
-        'geometry': {
-          'type': 'Point',
-          'coordinates': [point.lng, point.lat],
-        },
-        'properties': {
-          'index': '${marker.index + 1}',
-          'routeId': marker.routeId,
-        },
-      };
-    }).toList();
+    final groups = <String, List<RouteDifficultyLine>>{};
+    for (final line in lines) {
+      if (line.points.length < 2) continue;
+      groups.putIfAbsent(_difficultyLayerId(line), () => []).add(line);
+    }
 
-    final geoJson = jsonEncode({
-      'type': 'FeatureCollection',
-      'features': features,
-    });
+    for (final entry in groups.entries) {
+      final id = entry.key;
+      final group = entry.value;
+      final first = group.first;
+      final features = group
+          .map(
+            (line) => {
+              'type': 'Feature',
+              'geometry': {
+                'type': 'LineString',
+                'coordinates': line.points.map((p) => [p.lng, p.lat]).toList(),
+              },
+              'properties': {'routeId': line.routeId},
+            },
+          )
+          .toList();
+      final geoJson = jsonEncode({
+        'type': 'FeatureCollection',
+        'features': features,
+      });
 
-    try {
-      await map.style.addSource(mbx.GeoJsonSource(id: sourceId, data: geoJson));
-      await map.style.addLayer(
-        mbx.CircleLayer(
-          id: 'candidate-anchor-halo-layer',
-          sourceId: sourceId,
-          circleColor: const Color(0xFF071014).toARGB32(),
-          circleRadius: 16.0,
-          circleOpacity: 0.80,
-          circleStrokeColor: const Color(0x7737E7FF).toARGB32(),
-          circleStrokeWidth: 1.8,
-        ),
-      );
-      await map.style.addLayer(
-        mbx.CircleLayer(
-          id: 'candidate-anchor-core-layer',
-          sourceId: sourceId,
-          circleColor: const Color(0xFF46DFFF).toARGB32(),
-          circleRadius: 6.2,
-          circleOpacity: 0.95,
-        ),
-      );
-      await map.style.addLayer(
-        mbx.SymbolLayer(
-          id: 'candidate-anchor-label-layer',
-          sourceId: sourceId,
-          textField: '{index}',
-          textSize: 11.0,
-          textColor: const Color(0xFF041116).toARGB32(),
-          textHaloColor: const Color(0xFF46DFFF).toARGB32(),
-          textHaloWidth: 1.8,
-          textAllowOverlap: true,
-          textIgnorePlacement: true,
-        ),
-      );
-    } catch (e) {
-      debugPrint('[MapWidget] candidate anchors: $e');
+      try {
+        await map.style.addSource(
+          mbx.GeoJsonSource(id: '$id-source', data: geoJson),
+        );
+        await map.style.addLayer(
+          mbx.LineLayer(
+            id: '$id-glow-layer',
+            sourceId: '$id-source',
+            lineColor: first.colorArgb,
+            lineWidth: first.width + 2.2,
+            lineOpacity: math.min(first.opacity * 0.30, 0.30),
+            lineBlur: 1.2,
+            lineCap: mbx.LineCap.ROUND,
+            lineJoin: mbx.LineJoin.ROUND,
+          ),
+        );
+        await map.style.addLayer(
+          mbx.LineLayer(
+            id: '$id-core-layer',
+            sourceId: '$id-source',
+            lineColor: first.colorArgb,
+            lineWidth: first.width,
+            lineOpacity: first.opacity,
+            lineCap: mbx.LineCap.ROUND,
+            lineJoin: mbx.LineJoin.ROUND,
+          ),
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[MapWidget] difficulty lines $id: ${e.runtimeType}');
+        }
+      }
     }
   }
 
   Future<void> _onMapTap(mbx.MapContentGestureContext context) async {
-    final map = _mapController;
-    final onTap = widget.onCandidateMarkerTap;
-    if (map == null || onTap == null || !_styleLoaded) return;
-
-    final touch = context.touchPosition;
-    const hitPadding = 24.0;
-    final queryBox = mbx.ScreenBox(
-      min: mbx.ScreenCoordinate(
-        x: math.max(0, touch.x - hitPadding),
-        y: math.max(0, touch.y - hitPadding),
-      ),
-      max: mbx.ScreenCoordinate(
-        x: touch.x + hitPadding,
-        y: touch.y + hitPadding,
-      ),
+    if (_mapController == null || !_styleLoaded) return;
+    final coordinates = context.point.coordinates;
+    final tapPoint = LatLng(
+      coordinates.lat.toDouble(),
+      coordinates.lng.toDouble(),
     );
-
-    try {
-      final features = await map.queryRenderedFeatures(
-        mbx.RenderedQueryGeometry.fromScreenBox(queryBox),
-        mbx.RenderedQueryOptions(
-          layerIds: const [
-            'candidate-anchor-label-layer',
-            'candidate-anchor-core-layer',
-            'candidate-anchor-halo-layer',
-          ],
-        ),
-      );
-      for (final result in features) {
-        if (result == null) continue;
-        final routeId = _routeIdFromFeature(result.queriedFeature.feature);
-        if (routeId == null || routeId.isEmpty) continue;
-        onTap(routeId);
-        return;
-      }
-    } catch (e) {
-      debugPrint('[MapWidget] candidate marker tap: $e');
+    final routeId = _nearestDifficultyRouteId(tapPoint);
+    if (routeId != null) {
+      widget.onRouteLineTap?.call(routeId);
     }
   }
 
-  static String? _routeIdFromFeature(Map<String?, Object?> feature) {
-    final properties = feature['properties'];
-    if (properties is Map) {
-      final value = properties['routeId'] ?? properties['route_id'];
-      if (value != null) return value.toString();
+  String? _nearestDifficultyRouteId(LatLng tapPoint) {
+    if (widget.onRouteLineTap == null || widget.difficultyLines.isEmpty) {
+      return null;
     }
-    final directValue = feature['routeId'] ?? feature['route_id'];
-    return directValue?.toString();
+    final zoom = _lastReportedCameraZoom ?? 11.0;
+    final thresholdKm = zoom < 10.5
+        ? 6.0
+        : zoom < 13.5
+        ? 2.5
+        : 0.8;
+    String? bestRouteId;
+    var bestDistance = double.infinity;
+    for (final line in widget.difficultyLines) {
+      if (line.points.length < 2) continue;
+      for (var i = 0; i < line.points.length - 1; i++) {
+        final distance = _pointToSegmentKm(
+          tapPoint,
+          line.points[i],
+          line.points[i + 1],
+        );
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          bestRouteId = line.routeId;
+        }
+      }
+    }
+    return bestDistance <= thresholdKm ? bestRouteId : null;
+  }
+
+  static double _pointToSegmentKm(LatLng p, LatLng a, LatLng b) {
+    final refLat = ((p.lat + a.lat + b.lat) / 3) * math.pi / 180;
+    const kmPerDegLat = 111.32;
+    final kmPerDegLng = 111.32 * math.cos(refLat).abs().clamp(0.01, 1.0);
+    final px = p.lng * kmPerDegLng;
+    final py = p.lat * kmPerDegLat;
+    final ax = a.lng * kmPerDegLng;
+    final ay = a.lat * kmPerDegLat;
+    final bx = b.lng * kmPerDegLng;
+    final by = b.lat * kmPerDegLat;
+    final dx = bx - ax;
+    final dy = by - ay;
+    final lengthSq = dx * dx + dy * dy;
+    if (lengthSq <= 0.000001) {
+      return math.sqrt(math.pow(px - ax, 2) + math.pow(py - ay, 2));
+    }
+    final t = (((px - ax) * dx + (py - ay) * dy) / lengthSq).clamp(0.0, 1.0);
+    final cx = ax + dx * t;
+    final cy = ay + dy * t;
+    return math.sqrt(math.pow(px - cx, 2) + math.pow(py - cy, 2));
   }
 
   Future<void> _drawPolyline(
@@ -858,7 +998,78 @@ class _MapWidgetState extends State<MapWidget> {
         );
       }
     } catch (e) {
-      debugPrint('[MapWidget] polyline $id: $e');
+      if (kDebugMode) {
+        debugPrint('[MapWidget] polyline $id: ${e.runtimeType}');
+      }
+    }
+  }
+
+  Future<void> _drawSimulationMarker(LatLng? point) async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded) return;
+
+    for (final layerId in const [
+      'simulation-position-glow-layer',
+      'simulation-position-ring-layer',
+      'simulation-position-core-layer',
+    ]) {
+      try {
+        await map.style.removeStyleLayer(layerId);
+      } catch (_) {}
+    }
+    try {
+      await map.style.removeStyleSource('simulation-position-source');
+    } catch (_) {}
+
+    if (point == null) return;
+
+    final geoJson = jsonEncode({
+      'type': 'Feature',
+      'geometry': {
+        'type': 'Point',
+        'coordinates': [point.lng, point.lat],
+      },
+      'properties': {},
+    });
+
+    try {
+      await map.style.addSource(
+        mbx.GeoJsonSource(id: 'simulation-position-source', data: geoJson),
+      );
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'simulation-position-glow-layer',
+          sourceId: 'simulation-position-source',
+          circleColor: 0xFF29E0FF,
+          circleRadius: 18.0,
+          circleOpacity: 0.18,
+          circleBlur: 0.55,
+        ),
+      );
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'simulation-position-ring-layer',
+          sourceId: 'simulation-position-source',
+          circleColor: 0xFF0D1117,
+          circleRadius: 9.5,
+          circleOpacity: 0.96,
+          circleStrokeColor: 0xFF29E0FF,
+          circleStrokeWidth: 3.0,
+        ),
+      );
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'simulation-position-core-layer',
+          sourceId: 'simulation-position-source',
+          circleColor: 0xFFE9FCFF,
+          circleRadius: 4.0,
+          circleOpacity: 1.0,
+        ),
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[MapWidget] simulation marker: ${e.runtimeType}');
+      }
     }
   }
 
@@ -973,7 +1184,6 @@ class _MapWidgetState extends State<MapWidget> {
         final bucket = _curveBucket(_bearingDiff(b1, b2) / dist);
         if (bucket < 1) continue;
         buckets[bucket]?.add([
-          [prev.lng, prev.lat],
           [current.lng, current.lat],
           [next.lng, next.lat],
         ]);
@@ -1001,25 +1211,25 @@ class _MapWidgetState extends State<MapWidget> {
       });
 
       final color = switch (bucket) {
-        3 => 0xFFFF3B30,
-        2 => 0xFFFFB020,
-        _ => 0xFF37E7FF,
+        3 => 0xFFFF2E38,
+        2 => 0xFFFF7A1A,
+        _ => 0xFFFFE94A,
       };
       final strong = widget.strongCurveFieldHeatmap;
       final glowOpacity = switch (bucket) {
-        3 => strong ? 0.58 : 0.36,
-        2 => strong ? 0.42 : 0.22,
-        _ => strong ? 0.28 : 0.10,
+        3 => strong ? 0.34 : 0.20,
+        2 => strong ? 0.28 : 0.16,
+        _ => strong ? 0.18 : 0.08,
       };
       final coreOpacity = switch (bucket) {
-        3 => strong ? 0.94 : 0.72,
-        2 => strong ? 0.76 : 0.48,
-        _ => strong ? 0.46 : 0.22,
+        3 => strong ? 0.96 : 0.70,
+        2 => strong ? 0.90 : 0.48,
+        _ => strong ? 0.78 : 0.22,
       };
       final coreWidth = switch (bucket) {
-        3 => strong ? 6.2 : 5.0,
-        2 => strong ? 4.8 : 3.8,
-        _ => strong ? 3.5 : 2.4,
+        3 => strong ? 3.6 : 2.8,
+        2 => strong ? 3.0 : 2.2,
+        _ => strong ? 2.2 : 1.5,
       };
 
       try {
@@ -1031,9 +1241,9 @@ class _MapWidgetState extends State<MapWidget> {
             id: '${_fieldHmIds[i]}-glow-layer',
             sourceId: sourceId,
             lineColor: color,
-            lineWidth: coreWidth + 9.0,
+            lineWidth: coreWidth + (strong ? 3.2 : 1.8),
             lineOpacity: glowOpacity,
-            lineBlur: 4.0,
+            lineBlur: strong ? 1.4 : 2.8,
             lineCap: mbx.LineCap.ROUND,
             lineJoin: mbx.LineJoin.ROUND,
           ),
@@ -1045,13 +1255,17 @@ class _MapWidgetState extends State<MapWidget> {
             lineColor: color,
             lineWidth: coreWidth,
             lineOpacity: coreOpacity,
-            lineBlur: 0.6,
+            lineBlur: strong ? 0.0 : 0.4,
             lineCap: mbx.LineCap.ROUND,
             lineJoin: mbx.LineJoin.ROUND,
           ),
         );
       } catch (e) {
-        debugPrint('[MapWidget] curve field heatmap bucket $bucket: $e');
+        if (kDebugMode) {
+          debugPrint(
+            '[MapWidget] curve field heatmap bucket $bucket: ${e.runtimeType}',
+          );
+        }
       }
     }
   }
@@ -1061,12 +1275,18 @@ class _MapWidgetState extends State<MapWidget> {
     if (map == null || !_styleLoaded || nodes.length < 3) return;
 
     // Remove existing route + heatmap layers
-    try {
-      await map.style.removeStyleLayer('route-layer');
-    } catch (_) {}
-    try {
-      await map.style.removeStyleLayer('route-casing-layer');
-    } catch (_) {}
+    for (final layerId in const [
+      'route-ribbon-layer',
+      'route-core-layer',
+      'route-track-layer',
+      'route-shadow-layer',
+      'route-layer',
+      'route-casing-layer',
+    ]) {
+      try {
+        await map.style.removeStyleLayer(layerId);
+      } catch (_) {}
+    }
     try {
       await map.style.removeStyleSource('route-source');
     } catch (_) {}
@@ -1134,14 +1354,16 @@ class _MapWidgetState extends State<MapWidget> {
             id: layerId,
             sourceId: sourceId,
             lineColor: _hmColors[b],
-            lineWidth: 5.5,
+            lineWidth: 3.0,
             lineOpacity: 1.0,
             lineCap: mbx.LineCap.ROUND,
             lineJoin: mbx.LineJoin.ROUND,
           ),
         );
       } catch (e) {
-        debugPrint('[MapWidget] heatmap bucket $b: $e');
+        if (kDebugMode) {
+          debugPrint('[MapWidget] heatmap bucket $b: ${e.runtimeType}');
+        }
       }
     }
   }
@@ -1162,21 +1384,26 @@ class _MapWidgetState extends State<MapWidget> {
         ),
       );
     } catch (e) {
-      debugPrint('[MapWidget] compass: $e');
+      if (kDebugMode) {
+        debugPrint('[MapWidget] compass: ${e.runtimeType}');
+      }
     }
 
     // ── 위치 표시: 방향 화살표 + pulsing ───────────────────────────
     try {
       await _updateLocationSettings();
     } catch (e) {
-      debugPrint('[MapWidget] location layer: $e');
+      if (kDebugMode) {
+        debugPrint('[MapWidget] location layer: ${e.runtimeType}');
+      }
     }
 
     // ── 스타일 설정 (라이트/라벨 등) ──────────────────────────────
     for (final entry in {
       'showPointOfInterestLabels': false,
       'showTransitLabels': false,
-      'showRoadLabels': !widget.routeFocusMode,
+      'showRoadLabels':
+          !widget.routeFocusMode && !widget.strongCurveFieldHeatmap,
       'showPlaceLabels': !widget.routeFocusMode,
       'lightPreset': 'night',
       if (widget.routeFocusMode) 'theme': 'monochrome',
@@ -1235,6 +1462,7 @@ class _MapWidgetState extends State<MapWidget> {
 
     final cameraOpts = mbx.CameraOptions(
       center: mbx.Point(coordinates: mbx.Position(lng, lat)),
+      padding: widget.isSprintMode ? _driveCameraPadding : null,
       zoom: widget.isSprintMode ? 16.5 : 15.0,
       // iOS 실기기에서 높은 pitch가 플랫폼뷰/지도 타일이 잘려 보이는 느낌을 만들 수 있어
       // 출시용 lean HUD에서는 낮은 각도로 안정성을 우선한다.
@@ -1273,32 +1501,125 @@ class _MapWidgetState extends State<MapWidget> {
     }
   }
 
+  Future<void> _moveCameraToPoint(
+    LatLng point, {
+    double zoom = 16.0,
+    double pitch = 0.0,
+    double? bearing,
+    bool immediate = false,
+  }) async {
+    final map = _mapController;
+    if (!_styleLoaded || map == null) return;
+
+    final camera = mbx.CameraOptions(
+      center: mbx.Point(coordinates: mbx.Position(point.lng, point.lat)),
+      padding: widget.isSprintMode ? _driveCameraPadding : null,
+      zoom: zoom,
+      pitch: pitch,
+      bearing: widget.isSprintMode ? bearing : 0.0,
+    );
+    try {
+      if (immediate) {
+        await map.setCamera(camera);
+      } else {
+        await map.easeTo(camera, mbx.MapAnimationOptions(duration: 320));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _focusRoutePolyline(
+    List<LatLng> polyline, {
+    bool immediate = false,
+  }) async {
+    final map = _mapController;
+    if (!_styleLoaded || map == null || polyline.isEmpty) return;
+
+    final coordinates = polyline
+        .map(
+          (point) => mbx.Point(coordinates: mbx.Position(point.lng, point.lat)),
+        )
+        .toList(growable: false);
+
+    try {
+      if (coordinates.length == 1) {
+        final only = polyline.first;
+        final camera = mbx.CameraOptions(
+          center: mbx.Point(coordinates: mbx.Position(only.lng, only.lat)),
+          zoom: 13.8,
+          pitch: 0.0,
+          bearing: 0.0,
+        );
+        if (immediate) {
+          await map.setCamera(camera);
+        } else {
+          await map.flyTo(camera, mbx.MapAnimationOptions(duration: 620));
+        }
+        return;
+      }
+
+      final camera = await map.cameraForCoordinatesPadding(
+        coordinates,
+        mbx.CameraOptions(pitch: 0.0, bearing: 0.0),
+        mbx.MbxEdgeInsets(top: 180, left: 42, bottom: 250, right: 42),
+        13.8,
+        null,
+      );
+      if (immediate) {
+        await map.setCamera(camera);
+      } else {
+        await map.flyTo(camera, mbx.MapAnimationOptions(duration: 620));
+      }
+    } catch (_) {
+      // Camera fitting is best-effort; route rendering should never fail because of it.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final hasPermission = context.select<LocationService, bool>(
       (loc) => loc.hasPermission,
     );
+    final language = context.watch<SettingsService>().appLanguage;
 
     if (!hasPermission) {
-      return _MapFallback();
+      return _MapFallback(
+        message: AppCopy.t(
+          language,
+          ko: '위치 권한이 필요해요',
+          en: 'Location permission needed',
+          fr: 'Position requise',
+        ),
+      );
     }
 
     if (_disableMapbox) {
-      return const _MapFallback(
+      return _MapFallback(
         icon: Icons.map_outlined,
-        message: '지도 엔진 진단 모드',
+        message: AppCopy.t(
+          language,
+          ko: '지도 엔진 진단 모드',
+          en: 'Map engine diagnostics',
+          fr: 'Diagnostic carte',
+        ),
       );
     }
 
     if (!MapboxService.isConfigured) {
-      return const _MapFallback(
+      return _MapFallback(
         icon: Icons.map_outlined,
-        message: '지도 설정이 필요해요',
+        message: AppCopy.t(
+          language,
+          ko: '지도 설정이 필요해요',
+          en: 'Map setup needed',
+          fr: 'Configuration carte requise',
+        ),
       );
     }
 
     final loc = context.read<LocationService>();
     final weatherIcon = context.read<WeatherService>().weatherIcon;
+    final simulatedPosition = widget.simulatedPosition;
+    final initialCenter = simulatedPosition ?? LatLng(loc.lat, loc.lng);
 
     // ⚠ TLHC_VD + textureView: 에뮬레이터 GFXSTREAM 충돌 해결
     // 기본 HybridComposition은 SurfaceView를 Flutter 뷰 계층에 직접 임베드 →
@@ -1313,11 +1634,20 @@ class _MapWidgetState extends State<MapWidget> {
             child: mbx.MapWidget(
               styleUri: widget.isSprintMode
                   ? MapboxService.sprintStyle(weatherIcon)
+                  : widget.strongCurveFieldHeatmap
+                  ? 'mapbox://styles/mapbox/navigation-night-v1'
                   : MapboxService.cruiseStyle,
               cameraOptions: mbx.CameraOptions(
-                center: mbx.Point(coordinates: mbx.Position(loc.lng, loc.lat)),
+                center: mbx.Point(
+                  coordinates: mbx.Position(
+                    initialCenter.lng,
+                    initialCenter.lat,
+                  ),
+                ),
+                padding: widget.isSprintMode ? _driveCameraPadding : null,
                 zoom: widget.isSprintMode ? 16.5 : 15.0,
                 pitch: widget.isSprintMode ? 22.0 : 0.0,
+                bearing: widget.isSprintMode ? widget.navigationBearing : null,
               ),
               // FollowPuckViewportState: 스타일 로드 후 활성화 → Mapbox 네이티브 GPS 추적
               viewport: _viewportState,

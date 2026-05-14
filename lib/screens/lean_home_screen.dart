@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/app_language.dart';
 import '../core/app_links.dart';
+import '../models/revv_route.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/run_history_service.dart';
@@ -12,6 +14,9 @@ import '../services/settings_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/app_copy.dart';
+import '../widgets/copilot_start_sheet.dart';
+import 'lean_drive_screen.dart';
 import 'lean_route_finder_screen.dart';
 
 class LeanHomeScreen extends StatefulWidget {
@@ -21,55 +26,152 @@ class LeanHomeScreen extends StatefulWidget {
   State<LeanHomeScreen> createState() => _LeanHomeScreenState();
 }
 
-class _LeanHomeScreenState extends State<LeanHomeScreen> {
+class _LeanHomeScreenState extends State<LeanHomeScreen>
+    with WidgetsBindingObserver {
+  bool _checkingGuideReturn = false;
+  bool _guidePromptShown = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_primeLocation());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_checkPendingGuideReturn());
+    }
   }
 
   Future<void> _primeLocation() async {
     final location = context.read<LocationService>();
     await location.requestPermission();
     await location.startTracking();
+    if (!mounted) return;
+    await _checkPendingGuideReturn();
+  }
+
+  Future<void> _checkPendingGuideReturn() async {
+    if (_checkingGuideReturn || !mounted) return;
+    final routes = context.read<RouteService>();
+    final route = routes.pendingGuideRoute;
+    if (route == null) return;
+
+    _checkingGuideReturn = true;
+    try {
+      final location = context.read<LocationService>();
+      final current = await location.ensureLiveLocation();
+      if (!mounted) return;
+      final start = route.nodes.isNotEmpty
+          ? route.nodes.first
+          : route.centerPoint;
+      final distanceKm = current == null
+          ? route.distanceFromUser
+          : RevvRoute.haversineKm(current, start);
+
+      final shouldPrompt =
+          distanceKm <= 0.8 ||
+          DateTime.now()
+                  .difference(routes.pendingGuideStartedAt ?? DateTime.now())
+                  .inMinutes >=
+              2;
+      if (!shouldPrompt || _guidePromptShown) return;
+      _guidePromptShown = true;
+
+      final startChoice = await showCopilotStartSheet(
+        context,
+        route: route.copyWith(distanceFromUser: distanceKm),
+      );
+      if (!mounted) return;
+      if (startChoice != null) {
+        routes.clearGuideToStart();
+        _guidePromptShown = false;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => LeanDriveScreen(
+              route: route,
+              simulated: startChoice == CopilotStartChoice.simulate,
+            ),
+          ),
+        );
+      }
+    } finally {
+      _checkingGuideReturn = false;
+    }
   }
 
   Future<void> _confirmDeleteRunData(BuildContext context) async {
+    final language = context.read<SettingsService>().appLanguage;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.panel,
         title: Text(
-          '주행 기록을 삭제할까요?',
+          AppCopy.deleteRunsTitle(language),
           style: AppText.body(size: 20, weight: FontWeight.w900),
         ),
         content: Text(
-          '로컬 캐시와 클라우드에 저장된 주행 기록, 상세 텔레메트리, 피드백을 삭제합니다.',
+          AppCopy.deleteRunsBody(language),
           style: AppText.body(size: 14, color: AppColors.textSecondary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('취소'),
+            child: Text(AppCopy.cancel(language)),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
             onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('삭제'),
+            child: Text(AppCopy.delete(language)),
           ),
         ],
       ),
     );
     if (confirmed != true || !context.mounted) return;
-    await context.read<RunHistoryService>().deleteAllRunData();
+    final deleted = await context.read<RunHistoryService>().deleteAllRunData();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          deleted
+              ? AppCopy.deleteRunsDone(language)
+              : AppCopy.deleteRunsFailed(language),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleCloudRunStorage(BuildContext context) async {
+    final settings = context.read<SettingsService>();
+    final history = context.read<RunHistoryService>();
+    final language = settings.appLanguage;
+    final next = !settings.cloudRunStorageEnabled;
+    await settings.setCloudRunStorageEnabled(next);
+    if (!next) {
+      await history.purgePendingUploads();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppCopy.pendingUploadsCleared(language))),
+      );
+    }
   }
 
   Future<void> _openPrivacyPolicy() async {
     final messenger = ScaffoldMessenger.of(context);
+    final language = context.read<SettingsService>().appLanguage;
     final uri = AppLinks.privacyPolicyUri;
     if (uri == null) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('개인정보 처리방침 URL이 설정되지 않았어요.')),
+        SnackBar(content: Text(AppCopy.privacyMissing(language))),
       );
       return;
     }
@@ -81,14 +183,66 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
       );
       if (!launched) {
         messenger.showSnackBar(
-          const SnackBar(content: Text('개인정보 처리방침을 열지 못했어요.')),
+          SnackBar(content: Text(AppCopy.privacyOpenFailed(language))),
         );
       }
     } catch (_) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('개인정보 처리방침을 열지 못했어요.')),
+        SnackBar(content: Text(AppCopy.privacyOpenFailed(language))),
       );
     }
+  }
+
+  Future<void> _openGoogleMapsForRoute(
+    BuildContext context,
+    RevvRoute route,
+  ) async {
+    context.read<RouteService>().beginGuideToStart(route);
+    final start = route.nodes.isNotEmpty
+        ? route.nodes.first
+        : route.centerPoint;
+    final appUri = Uri.parse(
+      'comgooglemaps://?daddr=${start.lat},${start.lng}&directionsmode=driving',
+    );
+    final webUri = Uri.https('www.google.com', '/maps/dir/', {
+      'api': '1',
+      'destination': '${start.lat},${start.lng}',
+      'travelmode': 'driving',
+    });
+    await _launchExternalNavigation(appUri, webUri);
+  }
+
+  Future<void> _openWazeForRoute(BuildContext context, RevvRoute route) async {
+    context.read<RouteService>().beginGuideToStart(route);
+    final start = route.nodes.isNotEmpty
+        ? route.nodes.first
+        : route.centerPoint;
+    final appUri = Uri.parse(
+      'waze://?ll=${start.lat},${start.lng}&navigate=yes',
+    );
+    final webUri = Uri.https('waze.com', '/ul', {
+      'll': '${start.lat},${start.lng}',
+      'navigate': 'yes',
+    });
+    await _launchExternalNavigation(appUri, webUri);
+  }
+
+  Future<void> _launchExternalNavigation(Uri appUri, Uri webUri) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final language = context.read<SettingsService>().appLanguage;
+    final launchedApp = await launchUrl(
+      appUri,
+      mode: LaunchMode.externalApplication,
+    );
+    if (launchedApp) return;
+    final launchedWeb = await launchUrl(
+      webUri,
+      mode: LaunchMode.externalApplication,
+    );
+    if (launchedWeb) return;
+    messenger.showSnackBar(
+      SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
+    );
   }
 
   @override
@@ -98,6 +252,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
     final history = context.watch<RunHistoryService>();
     final settings = context.watch<SettingsService>();
     final supabase = context.watch<SupabaseService>();
+    final language = settings.appLanguage;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -117,7 +272,21 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
                       color: AppColors.primaryContainer,
                     ),
                   ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'v1.38.0+41',
+                    style: AppText.technicalLabel(
+                      size: 9,
+                      letterSpacing: 1.3,
+                      color: AppColors.textHint,
+                    ),
+                  ),
                   const Spacer(),
+                  _LeanLanguageToggle(
+                    language: language,
+                    onChanged: settings.setAppLanguage,
+                  ),
+                  const SizedBox(width: 8),
                   _LeanStatusDot(
                     active: supabase.isCloudAvailable,
                     label: supabase.isCloudAvailable ? 'CLOUD' : 'LOCAL',
@@ -126,7 +295,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
               ),
               const Spacer(),
               Text(
-                '루트 찾고\n바로 달리기',
+                AppCopy.homeTitle(language),
                 style: AppText.display(
                   size: 48,
                   height: 0.92,
@@ -135,7 +304,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                '필수 주행 플로우만 남긴 lean MVP입니다. 지도, 루트 선택, 주행, 저장만 확인합니다.',
+                AppCopy.homeSubtitle(language),
                 style: AppText.body(
                   size: 15,
                   height: 1.45,
@@ -144,7 +313,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
               ),
               const SizedBox(height: 28),
               _LeanPrimaryButton(
-                label: '루트 찾기',
+                label: AppCopy.routeFinder(language),
                 icon: Icons.travel_explore_rounded,
                 onTap: () {
                   Navigator.push(
@@ -155,29 +324,60 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
                   );
                 },
               ),
+              if (routes.pendingGuideRoute != null) ...[
+                const SizedBox(height: 14),
+                _GuideToStartCard(
+                  route: routes.pendingGuideRoute!,
+                  current: location.bestKnownLatLng,
+                  onGoogle: () => _openGoogleMapsForRoute(
+                    context,
+                    routes.pendingGuideRoute!,
+                  ),
+                  onWaze: () =>
+                      _openWazeForRoute(context, routes.pendingGuideRoute!),
+                  onStart: () {
+                    final route = routes.pendingGuideRoute!;
+                    routes.clearGuideToStart();
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => LeanDriveScreen(route: route),
+                      ),
+                    );
+                  },
+                  onCancel: () {
+                    _guidePromptShown = false;
+                    routes.clearGuideToStart();
+                  },
+                ),
+              ],
               const SizedBox(height: 18),
               _LeanStatusGrid(
                 items: [
                   _LeanStatusItem(
-                    label: '위치',
-                    value: location.hasPermission ? '준비됨' : '권한 필요',
+                    label: AppCopy.location(language),
+                    value: location.hasPermission
+                        ? AppCopy.ready(language)
+                        : AppCopy.permissionNeeded(language),
                     active: location.hasPermission,
                   ),
                   _LeanStatusItem(
-                    label: '루트',
+                    label: AppCopy.routes(language),
                     value: routes.routes.isEmpty
-                        ? '대기'
-                        : '${routes.routes.length}개',
+                        ? AppCopy.standby(language)
+                        : AppCopy.countRoutes(language, routes.routes.length),
                     active: routes.routes.isNotEmpty,
                   ),
                   _LeanStatusItem(
-                    label: '기록',
-                    value: '${history.totalRuns}회',
+                    label: AppCopy.history(language),
+                    value: AppCopy.countRuns(language, history.totalRuns),
                     active: history.totalRuns > 0,
                   ),
                   _LeanStatusItem(
-                    label: '클라우드 기록',
-                    value: settings.cloudRunStorageEnabled ? '저장' : '꺼짐',
+                    label: AppCopy.cloudRuns(language),
+                    value: settings.cloudRunStorageEnabled
+                        ? AppCopy.saved(language)
+                        : AppCopy.off(language),
                     active: settings.cloudRunStorageEnabled,
                   ),
                 ],
@@ -187,7 +387,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
                 children: [
                   Expanded(
                     child: _LeanGhostButton(
-                      label: '위치 다시 확인',
+                      label: AppCopy.refreshLocation(language),
                       icon: Icons.my_location_rounded,
                       onTap: _primeLocation,
                     ),
@@ -195,7 +395,9 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: _LeanGhostButton(
-                      label: settings.ttsMuted ? '음성 켜기' : '음성 끄기',
+                      label: settings.ttsMuted
+                          ? AppCopy.voiceOn(language)
+                          : AppCopy.voiceOff(language),
                       icon: settings.ttsMuted
                           ? Icons.volume_up_rounded
                           : Icons.volume_off_rounded,
@@ -210,20 +412,18 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
                   Expanded(
                     child: _LeanGhostButton(
                       label: settings.cloudRunStorageEnabled
-                          ? '클라우드 기록 끄기'
-                          : '클라우드 기록 켜기',
+                          ? AppCopy.cloudOff(language)
+                          : AppCopy.cloudOn(language),
                       icon: settings.cloudRunStorageEnabled
                           ? Icons.cloud_done_rounded
                           : Icons.cloud_off_rounded,
-                      onTap: () => settings.setCloudRunStorageEnabled(
-                        !settings.cloudRunStorageEnabled,
-                      ),
+                      onTap: () => unawaited(_toggleCloudRunStorage(context)),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: _LeanGhostButton(
-                      label: '기록 삭제',
+                      label: AppCopy.deleteHistory(language),
                       icon: Icons.delete_outline_rounded,
                       onTap: () => _confirmDeleteRunData(context),
                     ),
@@ -236,7 +436,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
                   onPressed: _openPrivacyPolicy,
                   icon: const Icon(Icons.privacy_tip_outlined, size: 16),
                   label: Text(
-                    '개인정보 처리방침',
+                    AppCopy.privacyPolicy(language),
                     style: AppText.body(
                       size: 12,
                       weight: FontWeight.w800,
@@ -248,6 +448,234 @@ class _LeanHomeScreenState extends State<LeanHomeScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _GuideToStartCard extends StatelessWidget {
+  final RevvRoute route;
+  final LatLng? current;
+  final VoidCallback onGoogle;
+  final VoidCallback onWaze;
+  final VoidCallback onStart;
+  final VoidCallback onCancel;
+
+  const _GuideToStartCard({
+    required this.route,
+    required this.current,
+    required this.onGoogle,
+    required this.onWaze,
+    required this.onStart,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final language = context.watch<SettingsService>().appLanguage;
+    final start = route.nodes.isNotEmpty
+        ? route.nodes.first
+        : route.centerPoint;
+    final distanceKm = current == null
+        ? route.distanceFromUser
+        : RevvRoute.haversineKm(current!, start);
+    final distanceText = distanceKm < 1
+        ? '${(distanceKm * 1000).round()}m'
+        : '${distanceKm.toStringAsFixed(1)}km';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.32),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryContainer.withValues(alpha: 0.08),
+            blurRadius: 24,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.flag_rounded,
+                color: AppColors.primaryContainer,
+                size: 19,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  AppCopy.guidingToStart(language),
+                  style: AppText.body(
+                    size: 14,
+                    weight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                distanceText,
+                style: AppText.technicalLabel(
+                  size: 11,
+                  color: AppColors.primaryContainer,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Text(
+            route.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.body(
+              size: 12,
+              weight: FontWeight.w800,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _TinyActionButton(
+                  label: 'Google',
+                  icon: Icons.map_rounded,
+                  onTap: onGoogle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _TinyActionButton(
+                  label: 'Waze',
+                  icon: Icons.navigation_rounded,
+                  onTap: onWaze,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _TinyActionButton(
+                  label: AppCopy.start(language),
+                  icon: Icons.play_arrow_rounded,
+                  onTap: onStart,
+                  primary: true,
+                ),
+              ),
+              IconButton(
+                onPressed: onCancel,
+                icon: const Icon(Icons.close_rounded),
+                color: AppColors.textHint,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TinyActionButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool primary;
+
+  const _TinyActionButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.primary = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 40,
+      child: primary
+          ? FilledButton.icon(
+              onPressed: onTap,
+              icon: Icon(icon, size: 15),
+              label: Text(label),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primaryContainer,
+                foregroundColor: AppColors.onPrimary,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                textStyle: AppText.body(size: 12, weight: FontWeight.w900),
+              ),
+            )
+          : OutlinedButton.icon(
+              onPressed: onTap,
+              icon: Icon(icon, size: 15),
+              label: Text(label),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.textPrimary,
+                side: BorderSide(
+                  color: AppColors.outlineVariant.withValues(alpha: 0.48),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                textStyle: AppText.body(size: 12, weight: FontWeight.w900),
+              ),
+            ),
+    );
+  }
+}
+
+class _LeanLanguageToggle extends StatelessWidget {
+  final AppLanguage language;
+  final ValueChanged<AppLanguage> onChanged;
+
+  const _LeanLanguageToggle({required this.language, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.78),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.32),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: AppLanguage.values
+            .map(
+              (item) => GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onChanged(item),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 160),
+                  curve: Curves.easeOut,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: item == language
+                        ? AppColors.primaryContainer
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    item.shortLabel,
+                    style: AppText.technicalLabel(
+                      size: 9,
+                      color: item == language
+                          ? AppColors.onPrimary
+                          : AppColors.textHint,
+                    ),
+                  ),
+                ),
+              ),
+            )
+            .toList(),
       ),
     );
   }

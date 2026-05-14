@@ -88,6 +88,7 @@ class RunHistoryService extends ChangeNotifier {
     if (feedbackRaw != null) {
       _feedback = RouteFeedback.listFromJson(feedbackRaw);
     }
+    await _pendingStore.purgeStaleDetails();
     notifyListeners();
   }
 
@@ -159,13 +160,14 @@ class RunHistoryService extends ChangeNotifier {
     await _persist();
     notifyListeners();
 
-    if (await _cloudUploadEnabled()) {
+    final cloudUploadEnabled = await _cloudUploadEnabled();
+    if (cloudUploadEnabled) {
       await _pendingStore.saveSummary(summary);
       unawaited(_uploadSummaryAndClearPending(summary));
     }
 
     final sync = _cloud;
-    if (session.route?.id != null) {
+    if (cloudUploadEnabled && session.route?.id != null) {
       unawaited(sync.recordRouteRun(session.route!.id));
     }
 
@@ -246,15 +248,27 @@ class RunHistoryService extends ChangeNotifier {
     return null;
   }
 
-  Future<void> deleteAllRunData() async {
+  Future<bool> deleteAllRunData() async {
+    final cloudUploadEnabled = await _cloudUploadEnabled();
+    if (cloudUploadEnabled) {
+      final sync = _cloud;
+      if (!sync.isReady) return false;
+      final remoteDeleted = await sync.deleteUserRunData();
+      if (!remoteDeleted) return false;
+    }
+
     _history = [];
     _feedback = [];
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(StorageKeys.runs);
     await prefs.remove(StorageKeys.routeFeedback);
     await _pendingStore.clearAll();
-    await _cloud.deleteUserRunData();
     notifyListeners();
+    return true;
+  }
+
+  Future<void> purgePendingUploads() async {
+    await _pendingStore.clearAll();
   }
 
   Future<bool> _cloudUploadEnabled() async {

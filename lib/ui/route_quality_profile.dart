@@ -1,4 +1,6 @@
 import '../models/revv_route.dart';
+import '../core/app_language.dart';
+import 'app_copy.dart';
 
 class RouteQuickMetric {
   final String label;
@@ -28,7 +30,10 @@ class RouteQualityProfile {
     required this.tags,
   });
 
-  factory RouteQualityProfile.fromRoute(RevvRoute route) {
+  factory RouteQualityProfile.fromRoute(
+    RevvRoute route, {
+    AppLanguage? language,
+  }) {
     final curvyKm = route.tightCurveKm + route.mediumCurveKm;
     final curveRatio = route.distanceKm <= 0 ? 0.0 : curvyKm / route.distanceKm;
     final controls = route.stopSignCount + route.trafficSignalCount;
@@ -50,11 +55,17 @@ class RouteQualityProfile {
     if (route.distanceKm >= 24) tags.add(RouteQualityTag.long);
     if (route.elevationDelta >= 45) tags.add(RouteQualityTag.elevation);
 
-    final typeLabel = _primaryTypeLabel(route, tags);
+    final typeLabel = _primaryTypeLabel(route, tags, language);
     final qualityScore = _qualityScore(route, curveRatio, controls);
-    final curveDensityLabel = _curveDensityLabel(curveRatio, curvyKm);
-    final riskLabel = _riskLabel(route, controls);
-    final reasonLabel = _reasonLabel(route, typeLabel, curvyKm, controls);
+    final curveDensityLabel = _curveDensityLabel(curveRatio, curvyKm, language);
+    final riskLabel = _riskLabel(route, controls, language);
+    final reasonLabel = _reasonLabel(
+      route,
+      typeLabel,
+      curvyKm,
+      controls,
+      language,
+    );
 
     return RouteQualityProfile(
       typeLabel: typeLabel,
@@ -64,12 +75,30 @@ class RouteQualityProfile {
       riskLabel: riskLabel,
       tags: tags,
       quickMetrics: [
-        RouteQuickMetric('거리', route.distanceDisplay),
-        RouteQuickMetric('예상', route.durationDisplay),
-        RouteQuickMetric('커브', '${curvyKm.toStringAsFixed(1)}km'),
-        RouteQuickMetric('흐름', '${route.maxContinuousKm.toStringAsFixed(1)}km'),
-        RouteQuickMetric('시작점', route.distanceFromUserDisplay),
-        RouteQuickMetric('정지', '$controls개'),
+        RouteQuickMetric(
+          _label(language, '거리', 'Dist', 'Dist'),
+          route.distanceDisplay,
+        ),
+        RouteQuickMetric(
+          _label(language, '예상', 'ETA', 'Durée'),
+          route.durationDisplay,
+        ),
+        RouteQuickMetric(
+          _label(language, '커브', 'Curves', 'Virages'),
+          '${curvyKm.toStringAsFixed(1)}km',
+        ),
+        RouteQuickMetric(
+          _label(language, '흐름', 'Flow', 'Flow'),
+          '${route.maxContinuousKm.toStringAsFixed(1)}km',
+        ),
+        RouteQuickMetric(
+          _label(language, '시작점', 'Start', 'Départ'),
+          route.distanceFromUserDisplay,
+        ),
+        RouteQuickMetric(
+          _label(language, '정지', 'Stops', 'Stops'),
+          _controlsLabel(controls, language),
+        ),
       ],
     );
   }
@@ -77,18 +106,42 @@ class RouteQualityProfile {
   bool hasTag(RouteQualityTag tag) => tags.contains(tag);
 }
 
-String _primaryTypeLabel(RevvRoute route, Set<RouteQualityTag> tags) {
-  if (tags.contains(RouteQualityTag.loop)) return '루프';
-  if (tags.contains(RouteQualityTag.nearby)) return '근처';
-  if (tags.contains(RouteQualityTag.tight)) return '타이트';
-  if (tags.contains(RouteQualityTag.sweeper)) return '스위퍼';
-  if (tags.contains(RouteQualityTag.flow)) return '흐름';
-  if (tags.contains(RouteQualityTag.long)) return '긴 루트';
-  if (tags.contains(RouteQualityTag.elevation)) return '고도 변화';
-  if (route.routeCharacter == 'hill_climb') return '고도 변화';
-  if (route.routeCharacter == 'tight_technical') return '타이트';
-  if (route.routeCharacter == 'fast_sweeper') return '스위퍼';
-  return '숨은 후보';
+String _primaryTypeLabel(
+  RevvRoute route,
+  Set<RouteQualityTag> tags,
+  AppLanguage? language,
+) {
+  if (tags.contains(RouteQualityTag.loop)) {
+    return _label(language, '루프', 'Loop', 'Boucle');
+  }
+  if (tags.contains(RouteQualityTag.nearby)) {
+    return _label(language, '근처', 'Nearby', 'Proche');
+  }
+  if (tags.contains(RouteQualityTag.tight)) {
+    return _label(language, '타이트', 'Tight', 'Serré');
+  }
+  if (tags.contains(RouteQualityTag.sweeper)) {
+    return _label(language, '스위퍼', 'Sweeper', 'Large');
+  }
+  if (tags.contains(RouteQualityTag.flow)) {
+    return _label(language, '흐름', 'Flow', 'Flow');
+  }
+  if (tags.contains(RouteQualityTag.long)) {
+    return _label(language, '긴 루트', 'Long route', 'Longue');
+  }
+  if (tags.contains(RouteQualityTag.elevation)) {
+    return _label(language, '고도 변화', 'Elevation', 'Dénivelé');
+  }
+  if (route.routeCharacter == 'hill_climb') {
+    return _label(language, '고도 변화', 'Elevation', 'Dénivelé');
+  }
+  if (route.routeCharacter == 'tight_technical') {
+    return _label(language, '타이트', 'Tight', 'Serré');
+  }
+  if (route.routeCharacter == 'fast_sweeper') {
+    return _label(language, '스위퍼', 'Sweeper', 'Large');
+  }
+  return _label(language, '숨은 후보', 'Hidden pick', 'Option cachée');
 }
 
 int _qualityScore(RevvRoute route, double curveRatio, int controls) {
@@ -110,24 +163,91 @@ int _qualityScore(RevvRoute route, double curveRatio, int controls) {
   return score.round().clamp(35, 96);
 }
 
-String _curveDensityLabel(double curveRatio, double curvyKm) {
-  if (curvyKm < 0.5) return '완만한 흐름';
-  if (curveRatio >= 0.24) return '커브 밀도 높음';
-  if (curveRatio >= 0.13) return '커브 밀도 보통';
-  return '커브 듬성';
+String _curveDensityLabel(
+  double curveRatio,
+  double curvyKm,
+  AppLanguage? language,
+) {
+  if (curvyKm < 0.5) {
+    return _label(language, '완만한 흐름', 'Gentle flow', 'Flow doux');
+  }
+  if (curveRatio >= 0.24) {
+    return _label(language, '커브 밀도 높음', 'High curve density', 'Virages denses');
+  }
+  if (curveRatio >= 0.13) {
+    return _label(
+      language,
+      '커브 밀도 보통',
+      'Medium curve density',
+      'Densité moyenne',
+    );
+  }
+  return _label(language, '커브 듬성', 'Sparse curves', 'Virages espacés');
 }
 
-String _riskLabel(RevvRoute route, int controls) {
-  if (route.isPrivateLike) return '접근 제한 가능성 · 현장 표지 먼저 확인';
-  if (route.isMajorRoadLike) return '간선도로 성격 섞임 · 교통 흐름 우선';
-  if (route.isBridgeLike) return '브리지/합류 구간 · 차선 흐름 확인';
-  if (route.isConnectorLike) return '연결로 성격 섞임 · 진입/탈출 확인';
-  if (controls >= 6) return '정지 요소 $controls개 · 리듬이 끊길 수 있음';
-  if (route.maxContinuousKm > 0 && route.maxContinuousKm < 0.8) {
-    return '연속 흐름 짧음 · 구간별로 다시 판단';
+String _riskLabel(RevvRoute route, int controls, AppLanguage? language) {
+  if (route.isPrivateLike) {
+    return _label(
+      language,
+      '접근 제한 가능성 · 현장 표지 먼저 확인',
+      'Possible restricted access · Check signs first',
+      'Accès possiblement limité · Vérifiez les panneaux',
+    );
   }
-  if (route.distanceKm >= 40) return '장거리 후보 · 연료와 복귀 동선 확인';
-  return '기본 주의 · 현장 표지와 노면 상태 우선';
+  if (route.isMajorRoadLike) {
+    return _label(
+      language,
+      '간선도로 성격 섞임 · 교통 흐름 우선',
+      'Major-road sections · Prioritize traffic flow',
+      'Sections routières majeures · Priorité au trafic',
+    );
+  }
+  if (route.isBridgeLike) {
+    return _label(
+      language,
+      '브리지/합류 구간 · 차선 흐름 확인',
+      'Bridge/merge sections · Read lane flow',
+      'Ponts/fusions · Surveillez les voies',
+    );
+  }
+  if (route.isConnectorLike) {
+    return _label(
+      language,
+      '연결로 성격 섞임 · 진입/탈출 확인',
+      'Connector sections · Check entry/exit',
+      'Bretelles possibles · Vérifiez entrée/sortie',
+    );
+  }
+  if (controls >= 6) {
+    return _label(
+      language,
+      '정지 요소 $controls개 · 리듬이 끊길 수 있음',
+      '$controls stops · Rhythm may break',
+      '$controls arrêts · Le rythme peut casser',
+    );
+  }
+  if (route.maxContinuousKm > 0 && route.maxContinuousKm < 0.8) {
+    return _label(
+      language,
+      '연속 흐름 짧음 · 구간별로 다시 판단',
+      'Short continuous flow · Reassess by segment',
+      'Flow court · Rejugez par section',
+    );
+  }
+  if (route.distanceKm >= 40) {
+    return _label(
+      language,
+      '장거리 후보 · 연료와 복귀 동선 확인',
+      'Long route · Check fuel and return path',
+      'Long trajet · Vérifiez carburant et retour',
+    );
+  }
+  return _label(
+    language,
+    '기본 주의 · 현장 표지와 노면 상태 우선',
+    'Standard caution · Signs and road surface first',
+    'Prudence · Panneaux et état de route d’abord',
+  );
 }
 
 String _reasonLabel(
@@ -135,29 +255,99 @@ String _reasonLabel(
   String typeLabel,
   double curvyKm,
   int controls,
+  AppLanguage? language,
 ) {
-  if (typeLabel == '루프') return '복귀 동선 단순 · 짧게 확인하기 좋은 루프형 후보';
-  if (typeLabel == '근처') {
-    return '시작점 ${route.distanceFromUserDisplay} · 바로 비교하기 좋은 근거리 후보';
+  if (route.isLoop) {
+    return _label(
+      language,
+      '복귀 동선 단순 · 짧게 확인하기 좋은 루프형 후보',
+      'Simple return path · Good short loop to test',
+      'Retour simple · Bonne boucle courte à tester',
+    );
   }
-  if (typeLabel == '타이트') {
-    return '타이트 구간 ${route.tightCurveKm.toStringAsFixed(1)}km · 촘촘한 조향 리듬';
+  if (route.distanceFromUser <= 18 || route.distanceKm <= 10) {
+    return _label(
+      language,
+      '시작점 ${route.distanceFromUserDisplay} · 바로 비교하기 좋은 근거리 후보',
+      'Start ${route.distanceFromUserDisplay} · Easy nearby comparison',
+      'Départ ${route.distanceFromUserDisplay} · Option proche à comparer',
+    );
   }
-  if (typeLabel == '스위퍼') {
-    return '중간 커브 ${route.mediumCurveKm.toStringAsFixed(1)}km · 완만한 스위퍼 흐름';
+  if (route.curveStyle == 'SWITCHBACK' || route.tightCurveKm >= 1.2) {
+    return _label(
+      language,
+      '타이트 구간 ${route.tightCurveKm.toStringAsFixed(1)}km · 촘촘한 조향 리듬',
+      '${route.tightCurveKm.toStringAsFixed(1)}km tight sections · Dense steering rhythm',
+      '${route.tightCurveKm.toStringAsFixed(1)}km serrés · Rythme dense',
+    );
   }
-  if (typeLabel == '흐름') {
-    return '연속 흐름 ${route.maxContinuousKm.toStringAsFixed(1)}km · 중간 리듬 유지';
+  if (route.curveStyle == 'SWEEPER' && route.mediumCurveKm >= 0.8) {
+    return _label(
+      language,
+      '중간 커브 ${route.mediumCurveKm.toStringAsFixed(1)}km · 완만한 스위퍼 흐름',
+      '${route.mediumCurveKm.toStringAsFixed(1)}km medium curves · Smooth sweeper flow',
+      '${route.mediumCurveKm.toStringAsFixed(1)}km moyens · Grandes courbes fluides',
+    );
   }
-  if (typeLabel == '긴 루트') return '${route.distanceDisplay} · 길게 이어지는 비교 후보';
-  if (typeLabel == '고도 변화') {
-    return '고도 변화 ${route.elevationDelta.toStringAsFixed(0)}m · 시야 전환이 있는 후보';
+  if (route.maxContinuousKm >= 2.0 || route.flowScore >= 0.55) {
+    return _label(
+      language,
+      '연속 흐름 ${route.maxContinuousKm.toStringAsFixed(1)}km · 중간 리듬 유지',
+      '${route.maxContinuousKm.toStringAsFixed(1)}km continuous flow · Holds a steady rhythm',
+      '${route.maxContinuousKm.toStringAsFixed(1)}km de flow · Rythme stable',
+    );
+  }
+  if (route.distanceKm >= 24) {
+    return _label(
+      language,
+      '${route.distanceDisplay} · 길게 이어지는 비교 후보',
+      '${route.distanceDisplay} · Longer comparison route',
+      '${route.distanceDisplay} · Option plus longue',
+    );
+  }
+  if (route.elevationDelta >= 45 || route.routeCharacter == 'hill_climb') {
+    return _label(
+      language,
+      '고도 변화 ${route.elevationDelta.toStringAsFixed(0)}m · 시야 전환이 있는 후보',
+      '${route.elevationDelta.toStringAsFixed(0)}m elevation change · More visual transitions',
+      '${route.elevationDelta.toStringAsFixed(0)}m de dénivelé · Changements de vue',
+    );
   }
   if (controls == 0 && route.distanceKm >= 8) {
-    return '정지 요소 적음 · 흐름을 길게 읽기 좋은 후보';
+    return _label(
+      language,
+      '정지 요소 적음 · 흐름을 길게 읽기 좋은 후보',
+      'Few stops · Good for reading longer flow',
+      'Peu d’arrêts · Bon flow prolongé',
+    );
   }
   if (curvyKm >= 0.8) {
-    return '커브 집중 구간 ${curvyKm.toStringAsFixed(1)}km · 지도에서 비교할 만한 후보';
+    return _label(
+      language,
+      '커브 집중 구간 ${curvyKm.toStringAsFixed(1)}km · 지도에서 비교할 만한 후보',
+      '${curvyKm.toStringAsFixed(1)}km curve focus · Worth comparing on the map',
+      '${curvyKm.toStringAsFixed(1)}km de virages · À comparer sur carte',
+    );
   }
-  return '${route.distanceDisplay} · 숨은 와인딩 후보로 비교해볼 만함';
+  return _label(
+    language,
+    '${route.distanceDisplay} · 숨은 와인딩 후보로 비교해볼 만함',
+    '${route.distanceDisplay} · Hidden winding candidate',
+    '${route.distanceDisplay} · Option sinueuse cachée',
+  );
+}
+
+String _controlsLabel(int controls, AppLanguage? language) {
+  if (language == null) return '$controls개';
+  return AppCopy.t(
+    language,
+    ko: '$controls개',
+    en: '$controls',
+    fr: '$controls',
+  );
+}
+
+String _label(AppLanguage? language, String ko, String en, String fr) {
+  if (language == null) return ko;
+  return AppCopy.t(language, ko: ko, en: en, fr: fr);
 }

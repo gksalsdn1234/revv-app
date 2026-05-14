@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
+import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/app_copy.dart';
 import '../widgets/corner_brackets.dart';
 import '../widgets/revv_ui.dart';
 import 'lean_home_screen.dart';
@@ -85,8 +89,10 @@ class _LoadingScreenState extends State<LoadingScreen>
   /// MVP에서는 위치 권한만 시작 시 확인한다.
   Future<Map<Permission, PermissionStatus>> _requestPermissions() async {
     final statuses = await [Permission.locationWhenInUse].request();
-    for (final entry in statuses.entries) {
-      debugPrint('[LoadingScreen] ${entry.key} → ${entry.value}');
+    if (kDebugMode) {
+      for (final entry in statuses.entries) {
+        debugPrint('[LoadingScreen] ${entry.key} → ${entry.value}');
+      }
     }
     return statuses;
   }
@@ -300,6 +306,7 @@ class _PermissionIntroSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<SettingsService>().appLanguage;
     return SafeArea(
       top: false,
       child: RevvGlassCard(
@@ -313,7 +320,7 @@ class _PermissionIntroSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '시작 전 권한 안내',
+              AppCopy.permissionIntroTitle(language),
               style: AppText.body(
                 size: 22,
                 weight: FontWeight.w900,
@@ -322,7 +329,7 @@ class _PermissionIntroSheet extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '권한은 필요한 기능에만 사용해요. 거부해도 앱은 계속 열리지만 일부 기능이 제한됩니다.',
+              AppCopy.permissionIntroBody(language),
               style: AppText.body(
                 size: 13,
                 height: 1.35,
@@ -330,14 +337,14 @@ class _PermissionIntroSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            const _PermissionReasonTile(
+            _PermissionReasonTile(
               icon: Icons.location_on_rounded,
-              title: '위치',
-              body: '현재 위치 주변 루트 탐색, 시작점 거리 계산, 주행 기록 저장에 사용합니다.',
+              title: AppCopy.location(language),
+              body: AppCopy.locationPermissionBody(language),
             ),
             const SizedBox(height: 16),
             RevvPrimaryButton(
-              label: '권한 설정 계속',
+              label: AppCopy.continuePermissions(language),
               icon: Icons.verified_user_rounded,
               onPressed: onContinue,
             ),
@@ -361,6 +368,7 @@ class _PermissionResultSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<SettingsService>().appLanguage;
     final locationBlocked = !locationGranted;
     return SafeArea(
       top: false,
@@ -374,7 +382,9 @@ class _PermissionResultSheet extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              locationBlocked ? '위치 권한이 필요해요' : '준비됐어요',
+              locationBlocked
+                  ? AppCopy.locationBlockedTitle(language)
+                  : AppCopy.permissionsReadyTitle(language),
               style: AppText.body(
                 size: 20,
                 weight: FontWeight.w900,
@@ -384,8 +394,8 @@ class _PermissionResultSheet extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               locationBlocked
-                  ? '주변 루트 탐색은 위치 권한이 있어야 정확히 동작합니다. 설정에서 위치 권한을 켜면 바로 다시 찾을 수 있어요.'
-                  : '필수 권한이 준비됐어요.',
+                  ? AppCopy.locationBlockedBody(language)
+                  : AppCopy.permissionsReadyBody(language),
               style: AppText.body(
                 size: 13,
                 height: 1.35,
@@ -398,7 +408,7 @@ class _PermissionResultSheet extends StatelessWidget {
                 if (locationBlocked) ...[
                   Expanded(
                     child: RevvGhostButton(
-                      label: '설정 열기',
+                      label: AppCopy.openSettings(language),
                       onPressed: onSettings,
                     ),
                   ),
@@ -406,7 +416,9 @@ class _PermissionResultSheet extends StatelessWidget {
                 ],
                 Expanded(
                   child: RevvPrimaryButton(
-                    label: locationBlocked ? '일단 계속' : '계속',
+                    label: locationBlocked
+                        ? AppCopy.continueAnyway(language)
+                        : AppCopy.continuePermissions(language),
                     icon: Icons.arrow_forward_rounded,
                     onPressed: onContinue,
                   ),

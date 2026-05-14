@@ -1,5 +1,7 @@
+import '../core/app_language.dart';
 import '../models/revv_route.dart';
 import '../services/route_loading_policy.dart';
+import 'app_copy.dart';
 import 'route_geometry_insight.dart';
 import 'route_reading_context.dart';
 
@@ -20,7 +22,16 @@ class RouteDetailCopy {
     RevvRoute route, {
     double? startDistanceKm,
     bool hasComposite = false,
+    AppLanguage? language,
   }) {
+    if (language != null && language != AppLanguage.korean) {
+      return _localizedRouteDetailCopy(
+        route,
+        startDistanceKm: startDistanceKm,
+        hasComposite: hasComposite,
+        language: language,
+      );
+    }
     final insight = RouteGeometryInsight.fromRoute(route);
     final context = RouteReadingContext.fromRoute(route);
     final hero = _heroReason(route, insight);
@@ -44,6 +55,234 @@ class RouteDetailCopy {
       shareText: _shareText(route, hero, caution),
     );
   }
+}
+
+RouteDetailCopy _localizedRouteDetailCopy(
+  RevvRoute route, {
+  required AppLanguage language,
+  double? startDistanceKm,
+  bool hasComposite = false,
+}) {
+  final curvyKm = route.tightCurveKm + route.mediumCurveKm;
+  final controls = route.stopSignCount + route.trafficSignalCount;
+  final hero = _localizedHero(route, curvyKm, language);
+  final caution = _localizedCaution(route, controls, language);
+  final bullets = _dedupe(
+    [
+      _localizedShapeBullet(route, curvyKm, language),
+      _localizedFlowBullet(route, language),
+      _localizedStartBullet(startDistanceKm, language),
+      _localizedControlBullet(controls, language),
+      if (route.elevationDelta >= 45)
+        AppCopy.t(
+          language,
+          en: '${route.elevationDelta.toStringAsFixed(0)}m elevation change · sightlines may change quickly',
+          fr: '${route.elevationDelta.toStringAsFixed(0)}m de dénivelé · la vue peut changer vite',
+        ),
+      if (hasComposite)
+        AppCopy.t(
+          language,
+          en: 'Chain mode · read the first section before committing to the next',
+          fr: 'Mode chaîne · lisez la première section avant d’enchaîner',
+        ),
+    ],
+    blocked: {hero, ?caution},
+  );
+
+  return RouteDetailCopy(
+    heroReason: hero,
+    decisionBullets: bullets.take(6).toList(),
+    cautionLine: caution,
+    shareText: _localizedShareText(route, hero, caution, language),
+  );
+}
+
+String _localizedHero(RevvRoute route, double curvyKm, AppLanguage language) {
+  if (curvyKm >= 0.8) {
+    return AppCopy.t(
+      language,
+      en: '${route.distanceDisplay} with ${curvyKm.toStringAsFixed(1)}km of curve-focused sections.',
+      fr: '${route.distanceDisplay} avec ${curvyKm.toStringAsFixed(1)}km de sections à virages.',
+    );
+  }
+  if (route.maxContinuousKm >= 1.2) {
+    return AppCopy.t(
+      language,
+      en: '${route.maxContinuousKm.toStringAsFixed(1)}km of continuous flow makes this route easy to read.',
+      fr: '${route.maxContinuousKm.toStringAsFixed(1)}km de flow continu rendent la route lisible.',
+    );
+  }
+  if (route.elevationDelta >= 60) {
+    return AppCopy.t(
+      language,
+      en: '${route.elevationDelta.toStringAsFixed(0)}m of elevation change adds sightline and surface variation.',
+      fr: '${route.elevationDelta.toStringAsFixed(0)}m de dénivelé ajoutent des changements de vue et de surface.',
+    );
+  }
+  if (route.routeCharacter == 'tight_technical') {
+    return AppCopy.t(
+      language,
+      en: '${route.sharpCurveCount} corners grouped tightly. Focus on calm entry lines.',
+      fr: '${route.sharpCurveCount} virages regroupés. Priorité aux lignes d’entrée calmes.',
+    );
+  }
+  if (route.routeCharacter == 'fast_sweeper') {
+    return AppCopy.t(
+      language,
+      en: '${route.distanceDisplay} of smoother medium-speed curve flow.',
+      fr: '${route.distanceDisplay} de grandes courbes plus fluides.',
+    );
+  }
+  return AppCopy.t(
+    language,
+    en: '${route.distanceDisplay} route with a balanced distance and corner mix.',
+    fr: '${route.distanceDisplay} avec une bonne balance distance/virages.',
+  );
+}
+
+String _localizedShapeBullet(
+  RevvRoute route,
+  double curvyKm,
+  AppLanguage language,
+) {
+  if (curvyKm >= 0.5) {
+    return AppCopy.t(
+      language,
+      en: '${route.distanceDisplay} route · ${curvyKm.toStringAsFixed(1)}km curve focus',
+      fr: '${route.distanceDisplay} · ${curvyKm.toStringAsFixed(1)}km de virages',
+    );
+  }
+  return AppCopy.t(
+    language,
+    en: '${route.distanceDisplay} route · ${route.sharpCurveCount} notable corners',
+    fr: '${route.distanceDisplay} · ${route.sharpCurveCount} virages notables',
+  );
+}
+
+String _localizedFlowBullet(RevvRoute route, AppLanguage language) {
+  if (route.maxContinuousKm >= 1.2) {
+    return AppCopy.t(
+      language,
+      en: '${route.maxContinuousKm.toStringAsFixed(1)}km continuous flow · good rhythm retention',
+      fr: '${route.maxContinuousKm.toStringAsFixed(1)}km de flow · bon maintien du rythme',
+    );
+  }
+  if (route.flowScore > 0) {
+    return AppCopy.t(
+      language,
+      en: 'Flow score ${route.flowScore.toStringAsFixed(2)} · check stops and corner spacing',
+      fr: 'Score flow ${route.flowScore.toStringAsFixed(2)} · vérifiez arrêts et espacement',
+    );
+  }
+  return AppCopy.t(
+    language,
+    en: 'Mixed corners and gentle sections · read the map line first',
+    fr: 'Virages et sections douces · lire la ligne sur carte d’abord',
+  );
+}
+
+String? _localizedStartBullet(double? startDistanceKm, AppLanguage language) {
+  if (startDistanceKm == null) return null;
+  if (startDistanceKm < 0.3) {
+    return AppCopy.t(
+      language,
+      en: 'Start ${_distanceLabel(startDistanceKm)} · close enough to enter now',
+      fr: 'Départ ${_distanceLabel(startDistanceKm)} · entrée directe possible',
+    );
+  }
+  if (startDistanceKm < 5.0) {
+    return AppCopy.t(
+      language,
+      en: 'Start ${_distanceLabel(startDistanceKm)} away · navigate first, then enter',
+      fr: 'Départ à ${_distanceLabel(startDistanceKm)} · naviguer d’abord',
+    );
+  }
+  return AppCopy.t(
+    language,
+    en: 'Start ${_distanceLabel(startDistanceKm)} away · check approach before joining',
+    fr: 'Départ à ${_distanceLabel(startDistanceKm)} · vérifier l’approche',
+  );
+}
+
+String _localizedControlBullet(int controls, AppLanguage language) {
+  if (controls == 0) {
+    return AppCopy.t(
+      language,
+      en: 'Few stop/sign controls · better flow continuity',
+      fr: 'Peu de stops/feux · meilleur flow',
+    );
+  }
+  return AppCopy.t(
+    language,
+    en: '$controls stops/signals · check where the rhythm breaks',
+    fr: '$controls stops/feux · repérer les ruptures de rythme',
+  );
+}
+
+String? _localizedCaution(RevvRoute route, int controls, AppLanguage language) {
+  if (controls >= 6) {
+    return AppCopy.t(
+      language,
+      en: '$controls stops/signals may break the mid-route rhythm.',
+      fr: '$controls stops/feux peuvent casser le rythme.',
+    );
+  }
+  if (route.maxContinuousKm > 0 && route.maxContinuousKm < 0.9) {
+    return AppCopy.t(
+      language,
+      en: 'Continuous flow is short. Reassess pace segment by segment.',
+      fr: 'Flow continu court. Rejugez le rythme section par section.',
+    );
+  }
+  if (route.distanceKm >= 35) {
+    return AppCopy.t(
+      language,
+      en: 'Longer route. Check fuel, time, and return path before starting.',
+      fr: 'Route plus longue. Vérifiez carburant, temps et retour.',
+    );
+  }
+  if (route.isMajorRoadLike || isMajorRoadLikeRouteName(route.name)) {
+    return AppCopy.t(
+      language,
+      en: 'Some sections may behave like major roads. Read signs first.',
+      fr: 'Certaines sections peuvent être des axes majeurs. Lisez les panneaux.',
+    );
+  }
+  if (route.isBridgeLike || isBridgeLikeRouteName(route.name)) {
+    return AppCopy.t(
+      language,
+      en: 'Bridge or merge sections may be included. Check merge points.',
+      fr: 'Ponts ou fusions possibles. Vérifiez les points de fusion.',
+    );
+  }
+  if (route.isPrivateLike) {
+    return AppCopy.t(
+      language,
+      en: 'Possible restricted access. Check signs and access before entering.',
+      fr: 'Accès possiblement limité. Vérifiez les panneaux avant d’entrer.',
+    );
+  }
+  return null;
+}
+
+String _localizedShareText(
+  RevvRoute route,
+  String hero,
+  String? caution,
+  AppLanguage language,
+) {
+  return [
+    AppCopy.t(
+      language,
+      ko: 'REVV 추천 루트',
+      en: 'REVV route pick',
+      fr: 'Route REVV',
+    ),
+    route.name,
+    '${route.distanceDisplay} · ${route.durationDisplay}',
+    hero,
+    ?caution,
+  ].join('\n');
 }
 
 List<String> _balancedInsightBullets(

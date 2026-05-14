@@ -1,16 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/revv_route.dart';
+import '../services/route_service.dart';
+import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/app_copy.dart';
 import '../ui/copilot_briefing.dart';
 import '../ui/route_quality_profile.dart';
 
-Future<bool?> showCopilotStartSheet(
+enum CopilotStartChoice { start, simulate }
+
+Future<CopilotStartChoice?> showCopilotStartSheet(
   BuildContext context, {
   required RevvRoute route,
 }) {
-  return showModalBottomSheet<bool>(
+  return showModalBottomSheet<CopilotStartChoice>(
     context: context,
     backgroundColor: Colors.transparent,
     builder: (_) => _CopilotStartSheet(route: route),
@@ -24,11 +31,13 @@ class _CopilotStartSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final profile = RouteQualityProfile.fromRoute(route);
+    final language = context.watch<SettingsService>().appLanguage;
+    final profile = RouteQualityProfile.fromRoute(route, language: language);
     final briefing = CopilotRouteBriefing.fromRoute(
       route,
       profile: profile,
       startDistanceKm: route.distanceFromUser,
+      language: language,
     );
     return SafeArea(
       top: false,
@@ -55,7 +64,7 @@ class _CopilotStartSheet extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '코파일럿 시작 판단',
+                AppCopy.copilotStartCheck(language),
                 style: AppText.technicalLabel(
                   size: 10,
                   color: AppColors.primaryContainer,
@@ -90,11 +99,33 @@ class _CopilotStartSheet extends StatelessWidget {
                     .toList(),
               ),
               const SizedBox(height: 18),
+              if (route.distanceFromUser >= 1.0) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: _NavAppButton(
+                        label: 'Google Maps',
+                        icon: Icons.map_rounded,
+                        onTap: () => _openGoogleMaps(context, route),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _NavAppButton(
+                        label: 'Waze',
+                        icon: Icons.navigation_rounded,
+                        onTap: () => _openWaze(context, route),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context, false),
+                      onPressed: () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppColors.textSecondary,
                         side: BorderSide(
@@ -108,7 +139,7 @@ class _CopilotStartSheet extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(vertical: 15),
                       ),
                       child: Text(
-                        '취소',
+                        AppCopy.cancel(language),
                         style: AppText.body(size: 14, weight: FontWeight.w900),
                       ),
                     ),
@@ -117,7 +148,8 @@ class _CopilotStartSheet extends StatelessWidget {
                   Expanded(
                     flex: 2,
                     child: FilledButton(
-                      onPressed: () => Navigator.pop(context, true),
+                      onPressed: () =>
+                          Navigator.pop(context, CopilotStartChoice.start),
                       style: FilledButton.styleFrom(
                         backgroundColor: AppColors.primaryContainer,
                         foregroundColor: AppColors.onPrimary,
@@ -127,7 +159,9 @@ class _CopilotStartSheet extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(vertical: 15),
                       ),
                       child: Text(
-                        briefing.nextActionLabel,
+                        route.distanceFromUser >= 1.0
+                            ? AppCopy.startHere(language)
+                            : briefing.nextActionLabel,
                         textAlign: TextAlign.center,
                         style: AppText.body(
                           size: 14,
@@ -139,9 +173,128 @@ class _CopilotStartSheet extends StatelessWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () =>
+                      Navigator.pop(context, CopilotStartChoice.simulate),
+                  icon: const Icon(Icons.science_rounded, size: 17),
+                  label: Text(AppCopy.testDriveNow(language)),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primaryContainer,
+                    side: BorderSide(
+                      color: AppColors.primaryContainer.withValues(alpha: 0.28),
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    textStyle: AppText.body(size: 13, weight: FontWeight.w900),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+Future<void> _openGoogleMaps(BuildContext context, RevvRoute route) async {
+  context.read<RouteService>().beginGuideToStart(route);
+  final start = _routeStart(route);
+  final appUri = Uri.parse(
+    'comgooglemaps://?daddr=${start.lat},${start.lng}&directionsmode=driving',
+  );
+  final webUri = Uri.https('www.google.com', '/maps/dir/', {
+    'api': '1',
+    'destination': '${start.lat},${start.lng}',
+    'travelmode': 'driving',
+  });
+  await _launchNavigationUri(context, appUri: appUri, fallbackUri: webUri);
+}
+
+Future<void> _openWaze(BuildContext context, RevvRoute route) async {
+  context.read<RouteService>().beginGuideToStart(route);
+  final start = _routeStart(route);
+  final appUri = Uri.parse('waze://?ll=${start.lat},${start.lng}&navigate=yes');
+  final webUri = Uri.https('waze.com', '/ul', {
+    'll': '${start.lat},${start.lng}',
+    'navigate': 'yes',
+  });
+  await _launchNavigationUri(context, appUri: appUri, fallbackUri: webUri);
+}
+
+Future<void> _launchNavigationUri(
+  BuildContext context, {
+  required Uri appUri,
+  required Uri fallbackUri,
+}) async {
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final language = context.read<SettingsService>().appLanguage;
+  final launchedApp = await launchUrl(
+    appUri,
+    mode: LaunchMode.externalApplication,
+  );
+  if (launchedApp) {
+    _returnToHomeAfterNavigationLaunch(navigator);
+    return;
+  }
+
+  final launchedWeb = await launchUrl(
+    fallbackUri,
+    mode: LaunchMode.externalApplication,
+  );
+  if (launchedWeb) {
+    _returnToHomeAfterNavigationLaunch(navigator);
+    return;
+  }
+  if (messenger == null) return;
+
+  messenger.showSnackBar(
+    SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
+  );
+}
+
+void _returnToHomeAfterNavigationLaunch(NavigatorState navigator) {
+  if (navigator.canPop()) {
+    navigator.popUntil((route) => route.isFirst);
+  }
+}
+
+LatLng _routeStart(RevvRoute route) {
+  if (route.nodes.isNotEmpty) return route.nodes.first;
+  return route.centerPoint;
+}
+
+class _NavAppButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _NavAppButton({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 17),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppColors.primaryContainer,
+        side: BorderSide(
+          color: AppColors.primaryContainer.withValues(alpha: 0.38),
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        textStyle: AppText.body(size: 13, weight: FontWeight.w900),
       ),
     );
   }

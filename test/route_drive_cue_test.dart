@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/ui/route_drive_cue.dart';
 
@@ -20,7 +21,8 @@ void main() {
     expect(state.status, DriveRouteStatus.approachingStart);
     expect(state.progress, 0);
     expect(state.cue?.label, '시작점까지 이동');
-    expect(state.rhythmBrief.rhythmLabel, '시작 준비');
+    expect(state.cue?.headline, startsWith('시작점'));
+    expect(state.rhythmBrief.rhythmLabel, '시작 대기');
   });
 
   test('on-route state exposes the next meaningful curve within 30-800m', () {
@@ -32,8 +34,9 @@ void main() {
     expect(state.status, DriveRouteStatus.onRoute);
     expect(state.cue, isNotNull);
     expect(state.cue!.distanceM, inInclusiveRange(30, 800));
-    expect(state.cue!.label, anyOf(contains('커브'), contains('헤어핀')));
-    expect(state.rhythmBrief.rhythmLabel, anyOf('연속 코너 구간', '리듬 연결', '단일 커브'));
+    expect(state.cue!.headline, matches(RegExp(r'^\d+m (좌측|우측) ')));
+    expect(state.cue!.rhythmLine, isNotEmpty);
+    expect(state.rhythmBrief.rhythmLabel, anyOf('연속 코너', '짧은 전환', '단일 커브'));
   });
 
   test(
@@ -79,6 +82,22 @@ void main() {
     expect(state.status, DriveRouteStatus.onRoute);
     expect(state.cue, isNull);
     expect(state.rhythmBrief.rhythmLabel, '흐름 구간');
-    expect(state.rhythmBrief.advice, contains('30-800m'));
+    expect(state.rhythmBrief.advice, '1.0km 흐름 구간');
+  });
+
+  test('drive cue supports English and French copy', () {
+    final english = readDriveRouteState(
+      const LatLng(45.00035, -73.0000),
+      _routeNodes,
+      language: AppLanguage.english,
+    );
+    final french = readDriveRouteState(
+      const LatLng(45.00035, -73.0000),
+      _routeNodes,
+      language: AppLanguage.french,
+    );
+
+    expect(english.cue?.headline, anyOf(contains('Right'), contains('Left')));
+    expect(french.cue?.headline, anyOf(contains('Droite'), contains('Gauche')));
   });
 }

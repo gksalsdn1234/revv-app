@@ -51,61 +51,64 @@ class RevvApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: SupabaseService()),
         ChangeNotifierProvider(create: (_) => ImuService()),
       ],
-      child: MaterialApp(
-        title: 'REVV',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          scaffoldBackgroundColor: AppColors.bg,
-          colorScheme: const ColorScheme.dark(
-            primary: AppColors.primaryContainer,
-            secondary: AppColors.warning,
-            surface: AppColors.panel,
-            error: AppColors.danger,
-            onPrimary: AppColors.onPrimary,
-            onSurface: AppColors.textPrimary,
-          ),
-          textTheme: TextTheme(
-            displayLarge: AppText.display(size: 56),
-            headlineMedium: AppText.body(size: 24, weight: FontWeight.w800),
-            titleMedium: AppText.body(size: 16, weight: FontWeight.w700),
-            bodyMedium: AppText.body(),
-            labelMedium: AppText.technicalLabel(),
-          ),
-          appBarTheme: AppBarTheme(
-            backgroundColor: AppColors.bg.withValues(alpha: 0.82),
-            foregroundColor: AppColors.textPrimary,
-            surfaceTintColor: Colors.transparent,
-          ),
-          cardColor: AppColors.panel2,
-          dividerColor: AppColors.outlineVariant,
-          splashColor: AppColors.primaryContainer.withValues(alpha: 0.16),
-          highlightColor: Colors.transparent,
-          bottomSheetTheme: const BottomSheetThemeData(
-            backgroundColor: Colors.transparent,
-            surfaceTintColor: Colors.transparent,
-          ),
-          inputDecorationTheme: InputDecorationTheme(
-            filled: true,
-            fillColor: AppColors.surfaceLowest,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: AppColors.outlineVariant.withValues(alpha: 0.24),
+      child: Consumer<SettingsService>(
+        builder: (_, settings, _) => MaterialApp(
+          title: 'REVV',
+          locale: Locale(settings.appLanguage.code),
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            scaffoldBackgroundColor: AppColors.bg,
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.primaryContainer,
+              secondary: AppColors.warning,
+              surface: AppColors.panel,
+              error: AppColors.danger,
+              onPrimary: AppColors.onPrimary,
+              onSurface: AppColors.textPrimary,
+            ),
+            textTheme: TextTheme(
+              displayLarge: AppText.display(size: 56),
+              headlineMedium: AppText.body(size: 24, weight: FontWeight.w800),
+              titleMedium: AppText.body(size: 16, weight: FontWeight.w700),
+              bodyMedium: AppText.body(),
+              labelMedium: AppText.technicalLabel(),
+            ),
+            appBarTheme: AppBarTheme(
+              backgroundColor: AppColors.bg.withValues(alpha: 0.82),
+              foregroundColor: AppColors.textPrimary,
+              surfaceTintColor: Colors.transparent,
+            ),
+            cardColor: AppColors.panel2,
+            dividerColor: AppColors.outlineVariant,
+            splashColor: AppColors.primaryContainer.withValues(alpha: 0.16),
+            highlightColor: Colors.transparent,
+            bottomSheetTheme: const BottomSheetThemeData(
+              backgroundColor: Colors.transparent,
+              surfaceTintColor: Colors.transparent,
+            ),
+            inputDecorationTheme: InputDecorationTheme(
+              filled: true,
+              fillColor: AppColors.surfaceLowest,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.outlineVariant.withValues(alpha: 0.24),
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: AppColors.outlineVariant.withValues(alpha: 0.24),
+                ),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: AppColors.primaryContainer),
               ),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(
-                color: AppColors.outlineVariant.withValues(alpha: 0.24),
-              ),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: AppColors.primaryContainer),
-            ),
           ),
+          home: const LoadingScreen(),
         ),
-        home: const LoadingScreen(),
       ),
     );
   }

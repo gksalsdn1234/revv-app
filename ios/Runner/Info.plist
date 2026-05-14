@@ -27,7 +27,11 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>드라이빙 루트를 추천하고 주행 기록을 저장하기 위해 위치 정보가 필요합니다.</string>
+	<string>REVV uses your location to find nearby driving routes, show your position, and save drive summaries. / REVV utilise votre position pour trouver des routes proches, afficher votre position et sauvegarder les résumés.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>REVV uses location only while the app is open to guide route progress and save drive summaries. Background location is not requested in this beta. / REVV utilise la position uniquement lorsque l’app est ouverte pour suivre la route et sauvegarder les résumés. La position en arrière-plan n’est pas demandée dans cette bêta.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>REVV may use speech recognition only for optional hands-free route feedback features. This beta does not request speech recognition unless a voice feature is enabled. / REVV peut utiliser la reconnaissance vocale uniquement pour des fonctions optionnelles de retour mains libres. Cette bêta ne la demande pas sauf si une fonction vocale est activée.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

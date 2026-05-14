@@ -3,13 +3,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/app_language.dart';
 import '../models/route_feedback.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
 import '../services/run_history_service.dart';
+import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/app_copy.dart';
 import '../ui/copilot_run_summary.dart';
 
 class LeanRunSummaryScreen extends StatefulWidget {
@@ -62,116 +65,161 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
   @override
   Widget build(BuildContext context) {
     final session = widget.session;
+    final language = context.watch<SettingsService>().appLanguage;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: FutureBuilder<RunSummary?>(
-            future: _saveFuture,
-            builder: (context, snapshot) {
-              final summary = snapshot.data;
-              final copy = session == null
-                  ? null
-                  : CopilotRunSummaryCopy.fromSession(
-                      session,
-                      summary: summary,
-                    );
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'COPILOT SUMMARY',
-                    style: AppText.technicalLabel(
-                      size: 12,
-                      letterSpacing: 3,
-                      color: AppColors.primaryContainer,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    session == null
-                        ? '저장할 주행이 없어요'
-                        : copy?.headline ?? '오늘 주행 요약',
-                    style: AppText.display(
-                      size: 42,
-                      height: 0.96,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    session == null
-                        ? '세션이 만들어지기 전에 종료됐습니다. 홈으로 돌아가 다시 시작해 주세요.'
-                        : copy?.summaryLine ?? '목록은 가볍게, 텔레메트리 상세는 별도로 저장했습니다.',
-                    style: AppText.body(
-                      size: 14,
-                      height: 1.45,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  if (session != null && copy != null)
-                    _SummaryGrid(
-                      items: copy.notableStats
-                          .map(
-                            (stat) => _SummaryItem(
-                              label: stat.label,
-                              value: stat.value,
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  if (session != null && copy != null) ...[
-                    const SizedBox(height: 16),
-                    _CopilotNextCard(text: copy.nextSuggestion),
-                    const SizedBox(height: 16),
-                    _RouteFeedbackCard(
-                      enabled: summary != null,
-                      selected: _selectedFeedback,
-                      saved: _feedbackSaved,
-                      onSelected: summary == null
-                          ? null
-                          : (type) => _saveFeedback(summary, type),
-                    ),
-                  ],
-                  const Spacer(),
-                  _SaveStateCard(
+        child: FutureBuilder<RunSummary?>(
+          future: _saveFuture,
+          builder: (context, snapshot) {
+            final summary = snapshot.data;
+            final copy = session == null
+                ? null
+                : CopilotRunSummaryCopy.fromSession(
+                    session,
                     summary: summary,
-                    waiting: snapshot.connectionState != ConnectionState.done,
-                  ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 58,
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.primaryContainer,
-                        foregroundColor: AppColors.onPrimary,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(22),
+                    language: language,
+                  );
+            final waiting = snapshot.connectionState != ConnectionState.done;
+            return Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                    physics: const BouncingScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'COPILOT SUMMARY',
+                          style: AppText.technicalLabel(
+                            size: 12,
+                            letterSpacing: 3,
+                            color: AppColors.primaryContainer,
+                          ),
                         ),
-                      ),
-                      onPressed: () {
-                        Navigator.of(
-                          context,
-                        ).popUntil((route) => route.isFirst);
-                      },
-                      icon: const Icon(Icons.home_rounded),
-                      label: Text(
-                        '홈으로',
-                        style: AppText.body(
-                          size: 17,
-                          weight: FontWeight.w900,
-                          color: AppColors.onPrimary,
+                        const SizedBox(height: 18),
+                        Text(
+                          session == null
+                              ? AppCopy.t(
+                                  language,
+                                  ko: '저장할 주행이 없어요',
+                                  en: 'No drive to save',
+                                  fr: 'Aucun trajet à sauvegarder',
+                                )
+                              : copy?.headline ??
+                                    AppCopy.t(
+                                      language,
+                                      ko: '오늘 주행 요약',
+                                      en: 'Today’s drive summary',
+                                      fr: 'Résumé du trajet',
+                                    ),
+                          style: AppText.display(
+                            size: 42,
+                            height: 0.96,
+                            color: AppColors.textPrimary,
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 12),
+                        Text(
+                          session == null
+                              ? AppCopy.t(
+                                  language,
+                                  ko: '세션이 만들어지기 전에 종료됐습니다. 홈으로 돌아가 다시 시작해 주세요.',
+                                  en: 'The session ended before it was created. Return home and try again.',
+                                  fr: 'La session s’est terminée trop tôt. Revenez à l’accueil.',
+                                )
+                              : copy?.summaryLine ??
+                                    AppCopy.t(
+                                      language,
+                                      ko: '목록은 가볍게, 텔레메트리 상세는 별도로 저장했습니다.',
+                                      en: 'The list stays light; telemetry detail is saved separately.',
+                                      fr: 'La liste reste légère; la télémétrie est séparée.',
+                                    ),
+                          style: AppText.body(
+                            size: 14,
+                            height: 1.45,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        if (session != null && copy != null)
+                          _SummaryGrid(
+                            items: copy.notableStats
+                                .map(
+                                  (stat) => _SummaryItem(
+                                    label: stat.label,
+                                    value: stat.value,
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        if (session != null && copy != null) ...[
+                          const SizedBox(height: 16),
+                          _CopilotNextCard(text: copy.nextSuggestion),
+                          const SizedBox(height: 16),
+                          _RouteFeedbackCard(
+                            enabled: summary != null,
+                            selected: _selectedFeedback,
+                            saved: _feedbackSaved,
+                            language: language,
+                            onSelected: summary == null
+                                ? null
+                                : (type) => _saveFeedback(summary, type),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                ],
-              );
-            },
-          ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  child: Column(
+                    children: [
+                      _SaveStateCard(
+                        summary: summary,
+                        waiting: waiting,
+                        language: language,
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 58,
+                        child: FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.primaryContainer,
+                            foregroundColor: AppColors.onPrimary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(22),
+                            ),
+                          ),
+                          onPressed: () {
+                            Navigator.of(
+                              context,
+                            ).popUntil((route) => route.isFirst);
+                          },
+                          icon: const Icon(Icons.home_rounded),
+                          label: Text(
+                            AppCopy.t(
+                              language,
+                              ko: '홈으로',
+                              en: 'Home',
+                              fr: 'Accueil',
+                            ),
+                            style: AppText.body(
+                              size: 17,
+                              weight: FontWeight.w900,
+                              color: AppColors.onPrimary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -240,37 +288,16 @@ class _SummaryGrid extends StatelessWidget {
 
 class _FeedbackOption {
   final String type;
-  final String label;
   final IconData icon;
 
-  const _FeedbackOption({
-    required this.type,
-    required this.label,
-    required this.icon,
-  });
+  const _FeedbackOption({required this.type, required this.icon});
 }
 
 const _feedbackOptions = [
-  _FeedbackOption(
-    type: 'liked',
-    label: '좋았음',
-    icon: Icons.thumb_up_alt_rounded,
-  ),
-  _FeedbackOption(
-    type: 'too_short',
-    label: '너무 짧음',
-    icon: Icons.short_text_rounded,
-  ),
-  _FeedbackOption(
-    type: 'flow_broken',
-    label: '흐름 끊김',
-    icon: Icons.sync_problem_rounded,
-  ),
-  _FeedbackOption(
-    type: 'hide_route',
-    label: '다시 추천 안 함',
-    icon: Icons.visibility_off_rounded,
-  ),
+  _FeedbackOption(type: 'liked', icon: Icons.thumb_up_alt_rounded),
+  _FeedbackOption(type: 'too_short', icon: Icons.short_text_rounded),
+  _FeedbackOption(type: 'flow_broken', icon: Icons.sync_problem_rounded),
+  _FeedbackOption(type: 'hide_route', icon: Icons.visibility_off_rounded),
 ];
 
 class _CopilotNextCard extends StatelessWidget {
@@ -303,7 +330,12 @@ class _CopilotNextCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '다음 추천 힌트',
+                  AppCopy.t(
+                    context.watch<SettingsService>().appLanguage,
+                    ko: '다음 추천 힌트',
+                    en: 'Next suggestion',
+                    fr: 'Prochaine suggestion',
+                  ),
                   style: AppText.technicalLabel(
                     size: 10,
                     color: AppColors.primaryContainer,
@@ -333,12 +365,14 @@ class _RouteFeedbackCard extends StatelessWidget {
   final bool enabled;
   final String? selected;
   final bool saved;
+  final AppLanguage language;
   final ValueChanged<String>? onSelected;
 
   const _RouteFeedbackCard({
     required this.enabled,
     required this.selected,
     required this.saved,
+    required this.language,
     required this.onSelected,
   });
 
@@ -366,7 +400,19 @@ class _RouteFeedbackCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  saved ? '피드백 저장됨' : '이 루트 어땠나요?',
+                  saved
+                      ? AppCopy.t(
+                          language,
+                          ko: '피드백 저장됨',
+                          en: 'Feedback saved',
+                          fr: 'Retour enregistré',
+                        )
+                      : AppCopy.t(
+                          language,
+                          ko: '이 루트 어땠나요?',
+                          en: 'How was this route?',
+                          fr: 'Comment était cette route ?',
+                        ),
                   style: AppText.body(
                     size: 14,
                     weight: FontWeight.w900,
@@ -406,7 +452,7 @@ class _RouteFeedbackCard extends StatelessWidget {
                 onPressed: enabled ? () => onSelected?.call(option.type) : null,
                 icon: Icon(option.icon, size: 16),
                 label: Text(
-                  option.label,
+                  _feedbackLabel(option.type, language),
                   style: AppText.body(
                     size: 12,
                     weight: FontWeight.w900,
@@ -424,23 +470,73 @@ class _RouteFeedbackCard extends StatelessWidget {
   }
 }
 
+String _feedbackLabel(String type, AppLanguage language) {
+  return switch (type) {
+    'liked' => AppCopy.t(language, ko: '좋았음', en: 'Liked it', fr: 'Bien'),
+    'too_short' => AppCopy.t(
+      language,
+      ko: '너무 짧음',
+      en: 'Too short',
+      fr: 'Trop court',
+    ),
+    'flow_broken' => AppCopy.t(
+      language,
+      ko: '흐름 끊김',
+      en: 'Flow broke',
+      fr: 'Flow cassé',
+    ),
+    'hide_route' => AppCopy.t(
+      language,
+      ko: '다시 추천 안 함',
+      en: 'Don’t suggest again',
+      fr: 'Ne plus proposer',
+    ),
+    _ => type,
+  };
+}
+
 class _SaveStateCard extends StatelessWidget {
   final RunSummary? summary;
   final bool waiting;
+  final AppLanguage language;
 
-  const _SaveStateCard({required this.summary, required this.waiting});
+  const _SaveStateCard({
+    required this.summary,
+    required this.waiting,
+    required this.language,
+  });
 
   @override
   Widget build(BuildContext context) {
     final label = waiting
-        ? '저장 중'
+        ? AppCopy.t(language, ko: '저장 중', en: 'Saving', fr: 'Sauvegarde')
         : summary == null
-        ? '세션 없음'
-        : '로컬 저장 완료';
+        ? AppCopy.t(
+            language,
+            ko: '세션 없음',
+            en: 'No session',
+            fr: 'Aucune session',
+          )
+        : AppCopy.t(
+            language,
+            ko: '로컬 저장 완료',
+            en: 'Saved locally',
+            fr: 'Sauvegardé localement',
+          );
     final saved = summary;
     final detail = saved == null
-        ? '주행 데이터가 없어서 기록을 만들지 않았습니다.'
-        : '${saved.routeName} · 클라우드는 가능할 때 백그라운드 업로드';
+        ? AppCopy.t(
+            language,
+            ko: '주행 데이터가 없어서 기록을 만들지 않았습니다.',
+            en: 'No drive data was available, so no record was created.',
+            fr: 'Aucune donnée de trajet, aucun historique créé.',
+          )
+        : AppCopy.t(
+            language,
+            ko: '${saved.routeName} · 클라우드는 가능할 때 백그라운드 업로드',
+            en: '${saved.routeName} · cloud uploads in the background when available',
+            fr: '${saved.routeName} · upload cloud en arrière-plan si possible',
+          );
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(

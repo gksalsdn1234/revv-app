@@ -1,10 +1,14 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../models/revv_route.dart';
+import '../core/app_language.dart';
+import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/app_copy.dart';
 import '../ui/copilot_briefing.dart';
 import '../ui/route_detail_copy.dart';
 import '../ui/route_quality_profile.dart';
@@ -17,27 +21,35 @@ class LeanRouteDetailScreen extends StatelessWidget {
   const LeanRouteDetailScreen({super.key, required this.route});
 
   Future<void> _startDrive(BuildContext context) async {
-    final shouldStart = await showCopilotStartSheet(context, route: route);
-    if (!context.mounted || shouldStart != true) return;
+    final startChoice = await showCopilotStartSheet(context, route: route);
+    if (!context.mounted || startChoice == null) return;
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => LeanDriveScreen(route: route)),
+      MaterialPageRoute(
+        builder: (_) => LeanDriveScreen(
+          route: route,
+          simulated: startChoice == CopilotStartChoice.simulate,
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<SettingsService>().appLanguage;
     final copy = RouteDetailCopy.fromRoute(
       route,
       startDistanceKm: route.distanceFromUser,
+      language: language,
     );
-    final profile = RouteQualityProfile.fromRoute(route);
+    final profile = RouteQualityProfile.fromRoute(route, language: language);
     final briefing = CopilotRouteBriefing.fromRoute(
       route,
       profile: profile,
       startDistanceKm: route.distanceFromUser,
+      language: language,
     );
-    final bestFor = _bestFor(route);
+    final bestFor = _bestFor(route, language);
     final cautionBody = _cautionBody(copy, profile);
 
     return Scaffold(
@@ -71,7 +83,12 @@ class LeanRouteDetailScreen extends StatelessWidget {
                             ),
                             const SizedBox(width: 10),
                             Text(
-                              '루트 상세',
+                              AppCopy.t(
+                                language,
+                                ko: '루트 상세',
+                                en: 'ROUTE DETAIL',
+                                fr: 'DÉTAIL ROUTE',
+                              ),
                               style: AppText.technicalLabel(
                                 size: 11,
                                 color: AppColors.primaryContainer,
@@ -103,12 +120,19 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         const SizedBox(height: 18),
                         _RouteConfidenceSection(profile: profile),
                         const SizedBox(height: 12),
-                        _CopilotJudgementCard(briefing: briefing),
+                        _CopilotJudgementCard(
+                          briefing: briefing,
+                          language: language,
+                        ),
                         const SizedBox(height: 12),
                         _MetricsGrid(route: route),
                         const SizedBox(height: 18),
                         _DetailSection(
-                          title: '왜 이 루트인가',
+                          title: AppCopy.t(
+                            language,
+                            en: 'Why this route',
+                            fr: 'Pourquoi cette route',
+                          ),
                           icon: Icons.psychology_rounded,
                           body: copy.heroReason,
                         ),
@@ -116,14 +140,22 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         _DecisionBulletsSection(lines: copy.decisionBullets),
                         const SizedBox(height: 12),
                         _DetailSection(
-                          title: '주의할 점',
+                          title: AppCopy.t(
+                            language,
+                            en: 'Watch-outs',
+                            fr: 'À surveiller',
+                          ),
                           icon: Icons.warning_amber_rounded,
                           body: cautionBody,
                           accent: AppColors.warning,
                         ),
                         const SizedBox(height: 12),
                         _DetailSection(
-                          title: 'Best for',
+                          title: AppCopy.t(
+                            language,
+                            en: 'Best for',
+                            fr: 'Idéal pour',
+                          ),
                           icon: Icons.auto_awesome_rounded,
                           body: bestFor,
                         ),
@@ -152,8 +184,9 @@ class LeanRouteDetailScreen extends StatelessWidget {
 
 class _CopilotJudgementCard extends StatelessWidget {
   final CopilotRouteBriefing briefing;
+  final AppLanguage language;
 
-  const _CopilotJudgementCard({required this.briefing});
+  const _CopilotJudgementCard({required this.briefing, required this.language});
 
   @override
   Widget build(BuildContext context) {
@@ -170,7 +203,12 @@ class _CopilotJudgementCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '코파일럿 판단',
+            AppCopy.t(
+              language,
+              ko: '코파일럿 판단',
+              en: 'COPILOT READ',
+              fr: 'LECTURE COPILOTE',
+            ),
             style: AppText.technicalLabel(
               size: 10,
               color: AppColors.primaryContainer,
@@ -178,11 +216,20 @@ class _CopilotJudgementCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          _CopilotJudgementRow(label: '추천 판단', text: briefing.primaryAdvice),
-          _CopilotJudgementRow(label: '시작 방식', text: briefing.startAdvice),
-          _CopilotJudgementRow(label: '주의 포인트', text: briefing.riskAdvice),
           _CopilotJudgementRow(
-            label: '맞는 운전자',
+            label: AppCopy.t(language, ko: '판단', en: 'Read', fr: 'Lecture'),
+            text: briefing.primaryAdvice,
+          ),
+          _CopilotJudgementRow(
+            label: AppCopy.t(language, ko: '시작', en: 'Start', fr: 'Départ'),
+            text: briefing.startAdvice,
+          ),
+          _CopilotJudgementRow(
+            label: AppCopy.t(language, ko: '주의', en: 'Risk', fr: 'Risque'),
+            text: briefing.riskAdvice,
+          ),
+          _CopilotJudgementRow(
+            label: AppCopy.t(language, ko: '성향', en: 'Fit', fr: 'Profil'),
             text: briefing.fitLabel,
             last: true,
           ),
@@ -276,7 +323,12 @@ class _RouteShapeHero extends StatelessWidget {
             left: 4,
             bottom: 4,
             child: _HeroBadge(
-              label: 'START',
+              label: AppCopy.t(
+                context.watch<SettingsService>().appLanguage,
+                ko: '시작점',
+                en: 'START',
+                fr: 'DÉPART',
+              ),
               value: route.distanceFromUserDisplay,
             ),
           ),
@@ -284,7 +336,12 @@ class _RouteShapeHero extends StatelessWidget {
             right: 4,
             top: 4,
             child: _HeroBadge(
-              label: 'ROUTE',
+              label: AppCopy.t(
+                context.watch<SettingsService>().appLanguage,
+                ko: '루트',
+                en: 'ROUTE',
+                fr: 'ROUTE',
+              ),
               value: route.distanceDisplay,
               alignRight: true,
             ),
@@ -342,7 +399,12 @@ class _RouteConfidenceSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Route Confidence',
+                      AppCopy.t(
+                        context.watch<SettingsService>().appLanguage,
+                        ko: '루트 신뢰도',
+                        en: 'Route Confidence',
+                        fr: 'Confiance route',
+                      ),
                       style: AppText.technicalLabel(
                         size: 10,
                         color: AppColors.primaryContainer,
@@ -474,6 +536,7 @@ class _MetricsGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<SettingsService>().appLanguage;
     return GridView.count(
       crossAxisCount: 2,
       shrinkWrap: true,
@@ -482,17 +545,39 @@ class _MetricsGrid extends StatelessWidget {
       mainAxisSpacing: 10,
       childAspectRatio: 1.9,
       children: [
-        _MetricTile(label: '거리', value: route.distanceDisplay),
-        _MetricTile(label: '예상 시간', value: route.durationDisplay),
-        _MetricTile(label: '커브 구간', value: '${_curveKm(route)}km'),
         _MetricTile(
-          label: '연속 흐름',
+          label: AppCopy.t(language, ko: '거리', en: 'Distance', fr: 'Distance'),
+          value: route.distanceDisplay,
+        ),
+        _MetricTile(
+          label: AppCopy.t(language, ko: '예상 시간', en: 'ETA', fr: 'Temps'),
+          value: route.durationDisplay,
+        ),
+        _MetricTile(
+          label: AppCopy.t(
+            language,
+            ko: '커브 구간',
+            en: 'Curve km',
+            fr: 'Virages',
+          ),
+          value: '${_curveKm(route)}km',
+        ),
+        _MetricTile(
+          label: AppCopy.t(language, ko: '연속 흐름', en: 'Flow', fr: 'Flow'),
           value: '${route.maxContinuousKm.toStringAsFixed(1)}km',
         ),
-        _MetricTile(label: '시작점', value: route.distanceFromUserDisplay),
         _MetricTile(
-          label: '정지 요소',
-          value: '${route.stopSignCount + route.trafficSignalCount}개',
+          label: AppCopy.t(language, ko: '시작점', en: 'Start', fr: 'Départ'),
+          value: route.distanceFromUserDisplay,
+        ),
+        _MetricTile(
+          label: AppCopy.t(language, ko: '정지 요소', en: 'Stops', fr: 'Arrêts'),
+          value: AppCopy.t(
+            language,
+            ko: '${route.stopSignCount + route.trafficSignalCount}개',
+            en: '${route.stopSignCount + route.trafficSignalCount}',
+            fr: '${route.stopSignCount + route.trafficSignalCount}',
+          ),
         ),
       ],
     );
@@ -568,7 +653,12 @@ class _DecisionBulletsSection extends StatelessWidget {
               ),
               const SizedBox(width: 10),
               Text(
-                '선택 포인트',
+                AppCopy.t(
+                  context.watch<SettingsService>().appLanguage,
+                  ko: '선택 포인트',
+                  en: 'Decision points',
+                  fr: 'Points de choix',
+                ),
                 style: AppText.technicalLabel(
                   size: 10,
                   color: AppColors.primaryContainer,
@@ -726,7 +816,12 @@ class _StickyStartBar extends StatelessWidget {
                 ),
                 onPressed: onStart,
                 child: Text(
-                  '주행 시작',
+                  AppCopy.t(
+                    context.watch<SettingsService>().appLanguage,
+                    ko: '주행 시작',
+                    en: 'Start drive',
+                    fr: 'Démarrer',
+                  ),
                   style: AppText.body(
                     size: 16,
                     weight: FontWeight.w900,
@@ -820,14 +915,40 @@ class _RouteShapePainter extends CustomPainter {
   }
 }
 
-String _bestFor(RevvRoute route) {
-  if (route.isLoop) return '출발지 근처로 돌아오는 짧은 확인 주행에 잘 맞아요.';
-  if (route.curveStyle == 'SWITCHBACK') {
-    return '타이트한 코너와 진입 라인을 차분히 확인하고 싶을 때 좋아요.';
+String _bestFor(RevvRoute route, AppLanguage language) {
+  if (route.isLoop) {
+    return AppCopy.t(
+      language,
+      en: 'A short validation drive that brings you back near the start.',
+      fr: 'Une courte boucle de validation qui revient près du départ.',
+    );
   }
-  if (route.curveStyle == 'SWEEPER') return '부드러운 스위퍼와 긴 조향 흐름을 느끼고 싶을 때 어울려요.';
-  if (route.maxContinuousKm >= 2.5) return '중간에 흐름이 끊기지 않는 루트를 찾을 때 좋아요.';
-  return '가볍게 근교 루트를 비교하고 하나를 고를 때 좋은 후보예요.';
+  if (route.curveStyle == 'SWITCHBACK') {
+    return AppCopy.t(
+      language,
+      en: 'Reading tight corners and calm entry lines.',
+      fr: 'Lire des virages serrés et des lignes d’entrée calmes.',
+    );
+  }
+  if (route.curveStyle == 'SWEEPER') {
+    return AppCopy.t(
+      language,
+      en: 'Smooth sweepers and longer steering flow.',
+      fr: 'Grandes courbes fluides et flow de volant.',
+    );
+  }
+  if (route.maxContinuousKm >= 2.5) {
+    return AppCopy.t(
+      language,
+      en: 'Finding a route where the middle rhythm stays connected.',
+      fr: 'Trouver une route où le rythme reste connecté.',
+    );
+  }
+  return AppCopy.t(
+    language,
+    en: 'Comparing nearby roads and picking one with low commitment.',
+    fr: 'Comparer des routes proches sans gros engagement.',
+  );
 }
 
 String _curveKm(RevvRoute route) {

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
 import 'package:revv_app/ui/copilot_briefing.dart';
@@ -113,5 +114,23 @@ void main() {
       briefing.decisionChips.toSet().length,
       briefing.decisionChips.length,
     );
+  });
+
+  test('route briefing supports English and French copy', () {
+    final english = CopilotRouteBriefing.fromRoute(
+      _route(distanceFromUser: 4.2),
+      startDistanceKm: 4.2,
+      language: AppLanguage.english,
+    );
+    final french = CopilotRouteBriefing.fromRoute(
+      _route(distanceFromUser: 4.2),
+      startDistanceKm: 4.2,
+      language: AppLanguage.french,
+    );
+
+    expect(english.startAdvice, contains('Start is'));
+    expect(english.primaryAdvice, isNot(contains('좋아요')));
+    expect(french.startAdvice, contains('Départ'));
+    expect(french.nextActionLabel, 'Aller au départ');
   });
 }

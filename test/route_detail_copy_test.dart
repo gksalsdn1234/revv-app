@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/ui/route_detail_copy.dart';
 
@@ -190,5 +191,30 @@ void main() {
     final copy = RouteDetailCopy.fromRoute(route);
 
     expect(copy.decisionBullets.join('\n'), contains('브리지'));
+  });
+
+  test('route detail copy supports English and French dossier text', () {
+    final route = _route(
+      distanceKm: 18,
+      tightCurveKm: 1.2,
+      mediumCurveKm: 1.0,
+      maxContinuousKm: 1.8,
+    );
+
+    final english = RouteDetailCopy.fromRoute(
+      route,
+      startDistanceKm: 2.5,
+      language: AppLanguage.english,
+    );
+    final french = RouteDetailCopy.fromRoute(
+      route,
+      startDistanceKm: 2.5,
+      language: AppLanguage.french,
+    );
+
+    expect(english.heroReason, contains('curve-focused'));
+    expect(english.decisionBullets.join(' '), contains('navigate first'));
+    expect(french.heroReason, contains('virages'));
+    expect(french.decisionBullets.join(' '), contains('naviguer'));
   });
 }

@@ -31,6 +31,9 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 - [ ] `.env`는 git에 커밋하지 않는다.
 - [ ] `.env.example`에는 키 이름만 있고 실제 secret은 없다.
 - [ ] Supabase anon key는 RLS 기준 공개 가능한 anon key인지 확인한다.
+- [ ] 새 Supabase/staging 프로젝트에 active migrations를 적용했을 때 `curvy_roads`, `runs`, `run_details`, `route_feedback`, `route_records`, `saved_routes`, `discovered_routes`가 생성되고 Data API GRANT가 적용되는지 확인한다.
+- [ ] Supabase Security Advisor에서 RLS/GRANT 경고가 없는지 확인한다.
+- [ ] `docs/supabase_security_verification.md`의 local preflight와 remote dry run을 완료한다.
 
 ## 3. iOS 설정 확인
 
@@ -41,7 +44,7 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 - [ ] Build Number: `39` 또는 이전 업로드보다 높은 숫자.
 - [ ] App icon이 기본 Flutter 아이콘이 아닌 REVV 아이콘인지 확인한다.
 - [ ] Launch screen이 기본 Flutter 화면이 아닌지 확인한다.
-- [ ] `Info.plist` 권한 문구는 위치 When-In-Use만 남긴다.
+- [ ] `Info.plist` 권한 문구는 실제 요청 권한인 위치 When-In-Use를 설명하고, permission library가 참조할 수 있는 Speech/Always Location purpose string도 방어적으로 포함한다.
 - [ ] `ios/Runner/PrivacyInfo.xcprivacy`가 Runner target에 포함되어 있다.
 
 ## 4. 개인정보 / App Store Connect 입력 준비
@@ -51,7 +54,9 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 - [ ] User ID: Supabase 사용자 식별 및 사용자별 기록 분리에 사용.
 - [ ] Usage Data / Diagnostics: 현재 명시적으로 수집하는 항목만 입력한다.
 - [ ] Run Data: 주행 거리, 시간, 경로 샘플, 속도, G 값, 피드백을 저장하며 클라우드 저장 토글과 삭제 기능을 제공한다고 명시한다.
-- [ ] Microphone, Speech Recognition, Bluetooth, Contacts, Photos는 이번 MVP에서 사용하지 않음으로 정리한다.
+- [ ] 업로드 실패 시 주행 상세는 pending 안전망에만 남고, 업로드 성공 후 로컬 상세 payload가 삭제된다고 내부 검증한다.
+- [ ] 업로드 실패 pending 상세 payload는 14일 TTL 이후 자동 삭제되는지 내부 검증한다.
+- [ ] Microphone, Bluetooth, Contacts, Photos는 이번 MVP에서 사용하지 않음으로 정리한다. Speech Recognition/Always Location은 앱에서 요청하지 않지만 App Store binary scanner 대응용 purpose string이 포함될 수 있음을 리뷰 노트에 설명한다.
 - [ ] 개인정보 처리방침 URL을 준비한다. 1차 TestFlight는 Notion 공개 페이지를 사용하고, 앱 내부 `개인정보 처리방침` 링크도 같은 URL을 연다.
 - [ ] `.env`의 `PRIVACY_POLICY_URL`에 Notion 공개 URL을 입력한다.
 - [ ] Beta App Review Notes에 위치 권한이 필요한 이유와 테스트 방법을 적는다.

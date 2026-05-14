@@ -19,6 +19,8 @@ class StorageKeys {
   static const routeFeedback = 'route_feedback';
   static const pendingRunSummaries = 'pending_run_summaries';
   static const pendingRunDetails = 'pending_run_details';
+  static const pendingRunDetailsIndex = 'pending_run_details_index_v2';
+  static const pendingRunDetailSecurePrefix = 'pending_run_detail_secure_';
   static const pendingRouteFeedback = 'pending_route_feedback';
 
   // ── 루트 (SavedRouteService, RouteService) ──────────────────
@@ -45,6 +47,7 @@ class StorageKeys {
 
   // ── 앱 설정 (SettingsService) ───────────────────────────────
   static const ttsMuted = 'setting_ttsMuted';
+  static const appLanguage = 'setting_appLanguage';
   static const searchRadius = 'setting_searchRadius';
   static const routeFilterStrength = 'setting_routeFilterStrength';
   static const distUnit = 'setting_distUnit';
