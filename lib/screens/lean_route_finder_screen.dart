@@ -1581,7 +1581,7 @@ String _lensLabel(_RouteLens lens, AppLanguage language) {
       en: 'Tight',
       fr: 'Serré',
     ),
-    _RouteLens.flow => AppCopy.t(language, ko: '흐름', en: 'Flow', fr: 'Flow'),
+    _RouteLens.flow => AppCopy.t(language, ko: '흐름', en: 'Flow', fr: 'Rythme'),
     _RouteLens.loop => AppCopy.t(language, ko: '루프', en: 'Loop', fr: 'Boucle'),
   };
 }
@@ -1738,20 +1738,20 @@ String? _localizedInlineStatus(String? raw, AppLanguage language) {
       fr: 'Vérifiez la connexion réseau.',
     );
   }
-  if (raw.contains('커브길') || raw.contains('루트')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Loading route field.',
-      fr: 'Chargement des routes.',
-    );
-  }
   if (raw.contains('위치')) {
     return AppCopy.t(
       language,
       ko: raw,
       en: 'Location permission or signal is needed.',
       fr: 'Position ou autorisation requise.',
+    );
+  }
+  if (raw.contains('커브길') || raw.contains('루트')) {
+    return AppCopy.t(
+      language,
+      ko: raw,
+      en: 'Loading route field.',
+      fr: 'Chargement des routes.',
     );
   }
   return raw;

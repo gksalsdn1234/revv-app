@@ -76,12 +76,14 @@ RouteDetailCopy _localizedRouteDetailCopy(
       if (route.elevationDelta >= 45)
         AppCopy.t(
           language,
+          ko: '${route.elevationDelta.toStringAsFixed(0)}m 고도 변화 · 시야가 빠르게 바뀔 수 있음',
           en: '${route.elevationDelta.toStringAsFixed(0)}m elevation change · sightlines may change quickly',
-          fr: '${route.elevationDelta.toStringAsFixed(0)}m de dénivelé · la vue peut changer vite',
+          fr: '${route.elevationDelta.toStringAsFixed(0)}m de dénivelé · la visibilité peut changer vite',
         ),
       if (hasComposite)
         AppCopy.t(
           language,
+          ko: '체인 모드 · 다음 구간으로 넘어가기 전 첫 구간을 먼저 읽기',
           en: 'Chain mode · read the first section before committing to the next',
           fr: 'Mode chaîne · lisez la première section avant d’enchaîner',
         ),
@@ -101,6 +103,7 @@ String _localizedHero(RevvRoute route, double curvyKm, AppLanguage language) {
   if (curvyKm >= 0.8) {
     return AppCopy.t(
       language,
+      ko: '${route.distanceDisplay} · 커브 집중 구간 ${curvyKm.toStringAsFixed(1)}km',
       en: '${route.distanceDisplay} with ${curvyKm.toStringAsFixed(1)}km of curve-focused sections.',
       fr: '${route.distanceDisplay} avec ${curvyKm.toStringAsFixed(1)}km de sections à virages.',
     );
@@ -108,13 +111,15 @@ String _localizedHero(RevvRoute route, double curvyKm, AppLanguage language) {
   if (route.maxContinuousKm >= 1.2) {
     return AppCopy.t(
       language,
+      ko: '${route.maxContinuousKm.toStringAsFixed(1)}km 연속 흐름이 있어 루트를 읽기 좋습니다.',
       en: '${route.maxContinuousKm.toStringAsFixed(1)}km of continuous flow makes this route easy to read.',
-      fr: '${route.maxContinuousKm.toStringAsFixed(1)}km de flow continu rendent la route lisible.',
+      fr: '${route.maxContinuousKm.toStringAsFixed(1)}km de rythme continu rendent la route lisible.',
     );
   }
   if (route.elevationDelta >= 60) {
     return AppCopy.t(
       language,
+      ko: '${route.elevationDelta.toStringAsFixed(0)}m 고도 변화가 시야와 노면 변화를 더합니다.',
       en: '${route.elevationDelta.toStringAsFixed(0)}m of elevation change adds sightline and surface variation.',
       fr: '${route.elevationDelta.toStringAsFixed(0)}m de dénivelé ajoutent des changements de vue et de surface.',
     );
@@ -122,6 +127,7 @@ String _localizedHero(RevvRoute route, double curvyKm, AppLanguage language) {
   if (route.routeCharacter == 'tight_technical') {
     return AppCopy.t(
       language,
+      ko: '${route.sharpCurveCount}개 코너가 촘촘히 모여 있어 차분한 진입 라인이 중요합니다.',
       en: '${route.sharpCurveCount} corners grouped tightly. Focus on calm entry lines.',
       fr: '${route.sharpCurveCount} virages regroupés. Priorité aux lignes d’entrée calmes.',
     );
@@ -129,14 +135,16 @@ String _localizedHero(RevvRoute route, double curvyKm, AppLanguage language) {
   if (route.routeCharacter == 'fast_sweeper') {
     return AppCopy.t(
       language,
+      ko: '${route.distanceDisplay} 동안 완만한 중간 속도 커브 흐름이 이어집니다.',
       en: '${route.distanceDisplay} of smoother medium-speed curve flow.',
       fr: '${route.distanceDisplay} de grandes courbes plus fluides.',
     );
   }
   return AppCopy.t(
     language,
+    ko: '${route.distanceDisplay} · 거리와 코너 구성이 균형 잡힌 루트입니다.',
     en: '${route.distanceDisplay} route with a balanced distance and corner mix.',
-    fr: '${route.distanceDisplay} avec une bonne balance distance/virages.',
+    fr: '${route.distanceDisplay} avec un bon équilibre distance/virages.',
   );
 }
 
@@ -148,12 +156,14 @@ String _localizedShapeBullet(
   if (curvyKm >= 0.5) {
     return AppCopy.t(
       language,
+      ko: '${route.distanceDisplay} 루트 · 커브 집중 ${curvyKm.toStringAsFixed(1)}km',
       en: '${route.distanceDisplay} route · ${curvyKm.toStringAsFixed(1)}km curve focus',
       fr: '${route.distanceDisplay} · ${curvyKm.toStringAsFixed(1)}km de virages',
     );
   }
   return AppCopy.t(
     language,
+    ko: '${route.distanceDisplay} 루트 · 주요 코너 ${route.sharpCurveCount}개',
     en: '${route.distanceDisplay} route · ${route.sharpCurveCount} notable corners',
     fr: '${route.distanceDisplay} · ${route.sharpCurveCount} virages notables',
   );
@@ -163,19 +173,22 @@ String _localizedFlowBullet(RevvRoute route, AppLanguage language) {
   if (route.maxContinuousKm >= 1.2) {
     return AppCopy.t(
       language,
+      ko: '${route.maxContinuousKm.toStringAsFixed(1)}km 연속 흐름 · 리듬 유지에 유리',
       en: '${route.maxContinuousKm.toStringAsFixed(1)}km continuous flow · good rhythm retention',
-      fr: '${route.maxContinuousKm.toStringAsFixed(1)}km de flow · bon maintien du rythme',
+      fr: '${route.maxContinuousKm.toStringAsFixed(1)}km de rythme · bon maintien du rythme',
     );
   }
   if (route.flowScore > 0) {
     return AppCopy.t(
       language,
+      ko: '흐름 점수 ${route.flowScore.toStringAsFixed(2)} · 정지 요소와 코너 간격 확인',
       en: 'Flow score ${route.flowScore.toStringAsFixed(2)} · check stops and corner spacing',
-      fr: 'Score flow ${route.flowScore.toStringAsFixed(2)} · vérifiez arrêts et espacement',
+      fr: 'Score rythme ${route.flowScore.toStringAsFixed(2)} · vérifiez arrêts et espacement',
     );
   }
   return AppCopy.t(
     language,
+    ko: '코너와 완만한 구간 혼합 · 지도 라인 먼저 확인',
     en: 'Mixed corners and gentle sections · read the map line first',
     fr: 'Virages et sections douces · lire la ligne sur carte d’abord',
   );
@@ -186,6 +199,7 @@ String? _localizedStartBullet(double? startDistanceKm, AppLanguage language) {
   if (startDistanceKm < 0.3) {
     return AppCopy.t(
       language,
+      ko: '시작점 ${_distanceLabel(startDistanceKm)} · 바로 진입 가능',
       en: 'Start ${_distanceLabel(startDistanceKm)} · close enough to enter now',
       fr: 'Départ ${_distanceLabel(startDistanceKm)} · entrée directe possible',
     );
@@ -193,12 +207,14 @@ String? _localizedStartBullet(double? startDistanceKm, AppLanguage language) {
   if (startDistanceKm < 5.0) {
     return AppCopy.t(
       language,
+      ko: '시작점까지 ${_distanceLabel(startDistanceKm)} · 먼저 이동 후 진입',
       en: 'Start ${_distanceLabel(startDistanceKm)} away · navigate first, then enter',
       fr: 'Départ à ${_distanceLabel(startDistanceKm)} · naviguer d’abord',
     );
   }
   return AppCopy.t(
     language,
+    ko: '시작점까지 ${_distanceLabel(startDistanceKm)} · 진입 동선 먼저 확인',
     en: 'Start ${_distanceLabel(startDistanceKm)} away · check approach before joining',
     fr: 'Départ à ${_distanceLabel(startDistanceKm)} · vérifier l’approche',
   );
@@ -208,12 +224,14 @@ String _localizedControlBullet(int controls, AppLanguage language) {
   if (controls == 0) {
     return AppCopy.t(
       language,
+      ko: '정지 요소 적음 · 흐름 유지에 유리',
       en: 'Few stop/sign controls · better flow continuity',
-      fr: 'Peu de stops/feux · meilleur flow',
+      fr: 'Peu de stops/feux · meilleur rythme',
     );
   }
   return AppCopy.t(
     language,
+    ko: '정지/신호 $controls개 · 리듬이 끊기는 지점 확인',
     en: '$controls stops/signals · check where the rhythm breaks',
     fr: '$controls stops/feux · repérer les ruptures de rythme',
   );
@@ -223,6 +241,7 @@ String? _localizedCaution(RevvRoute route, int controls, AppLanguage language) {
   if (controls >= 6) {
     return AppCopy.t(
       language,
+      ko: '정지/신호 $controls개가 중간 리듬을 끊을 수 있습니다.',
       en: '$controls stops/signals may break the mid-route rhythm.',
       fr: '$controls stops/feux peuvent casser le rythme.',
     );
@@ -230,13 +249,15 @@ String? _localizedCaution(RevvRoute route, int controls, AppLanguage language) {
   if (route.maxContinuousKm > 0 && route.maxContinuousKm < 0.9) {
     return AppCopy.t(
       language,
+      ko: '연속 흐름이 짧습니다. 구간별로 페이스를 다시 판단하세요.',
       en: 'Continuous flow is short. Reassess pace segment by segment.',
-      fr: 'Flow continu court. Rejugez le rythme section par section.',
+      fr: 'Rythme continu court. Réévaluez section par section.',
     );
   }
   if (route.distanceKm >= 35) {
     return AppCopy.t(
       language,
+      ko: '긴 루트입니다. 출발 전 연료, 시간, 복귀 동선을 확인하세요.',
       en: 'Longer route. Check fuel, time, and return path before starting.',
       fr: 'Route plus longue. Vérifiez carburant, temps et retour.',
     );
@@ -244,6 +265,7 @@ String? _localizedCaution(RevvRoute route, int controls, AppLanguage language) {
   if (route.isMajorRoadLike || isMajorRoadLikeRouteName(route.name)) {
     return AppCopy.t(
       language,
+      ko: '일부 구간은 간선도로처럼 느껴질 수 있습니다. 표지를 먼저 확인하세요.',
       en: 'Some sections may behave like major roads. Read signs first.',
       fr: 'Certaines sections peuvent être des axes majeurs. Lisez les panneaux.',
     );
@@ -251,6 +273,7 @@ String? _localizedCaution(RevvRoute route, int controls, AppLanguage language) {
   if (route.isBridgeLike || isBridgeLikeRouteName(route.name)) {
     return AppCopy.t(
       language,
+      ko: '브리지/합류 구간이 포함될 수 있습니다. 합류 지점을 확인하세요.',
       en: 'Bridge or merge sections may be included. Check merge points.',
       fr: 'Ponts ou fusions possibles. Vérifiez les points de fusion.',
     );
@@ -258,6 +281,7 @@ String? _localizedCaution(RevvRoute route, int controls, AppLanguage language) {
   if (route.isPrivateLike) {
     return AppCopy.t(
       language,
+      ko: '접근 제한 가능성이 있습니다. 진입 전 표지와 통행 가능 여부를 확인하세요.',
       en: 'Possible restricted access. Check signs and access before entering.',
       fr: 'Accès possiblement limité. Vérifiez les panneaux avant d’entrer.',
     );

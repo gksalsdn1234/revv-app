@@ -43,7 +43,7 @@ class AppCopy {
       t(language, ko: '기록', en: 'History', fr: 'Historique');
 
   static String cloudRuns(AppLanguage language) =>
-      t(language, ko: '클라우드', en: 'Cloud runs', fr: 'Cloud');
+      t(language, ko: '클라우드', en: 'Cloud sync', fr: 'Sync cloud');
 
   static String ready(AppLanguage language) =>
       t(language, ko: '준비됨', en: 'Ready', fr: 'Prêt');
@@ -61,7 +61,7 @@ class AppCopy {
       t(language, ko: '$count회', en: '$count runs', fr: '$count trajets');
 
   static String saved(AppLanguage language) =>
-      t(language, ko: '저장', en: 'Saved', fr: 'Activé');
+      t(language, ko: '켜짐', en: 'On', fr: 'Activé');
 
   static String off(AppLanguage language) =>
       t(language, ko: '끔', en: 'Off', fr: 'Off');
@@ -75,14 +75,22 @@ class AppCopy {
   static String voiceOff(AppLanguage language) =>
       t(language, ko: '음성 끄기', en: 'Voice off', fr: 'Voix coupée');
 
-  static String cloudOff(AppLanguage language) =>
-      t(language, ko: '클라우드 끄기', en: 'Disable cloud', fr: 'Couper cloud');
+  static String cloudOff(AppLanguage language) => t(
+    language,
+    ko: '클라우드 끄기',
+    en: 'Turn cloud off',
+    fr: 'Désactiver le cloud',
+  );
 
   static String cloudOn(AppLanguage language) =>
-      t(language, ko: '클라우드 켜기', en: 'Enable cloud', fr: 'Activer cloud');
+      t(language, ko: '클라우드 켜기', en: 'Turn cloud on', fr: 'Activer le cloud');
 
-  static String deleteHistory(AppLanguage language) =>
-      t(language, ko: '기록 삭제', en: 'Delete history', fr: 'Effacer');
+  static String deleteHistory(AppLanguage language) => t(
+    language,
+    ko: '기록 삭제',
+    en: 'Delete history',
+    fr: 'Effacer l’historique',
+  );
 
   static String privacyPolicy(AppLanguage language) =>
       t(language, ko: '개인정보 처리방침', en: 'Privacy Policy', fr: 'Confidentialité');
@@ -187,7 +195,7 @@ class AppCopy {
     language,
     ko: '위치 권한이 필요해요',
     en: 'Location permission needed',
-    fr: 'Position requise',
+    fr: 'Autorisation de position requise',
   );
 
   static String permissionsReadyTitle(AppLanguage language) =>
@@ -210,8 +218,12 @@ class AppCopy {
   static String openSettings(AppLanguage language) =>
       t(language, ko: '설정 열기', en: 'Open settings', fr: 'Réglages');
 
-  static String continueAnyway(AppLanguage language) =>
-      t(language, ko: '계속하기', en: 'Continue anyway', fr: 'Continuer');
+  static String continueAnyway(AppLanguage language) => t(
+    language,
+    ko: '계속하기',
+    en: 'Continue anyway',
+    fr: 'Continuer quand même',
+  );
 
   static String copilotStartCheck(AppLanguage language) => t(
     language,

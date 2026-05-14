@@ -127,7 +127,7 @@ String _headline(
     return _text(
       language,
       '긴 호흡으로 확인할 후보',
-      'Longer route to read',
+      'Longer route to assess',
       'Route à long souffle',
     );
   }
@@ -175,7 +175,7 @@ String _primaryAdvice(
       language,
       '중간 커브 ${route.mediumCurveKm.toStringAsFixed(1)}km가 이어져 부드러운 조향 흐름을 보기 좋아요.',
       '${route.mediumCurveKm.toStringAsFixed(1)}km of medium curves. Good for smooth steering flow.',
-      '${route.mediumCurveKm.toStringAsFixed(1)}km de virages moyens. Bon flow de volant.',
+      '${route.mediumCurveKm.toStringAsFixed(1)}km de virages moyens. Bon rythme au volant.',
     );
   }
   if (profile.hasTag(RouteQualityTag.flow)) {
@@ -199,7 +199,7 @@ String _primaryAdvice(
       language,
       '정지 요소가 적고 ${route.maxContinuousKm.toStringAsFixed(1)}km 연속 흐름이 있어 리듬 잡기 좋아요.',
       'Few stops and ${route.maxContinuousKm.toStringAsFixed(1)}km of flow. Easy to read the rhythm.',
-      'Peu d’arrêts et ${route.maxContinuousKm.toStringAsFixed(1)}km de flow. Rythme lisible.',
+      'Peu d’arrêts et ${route.maxContinuousKm.toStringAsFixed(1)}km de rythme continu. Rythme lisible.',
     );
   }
   if (route.distanceKm >= 30) {
@@ -303,7 +303,7 @@ String _riskAdvice(
       language,
       '연속 흐름이 짧아 구간마다 다시 판단하는 쪽이 좋아요.',
       'Continuous flow is short. Reassess each segment.',
-      'Flow continu court. Rejugez chaque section.',
+      'Rythme continu court. Réévaluez chaque section.',
     );
   }
   final maybe = routeQualityLabel(route) == 'maybe';
@@ -362,7 +362,7 @@ String _fitLabel(
       language,
       '복귀 동선까지 단순하게 확인하고 싶은 운전자',
       'Drivers who want a simple return path',
-      'Pour retour simple',
+      'Pour un retour simple',
     );
   }
   if (route.distanceKm >= 30) {

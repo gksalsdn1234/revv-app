@@ -1587,7 +1587,7 @@ class _MapWidgetState extends State<MapWidget> {
           language,
           ko: '위치 권한이 필요해요',
           en: 'Location permission needed',
-          fr: 'Position requise',
+          fr: 'Autorisation de position requise',
         ),
       );
     }

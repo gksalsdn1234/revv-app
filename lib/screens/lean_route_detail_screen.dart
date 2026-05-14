@@ -130,6 +130,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         _DetailSection(
                           title: AppCopy.t(
                             language,
+                            ko: '왜 이 루트인가',
                             en: 'Why this route',
                             fr: 'Pourquoi cette route',
                           ),
@@ -142,6 +143,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         _DetailSection(
                           title: AppCopy.t(
                             language,
+                            ko: '주의할 점',
                             en: 'Watch-outs',
                             fr: 'À surveiller',
                           ),
@@ -153,6 +155,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         _DetailSection(
                           title: AppCopy.t(
                             language,
+                            ko: '맞는 운전자',
                             en: 'Best for',
                             fr: 'Idéal pour',
                           ),
@@ -563,7 +566,7 @@ class _MetricsGrid extends StatelessWidget {
           value: '${_curveKm(route)}km',
         ),
         _MetricTile(
-          label: AppCopy.t(language, ko: '연속 흐름', en: 'Flow', fr: 'Flow'),
+          label: AppCopy.t(language, ko: '연속 흐름', en: 'Flow', fr: 'Rythme'),
           value: '${route.maxContinuousKm.toStringAsFixed(1)}km',
         ),
         _MetricTile(
@@ -919,6 +922,7 @@ String _bestFor(RevvRoute route, AppLanguage language) {
   if (route.isLoop) {
     return AppCopy.t(
       language,
+      ko: '짧게 확인하고 시작점 근처로 돌아오기 좋은 루프입니다.',
       en: 'A short validation drive that brings you back near the start.',
       fr: 'Une courte boucle de validation qui revient près du départ.',
     );
@@ -926,6 +930,7 @@ String _bestFor(RevvRoute route, AppLanguage language) {
   if (route.curveStyle == 'SWITCHBACK') {
     return AppCopy.t(
       language,
+      ko: '타이트한 코너와 차분한 진입 라인을 읽는 데 좋습니다.',
       en: 'Reading tight corners and calm entry lines.',
       fr: 'Lire des virages serrés et des lignes d’entrée calmes.',
     );
@@ -933,19 +938,22 @@ String _bestFor(RevvRoute route, AppLanguage language) {
   if (route.curveStyle == 'SWEEPER') {
     return AppCopy.t(
       language,
+      ko: '완만한 스위퍼와 길게 이어지는 조향 흐름에 좋습니다.',
       en: 'Smooth sweepers and longer steering flow.',
-      fr: 'Grandes courbes fluides et flow de volant.',
+      fr: 'Grandes courbes fluides et rythme au volant.',
     );
   }
   if (route.maxContinuousKm >= 2.5) {
     return AppCopy.t(
       language,
+      ko: '중간 리듬이 끊기지 않는 루트를 찾는 데 좋습니다.',
       en: 'Finding a route where the middle rhythm stays connected.',
       fr: 'Trouver une route où le rythme reste connecté.',
     );
   }
   return AppCopy.t(
     language,
+    ko: '부담 없이 근처 도로를 비교하고 하나를 고르기 좋습니다.',
     en: 'Comparing nearby roads and picking one with low commitment.',
     fr: 'Comparer des routes proches sans gros engagement.',
   );

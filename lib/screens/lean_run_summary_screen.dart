@@ -483,7 +483,7 @@ String _feedbackLabel(String type, AppLanguage language) {
       language,
       ko: '흐름 끊김',
       en: 'Flow broke',
-      fr: 'Flow cassé',
+      fr: 'Rythme cassé',
     ),
     'hide_route' => AppCopy.t(
       language,

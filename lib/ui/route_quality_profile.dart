@@ -88,7 +88,7 @@ class RouteQualityProfile {
           '${curvyKm.toStringAsFixed(1)}km',
         ),
         RouteQuickMetric(
-          _label(language, '흐름', 'Flow', 'Flow'),
+          _label(language, '흐름', 'Flow', 'Rythme'),
           '${route.maxContinuousKm.toStringAsFixed(1)}km',
         ),
         RouteQuickMetric(
@@ -124,7 +124,7 @@ String _primaryTypeLabel(
     return _label(language, '스위퍼', 'Sweeper', 'Large');
   }
   if (tags.contains(RouteQualityTag.flow)) {
-    return _label(language, '흐름', 'Flow', 'Flow');
+    return _label(language, '흐름', 'Flow', 'Rythme');
   }
   if (tags.contains(RouteQualityTag.long)) {
     return _label(language, '긴 루트', 'Long route', 'Longue');
@@ -169,7 +169,7 @@ String _curveDensityLabel(
   AppLanguage? language,
 ) {
   if (curvyKm < 0.5) {
-    return _label(language, '완만한 흐름', 'Gentle flow', 'Flow doux');
+    return _label(language, '완만한 흐름', 'Gentle flow', 'Rythme doux');
   }
   if (curveRatio >= 0.24) {
     return _label(language, '커브 밀도 높음', 'High curve density', 'Virages denses');
@@ -231,7 +231,7 @@ String _riskLabel(RevvRoute route, int controls, AppLanguage? language) {
       language,
       '연속 흐름 짧음 · 구간별로 다시 판단',
       'Short continuous flow · Reassess by segment',
-      'Flow court · Rejugez par section',
+      'Rythme court · Réévaluez par section',
     );
   }
   if (route.distanceKm >= 40) {
@@ -294,7 +294,7 @@ String _reasonLabel(
       language,
       '연속 흐름 ${route.maxContinuousKm.toStringAsFixed(1)}km · 중간 리듬 유지',
       '${route.maxContinuousKm.toStringAsFixed(1)}km continuous flow · Holds a steady rhythm',
-      '${route.maxContinuousKm.toStringAsFixed(1)}km de flow · Rythme stable',
+      '${route.maxContinuousKm.toStringAsFixed(1)}km de rythme · Rythme stable',
     );
   }
   if (route.distanceKm >= 24) {
@@ -318,7 +318,7 @@ String _reasonLabel(
       language,
       '정지 요소 적음 · 흐름을 길게 읽기 좋은 후보',
       'Few stops · Good for reading longer flow',
-      'Peu d’arrêts · Bon flow prolongé',
+      'Peu d’arrêts · Bon rythme prolongé',
     );
   }
   if (curvyKm >= 0.8) {

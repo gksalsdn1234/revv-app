@@ -195,12 +195,12 @@ DriveRouteState readDriveRouteState(
       cue: DriveCurveCue(
         label: _driveText(language, '루트에서 벗어남', 'Off route', 'Hors route'),
         detail:
-            '${formatDriveMeters(nearest.distanceM)} ${_driveText(language, '앞 복귀', 'to rejoin', 'avant retour')}',
+            '${formatDriveMeters(nearest.distanceM)} ${_driveText(language, '앞 복귀', 'to rejoin', 'jusqu’à la ligne')}',
         directionLabel: _driveText(language, '복귀', 'Rejoin', 'Retour'),
         intensityLabel: _driveText(language, '이탈', 'Off', 'Hors'),
         headline: _driveText(language, '루트 이탈', 'Off route', 'Hors route'),
         rhythmLine:
-            '${formatDriveMeters(nearest.distanceM)} ${_driveText(language, '앞 복귀', 'to rejoin', 'avant retour')}',
+            '${formatDriveMeters(nearest.distanceM)} ${_driveText(language, '앞 복귀', 'to rejoin', 'jusqu’à la ligne')}',
         icon: Icons.near_me_disabled_rounded,
         distanceM: nearest.distanceM,
         nextGapM: null,
@@ -328,7 +328,7 @@ DriveRhythmBrief _rhythmForOffRoute(
   return DriveRhythmBrief(
     rhythmLabel: _driveText(language, '루트 복귀', 'Rejoin route', 'Retour route'),
     advice:
-        '${formatDriveMeters(distanceFromRouteM)} ${_driveText(language, '앞 복귀', 'to rejoin', 'avant retour')}',
+        '${formatDriveMeters(distanceFromRouteM)} ${_driveText(language, '앞 복귀', 'to rejoin', 'jusqu’à la ligne')}',
     horizonText: 'REJOIN',
     severity: 2,
   );
@@ -341,13 +341,13 @@ DriveRhythmBrief _rhythmForOnRoute(DriveCurveCue? cue, AppLanguage? language) {
         language,
         '흐름 구간',
         'Flow section',
-        'Section flow',
+        'Section fluide',
       ),
       advice: _driveText(
         language,
         '1.0km 흐름 구간',
         '1.0km flow section',
-        '1.0km de flow',
+        '1.0km fluide',
       ),
       horizonText: 'CLEAR',
       severity: 0,
@@ -483,7 +483,7 @@ String _rhythmLabelForCue(DriveCurveCue cue, AppLanguage? language) {
   if (cue.rhythmLine.contains('흐름') ||
       cue.rhythmLine.contains('flow') ||
       cue.rhythmLine.contains('Flow')) {
-    return _driveText(language, '흐름 구간', 'Flow section', 'Section flow');
+    return _driveText(language, '흐름 구간', 'Flow section', 'Section fluide');
   }
   return _driveText(language, '단일 커브', 'Single curve', 'Virage isolé');
 }

@@ -113,7 +113,7 @@ String _headline(
       lang,
       ko: '오늘 루트 리듬을 기록했어요.',
       en: 'Today’s route rhythm was saved.',
-      fr: 'Le rythme de route est enregistré.',
+      fr: 'Rythme de route enregistré.',
     );
   }
   if (peakG >= 0.45) {
@@ -128,7 +128,7 @@ String _headline(
     lang,
     ko: '가볍게 흐름을 확인한 주행이었어요.',
     en: 'A light flow-check drive.',
-    fr: 'Un trajet léger pour lire le flow.',
+    fr: 'Un trajet léger pour lire le rythme.',
   );
 }
 
@@ -144,7 +144,7 @@ String _summaryLine(
           lang,
           ko: '평균 ${session.avgSpeedKmh.toStringAsFixed(0)}km/h',
           en: 'avg ${session.avgSpeedKmh.toStringAsFixed(0)}km/h',
-          fr: 'moy. ${session.avgSpeedKmh.toStringAsFixed(0)}km/h',
+          fr: 'moyenne ${session.avgSpeedKmh.toStringAsFixed(0)}km/h',
         )
       : AppCopy.t(
           lang,
@@ -169,7 +169,7 @@ String _summaryLine(
     lang,
     ko: '$routeName에서 ${session.distanceKm.toStringAsFixed(1)}km를 $eventText 기록했어요. $avg 기준으로 복원됩니다.',
     en: '$routeName saved ${session.distanceKm.toStringAsFixed(1)}km $eventText. Rebuilt around $avg.',
-    fr: '$routeName a enregistré ${session.distanceKm.toStringAsFixed(1)}km $eventText. Reconstitué avec $avg.',
+    fr: '$routeName a enregistré ${session.distanceKm.toStringAsFixed(1)}km $eventText. Résumé avec $avg.',
   );
 }
 
@@ -208,6 +208,6 @@ String _nextSuggestion(
     lang,
     ko: '다음엔 이 루트와 비슷하지만 조금 더 긴 흐름 후보를 비교해보세요.',
     en: 'Next, compare a similar route with a longer flow section.',
-    fr: 'Comparez ensuite une route similaire avec plus de flow.',
+    fr: 'Comparez ensuite une route similaire avec plus de rythme.',
   );
 }
