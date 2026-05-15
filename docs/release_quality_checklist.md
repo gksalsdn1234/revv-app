@@ -6,20 +6,21 @@
 
 ## Distribution Status
 
-2026-05-07 기준으로 TestFlight 배포는 Apple Developer Program 가입 전까지 보류한다. Archive 생성은 성공했지만 IPA export는 Apple Distribution certificate, App Store provisioning profile, App Store Connect provider 권한 부재로 실패했다. 유료 가입 전까지는 실기기 직접 실행으로 테스트를 계속한다.
+2026-05-15 기준으로 TestFlight 후보 IPA export가 성공했다. 현재 후보는 `1.38.0 (41)`이며, 생성 파일은 `build/ios/ipa/revv_app.ipa`다. 다음 단계는 App Store Connect 업로드, 빌드 처리 확인, Internal Testing 설치 검증, 필요 시 External Testing/Beta App Review 제출이다.
 
 ## P0 - TestFlight 차단 항목
 
 - [x] `lean_mvp` 브랜치에서 작업한다. `main`은 안정 백업으로 유지한다.
 - [x] `.env.example`에 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `MAPBOX_ACCESS_TOKEN`을 문서화한다.
 - [x] 미사용 Flutter 의존성 및 iOS Pod 흔적이 제거됐는지 확인한다.
-- [x] iOS 권한 문구는 위치 When-In-Use만 남긴다.
+- [x] iOS 권한 문구는 실제 요청 권한인 위치 When-In-Use를 설명하고, Apple binary scanner 대응용 Speech/Always Location purpose string을 방어적으로 포함한다.
+- [x] `ITSAppUsesNonExemptEncryption=false`를 `Info.plist`에 명시해 표준 HTTPS 암호화만 사용하는 베타임을 표시한다.
 - [x] Firebase, Bluetooth, Speech, TTS, Audio 관련 문자열이 앱/Pod lock에서 사라졌는지 확인한다.
 - [x] Privacy manifest가 Runner 리소스에 포함됐는지 확인한다.
 - [x] `flutter analyze`와 `flutter test`를 통과한다.
 - [x] `flutter build ios --release --no-codesign --dart-define-from-file=.env`를 통과한다.
-- [ ] Apple Distribution certificate와 App Store provisioning profile을 준비한다. Apple Developer Program 가입 전까지 보류.
-- [ ] `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39` export를 통과한다. 현재는 Apple 배포 서명/권한 부재로 보류.
+- [x] Apple Distribution certificate와 App Store provisioning profile을 준비한다.
+- [x] `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=41` export를 통과한다.
 - [x] 위치 권한 허용/거부 첫 실행 플로우를 확인한다.
 - [ ] Supabase 정상, 미설정, 네트워크 실패, 후보 0개, 캐시 사용 상태 안내를 실기기에서 확인한다.
 - [x] 루트 선택 -> 주행 시작 -> 현재 위치 추적 -> 주행 종료 -> 요약 저장 -> 앱 재시작 후 기록 복원을 확인한다.
@@ -62,10 +63,10 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 TestFlight 후보 빌드:
 
 ```sh
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39
+flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=41
 ```
 
-현재 이 명령은 Apple Developer Program 가입과 배포 서명 설정 전까지 보류한다.
+현재 후보 IPA는 `build/ios/ipa/revv_app.ipa`에 생성된다.
 
 미사용 의존성 검증:
 

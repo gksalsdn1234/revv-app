@@ -66,7 +66,7 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 For a TestFlight candidate, keep the marketing version and increment the build number:
 
 ```bash
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39
+flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=41
 ```
 
 ## Key Project Areas

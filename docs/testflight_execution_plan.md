@@ -6,28 +6,20 @@
 
 ## Current Distribution Decision
 
-2026-05-07 기준으로 TestFlight 배포는 의도적으로 보류한다.
+2026-05-15 기준으로 TestFlight 배포를 재개한다.
 
-이유:
+현재 상태:
 
-- Apple Developer Program 유료 멤버십이 아직 활성화되어 있지 않다.
-- `Runner.xcarchive` 생성은 성공했지만 `.ipa` export는 Apple Distribution certificate와 App Store provisioning profile 부재로 막혔다.
-- 현재 목표는 유료 가입 전까지 실기기 직접 실행으로 핵심 제품 품질을 계속 올리는 것이다.
+- Apple Developer Program과 iOS 배포 서명은 준비됐다.
+- `flutter build ipa --release --dart-define-from-file=.env`가 성공했다.
+- 현재 후보 빌드는 `1.38.0 (41)`이며, IPA는 `build/ios/ipa/revv_app.ipa`에 생성된다.
 
-보류 중 진행할 작업:
+남은 작업:
 
-- `flutter run --release --dart-define-from-file=.env` 기반 실기기 테스트
-- 루트파인더, 루트 상세, 주행 HUD, 요약 저장 품질 개선
+- App Store Connect 또는 Transporter로 IPA 업로드
+- TestFlight Internal Testing 설치 검증
 - 10분 실제 주행 smoke test
-- 베타 피드백 질문/문서 준비
-
-TestFlight를 재개하려면:
-
-- Apple Developer Program 가입
-- App Store Connect provider 연결 확인
-- Apple Distribution certificate 생성
-- `com.revv.revvApp` App Store provisioning profile 생성
-- `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39` 재실행
+- External Testing을 열 경우 Beta App Review 제출
 
 ## Resume Protocol
 
@@ -52,7 +44,7 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 
 ## Current Known State
 
-마지막 확인일: 2026-05-07
+마지막 확인일: 2026-05-15
 
 - [x] 브랜치: `lean_mvp`
 - [x] `flutter analyze` 통과
@@ -60,14 +52,15 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 - [x] `flutter build ios --release --no-codesign --dart-define-from-file=.env` 통과
 - [x] Firebase / Bluetooth / Speech / TTS / Audio 의존성 제거 확인
 - [x] `Info.plist`는 위치 When-In-Use를 실제 요청 권한으로 유지하고, App Store binary scanner 대응용 Speech/Always Location purpose string을 포함
+- [x] `Info.plist`에 `ITSAppUsesNonExemptEncryption=false` 포함
 - [x] `PrivacyInfo.xcprivacy` Runner 리소스 포함
 - [x] `.env.example` 필수 키 정리: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `MAPBOX_ACCESS_TOKEN`
-- [x] 버전: `1.38.0+39`
+- [x] 버전: `1.38.0+41`
 - [x] Bundle ID: `com.revv.revvApp`
 - [x] Apple Team: `BMG2X5W7V9`
 - [x] 릴리즈 후보 커밋/푸시
-- [ ] IPA export: Apple Developer Program 가입 전까지 보류
-- [ ] App Store Connect 업로드: Apple Developer Program 가입 전까지 보류
+- [x] IPA export: `build/ios/ipa/revv_app.ipa`
+- [ ] App Store Connect 업로드
 - [x] 실기기 핵심 플로우 smoke test
 - [x] 실패 상태 사용자 문구 보강 및 no-env 빌드 검증
 - [x] Pending telemetry detail을 secure storage 기반 pending queue로 이동
@@ -75,7 +68,7 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 - [x] Active Supabase migrations에 core schema와 Data API GRANT 추가
 - [x] Supabase migration security static test/runbook 추가
 - [ ] 실기기 10분 주행 smoke test
-- [ ] 외부 TestFlight 베타 오픈: Apple Developer Program 가입 전까지 보류
+- [ ] 외부 TestFlight 베타 오픈
 
 ## Execution Blocks
 
@@ -198,40 +191,33 @@ flutter run --release --dart-define-from-file=.env -d 00008120-000621623E90A01E
 
 목표: App Store Connect에 올릴 수 있는 `.ipa`를 만든다.
 
-상태: 보류.
+상태: IPA export 완료, App Store Connect 업로드 대기.
 
-2026-05-07 실행 결과:
+2026-05-15 실행 결과:
 
-- `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39`는 archive 단계까지 성공했다.
+- `flutter build ipa --release --dart-define-from-file=.env`가 성공했다.
 - 생성된 archive: `build/ios/archive/Runner.xcarchive`
-- IPA export는 Apple Developer/App Store Connect 권한과 배포 서명 부재로 실패했다.
-- 확인된 에러:
-
-```text
-No provider associated with App Store Connect user
-No signing certificate "iOS Distribution" found
-Team "MinWoo Han" does not have permission to create "iOS App Store" provisioning profiles
-No profiles for 'com.revv.revvApp' were found
-```
+- 생성된 IPA: `build/ios/ipa/revv_app.ipa`
+- Version / Build: `1.38.0 (41)`
 
 결론:
 
-- 앱 코드/Flutter 빌드 문제는 아니다.
-- Apple Developer Program 가입과 App Store 배포 서명 설정 전까지 이 블록은 진행하지 않는다.
+- 앱 코드/Flutter/iOS 서명 export 단계는 통과했다.
+- 다음 차단 가능성은 App Store Connect 메타데이터, 암호화/개인정보 답변, Beta App Review다.
 
 사전 확인:
 
-- [ ] Apple Developer 계정 활성
-- [ ] Bundle ID: `com.revv.revvApp`
-- [ ] Team: `BMG2X5W7V9`
-- [ ] Apple Distribution certificate 준비
-- [ ] App Store provisioning profile 준비
-- [ ] Xcode Signing 설정 확인
+- [x] Apple Developer 계정 활성
+- [x] Bundle ID: `com.revv.revvApp`
+- [x] Team: `BMG2X5W7V9`
+- [x] Apple Distribution certificate 준비
+- [x] App Store provisioning profile 준비
+- [x] Xcode Signing 설정 확인
 
 빌드 명령:
 
 ```sh
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39
+flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=41
 ```
 
 업로드 방법:
@@ -242,7 +228,7 @@ flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --b
 완료 기준:
 
 - `build/ios/ipa/*.ipa`가 생성된다.
-- App Store Connect 빌드 목록에 `1.38.0 (39)`가 처리 완료 상태로 보인다.
+- App Store Connect 빌드 목록에 `1.38.0 (41)`가 처리 완료 상태로 보인다.
 - Firebase 초기화 실패, 권한 누락, 서명 오류가 없다.
 
 실패 시 확인할 항목:

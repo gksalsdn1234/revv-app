@@ -41,10 +41,11 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 - [ ] Team: `BMG2X5W7V9`.
 - [ ] Display Name: `Revv App`.
 - [ ] Version: `1.38.0`.
-- [ ] Build Number: `39` 또는 이전 업로드보다 높은 숫자.
+- [ ] Build Number: `41` 또는 이전 업로드보다 높은 숫자.
 - [ ] App icon이 기본 Flutter 아이콘이 아닌 REVV 아이콘인지 확인한다.
 - [ ] Launch screen이 기본 Flutter 화면이 아닌지 확인한다.
 - [ ] `Info.plist` 권한 문구는 실제 요청 권한인 위치 When-In-Use를 설명하고, permission library가 참조할 수 있는 Speech/Always Location purpose string도 방어적으로 포함한다.
+- [ ] `Info.plist`에 `ITSAppUsesNonExemptEncryption=false`가 포함되어 표준 HTTPS 암호화만 사용하는 베타임을 명시한다.
 - [ ] `ios/Runner/PrivacyInfo.xcprivacy`가 Runner target에 포함되어 있다.
 
 ## 4. 개인정보 / App Store Connect 입력 준비
@@ -67,7 +68,7 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 flutter clean
 flutter pub get
 cd ios && pod install && cd ..
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=39
+flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=41
 ```
 
 - [ ] `build/ios/ipa/*.ipa`가 생성된다.
