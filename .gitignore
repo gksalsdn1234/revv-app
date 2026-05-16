@@ -48,6 +48,10 @@ node_modules/
 functions/lib/
 .lazyweb/
 
+# Local/generated planning exports. Do not commit because they may contain
+# copied credentials or stale implementation notes.
+REVV_guide.html
+
 # Supabase secrets (service_role key — never commit)
 .env
 .env.*

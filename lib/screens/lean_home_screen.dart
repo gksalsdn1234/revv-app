@@ -274,7 +274,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                   ),
                   const SizedBox(width: 10),
                   Text(
-                    'v1.38.0+41',
+                    'v1.38.0+42',
                     style: AppText.technicalLabel(
                       size: 9,
                       letterSpacing: 1.3,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'theme/colors.dart';
@@ -55,6 +56,16 @@ class RevvApp extends StatelessWidget {
         builder: (_, settings, _) => MaterialApp(
           title: 'REVV',
           locale: Locale(settings.appLanguage.code),
+          supportedLocales: const [
+            Locale('ko'),
+            Locale('en'),
+            Locale('fr'),
+          ],
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+          ],
           debugShowCheckedModeBanner: false,
           theme: ThemeData(
             scaffoldBackgroundColor: AppColors.bg,

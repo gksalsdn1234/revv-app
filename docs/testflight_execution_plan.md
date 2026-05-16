@@ -12,7 +12,7 @@
 
 - Apple Developer Program과 iOS 배포 서명은 준비됐다.
 - `flutter build ipa --release --dart-define-from-file=.env`가 성공했다.
-- 현재 후보 빌드는 `1.38.0 (41)`이며, IPA는 `build/ios/ipa/revv_app.ipa`에 생성된다.
+- 현재 후보 빌드는 `1.38.0 (42)`이며, IPA는 `build/ios/ipa/revv_app.ipa`에 생성된다.
 
 남은 작업:
 
@@ -55,7 +55,7 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 - [x] `Info.plist`에 `ITSAppUsesNonExemptEncryption=false` 포함
 - [x] `PrivacyInfo.xcprivacy` Runner 리소스 포함
 - [x] `.env.example` 필수 키 정리: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `MAPBOX_ACCESS_TOKEN`
-- [x] 버전: `1.38.0+41`
+- [x] 버전: `1.38.0+42`
 - [x] Bundle ID: `com.revv.revvApp`
 - [x] Apple Team: `BMG2X5W7V9`
 - [x] 릴리즈 후보 커밋/푸시
@@ -198,7 +198,7 @@ flutter run --release --dart-define-from-file=.env -d 00008120-000621623E90A01E
 - `flutter build ipa --release --dart-define-from-file=.env`가 성공했다.
 - 생성된 archive: `build/ios/archive/Runner.xcarchive`
 - 생성된 IPA: `build/ios/ipa/revv_app.ipa`
-- Version / Build: `1.38.0 (41)`
+- Version / Build: `1.38.0 (42)`
 
 결론:
 
@@ -217,7 +217,7 @@ flutter run --release --dart-define-from-file=.env -d 00008120-000621623E90A01E
 빌드 명령:
 
 ```sh
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=41
+flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=42
 ```
 
 업로드 방법:
@@ -228,7 +228,7 @@ flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --b
 완료 기준:
 
 - `build/ios/ipa/*.ipa`가 생성된다.
-- App Store Connect 빌드 목록에 `1.38.0 (41)`가 처리 완료 상태로 보인다.
+- App Store Connect 빌드 목록에 `1.38.0 (42)`가 처리 완료 상태로 보인다.
 - Firebase 초기화 실패, 권한 누락, 서명 오류가 없다.
 
 실패 시 확인할 항목:

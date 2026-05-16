@@ -11,7 +11,7 @@
 - **에뮬레이터**: Mapbox + Android Emulator GFXSTREAM 충돌 → 실기기 필요
 - **커뮤니케이션**: 한국어
 - **아이디어 제안**: 작업 중 UX 개선, 버그 예방, 성능 최적화 관련 좋은 아이디어가 떠오르면 민우에게 적극적으로 제안할 것. 단, 작업 흐름을 방해하지 않게 작업 완료 후 간략히 제안
-- **세계수 업데이트**: 주요 기능 추가/변경 시 `C:\Users\gksal\REVV\REVV_guide.html` (세계수 로드맵)도 반드시 함께 업데이트할 것. GitHub push 시 자동으로 revv-eb7c9.web.app에 배포됨
+- **로컬 산출물 주의**: `REVV_guide.html` 같은 일회성 로드맵/export 파일은 커밋하지 않는다. 오래된 키나 구현 메모가 섞일 수 있다.
 
 ## 현재 버전: v1.40 (2026-03-31)
 
@@ -19,10 +19,10 @@
 - Flutter 3.x + Dart
 - Mapbox (`mapbox_maps_flutter ^2.3.0`) — 커스텀 스타일 `mapbox://styles/mingwoo/cmmk93np3003301rzajll6msm`
 - Overpass API — 루트 탐색 (커브 분석)
-- Claude API — Jarvis 브리핑
+- Supabase — route/run/feedback cloud storage
 - Provider — 상태관리 (12개 서비스 등록)
-- shared_preferences — 런 기록 + 집 위치 저장
-- flutter_tts — 턴바이턴 음성 안내
+- shared_preferences — 경량 설정/캐시
+- flutter_secure_storage — Supabase session + pending telemetry 안전망
 - sensors_plus — IMU G포스 (ImuService, 50Hz)
 
 ## 핵심 파일 구조
@@ -130,22 +130,17 @@ ChangeNotifier를 extend하지 않는 서비스 — Provider 등록 없이 직�
 - **RevvAiService** → run_card_screen.dart, mic_button.dart에서 직접 사용
 - **RouteBriefService** → routes_bottom_sheet.dart에서 직접 사용
 
-## Firebase 서비스 구조
-- **CloudSyncService**: `services/cloud_sync_service.dart` — firebase_auth 익명 로그인 + Firestore 런 동기화
-- **컬렉션 경로**: `users/{uid}/runs/{runId}`
-- **주의**: Firestore 보안 규칙 아직 기본값 — 배포 전 오너 전용으로 설정 필요
+## Cloud/Supabase 서비스 구조
+- **SupabaseService**: `lib/services/supabase_service.dart` — route catalog, run summary/detail, feedback upload
+- **RunHistoryService**: cloud-primary run storage. Local detail은 pending upload 안전망으로만 유지
+- **SecureSessionStore**: Supabase session을 secure storage로 보관
+- **주의**: user data table은 RLS + `auth.uid()` 기준으로만 접근 가능해야 한다
 
 ## Mapbox 설정
-- Public Token: `lib/services/mapbox_service.dart`에 있음
-- Mapbox username: mingwoo
-- 커스텀 스타일: `mapbox://styles/mingwoo/cmmk93np3003301rzajll6msm` (REVV Waze Neon v3)
-- 스프린트 navStyle: `mapbox://styles/mapbox/navigation-night-v1`
-
-## Firebase
-- 세계수(로드맵) 호스팅: https://revv-eb7c9.web.app
-- 세계수 로컬: `C:\Users\gksal\REVV\REVV_guide.html`
-- GitHub Actions 자동 배포: REVV_guide.html push → 자동으로 revv-eb7c9.web.app 배포
-- 수동 배포 필요 시: `cd C:\Users\gksal\REVV\.guide-hosting && firebase deploy --only hosting --project revv-eb7c9`
+- Public Token은 `MAPBOX_ACCESS_TOKEN` dart-define/.env로 주입한다. 토큰 원문을 커밋하지 않는다.
+- 지도 렌더링: `lib/widgets/map_widget.dart`
+- route geometry matching: `lib/services/route_geometry_matcher.dart`
+- 커브길 field 표시/선택 UX는 lean MVP의 핵심이다.
 
 ## GitHub
 - Repo: https://github.com/gksalsdn1234/revv-app (Private)
