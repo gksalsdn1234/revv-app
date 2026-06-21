@@ -30,6 +30,16 @@ class _RoutesScreenState extends State<RoutesScreen> {
   String? _lastFlownRouteId;
   RouteService? _routeSvc;
 
+  // ── 정렬 ──────────────────────────────────────────────────────
+  int _sortMode = 0; // 0=점수순, 1=거리순
+
+  List<RevvRoute> _sorted(List<RevvRoute> routes) {
+    if (_sortMode == 0) return routes; // RouteService가 이미 windingScore 내림차순
+    final list = [...routes];
+    list.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
+    return list;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -164,16 +174,18 @@ class _RoutesScreenState extends State<RoutesScreen> {
   // ── 화살표 네비게이션 ────────────────────────────────────────────
   void _prevRoute(RouteService svc) {
     if (svc.routes.isEmpty) return;
-    final idx = svc.routes.indexWhere((r) => r.id == svc.selectedRoute?.id);
-    final newIdx = ((idx <= 0 ? svc.routes.length : idx) - 1);
-    svc.selectRoute(svc.routes[newIdx]);
+    final sorted = _sorted(svc.routes);
+    final idx = sorted.indexWhere((r) => r.id == svc.selectedRoute?.id);
+    final newIdx = ((idx <= 0 ? sorted.length : idx) - 1);
+    svc.selectRoute(sorted[newIdx]);
   }
 
   void _nextRoute(RouteService svc) {
     if (svc.routes.isEmpty) return;
-    final idx = svc.routes.indexWhere((r) => r.id == svc.selectedRoute?.id);
-    final newIdx = (idx + 1) % svc.routes.length;
-    svc.selectRoute(svc.routes[newIdx]);
+    final sorted = _sorted(svc.routes);
+    final idx = sorted.indexWhere((r) => r.id == svc.selectedRoute?.id);
+    final newIdx = (idx + 1) % sorted.length;
+    svc.selectRoute(sorted[newIdx]);
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -337,9 +349,13 @@ class _RoutesScreenState extends State<RoutesScreen> {
             top: MediaQuery.of(context).padding.top + 70,
             left: 20,
             right: 20,
-            child: Consumer<RouteService>(
-              builder: (_, svc, __) {
+            child: Consumer2<RouteService, RunHistoryService>(
+              builder: (_, svc, histSvc, __) {
                 final selected = svc.selectedRoute;
+                final sorted = _sorted(svc.routes);
+                final isTopPick = sorted.isNotEmpty && selected?.id == sorted.first.id;
+                final isNew = selected != null &&
+                    histSvc.history.every((s) => s.routeId != selected.id);
                 return AnimatedSlide(
                   offset: selected != null
                       ? Offset.zero
@@ -361,6 +377,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
                                       0, (s, r) => s + r.distanceKm),
                               onGo: () => svc.requestSprint(),
                               onClose: () => svc.deselectRoute(),
+                              isTopPick: isTopPick,
+                              isNew: isNew,
                             )
                           : const SizedBox.shrink(),
                     ),
@@ -424,12 +442,11 @@ class _RoutesScreenState extends State<RoutesScreen> {
                     ),
                   );
                 }
-                final total = svc.routes.length;
+                final sorted = _sorted(svc.routes);
+                final total = sorted.length;
                 final idx = total == 0
                     ? 0
-                    : svc.routes
-                            .indexWhere((r) => r.id == svc.selectedRoute?.id) +
-                        1;
+                    : sorted.indexWhere((r) => r.id == svc.selectedRoute?.id) + 1;
                 return Center(
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -456,15 +473,43 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         Container(
                           width: 1,
                           height: 14,
-                          margin:
-                              const EdgeInsets.symmetric(horizontal: 10),
+                          margin: const EdgeInsets.symmetric(horizontal: 10),
+                          color: Colors.white24,
+                        ),
+                        // 정렬 토글
+                        GestureDetector(
+                          onTap: () => setState(() => _sortMode = _sortMode == 0 ? 1 : 0),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _sortMode == 0 ? Icons.star_rounded : Icons.near_me_rounded,
+                                size: 11,
+                                color: AppColors.red,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                _sortMode == 0 ? '점수순' : '거리순',
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white70,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          width: 1,
+                          height: 14,
+                          margin: const EdgeInsets.symmetric(horizontal: 10),
                           color: Colors.white24,
                         ),
                         // 반경 버튼
                         _RadiusBtn(km: 30, active: svc.searchRadiusKm == 30),
                         _RadiusBtn(km: 50, active: svc.searchRadiusKm == 50),
-                        _RadiusBtn(
-                            km: 100, active: svc.searchRadiusKm == 100),
+                        _RadiusBtn(km: 100, active: svc.searchRadiusKm == 100),
                       ],
                     ),
                   ),
@@ -505,6 +550,8 @@ class _RouteTooltip extends StatelessWidget {
   final double totalChainKm;
   final VoidCallback onGo;
   final VoidCallback onClose;
+  final bool isTopPick;
+  final bool isNew;
 
   const _RouteTooltip({
     required this.route,
@@ -512,6 +559,8 @@ class _RouteTooltip extends StatelessWidget {
     required this.totalChainKm,
     required this.onGo,
     required this.onClose,
+    this.isTopPick = false,
+    this.isNew = false,
   });
 
   @override
@@ -554,19 +603,64 @@ class _RouteTooltip extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 루트 이름 + 닫기
+                // 루트 이름 + 배지 + 닫기
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        route.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.rajdhani(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              route.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.rajdhani(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          if (isTopPick) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.red.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: AppColors.red.withValues(alpha: 0.5)),
+                              ),
+                              child: Text(
+                                'PICK',
+                                style: GoogleFonts.orbitron(
+                                  fontSize: 7,
+                                  fontWeight: FontWeight.w900,
+                                  color: AppColors.red,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ),
+                          ] else if (isNew) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.greenAccent.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.4)),
+                              ),
+                              child: Text(
+                                'NEW',
+                                style: GoogleFonts.orbitron(
+                                  fontSize: 7,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.greenAccent,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                     // ♥ 북마크 버튼
