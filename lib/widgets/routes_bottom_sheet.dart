@@ -364,17 +364,42 @@ class RouteInfoOverlay extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(width: 6),
-                      // 닫기
-                      GestureDetector(
-                        onTap: () => svc.deselectRoute(),
-                        child: Container(
-                          width: 28, height: 28,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.06),
-                            shape: BoxShape.circle,
+                      // 액션 버튼 열 (배제 + 닫기)
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // 닫기
+                          GestureDetector(
+                            onTap: () => svc.deselectRoute(),
+                            child: Container(
+                              width: 28, height: 28,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.06),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.close, size: 14, color: Colors.white54),
+                            ),
                           ),
-                          child: const Icon(Icons.close, size: 14, color: Colors.white54),
-                        ),
+                          const SizedBox(height: 6),
+                          // 배제 버튼
+                          GestureDetector(
+                            onTap: () {
+                              final route = svc.selectedRoute;
+                              if (route != null) svc.excludeRoute(route);
+                            },
+                            child: Container(
+                              width: 28, height: 28,
+                              decoration: BoxDecoration(
+                                color: AppColors.red.withValues(alpha: 0.12),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: AppColors.red.withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: const Icon(Icons.block, size: 13, color: AppColors.red),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

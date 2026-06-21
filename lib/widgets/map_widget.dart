@@ -77,7 +77,7 @@ class _MapWidgetState extends State<MapWidget> {
         _drawPolyline('nav', widget.navPolyline ?? [], Colors.blue.value, 4.0);
       }
       if (oldWidget.routePolyline != widget.routePolyline) {
-        _drawPolyline('route', widget.routePolyline ?? [], AppColors.red.value, 5.5);
+        _drawPolyline('route', widget.routePolyline ?? [], AppColors.orange.value, 5.5);
       }
     }
     // 스타일 재로드 중(_styleLoaded=false)에 polyline 변경이 오면
@@ -135,9 +135,11 @@ class _MapWidgetState extends State<MapWidget> {
     if (map == null || !_styleLoaded) return;
 
     final sourceId = '$id-source';
+    final casingId = '$id-casing-layer';
     final layerId = '$id-layer';
 
     try { await map.style.removeStyleLayer(layerId); } catch (_) {}
+    try { await map.style.removeStyleLayer(casingId); } catch (_) {}
     try { await map.style.removeStyleSource(sourceId); } catch (_) {}
 
     if (points.isEmpty) return;
@@ -153,12 +155,23 @@ class _MapWidgetState extends State<MapWidget> {
 
     try {
       await map.style.addSource(mbx.GeoJsonSource(id: sourceId, data: geoJson));
+      // 검정 테두리 (casing) — 지도 배경과 구분
+      await map.style.addLayer(mbx.LineLayer(
+        id: casingId,
+        sourceId: sourceId,
+        lineColor: 0xFF000000,
+        lineWidth: width + 3.0,
+        lineOpacity: 0.85,
+        lineCap: mbx.LineCap.ROUND,
+        lineJoin: mbx.LineJoin.ROUND,
+      ));
+      // 메인 색상 레이어
       await map.style.addLayer(mbx.LineLayer(
         id: layerId,
         sourceId: sourceId,
         lineColor: colorArgb,
         lineWidth: width,
-        lineOpacity: 0.9,
+        lineOpacity: 1.0,
         lineCap: mbx.LineCap.ROUND,
         lineJoin: mbx.LineJoin.ROUND,
       ));
