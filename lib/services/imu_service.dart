@@ -5,14 +5,15 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum MountType {
-  dashFlat,   // 대시보드 수평 (화면 위)
-  ventPort,   // 에어컨 마운트 세로 (화면 앞)
-  ventLand,   // 에어컨 마운트 가로 (화면 앞)
+  dashFlat, // 대시보드 수평 (화면 위)
+  ventPort, // 에어컨 마운트 세로 (화면 앞)
+  ventLand, // 에어컨 마운트 가로 (화면 앞)
   windshield, // 앞유리 마운트 세로
 }
 
 class ImuService extends ChangeNotifier {
   static const double _g = 9.81;
+  static const Duration _driveSamplingPeriod = Duration(milliseconds: 50);
 
   MountType _mountType = MountType.dashFlat;
   MountType get mountType => _mountType;
@@ -43,6 +44,12 @@ class ImuService extends ChangeNotifier {
   StreamSubscription? _accelSub;
   StreamSubscription? _gyroSub;
   bool _notifyPending = false; // 프레임당 1회만 notify (레이아웃 assertion 방지)
+  int _sensorClients = 0;
+  Future<void>? _startingSensors;
+  late final Future<void> _prefsReady;
+
+  bool get isActive =>
+      _accelSub != null || _gyroSub != null || _startingSensors != null;
 
   // ── 공개 G값 ──────────────────────────────────────────────
 
@@ -63,66 +70,105 @@ class ImuService extends ChangeNotifier {
 
   double _lateral() {
     switch (_mountType) {
-      case MountType.dashFlat:   return _rawX - _offX;
-      case MountType.ventPort:   return _rawX - _offX;
-      case MountType.ventLand:   return _rawY - _offY;
-      case MountType.windshield: return _rawX - _offX;
+      case MountType.dashFlat:
+        return _rawX - _offX;
+      case MountType.ventPort:
+        return _rawX - _offX;
+      case MountType.ventLand:
+        return _rawY - _offY;
+      case MountType.windshield:
+        return _rawX - _offX;
     }
   }
 
   double _longitudinal() {
     switch (_mountType) {
-      case MountType.dashFlat:   return _rawY - _offY;
-      case MountType.ventPort:   return -(_rawZ - _offZ);
-      case MountType.ventLand:   return -(_rawZ - _offZ);
-      case MountType.windshield: return -(_rawZ - _offZ);
+      case MountType.dashFlat:
+        return _rawY - _offY;
+      case MountType.ventPort:
+        return -(_rawZ - _offZ);
+      case MountType.ventLand:
+        return -(_rawZ - _offZ);
+      case MountType.windshield:
+        return -(_rawZ - _offZ);
     }
   }
 
   double _yaw() {
     switch (_mountType) {
-      case MountType.dashFlat:   return _gyrZ;
-      case MountType.ventPort:   return _gyrY;
-      case MountType.ventLand:   return _gyrY;
-      case MountType.windshield: return _gyrY;
+      case MountType.dashFlat:
+        return _gyrZ;
+      case MountType.ventPort:
+        return _gyrY;
+      case MountType.ventLand:
+        return _gyrY;
+      case MountType.windshield:
+        return _gyrY;
     }
   }
 
   // ── 초기화 ────────────────────────────────────────────────
 
   ImuService() {
-    _loadPrefs().then((_) => _startSensors());
+    _prefsReady = _loadPrefs();
   }
 
-  void _startSensors() {
-    _accelSub = accelerometerEventStream(
-      samplingPeriod: const Duration(milliseconds: 20), // 50Hz
-    ).listen((e) {
-      _rawX = e.x;
-      _rawY = e.y;
-      _rawZ = e.z;
-      final lG = (_lateral() / _g).abs();
-      final nG = (_longitudinal() / _g).abs();
-      if (lG > _maxLateralG) _maxLateralG = lG;
-      if (nG > _maxLonG) _maxLonG = nG;
-      // addPostFrameCallback으로 감싸야 layout 패스 중 notifyListeners() 호출 방지
-      // → '!_debugDoingThisLayout' assertion + RenderBox not laid out 해결
-      // 프레임당 1회만 등록 (50Hz 센서가 한 프레임 안에 여러 번 올 수 있음)
-      if (!_notifyPending) {
-        _notifyPending = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _notifyPending = false;
-          notifyListeners();
-        });
-      }
+  Future<void> start() {
+    _sensorClients++;
+    _startingSensors ??= _startSensors().whenComplete(() {
+      _startingSensors = null;
     });
+    return _startingSensors!;
+  }
 
-    _gyroSub = gyroscopeEventStream(
-      samplingPeriod: const Duration(milliseconds: 20),
-    ).listen((e) {
-      _gyrY = e.y;
-      _gyrZ = e.z;
-    });
+  void stop() {
+    if (_sensorClients > 0) _sensorClients--;
+    if (_sensorClients > 0) return;
+
+    final wasActive = isActive;
+    unawaited(_accelSub?.cancel());
+    unawaited(_gyroSub?.cancel());
+    _accelSub = null;
+    _gyroSub = null;
+    _notifyPending = false;
+    if (wasActive) notifyListeners();
+  }
+
+  Future<void> _startSensors() async {
+    if (_accelSub != null || _gyroSub != null) return;
+    await _prefsReady;
+    if (_sensorClients <= 0) return;
+
+    _accelSub =
+        accelerometerEventStream(
+          samplingPeriod: _driveSamplingPeriod, // 20Hz, 주행 중에만 활성화
+        ).listen((e) {
+          _rawX = e.x;
+          _rawY = e.y;
+          _rawZ = e.z;
+          final lG = (_lateral() / _g).abs();
+          final nG = (_longitudinal() / _g).abs();
+          if (lG > _maxLateralG) _maxLateralG = lG;
+          if (nG > _maxLonG) _maxLonG = nG;
+          // addPostFrameCallback으로 감싸야 layout 패스 중 notifyListeners() 호출 방지
+          // → '!_debugDoingThisLayout' assertion + RenderBox not laid out 해결
+          // 프레임당 1회만 등록 (50Hz 센서가 한 프레임 안에 여러 번 올 수 있음)
+          if (!_notifyPending) {
+            _notifyPending = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _notifyPending = false;
+              notifyListeners();
+            });
+          }
+        });
+
+    _gyroSub = gyroscopeEventStream(samplingPeriod: _driveSamplingPeriod)
+        .listen((e) {
+          _gyrY = e.y;
+          _gyrZ = e.z;
+        });
+
+    notifyListeners();
   }
 
   // ── Public API ────────────────────────────────────────────
@@ -175,8 +221,11 @@ class ImuService extends ChangeNotifier {
 
   @override
   void dispose() {
-    _accelSub?.cancel();
-    _gyroSub?.cancel();
+    _sensorClients = 0;
+    unawaited(_accelSub?.cancel());
+    unawaited(_gyroSub?.cancel());
+    _accelSub = null;
+    _gyroSub = null;
     super.dispose();
   }
 }

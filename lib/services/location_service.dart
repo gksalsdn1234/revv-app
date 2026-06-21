@@ -7,9 +7,13 @@ import '../core/storage_keys.dart';
 import '../models/revv_route.dart';
 
 class LocationService extends ChangeNotifier {
-  static const LocationSettings _trackingSettings = LocationSettings(
-    accuracy: LocationAccuracy.bestForNavigation,
-    distanceFilter: 5,
+  static const LocationSettings _driveTrackingSettings = LocationSettings(
+    accuracy: LocationAccuracy.high,
+    distanceFilter: 12,
+  );
+  static const LocationSettings _singleFixSettings = LocationSettings(
+    accuracy: LocationAccuracy.medium,
+    distanceFilter: 50,
   );
   static const Duration _notifyThrottle = Duration(milliseconds: 250);
 
@@ -58,7 +62,7 @@ class LocationService extends ChangeNotifier {
     isTracking = true;
     _subscription =
         Geolocator.getPositionStream(
-          locationSettings: _trackingSettings,
+          locationSettings: _driveTrackingSettings,
         ).listen(
           (position) {
             _applyPosition(position);
@@ -70,7 +74,10 @@ class LocationService extends ChangeNotifier {
             _scheduleNotify();
           },
         );
-    await ensureLiveLocation(timeout: const Duration(seconds: 5));
+    await ensureLiveLocation(
+      timeout: const Duration(seconds: 5),
+      highAccuracy: true,
+    );
   }
 
   void _scheduleNotify() {
@@ -118,6 +125,7 @@ class LocationService extends ChangeNotifier {
 
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
+    bool highAccuracy = false,
   }) async {
     await _hydrateLastKnownLocation();
     if (!hasPermission) {
@@ -141,13 +149,17 @@ class LocationService extends ChangeNotifier {
       if (tracked != null) return tracked;
     }
 
-    final streamed = await _awaitSingleStreamLocation(timeout);
+    final settings = highAccuracy ? _driveTrackingSettings : _singleFixSettings;
+    final streamed = await _awaitSingleStreamLocation(timeout, settings);
     if (streamed != null) return streamed;
 
     try {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
+          accuracy: highAccuracy
+              ? LocationAccuracy.high
+              : LocationAccuracy.medium,
+          distanceFilter: highAccuracy ? 12 : 50,
           timeLimit: timeout,
         ),
       );
@@ -193,14 +205,15 @@ class LocationService extends ChangeNotifier {
     }
   }
 
-  Future<LatLng?> _awaitSingleStreamLocation(Duration timeout) async {
+  Future<LatLng?> _awaitSingleStreamLocation(
+    Duration timeout,
+    LocationSettings settings,
+  ) async {
     StreamSubscription<Position>? tempSubscription;
     final completer = Completer<LatLng?>();
 
-    tempSubscription =
-        Geolocator.getPositionStream(
-          locationSettings: _trackingSettings,
-        ).listen(
+    tempSubscription = Geolocator.getPositionStream(locationSettings: settings)
+        .listen(
           (position) {
             _applyPosition(position);
             if (!completer.isCompleted) {

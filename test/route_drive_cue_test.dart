@@ -11,6 +11,13 @@ const _routeNodes = [
   LatLng(45.0024, -72.9970),
 ];
 
+const _singleCornerNodes = [
+  LatLng(45.0000, -73.0000),
+  LatLng(45.0010, -73.0000),
+  LatLng(45.0010, -72.9985),
+  LatLng(45.0010, -72.9970),
+];
+
 void main() {
   test('far before route start asks driver to reach the start point', () {
     final state = readDriveRouteState(
@@ -34,9 +41,82 @@ void main() {
     expect(state.status, DriveRouteStatus.onRoute);
     expect(state.cue, isNotNull);
     expect(state.cue!.distanceM, inInclusiveRange(30, 800));
-    expect(state.cue!.headline, matches(RegExp(r'^\d+m (좌측|우측) ')));
+    expect(state.cue!.headline, matches(RegExp(r'^\d+초 뒤 · \d+m (좌측|우측) ')));
     expect(state.cue!.rhythmLine, isNotEmpty);
     expect(state.rhythmBrief.rhythmLabel, anyOf('연속 코너', '짧은 전환', '단일 커브'));
+  });
+
+  test('on-route cue exposes ETA phase corner type and sequence metadata', () {
+    final state = readDriveRouteState(
+      const LatLng(45.00035, -73.0000),
+      _routeNodes,
+      speedKmh: 80,
+    );
+
+    expect(state.status, DriveRouteStatus.onRoute);
+    expect(state.cue, isNotNull);
+    expect(state.cue!.etaText, matches(RegExp(r'^\d+초$')));
+    expect(state.cue!.phaseLabel, '준비');
+    expect(state.cue!.cornerTypeLabel, isNotEmpty);
+    expect(state.cue!.sequenceLine, isNotEmpty);
+    expect(state.cue!.headline, contains('초'));
+    expect(state.cue!.headline, contains('m'));
+  });
+
+  test('just-passed corner cue does not render as a future ETA', () {
+    final state = readDriveRouteState(
+      const LatLng(45.0010, -72.99990),
+      _routeNodes,
+      speedKmh: 40,
+    );
+
+    expect(state.status, DriveRouteStatus.onRoute);
+    expect(state.cue, isNotNull);
+    expect(state.cue!.phaseLabel, '통과');
+    expect(state.cue!.etaText, '방금');
+    expect(state.cue!.headline, startsWith('통과 ·'));
+    expect(state.cue!.headline, isNot(contains('뒤')));
+  });
+
+  test('route progress does not snap back to a passed corner cue', () {
+    final beforeCorner = readDriveRouteState(
+      const LatLng(45.00045, -73.0000),
+      _singleCornerNodes,
+    );
+
+    final afterCorner = readDriveRouteState(
+      const LatLng(45.00092, -73.0000),
+      _singleCornerNodes,
+      minimumAlongM: 140,
+    );
+
+    expect(beforeCorner.cue, isNotNull);
+    expect(beforeCorner.cue!.distanceM, inInclusiveRange(30, 800));
+    expect(afterCorner.status, DriveRouteStatus.onRoute);
+    expect(afterCorner.progress, greaterThan(beforeCorner.progress));
+    expect(afterCorner.cue, isNull);
+    expect(afterCorner.rhythmBrief.rhythmLabel, '흐름 구간');
+  });
+
+  test('connector segment lowers corner briefing intensity', () {
+    final state = readDriveRouteState(
+      const LatLng(45.00035, -73.0000),
+      _routeNodes,
+      routeSegments: const [
+        RouteSegmentRange(
+          kind: RouteSegmentKind.connector,
+          startNodeIndex: 0,
+          endNodeIndex: 2,
+          distanceKm: 0.24,
+          label: 'Connector',
+        ),
+      ],
+    );
+
+    expect(state.status, DriveRouteStatus.onRoute);
+    expect(state.cue, isNull);
+    expect(state.rhythmBrief.rhythmLabel, '연결 구간');
+    expect(state.rhythmBrief.severity, 0);
   });
 
   test(

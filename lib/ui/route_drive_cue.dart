@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../core/app_language.dart';
 import '../models/revv_route.dart';
 import 'app_copy.dart';
+import 'drive_corner_state_machine.dart';
+import 'route_corner_profile.dart';
 
 enum DriveRouteStatus { approachingStart, onRoute, offRoute, completed }
 
@@ -21,6 +23,10 @@ class DriveCurveCue {
   final int curveCountAhead;
   final double horizonM;
   final int severity;
+  final String? etaText;
+  final String? phaseLabel;
+  final String? cornerTypeLabel;
+  final String? sequenceLine;
 
   const DriveCurveCue({
     required this.label,
@@ -35,6 +41,10 @@ class DriveCurveCue {
     required this.curveCountAhead,
     required this.horizonM,
     required this.severity,
+    this.etaText,
+    this.phaseLabel,
+    this.cornerTypeLabel,
+    this.sequenceLine,
   });
 }
 
@@ -54,6 +64,7 @@ class DriveRhythmBrief {
 
 class DriveRouteState {
   final double progress;
+  final double alongM;
   final double remainingKm;
   final DriveCurveCue? cue;
   final DriveRhythmBrief rhythmBrief;
@@ -63,6 +74,7 @@ class DriveRouteState {
 
   const DriveRouteState({
     required this.progress,
+    required this.alongM,
     required this.remainingKm,
     required this.cue,
     required this.rhythmBrief,
@@ -76,10 +88,16 @@ DriveRouteState readDriveRouteState(
   LatLng position,
   List<LatLng> nodes, {
   AppLanguage? language,
+  double? minimumAlongM,
+  double speedKmh = 0,
+  RouteCornerProfile? cornerProfile,
+  DriveCornerStateMachine? cornerStateMachine,
+  List<RouteSegmentRange> routeSegments = const [],
 }) {
   if (nodes.length < 3) {
     return DriveRouteState(
       progress: 0,
+      alongM: 0,
       remainingKm: 0,
       cue: null,
       rhythmBrief: DriveRhythmBrief(
@@ -109,6 +127,7 @@ DriveRouteState readDriveRouteState(
   if (totalM <= 0) {
     return DriveRouteState(
       progress: 0,
+      alongM: 0,
       remainingKm: 0,
       cue: null,
       rhythmBrief: DriveRhythmBrief(
@@ -133,7 +152,14 @@ DriveRouteState readDriveRouteState(
     );
   }
 
-  final nearest = _nearestRouteProjection(position, nodes, cumulativeM);
+  final rawNearest = _nearestRouteProjection(position, nodes, cumulativeM);
+  final minimumM = minimumAlongM?.clamp(0.0, totalM).toDouble();
+  final nearest =
+      minimumM != null &&
+          rawNearest.distanceM <= 120 &&
+          rawNearest.alongM < minimumM
+      ? _Projection(alongM: minimumM, distanceM: rawNearest.distanceM)
+      : rawNearest;
   final distanceToStartM = RevvRoute.haversineKm(position, nodes.first) * 1000;
   final remainingM = math.max(0.0, totalM - nearest.alongM);
   final progress = (nearest.alongM / totalM).clamp(0.0, 1.0).toDouble();
@@ -147,6 +173,7 @@ DriveRouteState readDriveRouteState(
   if (status == DriveRouteStatus.approachingStart) {
     return DriveRouteState(
       progress: 0,
+      alongM: nearest.alongM,
       remainingKm: totalM / 1000,
       status: status,
       distanceFromRouteM: nearest.distanceM,
@@ -188,6 +215,7 @@ DriveRouteState readDriveRouteState(
   if (status == DriveRouteStatus.offRoute) {
     return DriveRouteState(
       progress: progress,
+      alongM: nearest.alongM,
       remainingKm: remainingM / 1000,
       status: status,
       distanceFromRouteM: nearest.distanceM,
@@ -215,6 +243,7 @@ DriveRouteState readDriveRouteState(
   if (status == DriveRouteStatus.completed) {
     return DriveRouteState(
       progress: 1,
+      alongM: nearest.alongM,
       remainingKm: 0,
       status: status,
       distanceFromRouteM: nearest.distanceM,
@@ -267,15 +296,33 @@ DriveRouteState readDriveRouteState(
     );
   }
 
-  final cue = _nextCurveCue(nodes, cumulativeM, nearest.alongM, language);
+  final profile = cornerProfile ?? cornerStateMachine?.profile;
+  final stateMachine =
+      cornerStateMachine ??
+      DriveCornerStateMachine(profile ?? RouteCornerProfile.fromNodes(nodes));
+  final cornerSnapshot = stateMachine.read(
+    alongM: nearest.alongM,
+    speedKmh: speedKmh,
+  );
+  final inConnector = _isConnectorSegment(
+    routeSegments,
+    cumulativeM,
+    nearest.alongM,
+  );
+  final cue = inConnector
+      ? null
+      : _curveCueFromSnapshot(cornerSnapshot, language);
   return DriveRouteState(
     progress: progress,
+    alongM: nearest.alongM,
     remainingKm: remainingM / 1000,
     status: status,
     distanceFromRouteM: nearest.distanceM,
     distanceToStartM: distanceToStartM,
     cue: cue,
-    rhythmBrief: _rhythmForOnRoute(cue, language),
+    rhythmBrief: inConnector
+        ? _rhythmForConnector(language)
+        : _rhythmForOnRoute(cue, language),
   );
 }
 
@@ -334,6 +381,20 @@ DriveRhythmBrief _rhythmForOffRoute(
   );
 }
 
+DriveRhythmBrief _rhythmForConnector(AppLanguage? language) {
+  return DriveRhythmBrief(
+    rhythmLabel: _driveText(language, '연결 구간', 'Connector', 'Liaison'),
+    advice: _driveText(
+      language,
+      '다음 와인딩까지 흐름 유지',
+      'Hold flow to the next winding section',
+      'Gardez le rythme jusqu’au prochain sinueux',
+    ),
+    horizonText: 'LINK',
+    severity: 0,
+  );
+}
+
 DriveRhythmBrief _rhythmForOnRoute(DriveCurveCue? cue, AppLanguage? language) {
   if (cue == null) {
     return DriveRhythmBrief(
@@ -354,122 +415,161 @@ DriveRhythmBrief _rhythmForOnRoute(DriveCurveCue? cue, AppLanguage? language) {
     );
   }
 
-  final rhythmLabel = _rhythmLabelForCue(cue, language);
   return DriveRhythmBrief(
-    rhythmLabel: rhythmLabel,
-    advice: cue.rhythmLine,
+    rhythmLabel: _rhythmLabelForCue(cue, language),
+    advice: cue.sequenceLine ?? cue.rhythmLine,
     horizonText: formatDriveMeters(cue.distanceM),
     severity: cue.severity,
   );
 }
 
-DriveCurveCue? _nextCurveCue(
-  List<LatLng> nodes,
-  List<double> cumulativeM,
-  double alongM,
+DriveCurveCue? _curveCueFromSnapshot(
+  DriveCornerSnapshot snapshot,
   AppLanguage? language,
 ) {
-  final candidates = <_CurveCandidate>[];
-  for (var i = 1; i < nodes.length - 1; i++) {
-    final aheadM = cumulativeM[i] - alongM;
-    if (aheadM < 30) continue;
-    if (aheadM > 1000) break;
+  final corner = snapshot.corner;
+  if (corner == null || snapshot.phase == DriveCornerPhase.clear) return null;
 
-    final turn = _turnDegrees(nodes[i - 1], nodes[i], nodes[i + 1]);
-    final absTurn = turn.abs();
-    if (absTurn < 20) continue;
-    candidates.add(
-      _CurveCandidate(index: i, aheadM: aheadM, turn: turn, absTurn: absTurn),
-    );
-  }
+  final distanceM = snapshot.distanceM;
+  if (distanceM > 800) return null;
 
-  if (candidates.isEmpty || candidates.first.aheadM > 800) return null;
-
-  final first = candidates.first;
-  final direction = first.turn >= 0
+  final direction = corner.turnDegrees >= 0
       ? _driveText(language, '우측', 'Right', 'Droite')
       : _driveText(language, '좌측', 'Left', 'Gauche');
-  final severity = _curveSeverity(first.absTurn);
-  final intensity = _curveIntensity(first.absTurn, language);
-  final nextGap = _nextCurveGapM(nodes, cumulativeM, first.index);
-  final countAhead = candidates.length;
-  final horizonM = candidates.last.aheadM;
-  final rhythmLine = _rhythmLineForCue(
-    countAhead: countAhead,
-    nextGapM: nextGap,
-    firstAheadM: first.aheadM,
-    horizonM: horizonM,
-    language: language,
-  );
+  final intensity = _cornerIntensity(corner, language);
+  final etaText = snapshot.phase == DriveCornerPhase.passed
+      ? _driveText(language, '방금', 'Just now', 'À l’instant')
+      : _formatEta(snapshot.etaSeconds, language);
+  final phaseLabel = _phaseLabel(snapshot.phase, language);
+  final typeLabel = _cornerTypeLabel(corner.type, language);
+  final sequenceLine = _sequenceLineForSnapshot(snapshot, language);
+  final headline = switch (snapshot.phase) {
+    DriveCornerPhase.active =>
+      '${_driveText(language, '진입 중', 'Entering', 'Entrée')} · $direction $intensity',
+    DriveCornerPhase.passed =>
+      '${_driveText(language, '통과', 'Passed', 'Passé')} · $direction $intensity',
+    _ =>
+      '$etaText ${_driveText(language, '뒤', 'out', 'avant')} · ${formatDriveMeters(distanceM)} $direction $intensity',
+  };
 
   return DriveCurveCue(
     label: '$direction $intensity',
-    detail: rhythmLine,
+    detail: sequenceLine,
     directionLabel: direction,
     intensityLabel: intensity,
-    headline: '${formatDriveMeters(first.aheadM)} $direction $intensity',
-    rhythmLine: rhythmLine,
-    icon: first.turn >= 0
+    headline: headline,
+    rhythmLine: sequenceLine,
+    icon: corner.turnDegrees >= 0
         ? Icons.turn_slight_right_rounded
         : Icons.turn_slight_left_rounded,
-    distanceM: first.aheadM,
-    nextGapM: nextGap,
-    curveCountAhead: countAhead,
-    horizonM: horizonM,
-    severity: severity,
+    distanceM: distanceM,
+    nextGapM: corner.nextGapM,
+    curveCountAhead: snapshot.sequence.length,
+    horizonM: _sequenceHorizonM(snapshot),
+    severity: corner.severity,
+    etaText: etaText,
+    phaseLabel: phaseLabel,
+    cornerTypeLabel: typeLabel,
+    sequenceLine: sequenceLine,
   );
 }
 
-int _curveSeverity(double absTurn) {
-  if (absTurn >= 68) return 3;
-  if (absTurn >= 42) return 2;
-  if (absTurn >= 26) return 1;
-  return 0;
+String _cornerIntensity(RouteCorner corner, AppLanguage? language) {
+  switch (corner.type) {
+    case RouteCornerType.hairpin:
+      return _driveText(language, '헤어핀', 'Hairpin', 'Épingle');
+    case RouteCornerType.switchback:
+      return _driveText(language, '스위치백', 'Switchback', 'Lacet');
+    case RouteCornerType.chicane:
+      return _driveText(language, '전환', 'Chicane', 'Chicane');
+    case RouteCornerType.sweeper:
+      return _driveText(language, '스위퍼', 'Sweeper', 'Balayage');
+    case RouteCornerType.tight:
+      return _driveText(language, '타이트', 'Tight', 'Serré');
+    case RouteCornerType.medium:
+      return _driveText(language, '중간', 'Medium', 'Moyen');
+    case RouteCornerType.kink:
+      return _driveText(language, '킥', 'Kink', 'Cassure');
+  }
 }
 
-String _curveIntensity(double absTurn, AppLanguage? language) {
-  if (absTurn >= 68) {
-    return _driveText(language, '헤어핀', 'Hairpin', 'Épingle');
+String _cornerTypeLabel(RouteCornerType type, AppLanguage? language) {
+  switch (type) {
+    case RouteCornerType.hairpin:
+      return _driveText(language, '헤어핀', 'Hairpin', 'Épingle');
+    case RouteCornerType.switchback:
+      return _driveText(language, '스위치백', 'Switchback', 'Lacet');
+    case RouteCornerType.chicane:
+      return _driveText(language, '시케인', 'Chicane', 'Chicane');
+    case RouteCornerType.sweeper:
+      return _driveText(language, '스위퍼', 'Sweeper', 'Balayage');
+    case RouteCornerType.tight:
+      return _driveText(language, '타이트', 'Tight', 'Serré');
+    case RouteCornerType.medium:
+      return _driveText(language, '중간 코너', 'Medium corner', 'Virage moyen');
+    case RouteCornerType.kink:
+      return _driveText(language, '짧은 킥', 'Kink', 'Cassure');
   }
-  if (absTurn >= 42) {
-    return _driveText(language, '타이트', 'Tight', 'Serré');
-  }
-  if (absTurn >= 26) {
-    return _driveText(language, '중간', 'Medium', 'Moyen');
-  }
-  return _driveText(language, '완만', 'Gentle', 'Doux');
 }
 
-String _rhythmLineForCue({
-  required int countAhead,
-  required double? nextGapM,
-  required double firstAheadM,
-  required double horizonM,
-  required AppLanguage? language,
-}) {
-  if (countAhead >= 3 && (nextGapM ?? 999) <= 280) {
-    return _driveText(
-      language,
-      '짧은 좌우 전환',
-      'Quick left-right switch',
-      'Gauche-droite rapide',
-    );
+String _phaseLabel(DriveCornerPhase phase, AppLanguage? language) {
+  switch (phase) {
+    case DriveCornerPhase.upcoming:
+      return _driveText(language, '미리보기', 'Preview', 'Aperçu');
+    case DriveCornerPhase.armed:
+      return _driveText(language, '준비', 'Ready', 'Prêt');
+    case DriveCornerPhase.active:
+      return _driveText(language, '진입', 'Entry', 'Entrée');
+    case DriveCornerPhase.passed:
+      return _driveText(language, '통과', 'Passed', 'Passé');
+    case DriveCornerPhase.clear:
+      return _driveText(language, '흐름', 'Flow', 'Fluide');
   }
-  if (countAhead >= 2) {
-    final spanM = math.max(nextGapM ?? 0, horizonM - firstAheadM);
-    return '${_driveText(language, '이후', 'Next', 'Puis')} ${formatDriveMeters(spanM)} ${_driveText(language, '연속 코너', 'continuous corners', 'virages enchaînés')}';
+}
+
+String _formatEta(double etaSeconds, AppLanguage? language) {
+  if (!etaSeconds.isFinite) {
+    return _driveText(language, '대기', 'Wait', 'Attente');
   }
-  if (nextGapM != null && nextGapM <= 420) {
-    return '${_driveText(language, '이후', 'Next', 'Puis')} ${formatDriveMeters(nextGapM)} ${_driveText(language, '연속 코너', 'continuous corners', 'virages enchaînés')}';
+  if (etaSeconds >= 60) {
+    return '${(etaSeconds / 60).round()}${_driveText(language, '분', 'm', 'min')}';
   }
-  if (nextGapM != null) {
-    return '${_driveText(language, '이후', 'Next', 'Puis')} ${formatDriveMeters(nextGapM)} ${_driveText(language, '여유', 'clear gap', 'respiration')}';
+  return '${math.max(1, etaSeconds.round())}${_driveText(language, '초', 's', 's')}';
+}
+
+String _sequenceLineForSnapshot(
+  DriveCornerSnapshot snapshot,
+  AppLanguage? language,
+) {
+  final sequence = snapshot.sequence;
+  if (sequence.length >= 3) {
+    final nextGap = sequence.first.nextGapM;
+    final gapText = nextGap == null ? '' : ' · ${formatDriveMeters(nextGap)}';
+    return '${sequence.length}${_driveText(language, '개 짧은 전환', ' quick switches', ' transitions rapides')}$gapText';
+  }
+  if (sequence.length == 2) {
+    final gapM = sequence.last.alongM - sequence.first.alongM;
+    return '${_driveText(language, '이후', 'Next', 'Puis')} ${formatDriveMeters(gapM)} ${_driveText(language, '연속 코너', 'continuous corners', 'virages enchaînés')}';
+  }
+
+  final corner = snapshot.corner;
+  if (corner?.nextGapM != null) {
+    return '${_driveText(language, '이후', 'Next', 'Puis')} ${formatDriveMeters(corner!.nextGapM!)} ${_driveText(language, '여유', 'clear gap', 'respiration')}';
   }
   return _driveText(language, '단일 커브', 'Single curve', 'Virage isolé');
 }
 
+double _sequenceHorizonM(DriveCornerSnapshot snapshot) {
+  final sequence = snapshot.sequence;
+  if (sequence.isEmpty) return snapshot.distanceM;
+  return math.max(
+    snapshot.distanceM,
+    sequence.last.alongM - sequence.first.alongM + snapshot.distanceM,
+  );
+}
+
 String _rhythmLabelForCue(DriveCurveCue cue, AppLanguage? language) {
-  if (cue.curveCountAhead >= 3 && (cue.nextGapM ?? 999) <= 280) {
+  if (cue.curveCountAhead >= 3) {
     return _driveText(language, '짧은 전환', 'Quick switch', 'Transition rapide');
   }
   if (cue.curveCountAhead >= 2) {
@@ -480,28 +580,25 @@ String _rhythmLabelForCue(DriveCurveCue cue, AppLanguage? language) {
       'Virages enchaînés',
     );
   }
-  if (cue.rhythmLine.contains('흐름') ||
-      cue.rhythmLine.contains('flow') ||
-      cue.rhythmLine.contains('Flow')) {
-    return _driveText(language, '흐름 구간', 'Flow section', 'Section fluide');
-  }
   return _driveText(language, '단일 커브', 'Single curve', 'Virage isolé');
 }
 
-double? _nextCurveGapM(
-  List<LatLng> nodes,
+bool _isConnectorSegment(
+  List<RouteSegmentRange> segments,
   List<double> cumulativeM,
-  int fromIndex,
+  double alongM,
 ) {
-  final fromM = cumulativeM[fromIndex];
-  for (var i = fromIndex + 1; i < nodes.length - 1; i++) {
-    final gapM = cumulativeM[i] - fromM;
-    if (gapM > 900) return null;
-    if (_turnDegrees(nodes[i - 1], nodes[i], nodes[i + 1]).abs() >= 20) {
-      return gapM;
-    }
+  if (segments.isEmpty || cumulativeM.length < 2) return false;
+  for (final segment in segments) {
+    if (!segment.isConnector) continue;
+    final start = segment.startNodeIndex.clamp(0, cumulativeM.length - 1);
+    final end = segment.endNodeIndex.clamp(0, cumulativeM.length - 1);
+    if (end <= start) continue;
+    final startM = cumulativeM[start];
+    final endM = cumulativeM[end];
+    if (alongM >= startM && alongM <= endM) return true;
   }
-  return null;
+  return false;
 }
 
 _Projection _nearestRouteProjection(
@@ -544,30 +641,6 @@ _PointM _metersFrom(LatLng origin, LatLng point) {
   );
 }
 
-double _turnDegrees(LatLng a, LatLng b, LatLng c) {
-  final inBearing = _bearingDegrees(a, b);
-  final outBearing = _bearingDegrees(b, c);
-  var delta = outBearing - inBearing;
-  while (delta > 180) {
-    delta -= 360;
-  }
-  while (delta < -180) {
-    delta += 360;
-  }
-  return delta;
-}
-
-double _bearingDegrees(LatLng from, LatLng to) {
-  final lat1 = from.lat * math.pi / 180;
-  final lat2 = to.lat * math.pi / 180;
-  final dLng = (to.lng - from.lng) * math.pi / 180;
-  final y = math.sin(dLng) * math.cos(lat2);
-  final x =
-      math.cos(lat1) * math.sin(lat2) -
-      math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
-  return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
-}
-
 String formatDriveMeters(double meters) {
   if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(1)}km';
   return '${meters.round()}m';
@@ -583,20 +656,6 @@ class _Projection {
   final double distanceM;
 
   const _Projection({required this.alongM, required this.distanceM});
-}
-
-class _CurveCandidate {
-  final int index;
-  final double aheadM;
-  final double turn;
-  final double absTurn;
-
-  const _CurveCandidate({
-    required this.index,
-    required this.aheadM,
-    required this.turn,
-    required this.absTurn,
-  });
 }
 
 class _SegmentProjection {

@@ -6,6 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/storage_keys.dart';
 import '../models/revv_route.dart';
+import '../models/route_chain.dart';
+import 'route_connector_directions_service.dart';
+import 'route_chain_builder.dart';
 import 'route_loading_policy.dart';
 import 'supabase_service.dart';
 
@@ -20,6 +23,7 @@ class RouteService extends ChangeNotifier {
   List<RevvRoute> rawCandidateRoutes = [];
   List<RevvRoute> mapVisualRoutes = [];
   List<RevvRoute> routes = [];
+  List<RouteChain> routeChainOptions = [];
   RevvRoute? selectedRoute;
 
   bool isLoading = false;
@@ -49,6 +53,8 @@ class RouteService extends ChangeNotifier {
   DateTime? pendingGuideStartedAt;
 
   int _fetchToken = 0;
+  int _chainBuildToken = 0;
+  List<RevvRoute> _filteredRoutePool = const [];
 
   RevvRoute? get effectiveSprintRoute => sprintRoute ?? selectedRoute;
 
@@ -401,9 +407,11 @@ class RouteService extends ChangeNotifier {
   }
 
   void resetCache() {
+    _chainBuildToken++;
     rawCandidateRoutes = [];
     mapVisualRoutes = [];
     routes = [];
+    routeChainOptions = [];
     selectedRoute = null;
     routeFieldCenter = null;
     routeFieldFetchedAt = null;
@@ -425,6 +433,7 @@ class RouteService extends ChangeNotifier {
     }
     final filtered = filterRoutesForStrength(unique.values, filterStrength);
     lastFilteredRouteCount = filtered.length;
+    _filteredRoutePool = List<RevvRoute>.unmodifiable(filtered);
     return diversifyRouteSlots(filtered, limit: visibleRouteLimit);
   }
 
@@ -437,22 +446,45 @@ class RouteService extends ChangeNotifier {
   }) {
     rawCandidateRoutes = List<RevvRoute>.unmodifiable(candidates);
     mapVisualRoutes = _prepareMapVisualRoutes(candidates);
-    _rebuildRecommendations();
-    selectedRoute = routes.isNotEmpty ? routes.first : null;
     routeFieldCenter = center;
     routeFieldFetchedAt = fetchedAt;
     routeFieldFromCache = fromCache;
     routeDataSourceLabel = sourceLabel;
+    _rebuildRecommendations();
+    selectedRoute = routes.isNotEmpty ? routes.first : null;
   }
 
   void _rebuildRecommendations() {
     final visible = _prepareVisibleRoutes(rawCandidateRoutes);
+    routeChainOptions = [];
     lastUsableCloudRouteCount = visible.length;
     routes = visible;
     if (selectedRoute != null &&
         !rawCandidateRoutes.any((route) => route.id == selectedRoute!.id)) {
       selectedRoute = visible.isNotEmpty ? visible.first : null;
     }
+    unawaited(_rebuildRouteChainOptions(_filteredRoutePool, routeFieldCenter));
+  }
+
+  Future<void> _rebuildRouteChainOptions(
+    List<RevvRoute> pool,
+    LatLng? origin,
+  ) async {
+    final token = ++_chainBuildToken;
+    if (pool.length < 2) {
+      routeChainOptions = [];
+      return;
+    }
+    final options = await const RouteChainBuilder()
+        .buildOptionsWithConnectorGeometry(
+          pool,
+          origin: origin,
+          resolveConnector:
+              RouteConnectorDirectionsService.instance.resolveConnector,
+        );
+    if (token != _chainBuildToken) return;
+    routeChainOptions = List<RouteChain>.unmodifiable(options);
+    notifyListeners();
   }
 
   List<RevvRoute> _prepareMapVisualRoutes(List<RevvRoute> candidates) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -66,6 +67,7 @@ class MapWidget extends StatefulWidget {
   final List<List<LatLng>> candidatePolylines;
   final List<List<LatLng>> curveHeatmapPolylines;
   final List<RouteDifficultyLine> difficultyLines;
+  final List<RouteDifficultyLine> routeSegmentLines;
   final bool strongCurveFieldHeatmap;
 
   /// 커브 밀도 히트맵 모드 (파랑→초록→노랑→주황→빨강)
@@ -88,6 +90,7 @@ class MapWidget extends StatefulWidget {
     this.candidatePolylines = const [],
     this.curveHeatmapPolylines = const [],
     this.difficultyLines = const [],
+    this.routeSegmentLines = const [],
     this.strongCurveFieldHeatmap = false,
     this.showCurveHeatmap = false,
     this.routeFocusMode = false,
@@ -340,11 +343,11 @@ class _MapWidgetState extends State<MapWidget> {
         }
         if (widget.routePolyline?.isNotEmpty == true &&
             !widget.showCurveHeatmap) {
-          _drawPolyline(
-            'route',
-            widget.routePolyline!,
-            AppColors.red.toARGB32(),
-            widget.routeFocusMode ? 5.5 : 2.8,
+          unawaited(
+            _drawRoutePolylineWithSegments(
+              widget.routePolyline!,
+              widget.routeFocusMode ? 5.5 : 2.8,
+            ),
           );
         }
       }
@@ -375,11 +378,11 @@ class _MapWidgetState extends State<MapWidget> {
             return;
           }
           // 후보 라인 갱신 후 선택 라인을 한 번 더 올려 선택지가 묻히지 않게 한다.
-          _drawPolyline(
-            'route',
-            widget.routePolyline!,
-            AppColors.red.toARGB32(),
-            widget.routeFocusMode ? 5.5 : 2.8,
+          unawaited(
+            _drawRoutePolylineWithSegments(
+              widget.routePolyline!,
+              widget.routeFocusMode ? 5.5 : 2.8,
+            ),
           );
         });
       }
@@ -389,6 +392,12 @@ class _MapWidgetState extends State<MapWidget> {
       )) {
         _drawDifficultyLines(widget.difficultyLines);
       }
+      if (!_sameDifficultyLines(
+        oldWidget.routeSegmentLines,
+        widget.routeSegmentLines,
+      )) {
+        _drawRouteSegmentLines(widget.routeSegmentLines);
+      }
       if (oldWidget.routePolyline != widget.routePolyline ||
           oldWidget.showCurveHeatmap != widget.showCurveHeatmap) {
         if (widget.showCurveHeatmap &&
@@ -396,11 +405,11 @@ class _MapWidgetState extends State<MapWidget> {
           _drawCurveHeatmap(widget.routePolyline!);
         } else {
           _clearHeatmap();
-          _drawPolyline(
-            'route',
-            widget.routePolyline ?? [],
-            AppColors.red.toARGB32(),
-            widget.routeFocusMode ? 5.5 : 2.8,
+          unawaited(
+            _drawRoutePolylineWithSegments(
+              widget.routePolyline ?? [],
+              widget.routeFocusMode ? 5.5 : 2.8,
+            ),
           );
         }
         if (!widget.isSprintMode && widget.routePolyline?.isNotEmpty == true) {
@@ -722,6 +731,7 @@ class _MapWidgetState extends State<MapWidget> {
           widget.routeFocusMode ? 5.5 : 2.8,
         );
       }
+      await _drawRouteSegmentLines(widget.routeSegmentLines);
       if (!widget.isSprintMode) {
         await _focusRoutePolyline(widget.routePolyline!, immediate: true);
       }
@@ -793,6 +803,101 @@ class _MapWidgetState extends State<MapWidget> {
       0xFFFFE94A => 'difficulty-gentle',
       _ => 'difficulty-muted',
     };
+  }
+
+  static const _routeSegmentLayerIds = [
+    'route-segment-connector',
+    'route-segment-winding',
+  ];
+
+  String _routeSegmentLayerId(RouteDifficultyLine line) {
+    return line.colorArgb == 0xFF95A3AF
+        ? 'route-segment-connector'
+        : 'route-segment-winding';
+  }
+
+  Future<void> _clearRouteSegmentLines() async {
+    final map = _mapController;
+    if (map == null) return;
+    for (final id in _routeSegmentLayerIds) {
+      try {
+        await map.style.removeStyleLayer('$id-glow-layer');
+      } catch (_) {}
+      try {
+        await map.style.removeStyleLayer('$id-core-layer');
+      } catch (_) {}
+      try {
+        await map.style.removeStyleSource('$id-source');
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _drawRouteSegmentLines(List<RouteDifficultyLine> lines) async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded) return;
+    await _clearRouteSegmentLines();
+    if (lines.isEmpty) return;
+
+    final groups = <String, List<RouteDifficultyLine>>{};
+    for (final line in lines) {
+      if (line.points.length < 2) continue;
+      groups.putIfAbsent(_routeSegmentLayerId(line), () => []).add(line);
+    }
+
+    for (final id in _routeSegmentLayerIds) {
+      final group = groups[id];
+      if (group == null || group.isEmpty) continue;
+      final first = group.first;
+      final features = group
+          .map(
+            (line) => {
+              'type': 'Feature',
+              'geometry': {
+                'type': 'LineString',
+                'coordinates': line.points.map((p) => [p.lng, p.lat]).toList(),
+              },
+              'properties': {'routeId': line.routeId},
+            },
+          )
+          .toList();
+      final geoJson = jsonEncode({
+        'type': 'FeatureCollection',
+        'features': features,
+      });
+
+      try {
+        await map.style.addSource(
+          mbx.GeoJsonSource(id: '$id-source', data: geoJson),
+        );
+        await map.style.addLayer(
+          mbx.LineLayer(
+            id: '$id-glow-layer',
+            sourceId: '$id-source',
+            lineColor: first.colorArgb,
+            lineWidth: first.width + 2.8,
+            lineOpacity: math.min(first.opacity * 0.34, 0.32),
+            lineBlur: 1.0,
+            lineCap: mbx.LineCap.ROUND,
+            lineJoin: mbx.LineJoin.ROUND,
+          ),
+        );
+        await map.style.addLayer(
+          mbx.LineLayer(
+            id: '$id-core-layer',
+            sourceId: '$id-source',
+            lineColor: first.colorArgb,
+            lineWidth: first.width,
+            lineOpacity: first.opacity,
+            lineCap: mbx.LineCap.ROUND,
+            lineJoin: mbx.LineJoin.ROUND,
+          ),
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[MapWidget] route segments $id: ${e.runtimeType}');
+        }
+      }
+    }
   }
 
   Future<void> _clearDifficultyLines() async {
@@ -941,6 +1046,15 @@ class _MapWidgetState extends State<MapWidget> {
     final cx = ax + dx * t;
     final cy = ay + dy * t;
     return math.sqrt(math.pow(px - cx, 2) + math.pow(py - cy, 2));
+  }
+
+  Future<void> _drawRoutePolylineWithSegments(
+    List<LatLng> points,
+    double width,
+  ) async {
+    await _drawPolyline('route', points, AppColors.red.toARGB32(), width);
+    if (!mounted) return;
+    await _drawRouteSegmentLines(widget.routeSegmentLines);
   }
 
   Future<void> _drawPolyline(

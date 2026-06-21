@@ -7,6 +7,51 @@ class LatLng {
   const LatLng(this.lat, this.lng);
 }
 
+enum RouteSegmentKind { winding, connector }
+
+class RouteSegmentRange {
+  final RouteSegmentKind kind;
+  final int startNodeIndex;
+  final int endNodeIndex;
+  final double distanceKm;
+  final String label;
+  final String? sourceRouteId;
+
+  const RouteSegmentRange({
+    required this.kind,
+    required this.startNodeIndex,
+    required this.endNodeIndex,
+    required this.distanceKm,
+    required this.label,
+    this.sourceRouteId,
+  });
+
+  bool get isConnector => kind == RouteSegmentKind.connector;
+
+  Map<String, dynamic> toJson() => {
+    'kind': kind.name,
+    'startNodeIndex': startNodeIndex,
+    'endNodeIndex': endNodeIndex,
+    'distanceKm': distanceKm,
+    'label': label,
+    if (sourceRouteId != null) 'sourceRouteId': sourceRouteId,
+  };
+
+  factory RouteSegmentRange.fromJson(Map<String, dynamic> json) {
+    final rawKind = json['kind']?.toString();
+    return RouteSegmentRange(
+      kind: rawKind == RouteSegmentKind.connector.name
+          ? RouteSegmentKind.connector
+          : RouteSegmentKind.winding,
+      startNodeIndex: (json['startNodeIndex'] as num?)?.toInt() ?? 0,
+      endNodeIndex: (json['endNodeIndex'] as num?)?.toInt() ?? 0,
+      distanceKm: (json['distanceKm'] as num?)?.toDouble() ?? 0,
+      label: json['label']?.toString() ?? '',
+      sourceRouteId: json['sourceRouteId']?.toString(),
+    );
+  }
+}
+
 class RevvRoute {
   final String id;
   final String name;
@@ -47,6 +92,7 @@ class RevvRoute {
   final String surfaceSummary;
   final String speedLimitSummary;
   final List<String> nearbyPoiNames;
+  final List<RouteSegmentRange> chainSegments;
 
   // ElevationService로 채워지는 고도 프로파일 (선택적)
   final List<double>? elevationProfile;
@@ -96,10 +142,13 @@ class RevvRoute {
     this.surfaceSummary = '',
     this.speedLimitSummary = '',
     this.nearbyPoiNames = const [],
+    this.chainSegments = const [],
     this.elevationProfile,
     this.runCount = 0,
     this.publishedBy,
   });
+
+  bool get isCompositeRoute => chainSegments.isNotEmpty;
 
   String get starDisplay => '★' * starRating + '☆' * (5 - starRating);
 
@@ -293,6 +342,7 @@ class RevvRoute {
     String? surfaceSummary,
     String? speedLimitSummary,
     List<String>? nearbyPoiNames,
+    List<RouteSegmentRange>? chainSegments,
     List<double>? elevationProfile,
     int? runCount,
     String? publishedBy,
@@ -335,6 +385,7 @@ class RevvRoute {
       surfaceSummary: surfaceSummary ?? this.surfaceSummary,
       speedLimitSummary: speedLimitSummary ?? this.speedLimitSummary,
       nearbyPoiNames: nearbyPoiNames ?? this.nearbyPoiNames,
+      chainSegments: chainSegments ?? this.chainSegments,
       elevationProfile: elevationProfile ?? this.elevationProfile,
       runCount: runCount ?? this.runCount,
       publishedBy: publishedBy ?? this.publishedBy,
@@ -383,6 +434,10 @@ class RevvRoute {
     if (surfaceSummary.isNotEmpty) 'surfaceSummary': surfaceSummary,
     if (speedLimitSummary.isNotEmpty) 'speedLimitSummary': speedLimitSummary,
     if (nearbyPoiNames.isNotEmpty) 'nearbyPoiNames': nearbyPoiNames,
+    if (chainSegments.isNotEmpty)
+      'chainSegments': chainSegments
+          .map((segment) => segment.toJson())
+          .toList(),
     if (elevationProfile != null) 'elevationProfile': elevationProfile,
     if (runCount > 0) 'runCount': runCount,
     if (publishedBy != null) 'publishedBy': publishedBy,
@@ -441,6 +496,10 @@ class RevvRoute {
     nearbyPoiNames: ((j['nearbyPoiNames'] as List?) ?? const [])
         .map((e) => e.toString())
         .where((e) => e.trim().isNotEmpty)
+        .toList(),
+    chainSegments: ((j['chainSegments'] as List?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(RouteSegmentRange.fromJson)
         .toList(),
     elevationProfile: (j['elevationProfile'] as List?)
         ?.map((e) => (e as num).toDouble())

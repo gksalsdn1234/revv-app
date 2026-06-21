@@ -14,8 +14,12 @@ import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
+import '../ui/drive_corner_state_machine.dart';
+import '../ui/route_corner_profile.dart';
 import '../ui/route_drive_cue.dart';
 import '../widgets/map_widget.dart';
+import '../widgets/next_curve_banner.dart';
+import '../widgets/route_segment_lines.dart';
 import 'lean_run_summary_screen.dart';
 
 class LeanDriveScreen extends StatefulWidget {
@@ -34,8 +38,10 @@ class LeanDriveScreen extends StatefulWidget {
 
 class _LeanDriveScreenState extends State<LeanDriveScreen> {
   LocationService? _location;
+  ImuService? _imu;
   RunSessionService? _session;
   bool _started = false;
+  bool _liveInputsStopped = false;
   DateTime? _startedAt;
   Timer? _clock;
   Timer? _simulationTimer;
@@ -47,10 +53,14 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   double _lateralG = 0;
   double _longitudinalG = 0;
   double _progress = 0;
+  double _routeAlongM = 0;
   double _remainingKm = 0;
+  double _peakG = 0;
   LatLng? _drivePosition;
   double? _navigationBearing;
   List<LatLng>? _matchedRouteNodes;
+  List<LatLng>? _cornerStateNodes;
+  DriveCornerStateMachine? _cornerStateMachine;
   bool _matchingRouteGeometry = false;
   DriveCurveCue? _cue;
   DriveRhythmBrief? _rhythmBrief;
@@ -66,8 +76,10 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     _session = context.read<RunSessionService>();
     if (!widget.simulated) {
       _location = context.read<LocationService>();
+      _imu = context.read<ImuService>();
       _location!.addListener(_onLocation);
-      context.read<ImuService>().addListener(_onImu);
+      _imu!.addListener(_onImu);
+      unawaited(_imu!.start());
     }
     _startDrive();
   }
@@ -171,10 +183,15 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       driveMode: driveMode,
     );
     _session?.recordSharpCorner(position.lat, position.lng, lateralG);
+    final routeNodes = _activeRouteNodes;
     final routeState = readDriveRouteState(
       position,
-      _activeRouteNodes,
+      routeNodes,
       language: context.read<SettingsService>().appLanguage,
+      minimumAlongM: _routeAlongM,
+      speedKmh: speed,
+      cornerStateMachine: _cornerStateMachineFor(routeNodes),
+      routeSegments: widget.route.chainSegments,
     );
     final language = context.read<SettingsService>().appLanguage;
     final nextEvent = _routeEventFor(_routeStatus, routeState.status, language);
@@ -187,6 +204,10 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       _lateralG = lateralG;
       _longitudinalG = longitudinalG;
       _progress = routeState.progress;
+      if (routeState.status == DriveRouteStatus.onRoute ||
+          routeState.status == DriveRouteStatus.completed) {
+        _routeAlongM = math.max(_routeAlongM, routeState.alongM);
+      }
       _remainingKm = routeState.remainingKm;
       _cue = routeState.cue;
       _rhythmBrief = routeState.rhythmBrief;
@@ -228,17 +249,20 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   }
 
   void _onImu() {
-    if (!mounted) return;
-    final imu = context.read<ImuService>();
+    final imu = _imu;
+    if (!mounted || imu == null) return;
     final nextLat = imu.lateralG;
     final nextLon = imu.longitudinalG;
+    final nextPeak = math.max(imu.maxLateralG, imu.maxLonG);
     if ((nextLat - _lateralG).abs() < 0.02 &&
-        (nextLon - _longitudinalG).abs() < 0.02) {
+        (nextLon - _longitudinalG).abs() < 0.02 &&
+        (nextPeak - _peakG).abs() < 0.02) {
       return;
     }
     setState(() {
       _lateralG = nextLat;
       _longitudinalG = nextLon;
+      _peakG = nextPeak;
     });
   }
 
@@ -248,7 +272,20 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     return widget.route.nodes;
   }
 
+  DriveCornerStateMachine? _cornerStateMachineFor(List<LatLng> nodes) {
+    if (nodes.length < 3) return null;
+    final currentNodes = _cornerStateNodes;
+    if (currentNodes == null || !_sameRouteNodes(currentNodes, nodes)) {
+      _cornerStateNodes = List<LatLng>.from(nodes);
+      _cornerStateMachine = DriveCornerStateMachine(
+        RouteCornerProfile.fromNodes(nodes),
+      );
+    }
+    return _cornerStateMachine;
+  }
+
   Future<void> _prepareMatchedRouteGeometry() async {
+    if (widget.route.isCompositeRoute) return;
     if (_matchingRouteGeometry || widget.route.nodes.length < 2) return;
     _matchingRouteGeometry = true;
     final matched = await RouteGeometryMatcher.instance.matchRoute(
@@ -275,18 +312,12 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
 
   void _endDrive() {
     _simulationTimer?.cancel();
-    _location?.removeListener(_onLocation);
-    try {
-      context.read<ImuService>().removeListener(_onImu);
-    } catch (_) {}
-    final imu = context.read<ImuService>();
+    final imu = _imu ?? context.read<ImuService>();
     final run = _session?.stopSession(
       maxLateralG: widget.simulated ? _simMaxLateralG : imu.maxLateralG,
       maxLonG: widget.simulated ? _simMaxLongitudinalG : imu.maxLonG,
     );
-    if (!widget.simulated) {
-      imu.resetMaxG();
-    }
+    _stopLiveInputs(resetImu: !widget.simulated);
     if (!mounted) return;
     Navigator.pushReplacement(
       context,
@@ -294,20 +325,29 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     );
   }
 
+  void _stopLiveInputs({bool resetImu = false}) {
+    if (_liveInputsStopped) return;
+    _liveInputsStopped = true;
+    _location?.removeListener(_onLocation);
+    _location?.stopTracking();
+    final imu = _imu;
+    if (imu != null) {
+      imu.removeListener(_onImu);
+      if (resetImu) imu.resetMaxG();
+      imu.stop();
+    }
+  }
+
   @override
   void dispose() {
     _clock?.cancel();
     _simulationTimer?.cancel();
-    _location?.removeListener(_onLocation);
-    try {
-      context.read<ImuService>().removeListener(_onImu);
-    } catch (_) {}
+    _stopLiveInputs(resetImu: !widget.simulated);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final imu = context.watch<ImuService>();
     final cue = _cue;
     final routeEvent = _routeEventUntil?.isAfter(DateTime.now()) == true
         ? _routeEventMessage
@@ -320,7 +360,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     final totalG = math.sqrt(
       _lateralG * _lateralG + _longitudinalG * _longitudinalG,
     );
-    final peakG = math.max(imu.maxLateralG, imu.maxLonG);
+    final peakG = _peakG;
     final routeNodes = _activeRouteNodes;
 
     return Scaffold(
@@ -331,6 +371,10 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
             child: MapWidget(
               isSprintMode: true,
               routePolyline: routeNodes,
+              routeSegmentLines: routeSegmentLinesForRoute(
+                widget.route,
+                focusMode: true,
+              ),
               routeFocusMode: true,
               navigationBearing: _navigationBearing,
               simulatedPosition: widget.simulated
@@ -354,7 +398,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                     language: language,
                   ),
                   const SizedBox(height: 8),
-                  _NextCurveBanner(
+                  NextCurveBanner(
                     cue: cue,
                     rhythmBrief: _rhythmBrief,
                     status: _routeStatus,
@@ -528,108 +572,6 @@ class _DriveTopBar extends StatelessWidget {
   }
 }
 
-class _NextCurveBanner extends StatelessWidget {
-  final DriveCurveCue? cue;
-  final DriveRhythmBrief? rhythmBrief;
-  final DriveRouteStatus status;
-  final String? eventMessage;
-  final AppLanguage language;
-
-  const _NextCurveBanner({
-    required this.cue,
-    required this.rhythmBrief,
-    required this.status,
-    required this.eventMessage,
-    required this.language,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final data = cue;
-    final rhythm = rhythmBrief;
-    final severity = math.max(data?.severity ?? 0, rhythm?.severity ?? 0);
-    final severityColor = _severityColor(severity);
-    final fallback = _fallbackCue(status, language);
-    final headline = data?.headline ?? fallback.label;
-    final rhythmLine = data?.rhythmLine ?? rhythm?.advice ?? fallback.detail;
-    return _DriveGlass(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (eventMessage != null) ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: severityColor.withValues(alpha: 0.14),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: severityColor.withValues(alpha: 0.28),
-                ),
-              ),
-              child: Text(
-                eventMessage!,
-                style: AppText.technicalLabel(size: 10, color: severityColor),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-          Row(
-            children: [
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: severityColor.withValues(alpha: 0.14),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: severityColor.withValues(alpha: 0.35),
-                  ),
-                ),
-                child: Icon(
-                  data?.icon ?? fallback.icon,
-                  color: severityColor,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      headline,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.body(
-                        size: 24,
-                        height: 1.02,
-                        weight: FontWeight.w900,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 7),
-                    Text(
-                      rhythmLine,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.body(
-                        size: 13,
-                        weight: FontWeight.w900,
-                        color: severityColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _TinyHudPill extends StatelessWidget {
   final String label;
 
@@ -658,93 +600,6 @@ class _TinyHudPill extends StatelessWidget {
   }
 }
 
-class _FallbackCue {
-  final String label;
-  final String detail;
-  final IconData icon;
-  final String distance;
-
-  const _FallbackCue({
-    required this.label,
-    required this.detail,
-    required this.icon,
-    required this.distance,
-  });
-}
-
-_FallbackCue _fallbackCue(DriveRouteStatus status, AppLanguage language) {
-  switch (status) {
-    case DriveRouteStatus.approachingStart:
-      return _FallbackCue(
-        label: AppCopy.t(
-          language,
-          ko: '시작점 이동',
-          en: 'To start',
-          fr: 'Vers départ',
-        ),
-        detail: AppCopy.t(
-          language,
-          ko: '루트 진입 대기',
-          en: 'Waiting to enter',
-          fr: 'Attente entrée',
-        ),
-        icon: Icons.flag_rounded,
-        distance: 'START',
-      );
-    case DriveRouteStatus.offRoute:
-      return _FallbackCue(
-        label: AppCopy.t(
-          language,
-          ko: '루트 이탈',
-          en: 'Off route',
-          fr: 'Hors route',
-        ),
-        detail: AppCopy.t(
-          language,
-          ko: '라인 복귀',
-          en: 'Rejoin line',
-          fr: 'Rejoindre ligne',
-        ),
-        icon: Icons.near_me_disabled_rounded,
-        distance: 'REJOIN',
-      );
-    case DriveRouteStatus.completed:
-      return _FallbackCue(
-        label: AppCopy.t(
-          language,
-          ko: '루트 완료',
-          en: 'Route complete',
-          fr: 'Route terminée',
-        ),
-        detail: AppCopy.t(
-          language,
-          ko: '주행 종료 가능',
-          en: 'Ready to finish',
-          fr: 'Fin possible',
-        ),
-        icon: Icons.done_rounded,
-        distance: 'DONE',
-      );
-    case DriveRouteStatus.onRoute:
-      return _FallbackCue(
-        label: AppCopy.t(
-          language,
-          ko: '흐름 구간',
-          en: 'Flow section',
-          fr: 'Section fluide',
-        ),
-        detail: AppCopy.t(
-          language,
-          ko: '1.0km 흐름 구간',
-          en: '1.0km flow section',
-          fr: '1,0km fluide',
-        ),
-        icon: Icons.timeline_rounded,
-        distance: 'CLEAR',
-      );
-  }
-}
-
 class _CompactSpeedPill extends StatelessWidget {
   final double speedKmh;
 
@@ -762,30 +617,35 @@ class _CompactSpeedPill extends StatelessWidget {
             style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
           ),
           const SizedBox(height: 3),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                speedKmh.toStringAsFixed(0),
-                style: AppText.display(
-                  size: 30,
-                  height: 0.9,
-                  color: AppColors.primaryContainer,
-                ),
-              ),
-              const SizedBox(width: 3),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(
-                  'km/h',
-                  style: AppText.body(
-                    size: 10,
-                    weight: FontWeight.w800,
-                    color: AppColors.textSecondary,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  speedKmh.toStringAsFixed(0),
+                  style: AppText.display(
+                    size: 30,
+                    height: 0.9,
+                    color: AppColors.primaryContainer,
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 3),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    'km/h',
+                    style: AppText.body(
+                      size: 10,
+                      weight: FontWeight.w800,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -1024,19 +884,14 @@ class _StripMetric extends StatelessWidget {
 class _DriveGlass extends StatelessWidget {
   final Widget child;
   final double? width;
-  final EdgeInsetsGeometry padding;
 
-  const _DriveGlass({
-    required this.child,
-    this.width,
-    this.padding = const EdgeInsets.all(14),
-  });
+  const _DriveGlass({required this.child, this.width});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: width,
-      padding: padding,
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xE80F1214),
         borderRadius: BorderRadius.circular(24),
@@ -1054,12 +909,6 @@ class _DriveGlass extends StatelessWidget {
       child: child,
     );
   }
-}
-
-Color _severityColor(int severity) {
-  if (severity >= 3) return AppColors.danger;
-  if (severity >= 2) return AppColors.warning;
-  return AppColors.primaryContainer;
 }
 
 String _formatKm(double km) {

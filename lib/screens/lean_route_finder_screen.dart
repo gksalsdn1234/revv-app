@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../core/app_language.dart';
 import '../models/revv_route.dart';
+import '../models/route_chain.dart';
 import '../services/location_service.dart';
 import '../services/route_loading_policy.dart';
 import '../services/route_service.dart';
@@ -17,6 +18,7 @@ import '../ui/route_difficulty_profile.dart';
 import '../ui/route_quality_profile.dart';
 import '../widgets/copilot_start_sheet.dart';
 import '../widgets/map_widget.dart';
+import '../widgets/route_segment_lines.dart';
 import 'lean_drive_screen.dart';
 import 'lean_route_detail_screen.dart';
 
@@ -41,6 +43,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   bool _curveRoadView = false;
   bool _hasUserSelectedRoute = false;
   RevvRoute? _selectedRouteOverride;
+  RouteChainTarget? _selectedChainTarget;
 
   @override
   void initState() {
@@ -68,8 +71,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       setState(() => _localStatusMessage = location.lastFailureReason);
       return null;
     }
-    await location.startTracking();
-    final point = await location.ensureLiveLocation();
+    final point = await location.ensureLiveLocation(
+      timeout: const Duration(seconds: 5),
+    );
     if (!mounted) return point;
     final language = context.read<SettingsService>().appLanguage;
     setState(() {
@@ -103,6 +107,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedIndex = 0;
       _hasUserSelectedRoute = false;
       _selectedRouteOverride = null;
+      _selectedChainTarget = null;
       _localStatusMessage = null;
     });
   }
@@ -200,6 +205,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedIndex = 0;
       _hasUserSelectedRoute = false;
       _selectedRouteOverride = null;
+      _selectedChainTarget = null;
     });
   }
 
@@ -210,8 +216,27 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedIndex = clamped;
       _hasUserSelectedRoute = true;
       _selectedRouteOverride = null;
+      _selectedChainTarget = null;
     });
     context.read<RouteService>().selectRoute(routes[clamped]);
+  }
+
+  void _selectChain(RouteChain chain) {
+    if (!chain.hasDrivableConnectors) {
+      setState(() {
+        _localStatusMessage = '실도로 연결선을 준비하지 못해 이 체인은 아직 시작할 수 없어요.';
+      });
+      return;
+    }
+    final service = context.read<RouteService>();
+    final route = chain.toRevvRoute(origin: service.routeFieldCenter);
+    setState(() {
+      _selectedIndex = 0;
+      _hasUserSelectedRoute = true;
+      _selectedRouteOverride = route;
+      _selectedChainTarget = chain.target;
+    });
+    service.selectRoute(route);
   }
 
   void _setLens(_RouteLens lens) {
@@ -220,6 +245,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedIndex = 0;
       _hasUserSelectedRoute = false;
       _selectedRouteOverride = null;
+      _selectedChainTarget = null;
     });
   }
 
@@ -281,6 +307,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _hasUserSelectedRoute = true;
       _selectedRouteOverride = route;
       _selectedIndex = 0;
+      _selectedChainTarget = null;
     });
     service.selectRoute(route);
   }
@@ -289,6 +316,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   Widget build(BuildContext context) {
     final service = context.watch<RouteService>();
     final routes = service.routes;
+    final chainOptions = service.routeChainOptions;
     final visibleRoutes = _filterRoutes(routes, _lens);
     final mapDisplayRoutes = _routesForViewport(
       service.mapVisualRoutes.isNotEmpty
@@ -365,6 +393,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
             Positioned.fill(
               child: MapWidget(
                 routePolyline: selected?.nodes,
+                routeSegmentLines: routeSegmentLinesForRoute(selected),
                 candidatePolylines: const [],
                 curveHeatmapPolylines: const [],
                 difficultyLines: _difficultyLines(mapDisplayRoutes, selected),
@@ -401,6 +430,14 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       routes: routes,
                       onChanged: _setLens,
                     ),
+                    if (chainOptions.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      _RouteChainStrip(
+                        options: chainOptions,
+                        selectedTarget: _selectedChainTarget,
+                        onChanged: _selectChain,
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     if (_curveRoadView) const _CurveHeatLegend(),
                   ],
@@ -409,7 +446,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
             ),
             if (status != null && status.isNotEmpty)
               Positioned(
-                top: MediaQuery.paddingOf(context).top + 124,
+                top:
+                    MediaQuery.paddingOf(context).top +
+                    (chainOptions.isEmpty ? 124 : 170),
                 left: 24,
                 right: 24,
                 child: _LeanToast(message: status, busy: service.isLoading),
@@ -901,6 +940,11 @@ class _LeanRouteTicket extends StatelessWidget {
       startDistanceKm: route.distanceFromUser,
       language: language,
     );
+    final header = route.isCompositeRoute
+        ? 'Smart Chain · ${route.distanceDisplay}'
+        : mapSelected
+        ? '${AppCopy.t(language, ko: '지도에서 선택한 커브길', en: 'Map-picked curve road', fr: 'Route choisie sur carte')} · ${profile.typeLabel} · ${route.distanceFromUserDisplay}'
+        : '${AppCopy.t(language, ko: '후보', en: 'Pick', fr: 'Option')} ${index + 1} / $total · ${profile.typeLabel} · ${route.distanceFromUserDisplay}';
     return GestureDetector(
       onHorizontalDragEnd: (details) {
         final dx = details.primaryVelocity ?? 0;
@@ -928,9 +972,7 @@ class _LeanRouteTicket extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        mapSelected
-                            ? '${AppCopy.t(language, ko: '지도에서 선택한 커브길', en: 'Map-picked curve road', fr: 'Route choisie sur carte')} · ${profile.typeLabel} · ${route.distanceFromUserDisplay}'
-                            : '${AppCopy.t(language, ko: '후보', en: 'Pick', fr: 'Option')} ${index + 1} / $total · ${profile.typeLabel} · ${route.distanceFromUserDisplay}',
+                        header,
                         style: AppText.technicalLabel(
                           size: 10,
                           color: AppColors.primaryContainer,
@@ -1177,6 +1219,126 @@ class _RouteLensStrip extends StatelessWidget {
             onTap: count == 0 ? null : () => onChanged(item),
           );
         },
+      ),
+    );
+  }
+}
+
+class _RouteChainStrip extends StatelessWidget {
+  final List<RouteChain> options;
+  final RouteChainTarget? selectedTarget;
+  final ValueChanged<RouteChain> onChanged;
+
+  const _RouteChainStrip({
+    required this.options,
+    required this.selectedTarget,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final language = context.watch<SettingsService>().appLanguage;
+    return SizedBox(
+      height: 42,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: options.length,
+        separatorBuilder: (_, index) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final chain = options[index];
+          final selected = selectedTarget == chain.target;
+          return _RouteChainChip(
+            selected: selected,
+            label: chain.target.label,
+            detail: AppCopy.t(
+              language,
+              ko: '${chain.routeLegs.length}구간 · ${chain.totalDistanceKm.toStringAsFixed(0)}km',
+              en: '${chain.routeLegs.length} legs · ${chain.totalDistanceKm.toStringAsFixed(0)}km',
+              fr: '${chain.routeLegs.length} segments · ${chain.totalDistanceKm.toStringAsFixed(0)}km',
+            ),
+            onTap: () => onChanged(chain),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _RouteChainChip extends StatelessWidget {
+  final bool selected;
+  final String label;
+  final String detail;
+  final VoidCallback onTap;
+
+  const _RouteChainChip({
+    required this.selected,
+    required this.label,
+    required this.detail,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final background = selected
+        ? const Color(0xFFFFB020)
+        : const Color(0xDD11171C);
+    final foreground = selected
+        ? const Color(0xFF17100A)
+        : AppColors.textPrimary;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFFFFD37A)
+                : AppColors.outlineVariant.withValues(alpha: 0.38),
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFFFFB020).withValues(alpha: 0.24),
+                    blurRadius: 18,
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.account_tree_rounded, size: 15, color: foreground),
+            const SizedBox(width: 7),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppText.body(
+                    size: 12,
+                    weight: FontWeight.w900,
+                    color: foreground,
+                  ),
+                ),
+                Text(
+                  detail,
+                  style: AppText.body(
+                    size: 9,
+                    weight: FontWeight.w800,
+                    color: selected
+                        ? foreground.withValues(alpha: 0.78)
+                        : AppColors.textHint,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -54,7 +54,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
   Future<void> _primeLocation() async {
     final location = context.read<LocationService>();
     await location.requestPermission();
-    await location.startTracking();
+    await location.ensureLiveLocation(timeout: const Duration(seconds: 3));
     if (!mounted) return;
     await _checkPendingGuideReturn();
   }
