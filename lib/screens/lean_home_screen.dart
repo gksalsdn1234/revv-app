@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/app_language.dart';
 import '../core/app_links.dart';
 import '../models/revv_route.dart';
+import '../models/run_summary.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/run_history_service.dart';
@@ -124,10 +125,10 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     );
   }
 
-  Future<void> _confirmDeleteRunData(BuildContext context) async {
-    final language = context.read<SettingsService>().appLanguage;
+  Future<void> _confirmDeleteRunData(BuildContext ctx) async {
+    final language = ctx.read<SettingsService>().appLanguage;
     final confirmed = await showDialog<bool>(
-      context: context,
+      context: ctx,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.panel,
         title: Text(
@@ -151,10 +152,10 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
         ],
       ),
     );
-    if (confirmed != true || !context.mounted) return;
-    final deleted = await context.read<RunHistoryService>().deleteAllRunData();
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (confirmed != true || !ctx.mounted) return;
+    final deleted = await ctx.read<RunHistoryService>().deleteAllRunData();
+    if (!ctx.mounted) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(
       SnackBar(
         content: Text(
           deleted
@@ -165,16 +166,16 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     );
   }
 
-  Future<void> _toggleCloudRunStorage(BuildContext context) async {
-    final settings = context.read<SettingsService>();
-    final history = context.read<RunHistoryService>();
+  Future<void> _toggleCloudRunStorage(BuildContext ctx) async {
+    final settings = ctx.read<SettingsService>();
+    final history = ctx.read<RunHistoryService>();
     final language = settings.appLanguage;
     final next = !settings.cloudRunStorageEnabled;
     await settings.setCloudRunStorageEnabled(next);
     if (!next) {
       await history.purgePendingUploads();
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (!ctx.mounted) return;
+      ScaffoldMessenger.of(ctx).showSnackBar(
         SnackBar(content: Text(AppCopy.pendingUploadsCleared(language))),
       );
     }
@@ -190,12 +191,8 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
       );
       return;
     }
-
     try {
-      final launched = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!launched) {
         messenger.showSnackBar(
           SnackBar(content: Text(AppCopy.privacyOpenFailed(language))),
@@ -209,13 +206,11 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
   }
 
   Future<void> _openGoogleMapsForRoute(
-    BuildContext context,
+    BuildContext ctx,
     RevvRoute route,
   ) async {
-    context.read<RouteService>().beginGuideToStart(route);
-    final start = route.nodes.isNotEmpty
-        ? route.nodes.first
-        : route.centerPoint;
+    ctx.read<RouteService>().beginGuideToStart(route);
+    final start = route.nodes.isNotEmpty ? route.nodes.first : route.centerPoint;
     final appUri = Uri.parse(
       'comgooglemaps://?daddr=${start.lat},${start.lng}&directionsmode=driving',
     );
@@ -227,14 +222,10 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     await _launchExternalNavigation(appUri, webUri);
   }
 
-  Future<void> _openWazeForRoute(BuildContext context, RevvRoute route) async {
-    context.read<RouteService>().beginGuideToStart(route);
-    final start = route.nodes.isNotEmpty
-        ? route.nodes.first
-        : route.centerPoint;
-    final appUri = Uri.parse(
-      'waze://?ll=${start.lat},${start.lng}&navigate=yes',
-    );
+  Future<void> _openWazeForRoute(BuildContext ctx, RevvRoute route) async {
+    ctx.read<RouteService>().beginGuideToStart(route);
+    final start = route.nodes.isNotEmpty ? route.nodes.first : route.centerPoint;
+    final appUri = Uri.parse('waze://?ll=${start.lat},${start.lng}&navigate=yes');
     final webUri = Uri.https('waze.com', '/ul', {
       'll': '${start.lat},${start.lng}',
       'navigate': 'yes',
@@ -245,18 +236,23 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
   Future<void> _launchExternalNavigation(Uri appUri, Uri webUri) async {
     final messenger = ScaffoldMessenger.of(context);
     final language = context.read<SettingsService>().appLanguage;
-    final launchedApp = await launchUrl(
-      appUri,
-      mode: LaunchMode.externalApplication,
-    );
+    final launchedApp = await launchUrl(appUri, mode: LaunchMode.externalApplication);
     if (launchedApp) return;
-    final launchedWeb = await launchUrl(
-      webUri,
-      mode: LaunchMode.externalApplication,
-    );
+    final launchedWeb = await launchUrl(webUri, mode: LaunchMode.externalApplication);
     if (launchedWeb) return;
     messenger.showSnackBar(
       SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
+    );
+  }
+
+  void _showSettingsSheet(BuildContext ctx) {
+    showModalBottomSheet(
+      context: ctx,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SettingsSheet(
+        onToggleCloud: () => unawaited(_toggleCloudRunStorage(ctx)),
+        onDeleteHistory: () => _confirmDeleteRunData(ctx),
+      ),
     );
   }
 
@@ -268,6 +264,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     final settings = context.watch<SettingsService>();
     final supabase = context.watch<SupabaseService>();
     final language = settings.appLanguage;
+    final lastRun = history.history.isNotEmpty ? history.history.first : null;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -277,6 +274,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── 헤더 ──
               Row(
                 children: [
                   Text(
@@ -287,7 +285,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                       color: AppColors.primaryContainer,
                     ),
                   ),
-                  const SizedBox(width: 10),
+                  const SizedBox(width: 8),
                   Text(
                     'v1.38.0+42',
                     style: AppText.technicalLabel(
@@ -302,13 +300,40 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                     onChanged: settings.setAppLanguage,
                   ),
                   const SizedBox(width: 8),
+                  // 음성 토글
+                  GestureDetector(
+                    onTap: () => settings.setTtsMuted(!settings.ttsMuted),
+                    child: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: AppColors.panel.withValues(alpha: 0.78),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.outlineVariant.withValues(alpha: 0.32),
+                        ),
+                      ),
+                      child: Icon(
+                        settings.ttsMuted
+                            ? Icons.volume_off_rounded
+                            : Icons.volume_up_rounded,
+                        size: 16,
+                        color: settings.ttsMuted
+                            ? AppColors.textHint
+                            : AppColors.primaryContainer,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   _LeanStatusDot(
                     active: supabase.isCloudAvailable,
                     label: supabase.isCloudAvailable ? 'CLOUD' : 'LOCAL',
                   ),
                 ],
               ),
+
               const Spacer(),
+
+              // ── 타이틀 ──
               Text(
                 AppCopy.homeTitle(language),
                 style: AppText.display(
@@ -317,16 +342,9 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                   color: AppColors.textPrimary,
                 ),
               ),
-              const SizedBox(height: 16),
-              Text(
-                AppCopy.homeSubtitle(language),
-                style: AppText.body(
-                  size: 15,
-                  height: 1.45,
-                  color: AppColors.textSecondary,
-                ),
-              ),
               const SizedBox(height: 28),
+
+              // ── 루트 찾기 버튼 ──
               _LeanPrimaryButton(
                 label: AppCopy.routeFinder(language),
                 icon: Icons.travel_explore_rounded,
@@ -339,6 +357,8 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                   );
                 },
               ),
+
+              // ── 시작점 안내 카드 ──
               if (routes.pendingGuideRoute != null) ...[
                 const SizedBox(height: 14),
                 _GuideToStartCard(
@@ -358,99 +378,53 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                   },
                 ),
               ],
-              const SizedBox(height: 18),
-              _LeanStatusGrid(
-                items: [
-                  _LeanStatusItem(
-                    label: AppCopy.location(language),
-                    value: location.hasPermission
-                        ? AppCopy.ready(language)
-                        : AppCopy.permissionNeeded(language),
-                    active: location.hasPermission,
-                  ),
-                  _LeanStatusItem(
-                    label: AppCopy.routes(language),
-                    value: routes.routes.isEmpty
-                        ? AppCopy.standby(language)
-                        : AppCopy.countRoutes(language, routes.routes.length),
-                    active: routes.routes.isNotEmpty,
-                  ),
-                  _LeanStatusItem(
-                    label: AppCopy.history(language),
-                    value: AppCopy.countRuns(language, history.totalRuns),
-                    active: history.totalRuns > 0,
-                  ),
-                  _LeanStatusItem(
-                    label: AppCopy.cloudRuns(language),
-                    value: settings.cloudRunStorageEnabled
-                        ? AppCopy.saved(language)
-                        : AppCopy.off(language),
-                    active: settings.cloudRunStorageEnabled,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
+
+              // ── 마지막 주행 카드 ──
+              if (lastRun != null) ...[
+                const SizedBox(height: 14),
+                _LastRunCard(run: lastRun, language: language),
+              ],
+
+              const Spacer(),
+
+              // ── 통계 한 줄 ──
+              if (history.totalRuns > 0) ...[
+                _StatsLine(history: history),
+                const SizedBox(height: 16),
+              ],
+
+              // ── 푸터 ──
               Row(
                 children: [
-                  Expanded(
-                    child: _LeanGhostButton(
-                      label: AppCopy.refreshLocation(language),
-                      icon: Icons.my_location_rounded,
-                      onTap: _primeLocation,
+                  _HomeIconButton(
+                    icon: Icons.my_location_rounded,
+                    onTap: _primeLocation,
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: _openPrivacyPolicy,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textHint,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                    child: Text(
+                      AppCopy.privacyPolicy(language),
+                      style: AppText.body(
+                        size: 11,
+                        weight: FontWeight.w700,
+                        color: AppColors.textHint,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _LeanGhostButton(
-                      label: settings.ttsMuted
-                          ? AppCopy.voiceOn(language)
-                          : AppCopy.voiceOff(language),
-                      icon: settings.ttsMuted
-                          ? Icons.volume_up_rounded
-                          : Icons.volume_off_rounded,
-                      onTap: () => settings.setTtsMuted(!settings.ttsMuted),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: _LeanGhostButton(
-                      label: settings.cloudRunStorageEnabled
-                          ? AppCopy.cloudOff(language)
-                          : AppCopy.cloudOn(language),
-                      icon: settings.cloudRunStorageEnabled
-                          ? Icons.cloud_done_rounded
-                          : Icons.cloud_off_rounded,
-                      onTap: () => unawaited(_toggleCloudRunStorage(context)),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _LeanGhostButton(
-                      label: AppCopy.deleteHistory(language),
-                      icon: Icons.delete_outline_rounded,
-                      onTap: () => _confirmDeleteRunData(context),
-                    ),
+                  const Spacer(),
+                  _HomeIconButton(
+                    icon: Icons.settings_outlined,
+                    onTap: () => _showSettingsSheet(context),
                   ),
                 ],
-              ),
-              const SizedBox(height: 12),
-              Center(
-                child: TextButton.icon(
-                  onPressed: _openPrivacyPolicy,
-                  icon: const Icon(Icons.privacy_tip_outlined, size: 16),
-                  label: Text(
-                    AppCopy.privacyPolicy(language),
-                    style: AppText.body(
-                      size: 12,
-                      weight: FontWeight.w800,
-                      color: AppColors.textHint,
-                    ),
-                  ),
-                ),
               ),
             ],
           ),
@@ -459,6 +433,355 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     );
   }
 }
+
+// ── 마지막 주행 카드 ──────────────────────────────────────
+
+class _LastRunCard extends StatelessWidget {
+  final RunSummary run;
+  final AppLanguage language;
+
+  const _LastRunCard({required this.run, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final diff = now.difference(run.date);
+    final relDate = _relativeDate(diff, language);
+    final distText = '${run.distanceKm.toStringAsFixed(1)} km';
+    final hasG = run.maxLateralG != null && run.maxLateralG! > 0;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.82),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.22),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                AppCopy.t(
+                  language,
+                  ko: 'LAST DRIVE',
+                  en: 'LAST DRIVE',
+                  fr: 'DERNIER TRAJET',
+                ),
+                style: AppText.technicalLabel(
+                  size: 9,
+                  letterSpacing: 1.6,
+                  color: AppColors.textHint,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                relDate,
+                style: AppText.technicalLabel(
+                  size: 9,
+                  letterSpacing: 1.2,
+                  color: AppColors.textHint,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            run.routeName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.body(
+              size: 17,
+              weight: FontWeight.w900,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _RunPill(label: distText),
+              const SizedBox(width: 7),
+              _RunPill(label: run.durationDisplay),
+              if (hasG) ...[
+                const SizedBox(width: 7),
+                _RunPill(
+                  label: '${run.maxLateralG!.toStringAsFixed(2)}G',
+                  accent: true,
+                ),
+              ],
+              if (run.weatherEmoji.isNotEmpty) ...[
+                const SizedBox(width: 7),
+                _RunPill(label: run.weatherEmoji),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _relativeDate(Duration diff, AppLanguage language) {
+    if (diff.inMinutes < 60) {
+      final m = diff.inMinutes;
+      return AppCopy.t(
+        language,
+        ko: m < 2 ? '방금' : '$m분 전',
+        en: m < 2 ? 'just now' : '${m}m ago',
+        fr: m < 2 ? 'à l\'instant' : 'il y a ${m}min',
+      );
+    }
+    if (diff.inHours < 24) {
+      final h = diff.inHours;
+      return AppCopy.t(
+        language,
+        ko: '$h시간 전',
+        en: '${h}h ago',
+        fr: 'il y a ${h}h',
+      );
+    }
+    final d = diff.inDays;
+    if (d == 1) {
+      return AppCopy.t(language, ko: '어제', en: 'yesterday', fr: 'hier');
+    }
+    return AppCopy.t(
+      language,
+      ko: '$d일 전',
+      en: '${d}d ago',
+      fr: 'il y a ${d}j',
+    );
+  }
+}
+
+class _RunPill extends StatelessWidget {
+  final String label;
+  final bool accent;
+
+  const _RunPill({required this.label, this.accent = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: accent
+            ? AppColors.primaryContainer.withValues(alpha: 0.14)
+            : AppColors.surface.withValues(alpha: 0.68),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: accent
+              ? AppColors.primaryContainer.withValues(alpha: 0.28)
+              : AppColors.outlineVariant.withValues(alpha: 0.18),
+        ),
+      ),
+      child: Text(
+        label,
+        style: AppText.body(
+          size: 11,
+          weight: FontWeight.w900,
+          color: accent ? AppColors.primaryContainer : AppColors.textSecondary,
+        ),
+      ),
+    );
+  }
+}
+
+// ── 통계 한 줄 ────────────────────────────────────────────
+
+class _StatsLine extends StatelessWidget {
+  final RunHistoryService history;
+
+  const _StatsLine({required this.history});
+
+  @override
+  Widget build(BuildContext context) {
+    final totalKm = history.totalDistanceKm;
+    final kmText = totalKm >= 1000
+        ? '${(totalKm / 1000).toStringAsFixed(1)}k km'
+        : '${totalKm.toStringAsFixed(1)} km';
+    final bestG = history.bestMaxG;
+    final parts = [
+      '${history.totalRuns} runs',
+      kmText,
+      if (bestG != null && bestG > 0) 'Best ${bestG.toStringAsFixed(2)}G',
+    ];
+
+    return Text(
+      parts.join(' · '),
+      style: AppText.technicalLabel(
+        size: 10,
+        letterSpacing: 1.4,
+        color: AppColors.textHint,
+      ),
+    );
+  }
+}
+
+// ── 푸터 아이콘 버튼 ──────────────────────────────────────
+
+class _HomeIconButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _HomeIconButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(11),
+        decoration: BoxDecoration(
+          color: AppColors.panel.withValues(alpha: 0.78),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.28),
+          ),
+        ),
+        child: Icon(icon, size: 18, color: AppColors.textSecondary),
+      ),
+    );
+  }
+}
+
+// ── 설정 시트 ─────────────────────────────────────────────
+
+class _SettingsSheet extends StatelessWidget {
+  final VoidCallback onToggleCloud;
+  final VoidCallback onDeleteHistory;
+
+  const _SettingsSheet({
+    required this.onToggleCloud,
+    required this.onDeleteHistory,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsService>();
+    final language = settings.appLanguage;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xF20F1214),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: AppColors.outlineVariant.withValues(alpha: 0.28),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 14),
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.outlineVariant.withValues(alpha: 0.38),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Text(
+                      AppCopy.t(
+                        language,
+                        ko: 'SETTINGS',
+                        en: 'SETTINGS',
+                        fr: 'RÉGLAGES',
+                      ),
+                      style: AppText.technicalLabel(
+                        size: 10,
+                        letterSpacing: 1.8,
+                        color: AppColors.textHint,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // 클라우드 저장 토글
+              _SettingsTile(
+                icon: settings.cloudRunStorageEnabled
+                    ? Icons.cloud_done_rounded
+                    : Icons.cloud_off_rounded,
+                label: settings.cloudRunStorageEnabled
+                    ? AppCopy.cloudOff(language)
+                    : AppCopy.cloudOn(language),
+                onTap: () {
+                  Navigator.pop(context);
+                  onToggleCloud();
+                },
+              ),
+              // 기록 삭제
+              _SettingsTile(
+                icon: Icons.delete_outline_rounded,
+                label: AppCopy.deleteHistory(language),
+                danger: true,
+                onTap: () {
+                  Navigator.pop(context);
+                  onDeleteHistory();
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool danger;
+  final VoidCallback onTap;
+
+  const _SettingsTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.danger = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? AppColors.danger : AppColors.textPrimary;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: color),
+            const SizedBox(width: 14),
+            Text(
+              label,
+              style: AppText.body(
+                size: 15,
+                weight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── 시작점 안내 카드 ──────────────────────────────────────
 
 class _GuideToStartCard extends StatelessWidget {
   final RevvRoute route;
@@ -633,6 +956,8 @@ class _TinyActionButton extends StatelessWidget {
   }
 }
 
+// ── 공통 위젯 ─────────────────────────────────────────────
+
 class _LeanLanguageToggle extends StatelessWidget {
   final AppLanguage language;
   final ValueChanged<AppLanguage> onChanged;
@@ -755,109 +1080,6 @@ class _LeanPrimaryButton extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _LeanGhostButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _LeanGhostButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return OutlinedButton.icon(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: AppColors.textPrimary,
-        side: BorderSide(
-          color: AppColors.outlineVariant.withValues(alpha: 0.6),
-        ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        padding: const EdgeInsets.symmetric(vertical: 14),
-      ),
-      onPressed: onTap,
-      icon: Icon(icon, size: 18),
-      label: Text(
-        label,
-        style: AppText.body(size: 13, weight: FontWeight.w800),
-      ),
-    );
-  }
-}
-
-class _LeanStatusItem {
-  final String label;
-  final String value;
-  final bool active;
-
-  const _LeanStatusItem({
-    required this.label,
-    required this.value,
-    required this.active,
-  });
-}
-
-class _LeanStatusGrid extends StatelessWidget {
-  final List<_LeanStatusItem> items;
-
-  const _LeanStatusGrid({required this.items});
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      childAspectRatio: 2.7,
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      children: items
-          .map(
-            (item) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: AppColors.panel.withValues(alpha: 0.82),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color:
-                      (item.active
-                              ? AppColors.primaryContainer
-                              : AppColors.outline)
-                          .withValues(alpha: item.active ? 0.26 : 0.14),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      item.label,
-                      style: AppText.technicalLabel(
-                        size: 10,
-                        color: AppColors.textHint,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    item.value,
-                    style: AppText.body(
-                      size: 13,
-                      weight: FontWeight.w900,
-                      color: item.active
-                          ? AppColors.primaryContainer
-                          : AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          )
-          .toList(),
     );
   }
 }
