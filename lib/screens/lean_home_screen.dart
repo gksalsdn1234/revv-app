@@ -109,6 +109,21 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     }
   }
 
+  Future<void> _startFromGuideCard(RevvRoute route) async {
+    final startChoice = await showCopilotStartSheet(context, route: route);
+    if (!mounted || startChoice == null) return;
+    context.read<RouteService>().clearGuideToStart();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LeanDriveScreen(
+          route: route,
+          simulated: startChoice == CopilotStartChoice.simulate,
+        ),
+      ),
+    );
+  }
+
   Future<void> _confirmDeleteRunData(BuildContext context) async {
     final language = context.read<SettingsService>().appLanguage;
     final confirmed = await showDialog<bool>(
@@ -335,16 +350,8 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                   ),
                   onWaze: () =>
                       _openWazeForRoute(context, routes.pendingGuideRoute!),
-                  onStart: () {
-                    final route = routes.pendingGuideRoute!;
-                    routes.clearGuideToStart();
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => LeanDriveScreen(route: route),
-                      ),
-                    );
-                  },
+                  onStart: () =>
+                      unawaited(_startFromGuideCard(routes.pendingGuideRoute!)),
                   onCancel: () {
                     _guidePromptShown = false;
                     routes.clearGuideToStart();

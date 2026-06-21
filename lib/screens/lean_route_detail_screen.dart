@@ -117,7 +117,9 @@ class LeanRouteDetailScreen extends StatelessWidget {
                             color: AppColors.textPrimary,
                           ),
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 14),
+                        _QuickStatRow(route: route, language: language),
+                        const SizedBox(height: 14),
                         _RouteConfidenceSection(profile: profile),
                         const SizedBox(height: 12),
                         _CopilotJudgementCard(
@@ -177,6 +179,90 @@ class LeanRouteDetailScreen extends StatelessWidget {
             child: _StickyStartBar(
               onStart: () => _startDrive(context),
               onBack: () => Navigator.pop(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickStatRow extends StatelessWidget {
+  final RevvRoute route;
+  final AppLanguage language;
+
+  const _QuickStatRow({required this.route, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final stopCount = route.stopSignCount + route.trafficSignalCount;
+    final isFar = route.distanceFromUser >= 1.0;
+    return Row(
+      children: [
+        _QuickStatPill(
+          icon: Icons.flag_rounded,
+          label: route.distanceFromUserDisplay,
+          accent: isFar ? AppColors.warning : AppColors.primaryContainer,
+        ),
+        const SizedBox(width: 8),
+        _QuickStatPill(
+          icon: Icons.straighten_rounded,
+          label: route.distanceDisplay,
+        ),
+        const SizedBox(width: 8),
+        _QuickStatPill(
+          icon: Icons.timer_outlined,
+          label: route.durationDisplay,
+        ),
+        if (stopCount > 0) ...[
+          const SizedBox(width: 8),
+          _QuickStatPill(
+            icon: Icons.stop_circle_outlined,
+            label: AppCopy.t(
+              language,
+              ko: '정지 $stopCount개',
+              en: '$stopCount stops',
+              fr: '$stopCount arrêts',
+            ),
+            accent: AppColors.warning,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _QuickStatPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color accent;
+
+  const _QuickStatPill({
+    required this.icon,
+    required this.label,
+    this.accent = AppColors.textSecondary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: accent.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: accent.withValues(alpha: 0.22)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: accent),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppText.body(
+              size: 12,
+              weight: FontWeight.w900,
+              color: accent,
             ),
           ),
         ],
