@@ -58,6 +58,7 @@ class _SprintScreenState extends State<SprintScreen>
   // DriveMode — Consumer<DrivingContextService> 대신 State로 관리
   DriveMode _driveMode = DriveMode.cruise;
   DrivingContextService? _drivingCtxService;
+  ImuService? _imuService;
 
   // 루트 진행률 (0.0 ~ 1.0)
   double _routeProgressPct = 0.0;
@@ -105,7 +106,8 @@ class _SprintScreenState extends State<SprintScreen>
       });
 
       _locationService!.addListener(_onLocation);
-      context.read<ImuService>().addListener(_onImu);
+      _imuService = context.read<ImuService>();
+      _imuService!.addListener(_onImu);
       _drivingCtxService = context.read<DrivingContextService>();
       _drivingCtxService!.addListener(_onDriveMode);
       _isMuted = context.read<SettingsService>().ttsMuted;
@@ -144,8 +146,7 @@ class _SprintScreenState extends State<SprintScreen>
     final loc = _locationService;
     if (loc == null) return;
     _runSessionService?.recordPosition(loc.lat, loc.lng, loc.speedKmh);
-    final drivingCtx = context.read<DrivingContextService>();
-    _runSessionService?.recordDriveMode(drivingCtx.mode.name);
+    _runSessionService?.recordDriveMode(_drivingCtxService?.mode.name ?? 'cruise');
 
     if (!_onRoute && widget.selectedRoute != null && _navPolyline != null) {
       final start = widget.selectedRoute!.nodes.first;
@@ -220,7 +221,8 @@ class _SprintScreenState extends State<SprintScreen>
 
   void _onImu() {
     if (!mounted) return;
-    final imu = context.read<ImuService>();
+    final imu = _imuService;
+    if (imu == null) return;
     final g = imu.lateralG.abs();
 
     // 플래시 트리거 (setState 없이 AnimationController만 건드림)
@@ -242,13 +244,12 @@ class _SprintScreenState extends State<SprintScreen>
     _locationService?.removeListener(_onLocation);
     _tbtService?.stop();
     _cornerBriefing?.stop();
-    try { context.read<ImuService>().removeListener(_onImu); } catch (_) {}
-    final imu = context.read<ImuService>();
+    _imuService?.removeListener(_onImu);
     final session = _runSessionService?.stopSession(
-      maxLateralG: imu.maxLateralG,
-      maxLonG: imu.maxLonG,
+      maxLateralG: _imuService?.maxLateralG ?? 0,
+      maxLonG: _imuService?.maxLonG ?? 0,
     );
-    imu.resetMaxG();
+    _imuService?.resetMaxG();
     if (!mounted) return;
     if (widget.onEnd != null) {
       widget.onEnd!(session);
@@ -263,6 +264,7 @@ class _SprintScreenState extends State<SprintScreen>
   @override
   void dispose() {
     _locationService?.removeListener(_onLocation);
+    _imuService?.removeListener(_onImu);
     _drivingCtxService?.removeListener(_onDriveMode);
     _tbtService?.stop();
     _cornerBriefing?.stop();
