@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../core/secrets.dart';
 import '../models/run_session.dart';
@@ -48,10 +49,24 @@ class RevvAiService {
 
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
-        return (data['content'][0]['text'] as String).trim();
+        final content = data['content'] as List?;
+        if (content != null && content.isNotEmpty) {
+          return ((content[0]['text'] as String?) ?? '').trim();
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[RevvAiService] ask() error: $e');
+    }
     return _fallback;
+  }
+
+  String _buildModeStr(RunSession session) {
+    final totalSecs = session.driveModeSeconds.values.fold(0, (a, b) => a + b);
+    if (totalSecs <= 0) return '데이터 없음';
+    final cruise = ((session.driveModeSeconds['cruise'] ?? 0) / totalSecs * 100).round();
+    final winding = ((session.driveModeSeconds['winding'] ?? 0) / totalSecs * 100).round();
+    final sport = ((session.driveModeSeconds['sport'] ?? 0) / totalSecs * 100).round();
+    return 'CRUISE ${cruise}% / WINDING ${winding}% / SPORT ${sport}%';
   }
 
   /// 주행 종료 후 자동 분석 리포트 생성
@@ -64,25 +79,7 @@ class RevvAiService {
               ? '${dur.inMinutes}분 ${dur.inSeconds % 60}초'
               : '${dur.inSeconds}초';
 
-      final totalSecs =
-          session.driveModeSeconds.values.fold(0, (a, b) => a + b);
-
-      String modeStr;
-      if (totalSecs > 0) {
-        final cruise =
-            ((session.driveModeSeconds['cruise'] ?? 0) / totalSecs * 100)
-                .round();
-        final winding =
-            ((session.driveModeSeconds['winding'] ?? 0) / totalSecs * 100)
-                .round();
-        final sport =
-            ((session.driveModeSeconds['sport'] ?? 0) / totalSecs * 100)
-                .round();
-        modeStr =
-            'CRUISE ${cruise}% / WINDING ${winding}% / SPORT ${sport}%';
-      } else {
-        modeStr = '데이터 없음';
-      }
+      final modeStr = _buildModeStr(session);
 
       final hasGData = session.maxLateralG > 0.01 || session.maxLonG > 0.01;
       final gStr = hasGData
@@ -121,9 +118,14 @@ class RevvAiService {
 
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
-        return (data['content'][0]['text'] as String).trim();
+        final content = data['content'] as List?;
+        if (content != null && content.isNotEmpty) {
+          return ((content[0]['text'] as String?) ?? '').trim();
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[RevvAiService] analyzeRun() error: $e');
+    }
     return _buildFallbackAnalysis(session);
   }
 
@@ -136,17 +138,7 @@ class RevvAiService {
           ? '${dur.inHours}시간 ${dur.inMinutes % 60}분'
           : '${dur.inMinutes}분';
 
-      final totalSecs =
-          session.driveModeSeconds.values.fold(0, (a, b) => a + b);
-      String modeStr;
-      if (totalSecs > 0) {
-        final cruise = ((session.driveModeSeconds['cruise'] ?? 0) / totalSecs * 100).round();
-        final winding = ((session.driveModeSeconds['winding'] ?? 0) / totalSecs * 100).round();
-        final sport = ((session.driveModeSeconds['sport'] ?? 0) / totalSecs * 100).round();
-        modeStr = 'CRUISE ${cruise}% / WINDING ${winding}% / SPORT ${sport}%';
-      } else {
-        modeStr = '데이터 없음';
-      }
+      final modeStr = _buildModeStr(session);
 
       final hasG = session.maxLateralG > 0.01;
       final sharpCount = session.sharpCorners.length;
@@ -204,9 +196,14 @@ class RevvAiService {
 
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
-        return (data['content'][0]['text'] as String).trim();
+        final content = data['content'] as List?;
+        if (content != null && content.isNotEmpty) {
+          return ((content[0]['text'] as String?) ?? '').trim();
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[RevvAiService] analyzeRunDetailed() error: $e');
+    }
     return _buildDetailedFallback(session);
   }
 

@@ -637,7 +637,7 @@ class _WaveformPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_WaveformPainter old) => false;
+  bool shouldRepaint(_WaveformPainter old) => old.nodes != nodes || old.color != color;
 }
 
 // ── 커브 분포 바 ─────────────────────────────────────────────────────
