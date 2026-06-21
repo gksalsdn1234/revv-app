@@ -308,7 +308,6 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final imu = context.watch<ImuService>();
     final cue = _cue;
     final routeEvent = _routeEventUntil?.isAfter(DateTime.now()) == true
         ? _routeEventMessage
@@ -321,7 +320,6 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     final totalG = math.sqrt(
       _lateralG * _lateralG + _longitudinalG * _longitudinalG,
     );
-    final peakG = math.max(imu.maxLateralG, imu.maxLonG);
     final routeNodes = _activeRouteNodes;
 
     return Scaffold(
@@ -368,11 +366,33 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                     children: [
                       _CompactSpeedPill(speedKmh: _speedKmh),
                       const SizedBox(width: 8),
-                      _CompactGInstrument(
-                        lateralG: _lateralG,
-                        longitudinalG: _longitudinalG,
-                        totalG: totalG,
-                        peakG: peakG,
+                      RepaintBoundary(
+                        child: widget.simulated
+                            ? _CompactGInstrument(
+                                lateralG: _lateralG,
+                                longitudinalG: _longitudinalG,
+                                totalG: totalG,
+                                peakG: math.max(
+                                  _simMaxLateralG,
+                                  _simMaxLongitudinalG,
+                                ),
+                              )
+                            : Consumer<ImuService>(
+                                builder: (context, imu, _) {
+                                  final lG = _lateralG;
+                                  final nG = _longitudinalG;
+                                  final tG = math.sqrt(lG * lG + nG * nG);
+                                  return _CompactGInstrument(
+                                    lateralG: lG,
+                                    longitudinalG: nG,
+                                    totalG: tG,
+                                    peakG: math.max(
+                                      imu.maxLateralG,
+                                      imu.maxLonG,
+                                    ),
+                                  );
+                                },
+                              ),
                       ),
                     ],
                   ),
