@@ -324,6 +324,7 @@ class RouteService extends ChangeNotifier {
       if (candidates.isEmpty) {
         if (allowCacheFallback) {
           final cached = await _loadRouteFieldCache(point, ignoreTtl: true);
+          if (token != _fetchToken) return;
           if (cached != null) {
             _applyRouteField(
               _routesRelativeTo(cached.routes, point),
