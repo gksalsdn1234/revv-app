@@ -7,6 +7,8 @@ import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/mapbox_service.dart';
 import '../services/saved_route_service.dart';
+import '../services/weather_service.dart';
+import '../services/run_history_service.dart';
 import '../models/revv_route.dart';
 import 'route_wizard_screen.dart';
 
@@ -36,6 +38,15 @@ class _RoutesScreenState extends State<RoutesScreen> {
       if (!mounted) return;
       final loc = context.read<LocationService>();
       _routeSvc = context.read<RouteService>();
+      // 날씨 노면 상태 주입
+      _routeSvc!.roadCondition = context.read<WeatherService>().roadCondition;
+      // 주행 이력 부스트 주입
+      final hist = context.read<RunHistoryService>().history;
+      final visitMap = <String, int>{};
+      for (final s in hist) {
+        if (s.routeId != null) visitMap[s.routeId!] = (visitMap[s.routeId!] ?? 0) + 1;
+      }
+      _routeSvc!.updateVisitHistory(visitMap);
       _routeSvc!.fetchRoutes(loc.lat, loc.lng);
       _routeSvc!.addListener(_onRouteServiceChanged);
     });

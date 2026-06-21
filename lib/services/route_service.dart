@@ -12,7 +12,8 @@ class _IsolateParams {
   final String jsonBody;
   final double lat;
   final double lng;
-  const _IsolateParams(this.jsonBody, this.lat, this.lng);
+  final String roadCondition; // 'DRY' | 'WET' | 'ICY'
+  const _IsolateParams(this.jsonBody, this.lat, this.lng, {this.roadCondition = 'DRY'});
 }
 
 // ─── Top-level 처리 함수 (isolate에서 실행) ────────────────────────
@@ -56,7 +57,7 @@ List<RevvRoute> _processRoutes(_IsolateParams p) {
   // Way Stitching — 인접 도로 조각을 하나의 연속 루트로 이어붙임
   final stitched = _stitchWays(rawWays);
   debugPrint('[RouteService] 신호/정지 노드: ${signalNodes.length}개');
-  return _selectTopRoutes(stitched, userPos, intersectionNodes, signalNodes);
+  return _selectTopRoutes(stitched, userPos, intersectionNodes, signalNodes, p.roadCondition);
 }
 
 // ─── Top-level 헬퍼 함수들 ───────────────────────────────────────
@@ -209,6 +210,8 @@ _CurveResult _analyzeCurves(List<LatLng> nodes) {
   double currentContinuousKm = 0;
   double maxContinuousKm = 0;
   double straightAccum = 0;
+  int sharpCurveCount = 0;
+  bool _inTight = false;
 
   for (int i = 0; i < nodes.length - 2; i++) {
     final angle = _bearingDiff(nodes[i], nodes[i + 1], nodes[i + 2]);
@@ -222,11 +225,15 @@ _CurveResult _analyzeCurves(List<LatLng> nodes) {
       tightKm += segLen;
       currentContinuousKm += segLen;
       straightAccum = 0;
+      // 급커브 구간 진입 횟수 카운트
+      if (!_inTight) { sharpCurveCount++; _inTight = true; }
     } else if (rate >= 20) {
       mediumKm += segLen;
       currentContinuousKm += segLen;
       straightAccum = 0;
+      _inTight = false;
     } else {
+      _inTight = false;
       straightAccum += segLen;
       if (straightAccum >= 0.3) {
         if (currentContinuousKm > maxContinuousKm) maxContinuousKm = currentContinuousKm;
@@ -242,6 +249,7 @@ _CurveResult _analyzeCurves(List<LatLng> nodes) {
     tightKm: tightKm,
     mediumKm: mediumKm,
     maxContinuousKm: maxContinuousKm,
+    sharpCurveCount: sharpCurveCount,
   );
 }
 
@@ -324,8 +332,16 @@ double _bearingDegTo(LatLng from, LatLng to) {
   return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
 }
 
+// 날씨 노면 조건에 따른 스코어 보정 (ICY: 급커브 루트 하향, WET: 중간 하향)
+double _weatherPenalty(String roadCondition, double tightCurveRatio) {
+  if (roadCondition == 'ICY') return 0.5;
+  if (roadCondition == 'WET' && tightCurveRatio > 0.3) return 0.75;
+  return 1.0;
+}
+
 List<RevvRoute> _selectTopRoutes(
-    List<_RawWay> ways, LatLng userPos, List<LatLng> intersections, List<LatLng> signalNodes) {
+    List<_RawWay> ways, LatLng userPos, List<LatLng> intersections,
+    List<LatLng> signalNodes, [String roadCondition = 'DRY']) {
   final scored = <_ScoredWay>[];
 
   for (final way in ways) {
@@ -339,7 +355,6 @@ List<RevvRoute> _selectTopRoutes(
     final curves = _analyzeCurves(way.nodes);
 
     // roadcurvature.com 기준: 300 미만은 지루한 도로
-    // 300=Lightly, 1000=Moderately, 2000=Very, 3000=Extremely Curvy
     if (curves.totalCurvature < 300) continue;
     if (curves.maxContinuousKm < 0.6) continue;
 
@@ -348,17 +363,20 @@ List<RevvRoute> _selectTopRoutes(
     final continuityBonus = 1.0 + (curves.maxContinuousKm / dist) * 0.6;
     final intersectCount = _countNearbyIntersections(way.nodes, intersections);
     final intersectPenalty = _intersectionPenalty(intersectCount, dist);
-    // 신호 패널티: 0개=1.0, 1개=0.55, 2개=0.25
-    final signalPenalty = signalCount == 0 ? 1.0 : signalCount == 1 ? 0.55 : 0.25;
+    // 신호 패널티 재조정: 0개=1.0, 1개=0.85, 2개=0.65 (기존 0.55/0.25보다 완화)
+    final signalPenalty = signalCount == 0 ? 1.0 : signalCount == 1 ? 0.85 : 0.65;
     final roadMultiplier = _roadMultiplier(way.highwayType);
     final loopBonus = _isLoop(way.nodes) ? 1.25 : 1.0;
     final distPenalty = _distancePenalty(
         RevvRoute.haversineKm(userPos, way.nodes.first));
+    // 날씨 노면 패널티
+    final tightRatio = dist > 0 ? curves.tightKm / dist : 0.0;
+    final weatherPenalty = _weatherPenalty(roadCondition, tightRatio);
 
     // roadcurvature.com 방식: density × sqrt(dist)로 밀도+길이 균형
     final score = curvatureDensity * math.sqrt(dist) *
         continuityBonus * intersectPenalty * signalPenalty * roadMultiplier *
-        loopBonus * distPenalty;
+        loopBonus * distPenalty * weatherPenalty;
 
     scored.add(_ScoredWay(
       way: way,
@@ -374,7 +392,6 @@ List<RevvRoute> _selectTopRoutes(
   scored.sort((a, b) => b.score.compareTo(a.score));
 
   // ── 방향 다양성 선택 (8-sector Climoto 스타일) ──────────────────
-  // 360°를 45° 단위 8개 섹터로 나눠 각 방향의 최고 루트 우선 선택
   const sectorCount = 8;
   final sectors = List<List<_ScoredWay>>.generate(sectorCount, (_) => []);
   for (final s in scored) {
@@ -399,6 +416,18 @@ List<RevvRoute> _selectTopRoutes(
     if (selected.length >= 10) break;
     if (!selected.contains(s) && !isTooClose(s)) selected.add(s);
   }
+  // 3라운드: 단거리 루트 보장 — top 10에 20km 이하 루트가 없으면 최고점 단거리 추가
+  final hasShort = selected.any((s) => s.distKm <= 20);
+  if (!hasShort) {
+    final shortCandidate = scored.firstWhere(
+      (s) => s.distKm <= 20 && !selected.contains(s),
+      orElse: () => scored.first, // 없으면 패스
+    );
+    if (shortCandidate.distKm <= 20) {
+      if (selected.length >= 10) selected.removeLast();
+      selected.add(shortCandidate);
+    }
+  }
   // 점수순 재정렬
   selected.sort((a, b) => b.score.compareTo(a.score));
 
@@ -413,7 +442,7 @@ List<RevvRoute> _selectTopRoutes(
       distanceKm: s.distKm,
       windingScore: s.score,
       starRating: RevvRoute.toStarRating(s.score),
-      sharpCurveCount: 0,
+      sharpCurveCount: s.curves.sharpCurveCount, // 실제 카운트 사용
       centerPoint: s.center,
       distanceFromUser: s.distFromUser,
       tightCurveKm: s.curves.tightKm,
@@ -439,6 +468,15 @@ class RouteService extends ChangeNotifier {
 
   LatLng? _lastFetchLocation;
   int? _lastFetchRadius;
+
+  // 날씨 노면 상태 (WeatherService에서 업데이트)
+  String roadCondition = 'DRY';
+
+  // 주행 이력 부스트 — routeId → 방문 횟수 (RunHistoryService에서 업데이트)
+  Map<String, int> _visitHistory = {};
+  void updateVisitHistory(Map<String, int> history) {
+    _visitHistory = history;
+  }
 
   // ── 루트 배제 ────────────────────────────────────────────────
   final List<LatLng> _excludedCenters = [];
@@ -536,7 +574,17 @@ class RouteService extends ChangeNotifier {
 
     try {
       await loadExclusions();
-      final result = await _fetchAndScore(lat, lng, searchRadiusKm * 1000);
+      var result = await _fetchAndScore(lat, lng, searchRadiusKm * 1000);
+      // 주행 이력 부스트: 검증된 루트 상위 노출 (최대 +50%)
+      if (_visitHistory.isNotEmpty) {
+        result = result.map((r) {
+          final visits = _visitHistory[r.id] ?? 0;
+          if (visits <= 0) return r;
+          final boost = 1.0 + math.min(visits * 0.1, 0.5);
+          return r.copyWith(windingScore: r.windingScore * boost);
+        }).toList()
+          ..sort((a, b) => b.windingScore.compareTo(a.windingScore));
+      }
       routes = result.where((r) => !isExcluded(r)).toList();
       selectedRoute = routes.isNotEmpty ? routes.first : null;
       _lastFetchLocation = LatLng(lat, lng);
@@ -683,7 +731,7 @@ out geom qt;
     // ── compute() isolate: JSON 파싱 + Way Stitching + 스코어링 ──
     // 메인 스레드에서 실행하면 320프레임+ 스킵 발생 → 별도 isolate로 분리
     debugPrint('[RouteService] compute() isolate 시작');
-    final result = await compute(_processRoutes, _IsolateParams(resBody, lat, lng));
+    final result = await compute(_processRoutes, _IsolateParams(resBody, lat, lng, roadCondition: roadCondition));
     debugPrint('[RouteService] compute() 완료: ${result.length}개');
     return result;
   }
@@ -745,11 +793,13 @@ class _CurveResult {
   final double tightKm;
   final double mediumKm;
   final double maxContinuousKm;
+  final int sharpCurveCount; // 급커브 개수 (rate >= 200 deg/km 구간 진입 횟수)
   const _CurveResult({
     required this.totalCurvature,
     required this.tightKm,
     required this.mediumKm,
     required this.maxContinuousKm,
+    this.sharpCurveCount = 0,
   });
 }
 
