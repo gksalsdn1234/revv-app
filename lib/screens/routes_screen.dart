@@ -370,12 +370,8 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       child: selected != null
                           ? _RouteTooltip(
                               route: selected,
-                              connectingCount:
-                                  svc.connectingRoutes.length,
-                              totalChainKm: selected.distanceKm +
-                                  svc.connectingRoutes.fold<double>(
-                                      0, (s, r) => s + r.distanceKm),
-                              onGo: () => svc.requestSprint(),
+                              connectingRoutes: svc.connectingRoutes,
+                              onGo: (mergedRoute) => svc.requestSprint(route: mergedRoute),
                               onClose: () => svc.deselectRoute(),
                               isTopPick: isTopPick,
                               isNew: isNew,
@@ -544,19 +540,17 @@ Color _routeDiffColor(int level) => Color(_routeDiffColorInt(level));
 // ══════════════════════════════════════════════════════════════════
 // 말풍선 툴팁 — 루트 선택 시 지도 위에 표시
 // ══════════════════════════════════════════════════════════════════
-class _RouteTooltip extends StatelessWidget {
+class _RouteTooltip extends StatefulWidget {
   final RevvRoute route;
-  final int connectingCount;
-  final double totalChainKm;
-  final VoidCallback onGo;
+  final List<RevvRoute> connectingRoutes;
+  final void Function(RevvRoute? mergedRoute) onGo;
   final VoidCallback onClose;
   final bool isTopPick;
   final bool isNew;
 
   const _RouteTooltip({
     required this.route,
-    required this.connectingCount,
-    required this.totalChainKm,
+    required this.connectingRoutes,
     required this.onGo,
     required this.onClose,
     this.isTopPick = false,
@@ -564,17 +558,68 @@ class _RouteTooltip extends StatelessWidget {
   });
 
   @override
+  State<_RouteTooltip> createState() => _RouteTooltipState();
+}
+
+class _RouteTooltipState extends State<_RouteTooltip> {
+  final _selectedIds = <String>{};
+  RevvRoute? _longDriveRoute;
+
+  @override
+  void didUpdateWidget(_RouteTooltip old) {
+    super.didUpdateWidget(old);
+    // 루트가 바뀌면 선택 초기화
+    if (old.route.id != widget.route.id) {
+      _selectedIds.clear();
+      _longDriveRoute = null;
+    }
+  }
+
+  void _toggleChain(RevvRoute r) {
+    setState(() {
+      _longDriveRoute = null;
+      if (_selectedIds.contains(r.id)) {
+        _selectedIds.remove(r.id);
+      } else {
+        _selectedIds.add(r.id);
+      }
+    });
+  }
+
+  void _tapLongDrive(double targetKm) {
+    final svc = context.read<RouteService>();
+    final result = svc.buildLongDriveChain(widget.route, targetKm);
+    setState(() {
+      _selectedIds.clear();
+      _longDriveRoute = result;
+    });
+  }
+
+  RevvRoute? get _effectiveMergedRoute {
+    if (_longDriveRoute != null) return _longDriveRoute;
+    if (_selectedIds.isEmpty) return null;
+    final picked = widget.connectingRoutes
+        .where((r) => _selectedIds.contains(r.id))
+        .toList();
+    if (picked.isEmpty) return null;
+    return context.read<RouteService>().mergeRoutes([widget.route, ...picked]);
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final route = widget.route;
     final diffColor = _routeDiffColor(route.difficultyLevel);
-    final hasChain = connectingCount > 0;
     final savedSvc = context.watch<SavedRouteService>();
     final isSaved = savedSvc.isSaved(route.id);
+    final merged = _effectiveMergedRoute;
+    final totalKm = merged?.distanceKm ?? route.distanceKm;
+    final hasChain = widget.connectingRoutes.isNotEmpty;
+
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xF0141416),
         borderRadius: BorderRadius.circular(14),
-        border:
-            Border.all(color: diffColor.withValues(alpha: 0.5), width: 1.5),
+        border: Border.all(color: diffColor.withValues(alpha: 0.5), width: 1.5),
         boxShadow: [
           BoxShadow(
               color: Colors.black.withValues(alpha: 0.6),
@@ -594,8 +639,7 @@ class _RouteTooltip extends StatelessWidget {
             height: 3,
             decoration: BoxDecoration(
               color: diffColor,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(13)),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
             ),
           ),
           Padding(
@@ -621,7 +665,7 @@ class _RouteTooltip extends StatelessWidget {
                               ),
                             ),
                           ),
-                          if (isTopPick) ...[
+                          if (widget.isTopPick) ...[
                             const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
@@ -640,7 +684,7 @@ class _RouteTooltip extends StatelessWidget {
                                 ),
                               ),
                             ),
-                          ] else if (isNew) ...[
+                          ] else if (widget.isNew) ...[
                             const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
@@ -676,11 +720,10 @@ class _RouteTooltip extends StatelessWidget {
                       ),
                     ),
                     GestureDetector(
-                      onTap: onClose,
+                      onTap: widget.onClose,
                       child: const Padding(
                         padding: EdgeInsets.all(4),
-                        child: Icon(Icons.close,
-                            size: 16, color: Colors.white54),
+                        child: Icon(Icons.close, size: 16, color: Colors.white54),
                       ),
                     ),
                   ],
@@ -689,18 +732,13 @@ class _RouteTooltip extends StatelessWidget {
                 // 스탯 칩 + 난이도 배지
                 Row(
                   children: [
-                    _TooltipChip(
-                        icon: Icons.straighten,
-                        label: route.distanceDisplay),
+                    _TooltipChip(icon: Icons.straighten, label: route.distanceDisplay),
                     const SizedBox(width: 6),
-                    _TooltipChip(
-                        icon: Icons.timer_outlined,
-                        label: route.durationDisplay),
+                    _TooltipChip(icon: Icons.timer_outlined, label: route.durationDisplay),
                     const SizedBox(width: 6),
                     if (route.isLoop) ...[
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                         decoration: BoxDecoration(
                           color: Colors.blueAccent.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(4),
@@ -715,13 +753,11 @@ class _RouteTooltip extends StatelessWidget {
                     ],
                     const Spacer(),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: diffColor.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                            color: diffColor.withValues(alpha: 0.4)),
+                        border: Border.all(color: diffColor.withValues(alpha: 0.4)),
                       ),
                       child: Text(
                         route.difficultyLabel,
@@ -734,40 +770,140 @@ class _RouteTooltip extends StatelessWidget {
                     ),
                   ],
                 ),
+
+                // ── LONG DRIVE 섹션 ──────────────────────────────
+                if (hasChain) ...[
+                  const SizedBox(height: 10),
+                  Container(height: 1, color: Colors.white.withValues(alpha: 0.06)),
+                  const SizedBox(height: 8),
+                  // 헤더
+                  Row(
+                    children: [
+                      const Icon(Icons.route_rounded, size: 11, color: Colors.white38),
+                      const SizedBox(width: 4),
+                      Text(
+                        'LONG DRIVE',
+                        style: GoogleFonts.orbitron(
+                          fontSize: 8,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white38,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  // 연결 루트 카드 (수동 선택)
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: widget.connectingRoutes.map((r) {
+                      final isSelected = _selectedIds.contains(r.id);
+                      return GestureDetector(
+                        onTap: () => _toggleChain(r),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppColors.red.withValues(alpha: 0.2)
+                                : AppColors.surface,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppColors.red.withValues(alpha: 0.6)
+                                  : Colors.white12,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                isSelected
+                                    ? Icons.check_circle_rounded
+                                    : Icons.add_circle_outline_rounded,
+                                size: 10,
+                                color: isSelected ? AppColors.red : Colors.white38,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                r.name.length > 14 ? '${r.name.substring(0, 14)}…' : r.name,
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: isSelected ? Colors.white : AppColors.textSecondary,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                r.distanceDisplay,
+                                style: GoogleFonts.rajdhani(
+                                  fontSize: 10,
+                                  color: Colors.white38,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 6),
+                  // 목표 거리 버튼
+                  Row(
+                    children: [
+                      Text(
+                        '자동',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 10,
+                          color: Colors.white38,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      _LongDriveBtn(
+                        label: '50km',
+                        active: _longDriveRoute != null &&
+                            (_longDriveRoute!.distanceKm - 50).abs() <
+                                (_longDriveRoute!.distanceKm - 100).abs(),
+                        onTap: () => _tapLongDrive(50),
+                      ),
+                      const SizedBox(width: 4),
+                      _LongDriveBtn(
+                        label: '100km',
+                        active: _longDriveRoute != null &&
+                            (_longDriveRoute!.distanceKm - 100).abs() <=
+                                (_longDriveRoute!.distanceKm - 50).abs(),
+                        onTap: () => _tapLongDrive(100),
+                      ),
+                    ],
+                  ),
+                ],
+
                 const SizedBox(height: 8),
-                // CHAIN + GO
+                // GO 버튼 (총 거리 표시)
                 Row(
                   children: [
-                    if (hasChain)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.white12),
-                        ),
-                        child: Text(
-                          '+$connectingCount  ${totalChainKm.toStringAsFixed(0)}km',
-                          style: GoogleFonts.rajdhani(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textSecondary),
+                    if (merged != null)
+                      Text(
+                        '총 ${totalKm.toStringAsFixed(0)}km',
+                        style: GoogleFonts.rajdhani(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textSecondary,
                         ),
                       ),
                     const Spacer(),
                     GestureDetector(
-                      onTap: onGo,
+                      onTap: () => widget.onGo(merged),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 18, vertical: 7),
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 7),
                         decoration: BoxDecoration(
                           color: AppColors.red,
                           borderRadius: BorderRadius.circular(8),
                           boxShadow: [
                             BoxShadow(
-                                color:
-                                    AppColors.red.withValues(alpha: 0.35),
+                                color: AppColors.red.withValues(alpha: 0.35),
                                 blurRadius: 10)
                           ],
                         ),
@@ -788,6 +924,40 @@ class _RouteTooltip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _LongDriveBtn extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  const _LongDriveBtn({required this.label, required this.active, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: active ? Colors.white.withValues(alpha: 0.12) : AppColors.surface,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: active ? Colors.white38 : Colors.white12,
+          ),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.rajdhani(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: active ? Colors.white : AppColors.textSecondary,
+            letterSpacing: 0.5,
+          ),
+        ),
       ),
     );
   }

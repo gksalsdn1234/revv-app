@@ -752,6 +752,77 @@ out geom qt;
     notifyListeners();
   }
 
+  /// 목표 거리 기반 멀티홉 체인 루트 자동 생성
+  /// 현재 routes 캐시에서 끝점 근처 루트를 반복 탐색
+  RevvRoute? buildLongDriveChain(RevvRoute start, double targetKm) {
+    final chain = <RevvRoute>[start];
+    final usedIds = <String>{start.id};
+    double totalKm = start.distanceKm;
+
+    while (totalKm < targetKm) {
+      final lastEnd = chain.last.nodes.last;
+      RevvRoute? best;
+      double bestDist = double.infinity;
+      for (final r in routes) {
+        if (usedIds.contains(r.id)) continue;
+        final d = math.min(
+          RevvRoute.haversineKm(lastEnd, r.nodes.first),
+          RevvRoute.haversineKm(lastEnd, r.nodes.last),
+        );
+        if (d < bestDist && d < 25.0) {
+          bestDist = d;
+          best = r;
+        }
+      }
+      if (best == null) break;
+      chain.add(best);
+      usedIds.add(best.id);
+      totalKm += best.distanceKm;
+    }
+
+    if (chain.length <= 1) return null;
+    return mergeRoutes(chain);
+  }
+
+  /// 루트 목록을 하나의 연속 루트로 합치기 (노드 방향 자동 보정)
+  RevvRoute mergeRoutes(List<RevvRoute> chain) {
+    assert(chain.isNotEmpty);
+    final mergedNodes = <LatLng>[...chain.first.nodes];
+    for (int i = 1; i < chain.length; i++) {
+      final prevEnd = mergedNodes.last;
+      final r = chain[i];
+      final dStart = RevvRoute.haversineKm(prevEnd, r.nodes.first);
+      final dEnd = RevvRoute.haversineKm(prevEnd, r.nodes.last);
+      if (dEnd < dStart) {
+        mergedNodes.addAll(r.nodes.reversed.skip(1));
+      } else {
+        mergedNodes.addAll(r.nodes.skip(1));
+      }
+    }
+    final totalKm = chain.fold<double>(0, (s, r) => s + r.distanceKm);
+    final avgScore = chain.fold<double>(0, (s, r) => s + r.windingScore) / chain.length;
+    final centerIdx = mergedNodes.length ~/ 2;
+    final nameStr = chain
+        .map((r) => r.name)
+        .where((n) => n.isNotEmpty)
+        .take(2)
+        .join(' → ');
+    return RevvRoute(
+      id: 'chain_${chain.first.id}',
+      name: nameStr.isNotEmpty ? nameStr : '${totalKm.toStringAsFixed(0)}km 롱 드라이브',
+      nodes: mergedNodes,
+      distanceKm: totalKm,
+      windingScore: avgScore,
+      starRating: RevvRoute.toStarRating(avgScore),
+      sharpCurveCount: chain.fold(0, (s, r) => s + r.sharpCurveCount),
+      centerPoint: mergedNodes[centerIdx],
+      distanceFromUser: chain.first.distanceFromUser,
+      tightCurveKm: chain.fold(0.0, (s, r) => s + r.tightCurveKm),
+      mediumCurveKm: chain.fold(0.0, (s, r) => s + r.mediumCurveKm),
+      maxContinuousKm: chain.map((r) => r.maxContinuousKm).reduce(math.max),
+    );
+  }
+
   // ── 경유지 최적화 ──────────────────────────────────────────────
 
   bool isOptimizing = false;
