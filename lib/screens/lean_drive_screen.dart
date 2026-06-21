@@ -35,6 +35,8 @@ class LeanDriveScreen extends StatefulWidget {
 class _LeanDriveScreenState extends State<LeanDriveScreen> {
   LocationService? _location;
   RunSessionService? _session;
+  ImuService? _imuService;
+  SettingsService? _settings;
   bool _started = false;
   DateTime? _startedAt;
   Timer? _clock;
@@ -64,10 +66,12 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     if (_started) return;
     _started = true;
     _session = context.read<RunSessionService>();
+    _settings = context.read<SettingsService>();
+    _imuService = context.read<ImuService>();
     if (!widget.simulated) {
       _location = context.read<LocationService>();
       _location!.addListener(_onLocation);
-      context.read<ImuService>().addListener(_onImu);
+      _imuService!.addListener(_onImu);
     }
     _startDrive();
   }
@@ -171,12 +175,12 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       driveMode: driveMode,
     );
     _session?.recordSharpCorner(position.lat, position.lng, lateralG);
+    final language = _settings?.appLanguage ?? AppLanguage.korean;
     final routeState = readDriveRouteState(
       position,
       _activeRouteNodes,
-      language: context.read<SettingsService>().appLanguage,
+      language: language,
     );
-    final language = context.read<SettingsService>().appLanguage;
     final nextEvent = _routeEventFor(_routeStatus, routeState.status, language);
     final nextBearing = _nextNavigationBearing(position, heading);
     if (!mounted) return;
@@ -229,7 +233,8 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
 
   void _onImu() {
     if (!mounted) return;
-    final imu = context.read<ImuService>();
+    final imu = _imuService;
+    if (imu == null) return;
     final nextLat = imu.lateralG;
     final nextLon = imu.longitudinalG;
     if ((nextLat - _lateralG).abs() < 0.02 &&
@@ -276,16 +281,14 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   void _endDrive() {
     _simulationTimer?.cancel();
     _location?.removeListener(_onLocation);
-    try {
-      context.read<ImuService>().removeListener(_onImu);
-    } catch (_) {}
-    final imu = context.read<ImuService>();
+    _imuService?.removeListener(_onImu);
+    final imu = _imuService;
     final run = _session?.stopSession(
-      maxLateralG: widget.simulated ? _simMaxLateralG : imu.maxLateralG,
-      maxLonG: widget.simulated ? _simMaxLongitudinalG : imu.maxLonG,
+      maxLateralG: widget.simulated ? _simMaxLateralG : (imu?.maxLateralG ?? 0),
+      maxLonG: widget.simulated ? _simMaxLongitudinalG : (imu?.maxLonG ?? 0),
     );
     if (!widget.simulated) {
-      imu.resetMaxG();
+      imu?.resetMaxG();
     }
     if (!mounted) return;
     Navigator.pushReplacement(
@@ -299,9 +302,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     _clock?.cancel();
     _simulationTimer?.cancel();
     _location?.removeListener(_onLocation);
-    try {
-      context.read<ImuService>().removeListener(_onImu);
-    } catch (_) {}
+    _imuService?.removeListener(_onImu);
     super.dispose();
   }
 
