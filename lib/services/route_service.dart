@@ -64,17 +64,17 @@ List<RevvRoute> _processRoutes(_IsolateParams p) {
 
 const _stitchThresholdKm = 0.15; // 150m
 
-// 도심/교외 도로 이름 필터 — Boulevard, Avenue, Rue 등은 시가지 특징
+// 도심 격자형 도로 이름 필터 — 도로 유형 단어가 suffix 일 때만 필터링
+// "Mountain Boulevard" → 필터 O / "Boulevard de la Montagne" → 필터 X
+// "5th Avenue" → 필터 O / "Avenue du Lac" → 필터 X
 bool _isUrbanName(String name) {
-  final l = name.toLowerCase();
-  return l.startsWith('boulevard ') ||
-      l.startsWith('blvd ') ||
-      l.startsWith('avenue ') ||
-      l.startsWith('ave ') ||
-      l.startsWith('rue ') ||
-      l.contains(' boulevard') ||
-      l.contains(' avenue') ||
-      l.contains(' blvd');
+  if (name.isEmpty) return false;
+  final l = name.toLowerCase().trim();
+  return l.endsWith(' boulevard') ||
+      l.endsWith(' blvd') ||
+      l.endsWith(' avenue') ||
+      l.endsWith(' ave') ||
+      l.endsWith(' rue');
 }
 
 List<LatLng> _sampleNodes(List<LatLng> nodes, int target) {
