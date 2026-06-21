@@ -786,12 +786,17 @@ class _CompactSpeedPill extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
-                speedKmh.toStringAsFixed(0),
-                style: AppText.display(
-                  size: 30,
-                  height: 0.9,
-                  color: AppColors.primaryContainer,
+              TweenAnimationBuilder<double>(
+                tween: Tween<double>(end: speedKmh),
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+                builder: (context, value, _) => Text(
+                  value.toStringAsFixed(0),
+                  style: AppText.display(
+                    size: 30,
+                    height: 0.9,
+                    color: AppColors.primaryContainer,
+                  ),
                 ),
               ),
               const SizedBox(width: 3),
@@ -881,6 +886,12 @@ class _GDot extends StatelessWidget {
   Widget build(BuildContext context) {
     final dx = lateralG.clamp(-0.8, 0.8) / 0.8;
     final dy = -longitudinalG.clamp(-0.8, 0.8) / 0.8;
+    final totalG = math.sqrt(lateralG * lateralG + longitudinalG * longitudinalG);
+    final dotColor = totalG > 0.6
+        ? const Color(0xFFFF4444)
+        : totalG > 0.35
+            ? const Color(0xFFFF9800)
+            : AppColors.primaryContainer;
     return SizedBox(
       width: 46,
       height: 46,
@@ -910,18 +921,22 @@ class _GDot extends StatelessWidget {
               color: AppColors.outlineVariant.withValues(alpha: 0.35),
             ),
           ),
-          Align(
+          AnimatedAlign(
+            duration: const Duration(milliseconds: 90),
+            curve: Curves.easeOut,
             alignment: Alignment(dx, dy),
-            child: Container(
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              curve: Curves.easeOut,
               width: 12,
               height: 12,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppColors.primaryContainer,
+                color: dotColor,
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.primaryContainer.withValues(alpha: 0.44),
-                    blurRadius: 12,
+                    color: dotColor.withValues(alpha: 0.52),
+                    blurRadius: 10,
                   ),
                 ],
               ),
