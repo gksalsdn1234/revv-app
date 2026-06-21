@@ -1,11 +1,11 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../core/secrets.dart';
 import '../models/revv_route.dart';
 import 'weather_service.dart';
 
 class RouteBriefService {
-  static const _apiKey =
-      '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';
+  static const _apiKey = Secrets.anthropicApiKey;
   static const _fallback = '좋은 와인딩 루트예요. 현재 노면 상태 확인하고 출발하세요.';
 
   Future<String> getBriefing({

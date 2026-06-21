@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import '../core/secrets.dart';
 
 class WeatherService extends ChangeNotifier {
-  static const _apiKey = '6d167899a70041622363c7bcfcd5725d';
+  static const _apiKey = Secrets.openWeatherApiKey;
   static const _baseUrl = 'https://api.openweathermap.org/data/2.5';
 
   String weatherDesc = '맑음';

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../core/secrets.dart';
 import '../models/run_session.dart';
 
 class RevvAiService {
@@ -7,8 +8,7 @@ class RevvAiService {
   factory RevvAiService() => _instance;
   RevvAiService._internal();
 
-  static const _apiKey =
-      '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';
+  static const _apiKey = Secrets.anthropicApiKey;
   static const _fallback = '잘 들었어요. 안전하게 달려요.';
 
   Future<String> ask(
