@@ -409,15 +409,26 @@ DriveCurveCue? _nextCurveCue(
     intensityLabel: intensity,
     headline: '${formatDriveMeters(first.aheadM)} $direction $intensity',
     rhythmLine: rhythmLine,
-    icon: first.turn >= 0
-        ? Icons.turn_slight_right_rounded
-        : Icons.turn_slight_left_rounded,
+    icon: _curveIcon(first.turn, first.absTurn),
     distanceM: first.aheadM,
     nextGapM: nextGap,
     curveCountAhead: countAhead,
     horizonM: horizonM,
     severity: severity,
   );
+}
+
+IconData _curveIcon(double turn, double absTurn) {
+  final isRight = turn >= 0;
+  if (absTurn >= 68) {
+    return isRight
+        ? Icons.turn_sharp_right_rounded
+        : Icons.turn_sharp_left_rounded;
+  }
+  if (absTurn >= 42) {
+    return isRight ? Icons.turn_right_rounded : Icons.turn_left_rounded;
+  }
+  return isRight ? Icons.turn_slight_right_rounded : Icons.turn_slight_left_rounded;
 }
 
 int _curveSeverity(double absTurn) {
@@ -447,6 +458,14 @@ String _rhythmLineForCue({
   required double horizonM,
   required AppLanguage? language,
 }) {
+  if (countAhead >= 4 && (nextGapM ?? 999) <= 200) {
+    return _driveText(
+      language,
+      '스위치백 구간',
+      'Switchback section',
+      'Section en lacets',
+    );
+  }
   if (countAhead >= 3 && (nextGapM ?? 999) <= 280) {
     return _driveText(
       language,
@@ -469,6 +488,9 @@ String _rhythmLineForCue({
 }
 
 String _rhythmLabelForCue(DriveCurveCue cue, AppLanguage? language) {
+  if (cue.curveCountAhead >= 4 && (cue.nextGapM ?? 999) <= 200) {
+    return _driveText(language, '스위치백', 'Switchback', 'Lacets');
+  }
   if (cue.curveCountAhead >= 3 && (cue.nextGapM ?? 999) <= 280) {
     return _driveText(language, '짧은 전환', 'Quick switch', 'Transition rapide');
   }

@@ -241,6 +241,11 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
         (nextLon - _longitudinalG).abs() < 0.02) {
       return;
     }
+    // GPS(1Hz)보다 50Hz로 선행 호출해 GPS 틱 사이 G 피크도 기록
+    final pos = _drivePosition;
+    if (pos != null) {
+      _session?.recordSharpCorner(pos.lat, pos.lng, nextLat);
+    }
     setState(() {
       _lateralG = nextLat;
       _longitudinalG = nextLon;
@@ -1095,6 +1100,7 @@ class _DriveGlass extends StatelessWidget {
 Color _severityColor(int severity) {
   if (severity >= 3) return AppColors.danger;
   if (severity >= 2) return AppColors.warning;
+  if (severity >= 1) return const Color(0xFFE8D44D); // 중간 커브 — 옐로우
   return AppColors.primaryContainer;
 }
 
