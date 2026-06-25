@@ -16,6 +16,7 @@ import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
 import '../ui/copilot_run_summary.dart';
+import '../ui/run_report_metrics.dart';
 import '../widgets/map_widget.dart';
 
 class LeanRunSummaryScreen extends StatefulWidget {
@@ -31,6 +32,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
   Future<RunSummary?>? _saveFuture;
   String? _selectedFeedback;
   bool _feedbackSaved = false;
+  final Set<String> _expandedLogSections = {'pace'};
 
   // ── 리플레이 ──
   int _replayIndex = 0;
@@ -140,8 +142,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                     summary: summary,
                     language: language,
                   );
-            final waiting =
-                snapshot.connectionState != ConnectionState.done;
+            final waiting = snapshot.connectionState != ConnectionState.done;
             return Column(
               children: [
                 Expanded(
@@ -234,6 +235,35 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                           _DriveModeBar(
                             modes: session.driveModeSeconds,
                             language: language,
+                          ),
+                        ],
+
+                        if (session != null &&
+                            session.telemetrySamples.isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          _WindingReviewCard(
+                            session: session,
+                            language: language,
+                          ),
+                        ],
+
+                        if (session != null) ...[
+                          const SizedBox(height: 14),
+                          _SessionLogSection(
+                            session: session,
+                            summary: summary,
+                            waiting: waiting,
+                            language: language,
+                            expandedKeys: _expandedLogSections,
+                            onToggle: (key) {
+                              setState(() {
+                                if (_expandedLogSections.contains(key)) {
+                                  _expandedLogSections.remove(key);
+                                } else {
+                                  _expandedLogSections.add(key);
+                                }
+                              });
+                            },
                           ),
                         ],
 
@@ -515,10 +545,7 @@ class _DetailedStatsSection extends StatelessWidget {
   final RunSession session;
   final AppLanguage language;
 
-  const _DetailedStatsSection({
-    required this.session,
-    required this.language,
-  });
+  const _DetailedStatsSection({required this.session, required this.language});
 
   @override
   Widget build(BuildContext context) {
@@ -526,12 +553,11 @@ class _DetailedStatsSection extends StatelessWidget {
         ? session.maxLateralG.abs()
         : session.maxLonG.abs();
     final sharpCount = session.sharpCorners.length;
-    final hasRoute = session.route != null;
-    final completionPct = hasRoute
-        ? (session.distanceKm / session.route!.distanceKm * 100)
-              .clamp(0.0, 999.0)
-              .round()
-        : null;
+    final routeDistanceKm = session.route?.distanceKm;
+    final completionPct = routeCompletionPercent(
+      drivenKm: session.distanceKm,
+      routeDistanceKm: routeDistanceKm,
+    );
 
     final stats = [
       _StatItem(
@@ -599,6 +625,20 @@ class _DetailedStatsSection extends StatelessWidget {
           value: '$completionPct%',
           accent: completionPct >= 80,
         ),
+      if (session.telemetrySamples.isNotEmpty)
+        _StatItem(
+          label: AppCopy.t(language, ko: '샘플', en: 'SAMPLES', fr: 'ÉCHANT.'),
+          value: '${session.telemetrySamples.length}',
+          accent: false,
+        ),
+      if ((session.driveModeSeconds['winding'] ?? 0) > 0)
+        _StatItem(
+          label: AppCopy.t(language, ko: '와인딩', en: 'WINDING', fr: 'VIRAGE'),
+          value: _formatCompactDuration(
+            session.driveModeSeconds['winding'] ?? 0,
+          ),
+          accent: true,
+        ),
     ];
 
     return GridView.builder(
@@ -612,6 +652,719 @@ class _DetailedStatsSection extends StatelessWidget {
       ),
       itemCount: stats.length,
       itemBuilder: (_, i) => _StatTile(item: stats[i]),
+    );
+  }
+}
+
+class _WindingReviewCard extends StatelessWidget {
+  final RunSession session;
+  final AppLanguage language;
+
+  const _WindingReviewCard({required this.session, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final samples = session.telemetrySamples;
+    final absLatG = samples.map((s) => s.lateralG.abs()).toList()..sort();
+    final p95LatG = _percentile(absLatG, 0.95);
+    final avgLatG = _avg(absLatG);
+    final brakingEvents = samples
+        .where((s) => s.longitudinalG <= -0.30 && s.speedKmh >= 8)
+        .length;
+    final windingSamples = samples
+        .where((s) => s.lateralG.abs() >= 0.18 && s.speedKmh >= 12)
+        .length;
+    final windingPct = samples.isEmpty
+        ? 0
+        : (windingSamples / samples.length * 100).round();
+
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.18),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.timeline_rounded,
+                color: AppColors.primaryContainer,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                AppCopy.t(
+                  language,
+                  ko: '와인딩 리뷰 데이터',
+                  en: 'Winding review data',
+                  fr: 'Données virage',
+                ),
+                style: AppText.technicalLabel(
+                  size: 10,
+                  letterSpacing: 1.4,
+                  color: AppColors.primaryContainer,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _ReviewChip(
+                label: AppCopy.t(
+                  language,
+                  ko: '평균 횡G',
+                  en: 'AVG LAT G',
+                  fr: 'G LAT MOY.',
+                ),
+                value: avgLatG.toStringAsFixed(2),
+              ),
+              _ReviewChip(
+                label: AppCopy.t(
+                  language,
+                  ko: '95% 횡G',
+                  en: 'P95 LAT G',
+                  fr: 'G LAT P95',
+                ),
+                value: p95LatG.toStringAsFixed(2),
+              ),
+              _ReviewChip(
+                label: AppCopy.t(
+                  language,
+                  ko: '와인딩 비율',
+                  en: 'WINDING',
+                  fr: 'VIRAGE',
+                ),
+                value: '$windingPct%',
+              ),
+              _ReviewChip(
+                label: AppCopy.t(
+                  language,
+                  ko: '제동 이벤트',
+                  en: 'BRAKING',
+                  fr: 'FREINAGE',
+                ),
+                value: '$brakingEvents',
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SessionLogSection extends StatelessWidget {
+  final RunSession session;
+  final RunSummary? summary;
+  final bool waiting;
+  final AppLanguage language;
+  final Set<String> expandedKeys;
+  final ValueChanged<String> onToggle;
+
+  const _SessionLogSection({
+    required this.session,
+    required this.summary,
+    required this.waiting,
+    required this.language,
+    required this.expandedKeys,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sections = _sessionLogGroups(
+      session: session,
+      summary: summary,
+      waiting: waiting,
+      language: language,
+    );
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(15, 15, 15, 8),
+      decoration: BoxDecoration(
+        color: AppColors.panel.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.22),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.receipt_long_rounded,
+                color: AppColors.primaryContainer,
+                size: 19,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  AppCopy.t(
+                    language,
+                    ko: '세션 로그',
+                    en: 'SESSION LOG',
+                    fr: 'JOURNAL SESSION',
+                  ),
+                  style: AppText.technicalLabel(
+                    size: 10,
+                    letterSpacing: 1.5,
+                    color: AppColors.primaryContainer,
+                  ),
+                ),
+              ),
+              Text(
+                AppCopy.t(
+                  language,
+                  ko: '탭해서 펼치기',
+                  en: 'TAP TO EXPAND',
+                  fr: 'TOUCHER',
+                ),
+                style: AppText.technicalLabel(
+                  size: 8,
+                  letterSpacing: 0.8,
+                  color: AppColors.textHint,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...sections.map(
+            (section) => _SessionLogAccordion(
+              section: section,
+              expanded: expandedKeys.contains(section.key),
+              onTap: () => onToggle(section.key),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SessionLogGroup {
+  final String key;
+  final IconData icon;
+  final String title;
+  final String summary;
+  final Color accent;
+  final List<_SessionLogRow> rows;
+
+  const _SessionLogGroup({
+    required this.key,
+    required this.icon,
+    required this.title,
+    required this.summary,
+    required this.accent,
+    required this.rows,
+  });
+}
+
+class _SessionLogRow {
+  final String label;
+  final String value;
+
+  const _SessionLogRow(this.label, this.value);
+}
+
+class _SessionLogAccordion extends StatelessWidget {
+  final _SessionLogGroup section;
+  final bool expanded;
+  final VoidCallback onTap;
+
+  const _SessionLogAccordion({
+    required this.section,
+    required this.expanded,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: expanded
+                  ? AppColors.surface.withValues(alpha: 0.72)
+                  : AppColors.surface.withValues(alpha: 0.44),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(
+                color: expanded
+                    ? section.accent.withValues(alpha: 0.34)
+                    : AppColors.outlineVariant.withValues(alpha: 0.18),
+              ),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: section.accent.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: section.accent.withValues(alpha: 0.24),
+                        ),
+                      ),
+                      child: Icon(
+                        section.icon,
+                        color: section.accent,
+                        size: 18,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            section.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.body(
+                              size: 14,
+                              weight: FontWeight.w900,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            section.summary,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.body(
+                              size: 11,
+                              weight: FontWeight.w800,
+                              color: AppColors.textHint,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    AnimatedRotation(
+                      turns: expanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: section.accent,
+                        size: 22,
+                      ),
+                    ),
+                  ],
+                ),
+                AnimatedCrossFade(
+                  firstChild: const SizedBox(width: double.infinity),
+                  secondChild: Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Column(
+                      children: section.rows
+                          .map((row) => _SessionLogDetailRow(row: row))
+                          .toList(),
+                    ),
+                  ),
+                  crossFadeState: expanded
+                      ? CrossFadeState.showSecond
+                      : CrossFadeState.showFirst,
+                  duration: const Duration(milliseconds: 180),
+                  sizeCurve: Curves.easeOutCubic,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SessionLogDetailRow extends StatelessWidget {
+  final _SessionLogRow row;
+
+  const _SessionLogDetailRow({required this.row});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 4,
+            child: Text(
+              row.label,
+              style: AppText.technicalLabel(
+                size: 8,
+                letterSpacing: 0.8,
+                color: AppColors.textHint,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            flex: 7,
+            child: Text(
+              row.value,
+              textAlign: TextAlign.right,
+              style: AppText.body(
+                size: 12,
+                height: 1.24,
+                weight: FontWeight.w900,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+List<_SessionLogGroup> _sessionLogGroups({
+  required RunSession session,
+  required RunSummary? summary,
+  required bool waiting,
+  required AppLanguage language,
+}) {
+  final samples = session.telemetrySamples;
+  final absLatG = samples.map((s) => s.lateralG.abs()).toList()..sort();
+  final absLonG = samples.map((s) => s.longitudinalG.abs()).toList()..sort();
+  final brakingEvents = samples
+      .where((s) => s.longitudinalG <= -0.30 && s.speedKmh >= 8)
+      .length;
+  final accelerationEvents = samples
+      .where((s) => s.longitudinalG >= 0.25 && s.speedKmh >= 8)
+      .length;
+  final windingSamples = samples
+      .where((s) => s.lateralG.abs() >= 0.18 && s.speedKmh >= 12)
+      .length;
+  final windingPct = samples.isEmpty
+      ? 0
+      : (windingSamples / samples.length * 100).round();
+  final peakG = math.max(session.maxLateralG.abs(), session.maxLonG.abs());
+  final route = session.route;
+  final completionPct = routeCompletionPercent(
+    drivenKm: session.distanceKm,
+    routeDistanceKm: route?.distanceKm,
+  );
+  final path = session.gpsPath;
+  final startPoint = path.isEmpty ? null : path.first;
+  final endPoint = path.length < 2 ? null : path.last;
+  final sharpRows = session.sharpCorners.take(6).map((event) {
+    return _SessionLogRow(
+      _formatClock(event.time),
+      '${event.lateralG.toStringAsFixed(2)}G · '
+      '${event.speedKmh.toStringAsFixed(0)} km/h · '
+      '${_modeLabel(event.driveMode, language)} · '
+      '${_formatCoordinate(event.position)}',
+    );
+  }).toList();
+
+  return [
+    _SessionLogGroup(
+      key: 'pace',
+      icon: Icons.speed_rounded,
+      title: AppCopy.t(language, ko: '주행 흐름', en: 'Pace log', fr: 'Rythme'),
+      summary:
+          '${session.distanceKm.toStringAsFixed(2)} km · ${session.durationDisplay}',
+      accent: AppColors.primaryContainer,
+      rows: [
+        _SessionLogRow(
+          AppCopy.t(language, ko: '시작', en: 'START', fr: 'DÉPART'),
+          _formatDateTime(session.startTime),
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '종료', en: 'END', fr: 'FIN'),
+          _formatDateTime(session.endTime),
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '총 거리', en: 'DISTANCE', fr: 'DISTANCE'),
+          '${session.distanceKm.toStringAsFixed(2)} km',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '평균/최고 속도', en: 'AVG / MAX', fr: 'MOY / MAX'),
+          '${session.avgSpeedKmh.toStringAsFixed(0)} / ${session.maxSpeedKmh.toStringAsFixed(0)} km/h',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: 'GPS 포인트',
+            en: 'GPS POINTS',
+            fr: 'POINTS GPS',
+          ),
+          '${path.length}',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '텔레메트리 샘플',
+            en: 'TELEMETRY',
+            fr: 'TÉLÉMÉTRIE',
+          ),
+          '${samples.length}',
+        ),
+      ],
+    ),
+    _SessionLogGroup(
+      key: 'gforce',
+      icon: Icons.graphic_eq_rounded,
+      title: AppCopy.t(
+        language,
+        ko: 'G-Force 분석',
+        en: 'G-Force analysis',
+        fr: 'Analyse G',
+      ),
+      summary: peakG > 0 ? 'Peak ${peakG.toStringAsFixed(2)}G' : 'No G peak',
+      accent: peakG >= 0.4 ? AppColors.warning : AppColors.gold,
+      rows: [
+        _SessionLogRow(
+          AppCopy.t(language, ko: '최대 횡G', en: 'MAX LAT G', fr: 'G LAT MAX'),
+          session.maxLateralG > 0
+              ? session.maxLateralG.toStringAsFixed(2)
+              : '—',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '최대 종G', en: 'MAX LONG G', fr: 'G LONG MAX'),
+          session.maxLonG > 0 ? session.maxLonG.toStringAsFixed(2) : '—',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '평균/95% 횡G',
+            en: 'AVG / P95 LAT',
+            fr: 'LAT MOY / P95',
+          ),
+          '${_avg(absLatG).toStringAsFixed(2)} / ${_percentile(absLatG, 0.95).toStringAsFixed(2)}',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '평균/95% 종G',
+            en: 'AVG / P95 LONG',
+            fr: 'LONG MOY / P95',
+          ),
+          '${_avg(absLonG).toStringAsFixed(2)} / ${_percentile(absLonG, 0.95).toStringAsFixed(2)}',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '와인딩 샘플',
+            en: 'WINDING SAMPLES',
+            fr: 'ÉCHANT. VIRAGE',
+          ),
+          '$windingSamples / ${samples.length} · $windingPct%',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '제동/가속 이벤트',
+            en: 'BRAKE / ACCEL',
+            fr: 'FREIN / ACCEL',
+          ),
+          '$brakingEvents / $accelerationEvents',
+        ),
+      ],
+    ),
+    _SessionLogGroup(
+      key: 'events',
+      icon: Icons.bolt_rounded,
+      title: AppCopy.t(
+        language,
+        ko: '코너 이벤트',
+        en: 'Corner events',
+        fr: 'Événements',
+      ),
+      summary: AppCopy.t(
+        language,
+        ko: '${session.sharpCorners.length}개 기록',
+        en: '${session.sharpCorners.length} logged',
+        fr: '${session.sharpCorners.length} notés',
+      ),
+      accent: session.sharpCorners.isEmpty
+          ? AppColors.textHint
+          : AppColors.warning,
+      rows: sharpRows.isEmpty
+          ? [
+              _SessionLogRow(
+                AppCopy.t(language, ko: '기록', en: 'LOG', fr: 'JOURNAL'),
+                AppCopy.t(
+                  language,
+                  ko: '0.45G 이상 코너 이벤트가 없었습니다.',
+                  en: 'No corner events above 0.45G.',
+                  fr: 'Aucun événement au-dessus de 0.45G.',
+                ),
+              ),
+            ]
+          : [
+              ...sharpRows,
+              if (session.sharpCorners.length > sharpRows.length)
+                _SessionLogRow(
+                  AppCopy.t(language, ko: '더 있음', en: 'MORE', fr: 'PLUS'),
+                  '+${session.sharpCorners.length - sharpRows.length}',
+                ),
+            ],
+    ),
+    _SessionLogGroup(
+      key: 'route',
+      icon: Icons.route_rounded,
+      title: AppCopy.t(
+        language,
+        ko: '루트/위치',
+        en: 'Route & position',
+        fr: 'Route',
+      ),
+      summary: route?.name ?? session.routeName,
+      accent: AppColors.success,
+      rows: [
+        _SessionLogRow(
+          AppCopy.t(language, ko: '루트', en: 'ROUTE', fr: 'ROUTE'),
+          route?.name ?? session.routeName,
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '루트 ID', en: 'ROUTE ID', fr: 'ID ROUTE'),
+          route?.id ?? '—',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '루트 거리/완주율',
+            en: 'ROUTE / DONE',
+            fr: 'ROUTE / FAIT',
+          ),
+          route == null
+              ? '—'
+              : '${route.distanceKm.toStringAsFixed(1)} km · ${completionPct == null ? '—' : '$completionPct%'}',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '커브 스타일', en: 'CURVE STYLE', fr: 'STYLE'),
+          route == null
+              ? '—'
+              : '${route.curveStyle} · ${route.sharpCurveCount} curves',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '시작 좌표', en: 'START GPS', fr: 'GPS DÉPART'),
+          startPoint == null ? '—' : _formatCoordinate(startPoint),
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '종료 좌표', en: 'END GPS', fr: 'GPS FIN'),
+          endPoint == null ? '—' : _formatCoordinate(endPoint),
+        ),
+      ],
+    ),
+    _SessionLogGroup(
+      key: 'storage',
+      icon: Icons.cloud_done_rounded,
+      title: AppCopy.t(
+        language,
+        ko: '날씨/저장',
+        en: 'Weather & storage',
+        fr: 'Météo / stockage',
+      ),
+      summary: waiting
+          ? AppCopy.t(language, ko: '저장 중', en: 'Saving', fr: 'Sauvegarde')
+          : summary == null
+          ? AppCopy.t(
+              language,
+              ko: '로컬 세션',
+              en: 'Local session',
+              fr: 'Session locale',
+            )
+          : 'ID ${summary.id}',
+      accent: waiting ? AppColors.warning : AppColors.success,
+      rows: [
+        _SessionLogRow(
+          AppCopy.t(language, ko: '날씨', en: 'WEATHER', fr: 'MÉTÉO'),
+          '${session.weatherEmoji} ${session.tempDisplay} · ${session.weatherDesc}',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '저장 상태', en: 'SAVE STATE', fr: 'ÉTAT'),
+          waiting
+              ? AppCopy.t(language, ko: '저장 중', en: 'Saving', fr: 'Sauvegarde')
+              : summary == null
+              ? AppCopy.t(
+                  language,
+                  ko: '요약 없음',
+                  en: 'No summary',
+                  fr: 'Sans résumé',
+                )
+              : AppCopy.t(language, ko: '저장 완료', en: 'Saved', fr: 'Sauvegardé'),
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '런 ID', en: 'RUN ID', fr: 'ID RUN'),
+          summary?.id ?? '—',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '샘플 저장', en: 'DETAIL SAMPLES', fr: 'ÉCHANT.'),
+          '${samples.length}',
+        ),
+      ],
+    ),
+  ];
+}
+
+class _ReviewChip extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ReviewChip({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 134,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.58),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.technicalLabel(
+              size: 8,
+              letterSpacing: 0.8,
+              color: AppColors.textHint,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: AppText.body(
+              size: 16,
+              weight: FontWeight.w900,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -655,7 +1408,9 @@ class _StatTile extends StatelessWidget {
             style: AppText.technicalLabel(
               size: 9,
               letterSpacing: 1.2,
-              color: item.accent ? AppColors.primaryContainer : AppColors.textHint,
+              color: item.accent
+                  ? AppColors.primaryContainer
+                  : AppColors.textHint,
             ),
           ),
           Text(
@@ -672,6 +1427,51 @@ class _StatTile extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatCompactDuration(int seconds) {
+  final minutes = seconds ~/ 60;
+  final remainder = seconds % 60;
+  if (minutes > 0) {
+    return '${minutes}m ${remainder.toString().padLeft(2, '0')}s';
+  }
+  return '${seconds}s';
+}
+
+String _formatDateTime(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  final second = value.second.toString().padLeft(2, '0');
+  return '$month/$day $hour:$minute:$second';
+}
+
+String _formatClock(DateTime value) {
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  final second = value.second.toString().padLeft(2, '0');
+  return '$hour:$minute:$second';
+}
+
+String _formatCoordinate(LatLng point) {
+  return '${point.lat.toStringAsFixed(5)}, ${point.lng.toStringAsFixed(5)}';
+}
+
+double _avg(Iterable<double> values) {
+  var sum = 0.0;
+  var count = 0;
+  for (final value in values) {
+    sum += value;
+    count++;
+  }
+  return count == 0 ? 0 : sum / count;
+}
+
+double _percentile(List<double> sortedValues, double percentile) {
+  if (sortedValues.isEmpty) return 0;
+  final index = ((sortedValues.length - 1) * percentile).round();
+  return sortedValues[index.clamp(0, sortedValues.length - 1)];
 }
 
 // ── 드라이브 모드 바 ──────────────────────────────────────
@@ -792,12 +1592,10 @@ Color _modeColor(String mode) {
 String _modeLabel(String mode, AppLanguage language) {
   return switch (mode) {
     'cruise' => AppCopy.t(language, ko: '크루즈', en: 'Cruise', fr: 'Cruise'),
-    'winding' =>
-      AppCopy.t(language, ko: '와인딩', en: 'Winding', fr: 'Virage'),
+    'winding' => AppCopy.t(language, ko: '와인딩', en: 'Winding', fr: 'Virage'),
     'sport' => AppCopy.t(language, ko: '스포츠', en: 'Sport', fr: 'Sport'),
     'attack' => AppCopy.t(language, ko: '어택', en: 'Attack', fr: 'Attaque'),
-    'simulation' =>
-      AppCopy.t(language, ko: '시뮬레이션', en: 'Sim', fr: 'Sim'),
+    'simulation' => AppCopy.t(language, ko: '시뮬레이션', en: 'Sim', fr: 'Sim'),
     _ => mode,
   };
 }
@@ -948,8 +1746,9 @@ class _RouteFeedbackCard extends StatelessWidget {
               final active = selected == option.type;
               return OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor:
-                      active ? AppColors.onPrimary : AppColors.textSecondary,
+                  foregroundColor: active
+                      ? AppColors.onPrimary
+                      : AppColors.textSecondary,
                   backgroundColor: active
                       ? AppColors.primaryContainer
                       : AppColors.surface.withValues(alpha: 0.72),
@@ -973,8 +1772,9 @@ class _RouteFeedbackCard extends StatelessWidget {
                   style: AppText.body(
                     size: 12,
                     weight: FontWeight.w900,
-                    color:
-                        active ? AppColors.onPrimary : AppColors.textSecondary,
+                    color: active
+                        ? AppColors.onPrimary
+                        : AppColors.textSecondary,
                   ),
                 ),
               );

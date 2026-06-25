@@ -100,4 +100,30 @@ void main() {
     expect(english.cue?.headline, anyOf(contains('Right'), contains('Left')));
     expect(french.cue?.headline, anyOf(contains('Droite'), contains('Gauche')));
   });
+
+  test('turn-by-turn plan exposes ordered route instructions', () {
+    final plan = buildTurnByTurnPlan(_routeNodes);
+
+    expect(plan, hasLength(4));
+    expect(plan.first.sequence, 1);
+    expect(plan.first.action, TurnAction.sharpRight);
+    expect(plan.first.distanceFromStartM, inInclusiveRange(100, 140));
+    expect(plan.first.headline, '110m 우측 헤어핀');
+    expect(plan.last.finish, isTrue);
+  });
+
+  test('next turn-by-turn instruction follows current route progress', () {
+    final state = readTurnByTurnState(
+      const LatLng(45.00020, -73.0000),
+      _routeNodes,
+    );
+
+    expect(state.instruction, isNotNull);
+    expect(state.instruction!.sequence, 1);
+    expect(state.instruction!.aheadM, inInclusiveRange(80, 100));
+    expect(state.instruction!.command, contains('우측'));
+    expect(state.instruction!.command, contains('준비'));
+    expect(state.completedInstructions, 0);
+    expect(state.totalInstructions, 4);
+  });
 }

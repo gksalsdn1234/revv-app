@@ -1,6 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/supabase_config.dart';
-import 'package:revv_app/models/obd_data.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/route_feedback.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
@@ -66,7 +65,6 @@ void main() {
         {'lat': 45.0, 'lng': -73.0, 'lateralG': 0.5},
       ],
       driveModeSeconds: const {'cruise': 12},
-      obdSummary: const OBDRunSummary(maxRpm: 4200),
       weather: const {'emoji': '🌤', 'tempDisplay': '18°C'},
       createdAt: DateTime.parse('2026-04-01T10:00:00Z'),
     );
@@ -79,7 +77,7 @@ void main() {
     expect(row['detail_version'], 1);
     expect(row['telemetry_json'], isA<Map<String, dynamic>>());
     expect(restored.samples.single.speedKmh, 42);
-    expect(restored.obdSummary?.maxRpm, 4200);
+    expect(restored.weather['tempDisplay'], '18°C');
   });
 
   test('RouteFeedback serializes into Supabase route_feedback payload', () {

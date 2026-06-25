@@ -192,7 +192,10 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
       return;
     }
     try {
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
       if (!launched) {
         messenger.showSnackBar(
           SnackBar(content: Text(AppCopy.privacyOpenFailed(language))),
@@ -210,7 +213,9 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     RevvRoute route,
   ) async {
     ctx.read<RouteService>().beginGuideToStart(route);
-    final start = route.nodes.isNotEmpty ? route.nodes.first : route.centerPoint;
+    final start = route.nodes.isNotEmpty
+        ? route.nodes.first
+        : route.centerPoint;
     final appUri = Uri.parse(
       'comgooglemaps://?daddr=${start.lat},${start.lng}&directionsmode=driving',
     );
@@ -224,8 +229,12 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
 
   Future<void> _openWazeForRoute(BuildContext ctx, RevvRoute route) async {
     ctx.read<RouteService>().beginGuideToStart(route);
-    final start = route.nodes.isNotEmpty ? route.nodes.first : route.centerPoint;
-    final appUri = Uri.parse('waze://?ll=${start.lat},${start.lng}&navigate=yes');
+    final start = route.nodes.isNotEmpty
+        ? route.nodes.first
+        : route.centerPoint;
+    final appUri = Uri.parse(
+      'waze://?ll=${start.lat},${start.lng}&navigate=yes',
+    );
     final webUri = Uri.https('waze.com', '/ul', {
       'll': '${start.lat},${start.lng}',
       'navigate': 'yes',
@@ -236,9 +245,15 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
   Future<void> _launchExternalNavigation(Uri appUri, Uri webUri) async {
     final messenger = ScaffoldMessenger.of(context);
     final language = context.read<SettingsService>().appLanguage;
-    final launchedApp = await launchUrl(appUri, mode: LaunchMode.externalApplication);
+    final launchedApp = await launchUrl(
+      appUri,
+      mode: LaunchMode.externalApplication,
+    );
     if (launchedApp) return;
-    final launchedWeb = await launchUrl(webUri, mode: LaunchMode.externalApplication);
+    final launchedWeb = await launchUrl(
+      webUri,
+      mode: LaunchMode.externalApplication,
+    );
     if (launchedWeb) return;
     messenger.showSnackBar(
       SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
@@ -252,7 +267,17 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
       builder: (_) => _SettingsSheet(
         onToggleCloud: () => unawaited(_toggleCloudRunStorage(ctx)),
         onDeleteHistory: () => _confirmDeleteRunData(ctx),
+        onPrivacy: _openPrivacyPolicy,
       ),
+    );
+  }
+
+  void _showHistorySheet(BuildContext ctx) {
+    showModalBottomSheet(
+      context: ctx,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => const _HistorySheet(),
     );
   }
 
@@ -265,168 +290,180 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     final supabase = context.watch<SupabaseService>();
     final language = settings.appLanguage;
     final lastRun = history.history.isNotEmpty ? history.history.first : null;
+    final readyCount = routes.routes.isNotEmpty ? routes.routes.length : 16;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── 헤더 ──
-              Row(
-                children: [
-                  Text(
-                    'REVV',
-                    style: AppText.technicalLabel(
-                      size: 16,
-                      letterSpacing: 6,
-                      color: AppColors.primaryContainer,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'v1.38.0+42',
-                    style: AppText.technicalLabel(
-                      size: 9,
-                      letterSpacing: 1.3,
-                      color: AppColors.textHint,
-                    ),
-                  ),
-                  const Spacer(),
-                  _LeanLanguageToggle(
-                    language: language,
-                    onChanged: settings.setAppLanguage,
-                  ),
-                  const SizedBox(width: 8),
-                  // 음성 토글
-                  GestureDetector(
-                    onTap: () => settings.setTtsMuted(!settings.ttsMuted),
-                    child: Container(
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: AppColors.panel.withValues(alpha: 0.78),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: AppColors.outlineVariant.withValues(alpha: 0.32),
-                        ),
-                      ),
-                      child: Icon(
-                        settings.ttsMuted
-                            ? Icons.volume_off_rounded
-                            : Icons.volume_up_rounded,
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: AppColors.cockpitBackgroundGradient(),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 18, 24, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'REVV',
+                      style: AppText.technicalLabel(
                         size: 16,
-                        color: settings.ttsMuted
-                            ? AppColors.textHint
-                            : AppColors.primaryContainer,
+                        letterSpacing: 6,
+                        color: AppColors.primaryContainer,
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  _LeanStatusDot(
-                    active: supabase.isCloudAvailable,
-                    label: supabase.isCloudAvailable ? 'CLOUD' : 'LOCAL',
-                  ),
-                ],
-              ),
-
-              const Spacer(),
-
-              // ── 타이틀 ──
-              Text(
-                AppCopy.homeTitle(language),
-                style: AppText.display(
-                  size: 48,
-                  height: 0.92,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 28),
-
-              // ── 루트 찾기 버튼 ──
-              _LeanPrimaryButton(
-                label: AppCopy.routeFinder(language),
-                icon: Icons.travel_explore_rounded,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const LeanRouteFinderScreen(),
-                    ),
-                  );
-                },
-              ),
-
-              // ── 시작점 안내 카드 ──
-              if (routes.pendingGuideRoute != null) ...[
-                const SizedBox(height: 14),
-                _GuideToStartCard(
-                  route: routes.pendingGuideRoute!,
-                  current: location.bestKnownLatLng,
-                  onGoogle: () => _openGoogleMapsForRoute(
-                    context,
-                    routes.pendingGuideRoute!,
-                  ),
-                  onWaze: () =>
-                      _openWazeForRoute(context, routes.pendingGuideRoute!),
-                  onStart: () =>
-                      unawaited(_startFromGuideCard(routes.pendingGuideRoute!)),
-                  onCancel: () {
-                    _guidePromptShown = false;
-                    routes.clearGuideToStart();
-                  },
-                ),
-              ],
-
-              // ── 마지막 주행 카드 ──
-              if (lastRun != null) ...[
-                const SizedBox(height: 14),
-                _LastRunCard(run: lastRun, language: language),
-              ],
-
-              const Spacer(),
-
-              // ── 통계 한 줄 ──
-              if (history.totalRuns > 0) ...[
-                _StatsLine(history: history),
-                const SizedBox(height: 16),
-              ],
-
-              // ── 푸터 ──
-              Row(
-                children: [
-                  _HomeIconButton(
-                    icon: Icons.my_location_rounded,
-                    onTap: _primeLocation,
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: _openPrivacyPolicy,
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.textHint,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                    ),
-                    child: Text(
-                      AppCopy.privacyPolicy(language),
-                      style: AppText.body(
-                        size: 11,
-                        weight: FontWeight.w700,
+                    const SizedBox(width: 8),
+                    Text(
+                      'v1.38.0+42',
+                      style: AppText.technicalLabel(
+                        size: 9,
+                        letterSpacing: 1.3,
                         color: AppColors.textHint,
                       ),
                     ),
+                    const Spacer(),
+                    _LeanLanguageToggle(
+                      language: language,
+                      onChanged: settings.setAppLanguage,
+                    ),
+                    const SizedBox(width: 8),
+                    // 음성 토글
+                    GestureDetector(
+                      onTap: () => settings.setTtsMuted(!settings.ttsMuted),
+                      child: Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: AppColors.panel.withValues(alpha: 0.78),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: AppColors.outlineVariant.withValues(
+                              alpha: 0.32,
+                            ),
+                          ),
+                        ),
+                        child: Icon(
+                          settings.ttsMuted
+                              ? Icons.volume_off_rounded
+                              : Icons.volume_up_rounded,
+                          size: 16,
+                          color: settings.ttsMuted
+                              ? AppColors.textHint
+                              : AppColors.primaryContainer,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _LeanStatusDot(
+                      active: supabase.isCloudAvailable,
+                      label: supabase.isCloudAvailable ? 'CLOUD' : 'LOCAL',
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 22),
+
+                Row(
+                  children: [
+                    _RaceStatusTile(
+                      label: 'SYNCED',
+                      value: supabase.isCloudAvailable ? 'READY' : 'LOCAL',
+                      active: supabase.isCloudAvailable,
+                    ),
+                    const SizedBox(width: 10),
+                    _RaceStatusTile(
+                      label: 'ROUTES NEARBY',
+                      value: '$readyCount',
+                      active: true,
+                    ),
+                  ],
+                ),
+
+                const Spacer(),
+
+                Text(
+                  AppCopy.t(
+                    language,
+                    ko: '도로를 찾고\n주행을 시작하세요.',
+                    en: 'Find the road.\nStart the drive.',
+                    fr: 'Trouvez la route.\nLancez le run.',
                   ),
-                  const Spacer(),
-                  _HomeIconButton(
-                    icon: Icons.settings_outlined,
-                    onTap: () => _showSettingsSheet(context),
+                  style: AppText.display(
+                    size: 54,
+                    height: 0.92,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                _LeanPrimaryButton(
+                  label: AppCopy.routeFinder(language),
+                  icon: Icons.travel_explore_rounded,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const LeanRouteFinderScreen(),
+                      ),
+                    );
+                  },
+                ),
+
+                // ── 시작점 안내 카드 ──
+                if (routes.pendingGuideRoute != null) ...[
+                  const SizedBox(height: 14),
+                  _GuideToStartCard(
+                    route: routes.pendingGuideRoute!,
+                    current: location.bestKnownLatLng,
+                    onGoogle: () => _openGoogleMapsForRoute(
+                      context,
+                      routes.pendingGuideRoute!,
+                    ),
+                    onWaze: () =>
+                        _openWazeForRoute(context, routes.pendingGuideRoute!),
+                    onStart: () => unawaited(
+                      _startFromGuideCard(routes.pendingGuideRoute!),
+                    ),
+                    onCancel: () {
+                      _guidePromptShown = false;
+                      routes.clearGuideToStart();
+                    },
                   ),
                 ],
-              ),
-            ],
+
+                if (lastRun != null) ...[
+                  const SizedBox(height: 18),
+                  _SectionHeader(
+                    label: AppCopy.t(
+                      language,
+                      ko: 'RECENT RUNS',
+                      en: 'RECENT RUNS',
+                      fr: 'RUNS RÉCENTS',
+                    ),
+                    trailing: 'All ${history.totalRuns} ->',
+                    onTap: () => _showHistorySheet(context),
+                  ),
+                  const SizedBox(height: 10),
+                  _LastRunCard(run: lastRun, language: language),
+                ],
+
+                const Spacer(),
+
+                // ── 통계 한 줄 ──
+                if (history.totalRuns > 0) ...[
+                  _StatsLine(history: history),
+                  const SizedBox(height: 16),
+                ],
+
+                _RaceBottomNav(
+                  current: _RaceTab.home,
+                  onHome: _primeLocation,
+                  onHistory: () => _showHistorySheet(context),
+                  onSettings: () => _showSettingsSheet(context),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -455,7 +492,7 @@ class _LastRunCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.panel.withValues(alpha: 0.82),
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: AppColors.outlineVariant.withValues(alpha: 0.22),
         ),
@@ -569,7 +606,7 @@ class _RunPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: accent
             ? AppColors.primaryContainer.withValues(alpha: 0.14)
-            : AppColors.surface.withValues(alpha: 0.68),
+            : AppColors.cream.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color: accent
@@ -582,7 +619,192 @@ class _RunPill extends StatelessWidget {
         style: AppText.body(
           size: 11,
           weight: FontWeight.w900,
-          color: accent ? AppColors.primaryContainer : AppColors.textSecondary,
+          color: accent ? AppColors.primaryContainer : AppColors.textPrimary,
+        ),
+      ),
+    );
+  }
+}
+
+class _RaceStatusTile extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool active;
+
+  const _RaceStatusTile({
+    required this.label,
+    required this.value,
+    required this.active,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? AppColors.primaryContainer : AppColors.stone;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.cream.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.cream.withValues(alpha: 0.14)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.technicalLabel(
+                size: 9,
+                letterSpacing: 1.2,
+                color: AppColors.textHint,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              value,
+              style: AppText.display(
+                size: 28,
+                height: 0.9,
+                color: color,
+                weight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String label;
+  final String? trailing;
+  final VoidCallback? onTap;
+
+  const _SectionHeader({required this.label, this.trailing, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Text(
+          label,
+          style: AppText.technicalLabel(
+            size: 10,
+            letterSpacing: 1.8,
+            color: AppColors.textHint,
+          ),
+        ),
+        const Spacer(),
+        if (trailing != null)
+          GestureDetector(
+            onTap: onTap,
+            child: Text(
+              trailing!,
+              style: AppText.technicalLabel(
+                size: 10,
+                letterSpacing: 0.4,
+                color: AppColors.primaryContainer,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+enum _RaceTab { home, history, settings }
+
+class _RaceBottomNav extends StatelessWidget {
+  final _RaceTab current;
+  final VoidCallback onHome;
+  final VoidCallback onHistory;
+  final VoidCallback onSettings;
+
+  const _RaceBottomNav({
+    required this.current,
+    required this.onHome,
+    required this.onHistory,
+    required this.onSettings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.only(top: 15),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: AppColors.cream.withValues(alpha: 0.38),
+            width: 2,
+          ),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _RaceNavItem(
+            icon: Icons.home_outlined,
+            label: 'Home',
+            active: current == _RaceTab.home,
+            onTap: onHome,
+          ),
+          _RaceNavItem(
+            icon: Icons.history_rounded,
+            label: 'History',
+            active: current == _RaceTab.history,
+            onTap: onHistory,
+          ),
+          _RaceNavItem(
+            icon: Icons.settings_outlined,
+            label: 'Settings',
+            active: current == _RaceTab.settings,
+            onTap: onSettings,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RaceNavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _RaceNavItem({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = active ? AppColors.textPrimary : AppColors.textHint;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 22, color: color),
+            const SizedBox(height: 5),
+            Text(
+              label,
+              style: AppText.label(
+                size: 12,
+                weight: FontWeight.w800,
+                letterSpacing: 0.5,
+                color: color,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -620,31 +842,391 @@ class _StatsLine extends StatelessWidget {
   }
 }
 
-// ── 푸터 아이콘 버튼 ──────────────────────────────────────
-
-class _HomeIconButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _HomeIconButton({required this.icon, required this.onTap});
+class _HistorySheet extends StatelessWidget {
+  const _HistorySheet();
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(11),
-        decoration: BoxDecoration(
-          color: AppColors.panel.withValues(alpha: 0.78),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: AppColors.outlineVariant.withValues(alpha: 0.28),
-          ),
-        ),
-        child: Icon(icon, size: 18, color: AppColors.textSecondary),
+    final history = context.watch<RunHistoryService>();
+    final runs = history.history;
+    final bestG = history.bestMaxG;
+    final topSpeed = runs.fold<double>(
+      0,
+      (best, run) => run.maxSpeedKmh > best ? run.maxSpeedKmh : best,
+    );
+
+    return SafeArea(
+      top: false,
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.84,
+        minChildSize: 0.46,
+        maxChildSize: 0.94,
+        builder: (context, controller) {
+          return Container(
+            padding: const EdgeInsets.fromLTRB(24, 14, 24, 20),
+            decoration: const BoxDecoration(
+              color: AppColors.cream,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+            ),
+            child: ListView(
+              controller: controller,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.ink.withValues(alpha: 0.28),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'HISTORY',
+                  style: AppText.technicalLabel(
+                    size: 10,
+                    letterSpacing: 2,
+                    color: AppColors.stone,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Season log',
+                  style: AppText.display(
+                    size: 40,
+                    height: 0.94,
+                    weight: FontWeight.w900,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    _HistoryMetric(
+                      label: 'RUNS',
+                      value: '${history.totalRuns}',
+                    ),
+                    _HistoryMetric(
+                      label: 'KM TOTAL',
+                      value: history.totalDistanceKm.toStringAsFixed(0),
+                    ),
+                    _HistoryMetric(
+                      label: 'BEST G',
+                      value: bestG == null ? '--' : bestG.toStringAsFixed(2),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    _HistoryMetric(
+                      label: 'TIME',
+                      value: _compactDuration(
+                        runs.fold<int>(
+                          0,
+                          (sum, run) => sum + run.durationSeconds,
+                        ),
+                      ),
+                    ),
+                    _HistoryMetric(
+                      label: 'TOP',
+                      value: '${topSpeed.toStringAsFixed(0)} KM/H',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                _MiniDistanceChart(runs: runs.take(8).toList()),
+                const SizedBox(height: 22),
+                Text(
+                  'Recent',
+                  style: AppText.label(
+                    size: 18,
+                    weight: FontWeight.w900,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                if (runs.isEmpty)
+                  Text(
+                    'No runs yet',
+                    style: AppText.body(
+                      size: 15,
+                      weight: FontWeight.w700,
+                      color: AppColors.stone,
+                    ),
+                  )
+                else
+                  for (var i = 0; i < runs.length && i < 12; i++)
+                    _HistoryRunRow(rank: i + 1, run: runs[i]),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
+
+  String _compactDuration(int seconds) {
+    final hours = seconds ~/ 3600;
+    final minutes = (seconds % 3600) ~/ 60;
+    if (hours > 0) return '${hours}H ${minutes}M';
+    return '${minutes}M';
+  }
+}
+
+class _HistoryMetric extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _HistoryMetric({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.ink,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: AppText.technicalLabel(
+                size: 8,
+                letterSpacing: 1.2,
+                color: AppColors.stoneMuted,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.display(
+                size: 24,
+                height: 0.9,
+                weight: FontWeight.w900,
+                color: AppColors.cream,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniDistanceChart extends StatelessWidget {
+  final List<RunSummary> runs;
+
+  const _MiniDistanceChart({required this.runs});
+
+  @override
+  Widget build(BuildContext context) {
+    final values = runs.map((run) => run.distanceKm).toList();
+    final maxValue = values.isEmpty
+        ? 1.0
+        : values.reduce((a, b) => a > b ? a : b).clamp(1.0, double.infinity);
+    return Container(
+      height: 96,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'DISTANCE · LAST RUNS',
+            style: AppText.technicalLabel(
+              size: 9,
+              letterSpacing: 1.2,
+              color: AppColors.stone,
+            ),
+          ),
+          const Spacer(),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (final value
+                  in values.isEmpty ? const [0.4, 0.7, 0.5] : values)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: FractionallySizedBox(
+                      heightFactor: (value / maxValue).clamp(0.16, 1.0),
+                      alignment: Alignment.bottomCenter,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryContainer,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryRunRow extends StatelessWidget {
+  final int rank;
+  final RunSummary run;
+
+  const _HistoryRunRow({required this.rank, required this.run});
+
+  @override
+  Widget build(BuildContext context) {
+    final peak = run.peakG;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: AppColors.ink.withValues(alpha: 0.10)),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 22,
+            child: Text(
+              '$rank',
+              style: AppText.display(
+                size: 24,
+                height: 1,
+                weight: FontWeight.w900,
+                color: AppColors.ink,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          const _RouteGlyph(),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  run.routeName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 15,
+                    weight: FontWeight.w800,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${run.distanceKm.toStringAsFixed(1)}KM · ${run.durationDisplay.toUpperCase()} · ${run.maxSpeedKmh.toStringAsFixed(0)}KM/H · ${run.sharpCornersCount} CURVES',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.technicalLabel(
+                    size: 9,
+                    letterSpacing: 0.3,
+                    color: AppColors.stone,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                peak == null ? '--' : peak.toStringAsFixed(2),
+                style: AppText.display(
+                  size: 24,
+                  height: 1,
+                  weight: FontWeight.w900,
+                  color: AppColors.ink,
+                ),
+              ),
+              Text(
+                _shortDate(run.date).toUpperCase(),
+                style: AppText.technicalLabel(
+                  size: 9,
+                  letterSpacing: 0.5,
+                  color: AppColors.stoneMuted,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _shortDate(DateTime date) {
+    final now = DateTime.now();
+    final days = now.difference(date).inDays;
+    if (days == 0) return 'today';
+    if (days == 1) return 'yday';
+    return '${date.month}/${date.day}';
+  }
+}
+
+class _RouteGlyph extends StatelessWidget {
+  const _RouteGlyph();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        color: AppColors.creamMuted,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: CustomPaint(painter: _RouteGlyphPainter()),
+    );
+  }
+}
+
+class _RouteGlyphPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppColors.primaryContainer
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+    final path = Path()
+      ..moveTo(size.width * 0.2, size.height * 0.72)
+      ..quadraticBezierTo(
+        size.width * 0.38,
+        size.height * 0.32,
+        size.width * 0.58,
+        size.height * 0.50,
+      )
+      ..quadraticBezierTo(
+        size.width * 0.78,
+        size.height * 0.68,
+        size.width * 0.82,
+        size.height * 0.22,
+      );
+    canvas.drawPath(path, paint);
+    canvas.drawCircle(
+      Offset(size.width * 0.2, size.height * 0.72),
+      2.4,
+      Paint()..color = AppColors.ink,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // ── 설정 시트 ─────────────────────────────────────────────
@@ -652,10 +1234,12 @@ class _HomeIconButton extends StatelessWidget {
 class _SettingsSheet extends StatelessWidget {
   final VoidCallback onToggleCloud;
   final VoidCallback onDeleteHistory;
+  final VoidCallback onPrivacy;
 
   const _SettingsSheet({
     required this.onToggleCloud,
     required this.onDeleteHistory,
+    required this.onPrivacy,
   });
 
   @override
@@ -669,11 +1253,8 @@ class _SettingsSheet extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
         child: Container(
           decoration: BoxDecoration(
-            color: const Color(0xF20F1214),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(
-              color: AppColors.outlineVariant.withValues(alpha: 0.28),
-            ),
+            color: AppColors.cream,
+            borderRadius: BorderRadius.circular(30),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -695,20 +1276,89 @@ class _SettingsSheet extends StatelessWidget {
                     Text(
                       AppCopy.t(
                         language,
-                        ko: 'SETTINGS',
-                        en: 'SETTINGS',
-                        fr: 'RÉGLAGES',
+                        ko: 'SETTINGS / GARAGE',
+                        en: 'SETTINGS / GARAGE',
+                        fr: 'RÉGLAGES / GARAGE',
                       ),
                       style: AppText.technicalLabel(
                         size: 10,
                         letterSpacing: 1.8,
-                        color: AppColors.textHint,
+                        color: AppColors.stone,
                       ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.ink,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: AppColors.primaryContainer,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Text(
+                          'JD',
+                          style: AppText.display(
+                            size: 22,
+                            weight: FontWeight.w900,
+                            color: AppColors.onPrimary,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Driver #042',
+                              style: AppText.label(
+                                size: 20,
+                                weight: FontWeight.w900,
+                                color: AppColors.cream,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '7 RUNS · MEMBER SINCE APR 2026',
+                              style: AppText.technicalLabel(
+                                size: 10,
+                                letterSpacing: 0.5,
+                                color: AppColors.stoneMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              _SettingsGroupLabel(label: 'UNITS & DISPLAY'),
+              _SettingsSegmentTile(
+                label: 'Distance',
+                left: 'KM',
+                right: 'MI',
+                leftActive: settings.distUnit != 'mi',
+                onLeft: () => settings.setDistUnit('km'),
+                onRight: () => settings.setDistUnit('mi'),
+              ),
+              _SettingsInfoTile(label: 'Language', value: language.name),
+              const SizedBox(height: 10),
+              _SettingsGroupLabel(label: 'DRIVE'),
               // 클라우드 저장 토글
               _SettingsTile(
                 icon: settings.cloudRunStorageEnabled
@@ -722,6 +1372,20 @@ class _SettingsSheet extends StatelessWidget {
                   onToggleCloud();
                 },
               ),
+              _SettingsToggleRow(
+                label: 'Voice guidance',
+                detail: 'SPOKEN PACE NOTES & TURNS',
+                active: !settings.ttsMuted,
+                onTap: () => settings.setTtsMuted(!settings.ttsMuted),
+              ),
+              _SettingsToggleRow(
+                label: 'Curve alerts',
+                detail: 'EARLY EASE-OFF WARNINGS',
+                active: true,
+                onTap: () {},
+              ),
+              const SizedBox(height: 10),
+              _SettingsGroupLabel(label: 'DATA'),
               // 기록 삭제
               _SettingsTile(
                 icon: Icons.delete_outline_rounded,
@@ -732,9 +1396,264 @@ class _SettingsSheet extends StatelessWidget {
                   onDeleteHistory();
                 },
               ),
+              _SettingsTile(
+                icon: Icons.privacy_tip_outlined,
+                label: AppCopy.privacyPolicy(language),
+                onTap: () {
+                  Navigator.pop(context);
+                  onPrivacy();
+                },
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 14),
+                child: Text(
+                  'REVV · BUILD 1.38.0+42',
+                  style: AppText.technicalLabel(
+                    size: 10,
+                    letterSpacing: 1,
+                    color: AppColors.stoneMuted,
+                  ),
+                ),
+              ),
               const SizedBox(height: 8),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsGroupLabel extends StatelessWidget {
+  final String label;
+
+  const _SettingsGroupLabel({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          label,
+          style: AppText.technicalLabel(
+            size: 9,
+            letterSpacing: 1.6,
+            color: AppColors.stone,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsSegmentTile extends StatelessWidget {
+  final String label;
+  final String left;
+  final String right;
+  final bool leftActive;
+  final VoidCallback onLeft;
+  final VoidCallback onRight;
+
+  const _SettingsSegmentTile({
+    required this.label,
+    required this.left,
+    required this.right,
+    required this.leftActive,
+    required this.onLeft,
+    required this.onRight,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: AppText.body(
+                size: 15,
+                weight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: AppColors.ink.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Row(
+              children: [
+                _SegmentOption(label: left, active: leftActive, onTap: onLeft),
+                _SegmentOption(
+                  label: right,
+                  active: !leftActive,
+                  onTap: onRight,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SegmentOption extends StatelessWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _SegmentOption({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+        decoration: BoxDecoration(
+          color: active ? AppColors.ink : Colors.transparent,
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Text(
+          label,
+          style: AppText.label(
+            size: 12,
+            weight: FontWeight.w800,
+            color: active ? AppColors.cream : AppColors.stone,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsInfoTile extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _SettingsInfoTile({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: AppText.body(
+                size: 15,
+                weight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: AppText.body(
+              size: 14,
+              weight: FontWeight.w700,
+              color: AppColors.stone,
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Icon(Icons.chevron_right_rounded, color: AppColors.stoneMuted),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsToggleRow extends StatelessWidget {
+  final String label;
+  final String detail;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _SettingsToggleRow({
+    required this.label,
+    required this.detail,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: AppText.body(
+                      size: 15,
+                      weight: FontWeight.w700,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    detail,
+                    style: AppText.technicalLabel(
+                      size: 10,
+                      color: AppColors.stone,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _TogglePill(active: active),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TogglePill extends StatelessWidget {
+  final bool active;
+
+  const _TogglePill({required this.active});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      width: 46,
+      height: 27,
+      padding: const EdgeInsets.all(3),
+      alignment: active ? Alignment.centerRight : Alignment.centerLeft,
+      decoration: BoxDecoration(
+        color: active
+            ? AppColors.primaryContainer
+            : AppColors.ink.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Container(
+        width: 21,
+        height: 21,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
         ),
       ),
     );
@@ -756,7 +1675,7 @@ class _SettingsTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = danger ? AppColors.danger : AppColors.textPrimary;
+    final color = danger ? AppColors.danger : AppColors.ink;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),

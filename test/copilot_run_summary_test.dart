@@ -4,7 +4,7 @@ import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/ui/copilot_run_summary.dart';
 
 void main() {
-  test('summary copy uses route, sharp events, and G peak without OBD', () {
+  test('summary copy uses route, sharp events, and G peak', () {
     final route = RevvRoute(
       id: 'route-1',
       name: 'Rang Saint-Simon',

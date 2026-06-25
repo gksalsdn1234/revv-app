@@ -25,7 +25,7 @@ class AppText {
     Color color = AppColors.textPrimary,
     double letterSpacing = 0,
     double? height,
-  }) => GoogleFonts.inter(
+  }) => GoogleFonts.archivo(
     textStyle: TextStyle(
       fontSize: size,
       fontWeight: weight,
@@ -46,12 +46,12 @@ class AppText {
     Color color = AppColors.textPrimary,
     double letterSpacing = -2,
     double? height,
-  }) => GoogleFonts.inter(
+  }) => GoogleFonts.rajdhani(
     textStyle: TextStyle(
       fontSize: size,
       fontWeight: weight,
       color: color,
-      letterSpacing: letterSpacing,
+      letterSpacing: letterSpacing < 0 ? 0 : letterSpacing,
       height: height,
       fontFamilyFallback: const [
         'Pretendard',
@@ -94,7 +94,7 @@ class AppText {
     FontWeight weight = FontWeight.w700,
     Color color = AppColors.textHint,
     double letterSpacing = 2,
-  }) => GoogleFonts.spaceGrotesk(
+  }) => GoogleFonts.rajdhani(
     fontSize: size,
     fontWeight: weight,
     color: color,

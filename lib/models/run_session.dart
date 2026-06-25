@@ -1,16 +1,19 @@
 import 'revv_route.dart';
-import 'obd_data.dart';
 import 'run_telemetry_detail.dart';
 
 /// 급조작 순간 — G포스가 임계값을 초과한 지점
 class SharpCorner {
   final LatLng position;
-  final double lateralG;   // 횡G (절댓값)
+  final double lateralG; // 횡G (절댓값)
+  final double speedKmh;
+  final String driveMode;
   final DateTime time;
 
   const SharpCorner({
     required this.position,
     required this.lateralG,
+    this.speedKmh = 0,
+    this.driveMode = 'cruise',
     required this.time,
   });
 }
@@ -29,14 +32,15 @@ class RunSession {
 
   /// IMU 최대 횡G (에뮬레이터에서는 0.0)
   final double maxLateralG;
+
   /// IMU 최대 종G (에뮬레이터에서는 0.0)
   final double maxLonG;
+
   /// DriveMode별 누적 초 {'cruise': 120, 'winding': 45, 'sport': 30}
   final Map<String, int> driveModeSeconds;
 
   /// G포스 임계값(0.45G) 초과 급조작 지점 목록
   final List<SharpCorner> sharpCorners;
-  final OBDRunSummary? obdSummary;
   final List<TelemetrySample> telemetrySamples;
 
   const RunSession({
@@ -54,7 +58,6 @@ class RunSession {
     this.maxLonG = 0.0,
     this.driveModeSeconds = const {},
     this.sharpCorners = const [],
-    this.obdSummary,
     this.telemetrySamples = const [],
   });
 

@@ -10,6 +10,7 @@ import '../models/route_feedback.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
+import '../ui/run_report_metrics.dart';
 import 'run_pending_upload_store.dart';
 import 'supabase_service.dart';
 
@@ -138,6 +139,11 @@ class RunHistoryService extends ChangeNotifier {
     final path = session.gpsPath;
     final LatLng? startPt = path.isNotEmpty ? path.first : null;
     final LatLng? endPt = path.length > 1 ? path.last : null;
+    final routeDistance = session.route?.distanceKm;
+    final routeCompletionPct = routeCompletionPercent(
+      drivenKm: session.distanceKm,
+      routeDistanceKm: routeDistance,
+    );
 
     final summary = RunSummary(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -151,7 +157,15 @@ class RunHistoryService extends ChangeNotifier {
       weatherEmoji: session.weatherEmoji,
       tempDisplay: session.tempDisplay,
       maxLateralG: session.maxLateralG > 0 ? session.maxLateralG : null,
+      maxLongitudinalG: session.maxLonG > 0 ? session.maxLonG : null,
       sharpCornersCount: session.sharpCorners.length,
+      telemetrySampleCount: session.telemetrySamples.length,
+      windingSeconds: session.driveModeSeconds['winding'] ?? 0,
+      sportSeconds:
+          (session.driveModeSeconds['sport'] ?? 0) +
+          (session.driveModeSeconds['attack'] ?? 0),
+      routeDistanceKm: routeDistance,
+      routeCompletionPct: routeCompletionPct,
       startPoint: startPt,
       endPoint: endPt,
     );
@@ -288,8 +302,9 @@ class RunHistoryService extends ChangeNotifier {
 
   double? get bestMaxG {
     final gs = _history
-        .where((s) => s.maxLateralG != null && s.maxLateralG! > 0)
-        .map((s) => s.maxLateralG!)
+        .map((s) => s.peakG)
+        .where((g) => g != null && g > 0)
+        .cast<double>()
         .toList();
     if (gs.isEmpty) return null;
     return gs.reduce((a, b) => a > b ? a : b);

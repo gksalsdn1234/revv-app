@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../services/settings_service.dart';
@@ -242,16 +241,30 @@ class _LoadingScreenState extends State<LoadingScreen>
                     },
                   ),
                   const SizedBox(height: 16),
-                  // Sub text
                   FadeTransition(
                     opacity: _subOpacity,
-                    child: Text(
-                      'AI CO-DRIVER',
-                      style: AppText.label(
-                        size: 11,
-                        color: AppColors.textHint,
-                        letterSpacing: 8,
-                      ),
+                    child: Column(
+                      children: [
+                        Text(
+                          'GRID START',
+                          style: AppText.technicalLabel(
+                            size: 10,
+                            color: AppColors.textHint,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Find the road · run the lap',
+                          style: AppText.body(
+                            size: 14,
+                            weight: FontWeight.w700,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        const _GridStartChecks(),
+                      ],
                     ),
                   ),
                 ],
@@ -266,7 +279,7 @@ class _LoadingScreenState extends State<LoadingScreen>
   Widget _buildLogo() {
     return RichText(
       text: TextSpan(
-        style: GoogleFonts.orbitron(fontSize: 72, fontWeight: FontWeight.w900),
+        style: AppText.display(size: 104, weight: FontWeight.w900),
         children: [
           const TextSpan(
             text: 'RE',
@@ -280,6 +293,64 @@ class _LoadingScreenState extends State<LoadingScreen>
                 Shadow(color: AppColors.primaryContainer, blurRadius: 30),
                 Shadow(color: AppColors.redGlow, blurRadius: 60),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GridStartChecks extends StatelessWidget {
+  const _GridStartChecks();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      children: [
+        _GridStartCheck(label: 'GPS LOCK', value: 'READY'),
+        SizedBox(height: 8),
+        _GridStartCheck(label: 'MOTION SENSORS', value: 'CALIBRATED'),
+        SizedBox(height: 8),
+        _GridStartCheck(label: 'LOCATION ACCESS', value: 'WHILE DRIVING'),
+      ],
+    );
+  }
+}
+
+class _GridStartCheck extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _GridStartCheck({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 260,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.cream.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.cream.withValues(alpha: 0.14)),
+      ),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: AppText.technicalLabel(
+              size: 9,
+              letterSpacing: 1.4,
+              color: AppColors.textHint,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: AppText.technicalLabel(
+              size: 10,
+              letterSpacing: 1.2,
+              color: AppColors.primaryContainer,
             ),
           ),
         ],

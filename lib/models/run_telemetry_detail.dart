@@ -1,4 +1,3 @@
-import 'obd_data.dart';
 import 'revv_route.dart';
 import 'run_session.dart';
 
@@ -45,15 +44,15 @@ class TelemetrySample {
 }
 
 class RunTelemetryDetail {
-  static const currentVersion = 1;
+  static const currentVersion = 2;
 
   final String runId;
   final int version;
   final Map<String, dynamic>? routeSnapshot;
   final List<TelemetrySample> samples;
   final List<Map<String, dynamic>> sharpEvents;
+  final Map<String, dynamic> analytics;
   final Map<String, int> driveModeSeconds;
-  final OBDRunSummary? obdSummary;
   final Map<String, dynamic> weather;
   final DateTime createdAt;
 
@@ -63,8 +62,8 @@ class RunTelemetryDetail {
     required this.routeSnapshot,
     required this.samples,
     required this.sharpEvents,
+    this.analytics = const {},
     required this.driveModeSeconds,
-    required this.obdSummary,
     required this.weather,
     required this.createdAt,
   });
@@ -81,12 +80,14 @@ class RunTelemetryDetail {
               'lat': event.position.lat,
               'lng': event.position.lng,
               'lateralG': event.lateralG,
+              'speedKmh': event.speedKmh,
+              'driveMode': event.driveMode,
               'time': event.time.toIso8601String(),
             },
           )
           .toList(),
+      analytics: _analytics(session),
       driveModeSeconds: Map.of(session.driveModeSeconds),
-      obdSummary: session.obdSummary,
       weather: {
         'emoji': session.weatherEmoji,
         'tempDisplay': session.tempDisplay,
@@ -102,8 +103,8 @@ class RunTelemetryDetail {
     'routeSnapshot': routeSnapshot,
     'samples': samples.map((sample) => sample.toJson()).toList(),
     'sharpEvents': sharpEvents,
+    if (analytics.isNotEmpty) 'analytics': analytics,
     'driveModeSeconds': driveModeSeconds,
-    if (obdSummary?.hasData == true) 'obdSummary': obdSummary!.toJson(),
     'weather': weather,
     'createdAt': createdAt.toIso8601String(),
   };
@@ -125,19 +126,14 @@ class RunTelemetryDetail {
               .map((item) => item.cast<String, dynamic>())
               .toList() ??
           const [],
+      analytics:
+          (json['analytics'] as Map?)?.cast<String, dynamic>() ?? const {},
       driveModeSeconds:
           (json['driveModeSeconds'] as Map?)?.map(
             (key, value) => MapEntry(key.toString(), (value as num).toInt()),
           ) ??
           const {},
-      obdSummary: json['obdSummary'] is Map
-          ? OBDRunSummary.fromJson(
-              (json['obdSummary'] as Map).cast<String, dynamic>(),
-            )
-          : null,
-      weather:
-          (json['weather'] as Map?)?.cast<String, dynamic>() ??
-          const {},
+      weather: (json['weather'] as Map?)?.cast<String, dynamic>() ?? const {},
       createdAt:
           DateTime.tryParse(json['createdAt'] as String? ?? '') ??
           DateTime.now(),
@@ -153,9 +149,102 @@ class RunTelemetryDetail {
       'windingScore': route.windingScore,
       'starRating': route.starRating,
       'sharpCurveCount': route.sharpCurveCount,
+      'mediumCurveKm': route.mediumCurveKm,
+      'tightCurveKm': route.tightCurveKm,
+      'maxContinuousKm': route.maxContinuousKm,
+      'flowScore': route.flowScore,
+      'curveStyle': route.curveStyle,
+      'routeCharacter': route.routeCharacter,
+      'stopSignCount': route.stopSignCount,
+      'trafficSignalCount': route.trafficSignalCount,
+      'elevationDelta': route.elevationDelta,
+      'isLoop': route.isLoop,
       'nodes': route.nodes
           .map((node) => {'lat': node.lat, 'lng': node.lng})
           .toList(),
     };
+  }
+
+  static Map<String, dynamic> _analytics(RunSession session) {
+    final samples = session.telemetrySamples;
+    final movingSamples = samples.where((s) => s.speedKmh >= 3).toList();
+    final absLatG = samples.map((s) => s.lateralG.abs()).toList()..sort();
+    final absLonG = samples.map((s) => s.longitudinalG.abs()).toList()..sort();
+    final brakingEvents = samples
+        .where((s) => s.longitudinalG <= -0.30 && s.speedKmh >= 8)
+        .length;
+    final accelerationEvents = samples
+        .where((s) => s.longitudinalG >= 0.25 && s.speedKmh >= 8)
+        .length;
+    final windingSamples = samples
+        .where((s) => s.lateralG.abs() >= 0.18 && s.speedKmh >= 12)
+        .length;
+    final routeDistance = session.route?.distanceKm;
+
+    return {
+      'sampleCount': samples.length,
+      'movingSampleCount': movingSamples.length,
+      'durationSeconds': session.duration.inSeconds,
+      'distanceKm': session.distanceKm,
+      'routeDistanceKm': routeDistance,
+      if (routeDistance != null && routeDistance > 0)
+        'routeCompletionPct': (session.distanceKm / routeDistance * 100).clamp(
+          0.0,
+          999.0,
+        ),
+      'maxSpeedKmh': session.maxSpeedKmh,
+      'avgSpeedKmh': session.avgSpeedKmh,
+      'avgMovingSpeedKmh': _avg(movingSamples.map((s) => s.speedKmh)),
+      'maxLateralG': session.maxLateralG,
+      'maxLongitudinalG': session.maxLonG,
+      'peakG': session.maxLateralG.abs() >= session.maxLonG.abs()
+          ? session.maxLateralG.abs()
+          : session.maxLonG.abs(),
+      'avgAbsLateralG': _avg(absLatG),
+      'p95AbsLateralG': _percentile(absLatG, 0.95),
+      'avgAbsLongitudinalG': _avg(absLonG),
+      'p95AbsLongitudinalG': _percentile(absLonG, 0.95),
+      'sharpEventCount': session.sharpCorners.length,
+      'brakingEventCount': brakingEvents,
+      'accelerationEventCount': accelerationEvents,
+      'windingSampleCount': windingSamples,
+      'windingSamplePct': samples.isEmpty
+          ? 0
+          : (windingSamples / samples.length * 100),
+      'driveModeSeconds': Map.of(session.driveModeSeconds),
+      'speedBuckets': _speedBuckets(samples),
+    };
+  }
+
+  static double _avg(Iterable<double> values) {
+    var sum = 0.0;
+    var count = 0;
+    for (final value in values) {
+      sum += value;
+      count++;
+    }
+    return count == 0 ? 0 : sum / count;
+  }
+
+  static double _percentile(List<double> sortedValues, double percentile) {
+    if (sortedValues.isEmpty) return 0;
+    final index = ((sortedValues.length - 1) * percentile).round();
+    return sortedValues[index.clamp(0, sortedValues.length - 1)];
+  }
+
+  static Map<String, int> _speedBuckets(List<TelemetrySample> samples) {
+    final buckets = {'0_30': 0, '30_60': 0, '60_90': 0, '90_plus': 0};
+    for (final sample in samples) {
+      if (sample.speedKmh < 30) {
+        buckets['0_30'] = buckets['0_30']! + 1;
+      } else if (sample.speedKmh < 60) {
+        buckets['30_60'] = buckets['30_60']! + 1;
+      } else if (sample.speedKmh < 90) {
+        buckets['60_90'] = buckets['60_90']! + 1;
+      } else {
+        buckets['90_plus'] = buckets['90_plus']! + 1;
+      }
+    }
+    return buckets;
   }
 }

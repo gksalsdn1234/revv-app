@@ -1,40 +1,45 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  // Stitch / Precision Cockpit tokens
-  static const bg = Color(0xFF131314);
-  static const surfaceDim = Color(0xFF131314);
-  static const surfaceLowest = Color(0xFF0E0E0F);
-  static const panel = Color(0xFF1C1B1C);
-  static const panel2 = Color(0xFF201F20);
-  static const surface = Color(0xFF2A2A2B);
-  static const surfaceHigh = Color(0xFF353436);
-  static const surfaceBright = Color(0xFF3A393A);
+  // REVV Lean MVP racing tokens.
+  static const bg = Color(0xFF100E0C);
+  static const surfaceDim = Color(0xFF14110E);
+  static const surfaceLowest = Color(0xFF0C0D10);
+  static const panel = Color(0xFF14110E);
+  static const panel2 = Color(0xFF1C1206);
+  static const surface = Color(0xFF2A211D);
+  static const surfaceHigh = Color(0xFF352B25);
+  static const surfaceBright = Color(0xFF463931);
 
-  // Legacy red name is kept for compatibility, but it now means REVV cyan.
-  static const red = Color(0xFF00E5FF);
-  static const redGlow = Color(0x6600E5FF);
-  static const redDim = Color(0x3300E5FF);
-  static const orange = Color(0xFFFEB300);
-  static const cyan = Color(0xFF00DAF3);
+  static const red = Color(0xFFE2231A);
+  static const redGlow = Color(0x66E2231A);
+  static const redDim = Color(0x33E2231A);
+  static const orange = Color(0xFFFFB020);
+  static const cyan = Color(0xFFE2231A);
   static const white = Colors.white;
-  static const gray = Color(0x40FFFFFF);
+  static const gray = Color(0x408A8278);
 
-  static const outline = Color(0xFF849396);
-  static const outlineVariant = Color(0xFF3B494C);
-  static const success = Color(0xFF59D98E);
-  static const warning = Color(0xFFFEB300);
-  static const danger = Color(0xFFFF6F61);
-  static const primaryContainer = Color(0xFF00E5FF);
-  static const onPrimary = Color(0xFF00363D);
+  static const outline = Color(0xFF8A8278);
+  static const outlineVariant = Color(0xFFA9A39B);
+  static const success = Color(0xFF1FA85F);
+  static const warning = Color(0xFFFFB020);
+  static const danger = Color(0xFFFF6457);
+  static const primaryContainer = Color(0xFFE2231A);
+  static const onPrimary = Color(0xFFFFF8F0);
 
-  // Text hierarchy
-  static const textPrimary = Color(0xFFE5E2E3);
-  static const textSecondary = Color(0xFFBAC9CC);
-  static const textHint = Color(0xFF849396);
+  static const textPrimary = Color(0xFFF1ECE1);
+  static const textSecondary = Color(0xFFDAD3C2);
+  static const textHint = Color(0xFFA9A39B);
+  static const ink = Color(0xFF14110E);
+  static const cream = Color(0xFFF1ECE1);
+  static const creamRaised = Color(0xFFF8F4EB);
+  static const creamMuted = Color(0xFFE7E1D4);
+  static const stone = Color(0xFF8A8278);
+  static const stoneMuted = Color(0xFFA9A39B);
+  static const gold = Color(0xFFC9A24B);
+  static const redSoft = Color(0xFFFBEBEA);
 
-  // Divider
-  static const divider = Color(0xFF3B494C);
+  static const divider = Color(0xFFA9A39B);
 
   static LinearGradient cockpitBackgroundGradient({
     AlignmentGeometry begin = Alignment.topLeft,
@@ -42,7 +47,7 @@ class AppColors {
     return LinearGradient(
       begin: begin,
       end: Alignment.bottomRight,
-      colors: const [Color(0xFF0A0A0B), Color(0xFF131314), Color(0xFF1A1B1D)],
+      colors: const [Color(0xFF100E0C), Color(0xFF14110E), Color(0xFF1C1206)],
       stops: [0.0, 0.58, 1.0],
     );
   }

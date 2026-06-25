@@ -56,6 +56,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   bool _matchingRouteGeometry = false;
   DriveCurveCue? _cue;
   DriveRhythmBrief? _rhythmBrief;
+  TurnByTurnState? _turnByTurn;
   DriveRouteStatus _routeStatus = DriveRouteStatus.approachingStart;
   String? _routeEventMessage;
   DateTime? _routeEventUntil;
@@ -181,6 +182,11 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       _activeRouteNodes,
       language: language,
     );
+    final turnByTurn = readTurnByTurnState(
+      position,
+      _activeRouteNodes,
+      language: language,
+    );
     final nextEvent = _routeEventFor(_routeStatus, routeState.status, language);
     final nextBearing = _nextNavigationBearing(position, heading);
     if (!mounted) return;
@@ -194,6 +200,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       _remainingKm = routeState.remainingKm;
       _cue = routeState.cue;
       _rhythmBrief = routeState.rhythmBrief;
+      _turnByTurn = turnByTurn;
       _routeStatus = routeState.status;
       if (nextEvent != null) {
         _routeEventMessage = nextEvent;
@@ -361,6 +368,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                   _NextCurveBanner(
                     cue: cue,
                     rhythmBrief: _rhythmBrief,
+                    turnByTurn: _turnByTurn,
                     status: _routeStatus,
                     eventMessage: routeEvent,
                     language: language,
@@ -557,6 +565,7 @@ class _DriveTopBar extends StatelessWidget {
 class _NextCurveBanner extends StatelessWidget {
   final DriveCurveCue? cue;
   final DriveRhythmBrief? rhythmBrief;
+  final TurnByTurnState? turnByTurn;
   final DriveRouteStatus status;
   final String? eventMessage;
   final AppLanguage language;
@@ -564,6 +573,7 @@ class _NextCurveBanner extends StatelessWidget {
   const _NextCurveBanner({
     required this.cue,
     required this.rhythmBrief,
+    required this.turnByTurn,
     required this.status,
     required this.eventMessage,
     required this.language,
@@ -576,6 +586,7 @@ class _NextCurveBanner extends StatelessWidget {
     final severity = math.max(data?.severity ?? 0, rhythm?.severity ?? 0);
     final severityColor = _severityColor(severity);
     final fallback = _fallbackCue(status, language);
+    final turn = turnByTurn?.instruction;
     final headline = data?.headline ?? fallback.label;
     final rhythmLine = data?.rhythmLine ?? rhythm?.advice ?? fallback.detail;
     return _DriveGlass(
@@ -650,6 +661,45 @@ class _NextCurveBanner extends StatelessWidget {
               ),
             ],
           ),
+          if (turn != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
+              decoration: BoxDecoration(
+                color: AppColors.bg.withValues(alpha: 0.42),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: severityColor.withValues(alpha: 0.24),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(turn.icon, size: 18, color: severityColor),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      turn.command,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body(
+                        size: 13,
+                        weight: FontWeight.w900,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${turnByTurn!.completedInstructions + 1}/${turnByTurn!.totalInstructions}',
+                    style: AppText.technicalLabel(
+                      size: 10,
+                      color: AppColors.textHint,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -891,12 +941,14 @@ class _GDot extends StatelessWidget {
   Widget build(BuildContext context) {
     final dx = lateralG.clamp(-0.8, 0.8) / 0.8;
     final dy = -longitudinalG.clamp(-0.8, 0.8) / 0.8;
-    final totalG = math.sqrt(lateralG * lateralG + longitudinalG * longitudinalG);
+    final totalG = math.sqrt(
+      lateralG * lateralG + longitudinalG * longitudinalG,
+    );
     final dotColor = totalG > 0.6
         ? const Color(0xFFFF4444)
         : totalG > 0.35
-            ? const Color(0xFFFF9800)
-            : AppColors.primaryContainer;
+        ? const Color(0xFFFF9800)
+        : AppColors.primaryContainer;
     return SizedBox(
       width: 46,
       height: 46,

@@ -14,7 +14,9 @@ import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
 import '../ui/copilot_briefing.dart';
 import '../ui/route_difficulty_profile.dart';
+import '../ui/route_map_display_policy.dart';
 import '../ui/route_quality_profile.dart';
+import '../ui/winding_experience.dart';
 import '../widgets/copilot_start_sheet.dart';
 import '../widgets/map_widget.dart';
 import 'lean_drive_screen.dart';
@@ -265,7 +267,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
   void _selectRouteFromMap(String routeId) {
     final service = context.read<RouteService>();
-    final visibleRoutes = _filterRoutes(service.routes, _lens);
+    final visibleRoutes = _rankRoutes(_filterRoutes(service.routes, _lens));
     final index = visibleRoutes.indexWhere((route) => route.id == routeId);
     if (index >= 0) {
       _selectIndex(visibleRoutes, index);
@@ -289,11 +291,12 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   Widget build(BuildContext context) {
     final service = context.watch<RouteService>();
     final routes = service.routes;
-    final visibleRoutes = _filterRoutes(routes, _lens);
+    final visibleRoutes = _rankRoutes(_filterRoutes(routes, _lens));
     final mapDisplayRoutes = _routesForViewport(
-      service.mapVisualRoutes.isNotEmpty
-          ? service.mapVisualRoutes
-          : visibleRoutes,
+      routeFinderMapDisplayRoutes(
+        mapVisualRoutes: service.mapVisualRoutes,
+        visibleRoutes: visibleRoutes,
+      ),
       _mapCenterPoint,
       _mapZoom,
     );
@@ -895,6 +898,7 @@ class _LeanRouteTicket extends StatelessWidget {
   Widget build(BuildContext context) {
     final language = context.watch<SettingsService>().appLanguage;
     final profile = RouteQualityProfile.fromRoute(route, language: language);
+    final windingProfile = WindingExperienceProfile.fromRoute(route);
     final briefing = CopilotRouteBriefing.fromRoute(
       route,
       profile: profile,
@@ -911,16 +915,28 @@ class _LeanRouteTicket extends StatelessWidget {
         }
       },
       child: _LeanGlass(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.outline.withValues(alpha: 0.42),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _LeanCircleButton(
-                  icon: Icons.chevron_left_rounded,
-                  onTap: onPrev,
+                _RouteQualityBadge(
+                  score: windingProfile.score,
+                  label: windingProfile.title,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -929,8 +945,13 @@ class _LeanRouteTicket extends StatelessWidget {
                     children: [
                       Text(
                         mapSelected
-                            ? '${AppCopy.t(language, ko: '지도에서 선택한 커브길', en: 'Map-picked curve road', fr: 'Route choisie sur carte')} · ${profile.typeLabel} · ${route.distanceFromUserDisplay}'
-                            : '${AppCopy.t(language, ko: '후보', en: 'Pick', fr: 'Option')} ${index + 1} / $total · ${profile.typeLabel} · ${route.distanceFromUserDisplay}',
+                            ? AppCopy.t(
+                                language,
+                                ko: '지도에서 선택한 커브길',
+                                en: 'Map-picked curve road',
+                                fr: 'Route choisie sur carte',
+                              )
+                            : '${AppCopy.t(language, ko: '후보', en: 'Pick', fr: 'Option')} ${index + 1} / $total',
                         style: AppText.technicalLabel(
                           size: 10,
                           color: AppColors.primaryContainer,
@@ -950,8 +971,8 @@ class _LeanRouteTicket extends StatelessWidget {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        briefing.primaryAdvice,
-                        maxLines: 1,
+                        '${windingProfile.rhythm} · ${briefing.primaryAdvice}',
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: AppText.body(
                           size: 11,
@@ -964,63 +985,128 @@ class _LeanRouteTicket extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 _LeanCircleButton(
-                  icon: Icons.chevron_right_rounded,
-                  onTap: onNext,
+                  icon: Icons.info_outline_rounded,
+                  onTap: onDetails,
                 ),
               ],
             ),
             const SizedBox(height: 12),
             Row(
               children: [
+                for (final metric in windingProfile.metrics) ...[
+                  Expanded(
+                    child: _Metric(label: metric.label, value: metric.value),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    child: Row(
-                      children: [
-                        for (final metric in profile.quickMetrics.take(4)) ...[
-                          _Metric(label: metric.label, value: metric.value),
-                          const SizedBox(width: 8),
-                        ],
-                      ],
+                  child: _Metric(
+                    label: AppCopy.t(
+                      language,
+                      ko: '시작점',
+                      en: 'Start',
+                      fr: 'Départ',
                     ),
+                    value: route.distanceFromUserDisplay,
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
                 _LeanCircleButton(
-                  icon: Icons.info_outline_rounded,
-                  onTap: onDetails,
+                  icon: Icons.chevron_left_rounded,
+                  onTap: onPrev,
                 ),
                 const SizedBox(width: 8),
-                SizedBox(
-                  height: 44,
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primaryContainer,
-                      foregroundColor: AppColors.onPrimary,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primaryContainer,
+                        foregroundColor: AppColors.onPrimary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
-                    ),
-                    onPressed: onGo,
-                    child: Text(
-                      AppCopy.t(
-                        language,
-                        ko: '주행 시작',
-                        en: 'Start drive',
-                        fr: 'Démarrer',
-                      ),
-                      style: AppText.body(
-                        size: 14,
-                        weight: FontWeight.w900,
-                        color: AppColors.onPrimary,
+                      onPressed: onGo,
+                      icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                      label: Text(
+                        AppCopy.t(
+                          language,
+                          ko: '주행 시작',
+                          en: 'Start drive',
+                          fr: 'Démarrer',
+                        ),
+                        style: AppText.body(
+                          size: 14,
+                          weight: FontWeight.w900,
+                          color: AppColors.onPrimary,
+                        ),
                       ),
                     ),
                   ),
+                ),
+                const SizedBox(width: 8),
+                _LeanCircleButton(
+                  icon: Icons.chevron_right_rounded,
+                  onTap: onNext,
                 ),
               ],
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _RouteQualityBadge extends StatelessWidget {
+  final int score;
+  final String label;
+
+  const _RouteQualityBadge({required this.score, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        color: AppColors.primaryContainer,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryContainer.withValues(alpha: 0.24),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            '$score',
+            style: AppText.mono(
+              size: 19,
+              weight: FontWeight.w900,
+              color: AppColors.onPrimary,
+            ),
+          ),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.body(
+              size: 9,
+              weight: FontWeight.w900,
+              color: AppColors.onPrimary.withValues(alpha: 0.82),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1347,18 +1433,42 @@ class _Metric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      height: 50,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       decoration: BoxDecoration(
         color: AppColors.surface.withValues(alpha: 0.68),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        '$label $value',
-        style: AppText.body(
-          size: 11,
-          weight: FontWeight.w900,
-          color: AppColors.textSecondary,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.18),
         ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.technicalLabel(
+              size: 8,
+              weight: FontWeight.w800,
+              color: AppColors.textHint,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.body(
+              size: 12,
+              weight: FontWeight.w900,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1603,6 +1713,12 @@ List<RevvRoute> _filterRoutes(List<RevvRoute> routes, _RouteLens lens) {
     _RouteLens.loop =>
       routes.where((route) => hasTag(route, RouteQualityTag.loop)).toList(),
   };
+}
+
+List<RevvRoute> _rankRoutes(List<RevvRoute> routes) {
+  return rankWindingRoutes(
+    routes,
+  ).map((ranked) => ranked.route).toList(growable: false);
 }
 
 List<RevvRoute> _routesForViewport(

@@ -195,7 +195,6 @@ RunTelemetryDetail _detail(String runId, {DateTime? createdAt}) =>
       ],
       sharpEvents: const [],
       driveModeSeconds: const {'cruise': 1},
-      obdSummary: null,
       weather: const {},
       createdAt: createdAt ?? DateTime.now().toUtc(),
     );

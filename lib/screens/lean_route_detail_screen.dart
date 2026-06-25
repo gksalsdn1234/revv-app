@@ -11,6 +11,7 @@ import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
 import '../ui/copilot_briefing.dart';
 import '../ui/route_detail_copy.dart';
+import '../ui/route_drive_cue.dart';
 import '../ui/route_quality_profile.dart';
 import '../widgets/copilot_start_sheet.dart';
 import 'lean_drive_screen.dart';
@@ -49,6 +50,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
       startDistanceKm: route.distanceFromUser,
       language: language,
     );
+    final turnPlan = buildTurnByTurnPlan(route.nodes, language: language);
     final bestFor = _bestFor(route, language);
     final cautionBody = _cautionBody(copy, profile);
 
@@ -129,6 +131,8 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         const SizedBox(height: 12),
                         _MetricsGrid(route: route),
                         const SizedBox(height: 18),
+                        _TurnPlanPreview(plan: turnPlan, language: language),
+                        const SizedBox(height: 12),
                         _DetailSection(
                           title: AppCopy.t(
                             language,
@@ -711,6 +715,157 @@ class _MetricTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _TurnPlanPreview extends StatelessWidget {
+  final List<TurnInstruction> plan;
+  final AppLanguage language;
+
+  const _TurnPlanPreview({required this.plan, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = plan.take(5).toList();
+    final hiddenCount = plan.length - visible.length;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.panel2.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.24),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.route_rounded,
+                color: AppColors.primaryContainer,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  AppCopy.t(
+                    language,
+                    ko: '턴북',
+                    en: 'TURN BOOK',
+                    fr: 'CARNET VIRAGES',
+                  ),
+                  style: AppText.technicalLabel(
+                    size: 10,
+                    color: AppColors.primaryContainer,
+                    letterSpacing: 1.6,
+                  ),
+                ),
+              ),
+              Text(
+                AppCopy.t(
+                  language,
+                  ko: '${plan.length}개 안내',
+                  en: '${plan.length} cues',
+                  fr: '${plan.length} repères',
+                ),
+                style: AppText.technicalLabel(
+                  size: 9,
+                  color: AppColors.textHint,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (visible.isEmpty)
+            Text(
+              AppCopy.t(
+                language,
+                ko: '루트 라인을 불러오면 턴 안내가 표시됩니다.',
+                en: 'Turn guidance appears once the route line is loaded.',
+                fr: 'Les repères apparaissent avec la ligne de route.',
+              ),
+              style: AppText.body(
+                size: 13,
+                height: 1.35,
+                weight: FontWeight.w700,
+                color: AppColors.textSecondary,
+              ),
+            )
+          else
+            ...visible.map((instruction) {
+              return _TurnPlanRow(instruction: instruction);
+            }),
+          if (hiddenCount > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              AppCopy.t(
+                language,
+                ko: '+$hiddenCount개 더',
+                en: '+$hiddenCount more',
+                fr: '+$hiddenCount autres',
+              ),
+              style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TurnPlanRow extends StatelessWidget {
+  final TurnInstruction instruction;
+
+  const _TurnPlanRow({required this.instruction});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = instruction.finish
+        ? AppColors.success
+        : _turnSeverityColor(instruction.severity);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: accent.withValues(alpha: 0.28)),
+            ),
+            child: Icon(instruction.icon, size: 17, color: accent),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              instruction.headline,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.body(
+                size: 14,
+                weight: FontWeight.w900,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '#${instruction.sequence}',
+            style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color _turnSeverityColor(int severity) {
+  if (severity >= 3) return AppColors.primaryContainer;
+  if (severity == 2) return AppColors.warning;
+  return AppColors.gold;
 }
 
 class _DecisionBulletsSection extends StatelessWidget {

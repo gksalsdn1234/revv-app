@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import '../models/run_session.dart';
 import '../models/revv_route.dart';
-import '../models/obd_data.dart';
 import '../models/run_telemetry_detail.dart';
 // SharpCorner는 run_session.dart에 정의됨
 
@@ -20,6 +19,7 @@ class RunSessionService extends ChangeNotifier {
       notifyListeners();
     });
   }
+
   bool isRecording = false;
 
   DateTime? _startTime;
@@ -32,6 +32,7 @@ class RunSessionService extends ChangeNotifier {
   LatLng? _lastPosition;
   DateTime? _lastTelemetrySampleTime;
   LatLng? _lastTelemetrySamplePosition;
+  double _latestSpeedKmh = 0;
 
   // ── 급조작 감지 ──────────────────────────────────────────────
   static const double _sharpCornerGThreshold = 0.45; // G 임계값
@@ -51,8 +52,9 @@ class RunSessionService extends ChangeNotifier {
 
   double get currentMaxSpeed => _maxSpeedKmh;
   double get currentDistance => _distanceKm;
-  Duration get currentDuration =>
-      _startTime != null ? DateTime.now().difference(_startTime!) : Duration.zero;
+  Duration get currentDuration => _startTime != null
+      ? DateTime.now().difference(_startTime!)
+      : Duration.zero;
 
   void startSession(
     RevvRoute? route, {
@@ -71,6 +73,7 @@ class RunSessionService extends ChangeNotifier {
     _lastPosition = null;
     _lastTelemetrySampleTime = null;
     _lastTelemetrySamplePosition = null;
+    _latestSpeedKmh = 0;
     _route = route;
     _weatherEmoji = weatherEmoji;
     _tempDisplay = tempDisplay;
@@ -98,6 +101,7 @@ class RunSessionService extends ChangeNotifier {
     }
     _lastPosition = point;
     _gpsPath.add(point);
+    _latestSpeedKmh = speedKmh;
     if (speedKmh > _maxSpeedKmh) _maxSpeedKmh = speedKmh;
     _totalSpeedSum += speedKmh;
     _speedSamples++;
@@ -148,18 +152,31 @@ class RunSessionService extends ChangeNotifier {
   }
 
   /// 급조작 순간 기록 — ImuService에서 G > 임계값 감지 시 호출
-  void recordSharpCorner(double lat, double lng, double lateralG) {
+  void recordSharpCorner(
+    double lat,
+    double lng,
+    double lateralG, {
+    double? speedKmh,
+    String? driveMode,
+  }) {
     if (!isRecording) return;
     final now = DateTime.now();
     // 쿨다운: 마지막 급조작 후 3초 이내 중복 감지 방지
-    if (_lastSharpTime != null && now.difference(_lastSharpTime!) < _sharpCooldown) return;
+    if (_lastSharpTime != null &&
+        now.difference(_lastSharpTime!) < _sharpCooldown) {
+      return;
+    }
     if (lateralG.abs() < _sharpCornerGThreshold) return;
     _lastSharpTime = now;
-    _sharpCorners.add(SharpCorner(
-      position: LatLng(lat, lng),
-      lateralG: lateralG.abs(),
-      time: now,
-    ));
+    _sharpCorners.add(
+      SharpCorner(
+        position: LatLng(lat, lng),
+        lateralG: lateralG.abs(),
+        speedKmh: speedKmh ?? _latestSpeedKmh,
+        driveMode: driveMode ?? _currentMode,
+        time: now,
+      ),
+    );
   }
 
   /// 급조작 개수 실시간 조회
@@ -177,15 +194,12 @@ class RunSessionService extends ChangeNotifier {
     final start = _currentModeStart;
     if (start == null) return;
     final secs = DateTime.now().difference(start).inSeconds;
-    _driveModeSeconds[_currentMode] = (_driveModeSeconds[_currentMode] ?? 0) + secs;
+    _driveModeSeconds[_currentMode] =
+        (_driveModeSeconds[_currentMode] ?? 0) + secs;
   }
 
   /// maxLateralG, maxLonG는 ImuService에서 읽어 전달
-  RunSession? stopSession({
-    double maxLateralG = 0.0,
-    double maxLonG = 0.0,
-    OBDRunSummary? obdSummary,
-  }) {
+  RunSession? stopSession({double maxLateralG = 0.0, double maxLonG = 0.0}) {
     if (!isRecording || _startTime == null) return null;
     isRecording = false;
     _finalizeCurrentMode();
@@ -204,7 +218,6 @@ class RunSessionService extends ChangeNotifier {
       maxLonG: maxLonG,
       driveModeSeconds: Map.unmodifiable(Map.of(_driveModeSeconds)),
       sharpCorners: List.unmodifiable(List.of(_sharpCorners)),
-      obdSummary: obdSummary,
       telemetrySamples: List.unmodifiable(List.of(_telemetrySamples)),
     );
     _scheduleNotify();

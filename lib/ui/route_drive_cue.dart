@@ -8,6 +8,16 @@ import 'app_copy.dart';
 
 enum DriveRouteStatus { approachingStart, onRoute, offRoute, completed }
 
+enum TurnAction {
+  slightLeft,
+  left,
+  sharpLeft,
+  slightRight,
+  right,
+  sharpRight,
+  finish,
+}
+
 class DriveCurveCue {
   final String label;
   final String detail;
@@ -70,6 +80,164 @@ class DriveRouteState {
     required this.distanceFromRouteM,
     required this.distanceToStartM,
   });
+}
+
+class TurnInstruction {
+  final int sequence;
+  final TurnAction action;
+  final String directionLabel;
+  final String intensityLabel;
+  final String headline;
+  final String command;
+  final IconData icon;
+  final double distanceFromStartM;
+  final double aheadM;
+  final int severity;
+  final bool finish;
+
+  const TurnInstruction({
+    required this.sequence,
+    required this.action,
+    required this.directionLabel,
+    required this.intensityLabel,
+    required this.headline,
+    required this.command,
+    required this.icon,
+    required this.distanceFromStartM,
+    required this.aheadM,
+    required this.severity,
+    this.finish = false,
+  });
+
+  TurnInstruction copyWith({
+    double? aheadM,
+    String? headline,
+    String? command,
+  }) {
+    return TurnInstruction(
+      sequence: sequence,
+      action: action,
+      directionLabel: directionLabel,
+      intensityLabel: intensityLabel,
+      headline: headline ?? this.headline,
+      command: command ?? this.command,
+      icon: icon,
+      distanceFromStartM: distanceFromStartM,
+      aheadM: aheadM ?? this.aheadM,
+      severity: severity,
+      finish: finish,
+    );
+  }
+}
+
+class TurnByTurnState {
+  final TurnInstruction? instruction;
+  final int completedInstructions;
+  final int totalInstructions;
+  final DriveRouteStatus status;
+
+  const TurnByTurnState({
+    required this.instruction,
+    required this.completedInstructions,
+    required this.totalInstructions,
+    required this.status,
+  });
+}
+
+List<TurnInstruction> buildTurnByTurnPlan(
+  List<LatLng> nodes, {
+  AppLanguage? language,
+}) {
+  if (nodes.length < 2) return const [];
+
+  final cumulativeM = _cumulativeMeters(nodes);
+  final instructions = <TurnInstruction>[];
+  for (var i = 1; i < nodes.length - 1; i++) {
+    final turn = _turnDegrees(nodes[i - 1], nodes[i], nodes[i + 1]);
+    final absTurn = turn.abs();
+    if (absTurn < 20) continue;
+    instructions.add(
+      _turnInstruction(
+        sequence: instructions.length + 1,
+        turn: turn,
+        absTurn: absTurn,
+        distanceFromStartM: cumulativeM[i],
+        aheadM: cumulativeM[i],
+        language: language,
+      ),
+    );
+  }
+
+  final finishM = cumulativeM.last;
+  instructions.add(
+    TurnInstruction(
+      sequence: instructions.length + 1,
+      action: TurnAction.finish,
+      directionLabel: _driveText(language, '피니시', 'Finish', 'Arrivée'),
+      intensityLabel: _driveText(language, '완료', 'Done', 'Terminé'),
+      headline:
+          '${formatTurnMeters(finishM)} ${_driveText(language, '피니시', 'Finish', 'Arrivée')}',
+      command: _driveText(
+        language,
+        '루트 완료 지점까지 흐름 유지',
+        'Hold the rhythm to the finish',
+        'Gardez le rythme jusqu’à l’arrivée',
+      ),
+      icon: Icons.sports_score_rounded,
+      distanceFromStartM: finishM,
+      aheadM: finishM,
+      severity: 0,
+      finish: true,
+    ),
+  );
+  return instructions;
+}
+
+TurnByTurnState readTurnByTurnState(
+  LatLng position,
+  List<LatLng> nodes, {
+  AppLanguage? language,
+}) {
+  final plan = buildTurnByTurnPlan(nodes, language: language);
+  if (plan.isEmpty || nodes.length < 2) {
+    return const TurnByTurnState(
+      instruction: null,
+      completedInstructions: 0,
+      totalInstructions: 0,
+      status: DriveRouteStatus.approachingStart,
+    );
+  }
+
+  final cumulativeM = _cumulativeMeters(nodes);
+  final totalM = cumulativeM.last;
+  final nearest = _nearestRouteProjection(position, nodes, cumulativeM);
+  final distanceToStartM = RevvRoute.haversineKm(position, nodes.first) * 1000;
+  final remainingM = math.max(0.0, totalM - nearest.alongM);
+  final status = _routeStatus(
+    distanceFromRouteM: nearest.distanceM,
+    distanceToStartM: distanceToStartM,
+    alongM: nearest.alongM,
+    remainingM: remainingM,
+  );
+
+  final completed = plan
+      .where(
+        (instruction) => instruction.distanceFromStartM < nearest.alongM - 18,
+      )
+      .length;
+  final nextIndex = completed.clamp(0, plan.length - 1);
+  final next = plan[nextIndex];
+  final aheadM = math.max(0.0, next.distanceFromStartM - nearest.alongM);
+  return TurnByTurnState(
+    instruction: next.copyWith(
+      aheadM: aheadM,
+      headline: _turnHeadline(next, aheadM, language),
+      command: _turnCommand(next, aheadM, status, language),
+    ),
+    completedInstructions: completed,
+    totalInstructions: plan.length,
+    status: status,
+  );
 }
 
 DriveRouteState readDriveRouteState(
@@ -303,6 +471,92 @@ DriveRouteStatus _routeStatus({
   return DriveRouteStatus.onRoute;
 }
 
+TurnInstruction _turnInstruction({
+  required int sequence,
+  required double turn,
+  required double absTurn,
+  required double distanceFromStartM,
+  required double aheadM,
+  required AppLanguage? language,
+}) {
+  final direction = turn >= 0
+      ? _driveText(language, '우측', 'Right', 'Droite')
+      : _driveText(language, '좌측', 'Left', 'Gauche');
+  final intensity = _curveIntensity(absTurn, language);
+  final action = _turnAction(turn, absTurn);
+  final severity = _curveSeverity(absTurn);
+  final shell = TurnInstruction(
+    sequence: sequence,
+    action: action,
+    directionLabel: direction,
+    intensityLabel: intensity,
+    headline: '',
+    command: '',
+    icon: _curveIcon(turn, absTurn),
+    distanceFromStartM: distanceFromStartM,
+    aheadM: aheadM,
+    severity: severity,
+  );
+  return shell.copyWith(
+    headline: _turnHeadline(shell, aheadM, language),
+    command: _turnCommand(shell, aheadM, DriveRouteStatus.onRoute, language),
+  );
+}
+
+TurnAction _turnAction(double turn, double absTurn) {
+  if (turn < 0 && absTurn >= 68) return TurnAction.sharpLeft;
+  if (turn < 0 && absTurn >= 42) return TurnAction.left;
+  if (turn < 0) return TurnAction.slightLeft;
+  if (absTurn >= 68) return TurnAction.sharpRight;
+  if (absTurn >= 42) return TurnAction.right;
+  return TurnAction.slightRight;
+}
+
+String _turnHeadline(
+  TurnInstruction instruction,
+  double aheadM,
+  AppLanguage? language,
+) {
+  if (instruction.finish) {
+    return '${formatTurnMeters(aheadM)} ${_driveText(language, '피니시', 'Finish', 'Arrivée')}';
+  }
+  return '${formatTurnMeters(aheadM)} ${instruction.directionLabel} ${instruction.intensityLabel}';
+}
+
+String _turnCommand(
+  TurnInstruction instruction,
+  double aheadM,
+  DriveRouteStatus status,
+  AppLanguage? language,
+) {
+  if (status == DriveRouteStatus.offRoute) {
+    return _driveText(
+      language,
+      '루트로 복귀한 뒤 다음 턴을 다시 잡기',
+      'Rejoin the route, then reacquire the next turn',
+      'Rejoignez la route, puis reprenez le prochain virage',
+    );
+  }
+  if (instruction.finish) {
+    return _driveText(
+      language,
+      '피니시까지 흐름 유지',
+      'Hold the rhythm to the finish',
+      'Gardez le rythme jusqu’à l’arrivée',
+    );
+  }
+  if (aheadM <= 80) {
+    return '${instruction.directionLabel} ${instruction.intensityLabel} ${_driveText(language, '진입', 'now', 'maintenant')}';
+  }
+  return '${instruction.directionLabel} ${instruction.intensityLabel} ${_driveText(language, '준비', 'coming up', 'à venir')}';
+}
+
+String formatTurnMeters(double meters) {
+  if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(1)}km';
+  final rounded = (meters / 10).round() * 10;
+  return '${rounded.clamp(0, 990)}m';
+}
+
 DriveRhythmBrief _rhythmForApproachingStart(
   double distanceToStartM,
   AppLanguage? language,
@@ -428,7 +682,9 @@ IconData _curveIcon(double turn, double absTurn) {
   if (absTurn >= 42) {
     return isRight ? Icons.turn_right_rounded : Icons.turn_left_rounded;
   }
-  return isRight ? Icons.turn_slight_right_rounded : Icons.turn_slight_left_rounded;
+  return isRight
+      ? Icons.turn_slight_right_rounded
+      : Icons.turn_slight_left_rounded;
 }
 
 int _curveSeverity(double absTurn) {
