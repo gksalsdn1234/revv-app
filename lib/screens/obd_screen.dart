@@ -974,7 +974,7 @@ class _CarGforceMeterState extends State<_CarGforceMeter>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulse;
 
-  Color _displayColor = AppColors.red; // 현재 표시 색상
+  Color _displayColor = const Color(0xFF00E5FF); // 현재 표시 색상
 
   @override
   void initState() {

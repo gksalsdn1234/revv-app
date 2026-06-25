@@ -25,7 +25,7 @@ class AppText {
     Color color = AppColors.textPrimary,
     double letterSpacing = 0,
     double? height,
-  }) => GoogleFonts.archivo(
+  }) => GoogleFonts.inter(
     textStyle: TextStyle(
       fontSize: size,
       fontWeight: weight,
@@ -67,19 +67,6 @@ class AppText {
     Color color = AppColors.textPrimary,
     double letterSpacing = 0,
   }) => GoogleFonts.orbitron(
-    fontSize: size,
-    fontWeight: weight,
-    color: color,
-    letterSpacing: letterSpacing,
-  );
-
-  // v5 brand font — used for REVV wordmark and section headers
-  static TextStyle sairaCondensed({
-    double size = 14,
-    FontWeight weight = FontWeight.w900,
-    Color color = AppColors.textPrimary,
-    double letterSpacing = -1,
-  }) => GoogleFonts.sairaCondensed(
     fontSize: size,
     fontWeight: weight,
     color: color,
