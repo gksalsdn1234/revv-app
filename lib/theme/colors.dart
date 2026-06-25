@@ -4,7 +4,7 @@ class AppColors {
   // REVV Lean MVP racing tokens.
   static const bg = Color(0xFF100E0C);
   static const surfaceDim = Color(0xFF14110E);
-  static const surfaceLowest = Color(0xFF0C0D10);
+  static const surfaceLowest = Color(0xFF0B0908);
   static const panel = Color(0xFF14110E);
   static const panel2 = Color(0xFF1C1206);
   static const surface = Color(0xFF2A211D);
@@ -15,7 +15,7 @@ class AppColors {
   static const redGlow = Color(0x66E2231A);
   static const redDim = Color(0x33E2231A);
   static const orange = Color(0xFFFFB020);
-  static const cyan = Color(0xFFE2231A);
+  static const cyan = Color(0xFF00E5FF);
   static const white = Colors.white;
   static const gray = Color(0x408A8278);
 
@@ -56,14 +56,14 @@ class AppColors {
     final t = (mag / 1.2).clamp(0.0, 1.0);
     if (t < 0.42) {
       return Color.lerp(
-        const Color(0xFF1565C0),
-        const Color(0xFFFDD835),
+        const Color(0xFF1FA85F),  // green
+        const Color(0xFFFFB020),  // amber
         t / 0.42,
       )!;
     }
     return Color.lerp(
-      const Color(0xFFFDD835),
-      const Color(0xFFE53935),
+      const Color(0xFFFFB020),  // amber
+      const Color(0xFFE2231A),  // red
       ((t - 0.42) / 0.58).clamp(0.0, 1.0),
     )!;
   }
