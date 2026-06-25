@@ -277,7 +277,7 @@ class _LoadingScreenState extends State<LoadingScreen>
   Widget _buildLogo() {
     return RichText(
       text: TextSpan(
-        style: GoogleFonts.orbitron(fontSize: 72, fontWeight: FontWeight.w900),
+        style: GoogleFonts.sairaCondensed(fontSize: 80, fontWeight: FontWeight.w900, letterSpacing: -2),
         children: [
           const TextSpan(
             text: 'RE',
