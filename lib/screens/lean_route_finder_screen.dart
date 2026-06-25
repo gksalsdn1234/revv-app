@@ -914,147 +914,180 @@ class _LeanRouteTicket extends StatelessWidget {
           onPrev?.call();
         }
       },
-      child: _LeanGlass(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8F4EB),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 28,
+              offset: const Offset(0, 14),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.outline.withValues(alpha: 0.42),
-                  borderRadius: BorderRadius.circular(999),
+            // Checkered top stripe
+            SizedBox(
+              height: 8,
+              width: double.infinity,
+              child: CustomPaint(
+                painter: _CheckeredTicketPainter(
+                  tileSize: 8,
+                  lightColor: const Color(0xFFF8F4EB),
+                  darkColor: AppColors.ink,
                 ),
               ),
             ),
-            const SizedBox(height: 10),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _RouteQualityBadge(
-                  score: windingProfile.score,
-                  label: windingProfile.title,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.ink.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        mapSelected
-                            ? AppCopy.t(
-                                language,
-                                ko: '지도에서 선택한 커브길',
-                                en: 'Map-picked curve road',
-                                fr: 'Route choisie sur carte',
-                              )
-                            : '${AppCopy.t(language, ko: '후보', en: 'Pick', fr: 'Option')} ${index + 1} / $total',
-                        style: AppText.technicalLabel(
-                          size: 10,
-                          color: AppColors.primaryContainer,
-                          letterSpacing: 1.6,
+                      _RouteQualityBadge(
+                        score: windingProfile.score,
+                        label: windingProfile.title,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              mapSelected
+                                  ? AppCopy.t(
+                                      language,
+                                      ko: '지도에서 선택한 커브길',
+                                      en: 'Map-picked curve road',
+                                      fr: 'Route choisie sur carte',
+                                    )
+                                  : '${AppCopy.t(language, ko: '후보', en: 'Pick', fr: 'Option')} ${index + 1} / $total',
+                              style: AppText.technicalLabel(
+                                size: 10,
+                                color: AppColors.primaryContainer,
+                                letterSpacing: 1.6,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              route.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.label(
+                                size: 18,
+                                weight: FontWeight.w800,
+                                color: AppColors.ink,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${windingProfile.rhythm} · ${briefing.primaryAdvice}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.mono(
+                                size: 11,
+                                weight: FontWeight.w700,
+                                color: AppColors.stone,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        route.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.body(
-                          size: 18,
-                          weight: FontWeight.w900,
-                          color: AppColors.textPrimary,
-                        ),
+                      const SizedBox(width: 10),
+                      _LeanCircleButton(
+                        icon: Icons.info_outline_rounded,
+                        onTap: onDetails,
                       ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '${windingProfile.rhythm} · ${briefing.primaryAdvice}',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.body(
-                          size: 11,
-                          weight: FontWeight.w800,
-                          color: AppColors.textSecondary,
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      for (final metric in windingProfile.metrics) ...[
+                        Expanded(
+                          child: _Metric(label: metric.label, value: metric.value),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      Expanded(
+                        child: _Metric(
+                          label: AppCopy.t(
+                            language,
+                            ko: '시작점',
+                            en: 'Start',
+                            fr: 'Départ',
+                          ),
+                          value: route.distanceFromUserDisplay,
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 10),
-                _LeanCircleButton(
-                  icon: Icons.info_outline_rounded,
-                  onTap: onDetails,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                for (final metric in windingProfile.metrics) ...[
-                  Expanded(
-                    child: _Metric(label: metric.label, value: metric.value),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      _LeanCircleButton(
+                        icon: Icons.chevron_left_rounded,
+                        onTap: onPrev,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: SizedBox(
+                          height: 48,
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.primaryContainer,
+                              foregroundColor: AppColors.onPrimary,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                            onPressed: onGo,
+                            icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                            label: Text(
+                              AppCopy.t(
+                                language,
+                                ko: '주행 시작',
+                                en: 'Start drive',
+                                fr: 'Démarrer',
+                              ),
+                              style: AppText.label(
+                                size: 14,
+                                weight: FontWeight.w800,
+                                color: AppColors.onPrimary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _LeanCircleButton(
+                        icon: Icons.chevron_right_rounded,
+                        onTap: onNext,
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
                 ],
-                Expanded(
-                  child: _Metric(
-                    label: AppCopy.t(
-                      language,
-                      ko: '시작점',
-                      en: 'Start',
-                      fr: 'Départ',
-                    ),
-                    value: route.distanceFromUserDisplay,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _LeanCircleButton(
-                  icon: Icons.chevron_left_rounded,
-                  onTap: onPrev,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: SizedBox(
-                    height: 48,
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.primaryContainer,
-                        foregroundColor: AppColors.onPrimary,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      onPressed: onGo,
-                      icon: const Icon(Icons.play_arrow_rounded, size: 20),
-                      label: Text(
-                        AppCopy.t(
-                          language,
-                          ko: '주행 시작',
-                          en: 'Start drive',
-                          fr: 'Démarrer',
-                        ),
-                        style: AppText.body(
-                          size: 14,
-                          weight: FontWeight.w900,
-                          color: AppColors.onPrimary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _LeanCircleButton(
-                  icon: Icons.chevron_right_rounded,
-                  onTap: onNext,
-                ),
-              ],
+              ),
             ),
           ],
         ),
@@ -1436,10 +1469,10 @@ class _Metric extends StatelessWidget {
       height: 50,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.68),
+        color: AppColors.creamMuted,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.18),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -1450,10 +1483,10 @@ class _Metric extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppText.technicalLabel(
+            style: AppText.mono(
               size: 8,
-              weight: FontWeight.w800,
-              color: AppColors.textHint,
+              weight: FontWeight.w700,
+              color: AppColors.stone,
               letterSpacing: 0.8,
             ),
           ),
@@ -1462,10 +1495,10 @@ class _Metric extends StatelessWidget {
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppText.body(
+            style: AppText.mono(
               size: 12,
-              weight: FontWeight.w900,
-              color: AppColors.textPrimary,
+              weight: FontWeight.w700,
+              color: AppColors.ink,
             ),
           ),
         ],
@@ -2043,4 +2076,39 @@ String _strengthDescription(
       fr: 'Garde les filtres de sécurité et montre plus de variété.',
     ),
   };
+}
+
+class _CheckeredTicketPainter extends CustomPainter {
+  final double tileSize;
+  final Color lightColor;
+  final Color darkColor;
+
+  const _CheckeredTicketPainter({
+    required this.tileSize,
+    required this.lightColor,
+    required this.darkColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paintLight = Paint()..color = lightColor;
+    final paintDark = Paint()..color = darkColor;
+    final cols = (size.width / tileSize).ceil() + 1;
+    final rows = (size.height / tileSize).ceil() + 1;
+    for (int row = 0; row < rows; row++) {
+      for (int col = 0; col < cols; col++) {
+        final isLight = (row + col) % 2 == 0;
+        canvas.drawRect(
+          Rect.fromLTWH(col * tileSize, row * tileSize, tileSize, tileSize),
+          isLight ? paintLight : paintDark,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_CheckeredTicketPainter old) =>
+      old.tileSize != tileSize ||
+      old.lightColor != lightColor ||
+      old.darkColor != darkColor;
 }

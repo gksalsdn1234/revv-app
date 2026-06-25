@@ -293,177 +293,224 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     final readyCount = routes.routes.isNotEmpty ? routes.routes.length : 16;
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: AppColors.cockpitBackgroundGradient(),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 18, 24, 18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      'REVV',
-                      style: AppText.technicalLabel(
+      backgroundColor: AppColors.cream,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 18, 24, 18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header bar: REVV logo + red stripe + sync status
+              Row(
+                children: [
+                  Text(
+                    'REVV',
+                    style: AppText.label(
+                      size: 24,
+                      weight: FontWeight.w900,
+                      letterSpacing: 3,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Container(width: 5, height: 18, color: AppColors.primaryContainer),
+                  const Spacer(),
+                  _LeanLanguageToggle(
+                    language: language,
+                    onChanged: settings.setAppLanguage,
+                  ),
+                  const SizedBox(width: 8),
+                  // Voice toggle
+                  GestureDetector(
+                    onTap: () => settings.setTtsMuted(!settings.ttsMuted),
+                    child: Container(
+                      padding: const EdgeInsets.all(7),
+                      decoration: BoxDecoration(
+                        color: AppColors.ink.withValues(alpha: 0.07),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.ink.withValues(alpha: 0.14),
+                        ),
+                      ),
+                      child: Icon(
+                        settings.ttsMuted
+                            ? Icons.volume_off_rounded
+                            : Icons.volume_up_rounded,
                         size: 16,
-                        letterSpacing: 6,
-                        color: AppColors.primaryContainer,
+                        color: settings.ttsMuted
+                            ? AppColors.stone
+                            : AppColors.primaryContainer,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'v1.38.0+42',
-                      style: AppText.technicalLabel(
-                        size: 9,
-                        letterSpacing: 1.3,
-                        color: AppColors.textHint,
+                  ),
+                  const SizedBox(width: 8),
+                  _LeanStatusDot(
+                    active: supabase.isCloudAvailable,
+                    label: supabase.isCloudAvailable ? 'SYNCED' : 'LOCAL',
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 18),
+
+              // Hero card — dark panel with checkered top stripe
+              Container(
+                decoration: BoxDecoration(
+                  color: AppColors.ink,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Checkered stripe header
+                    Container(
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        color: AppColors.ink,
+                      ),
+                      child: CustomPaint(
+                        painter: _CheckeredPainter(
+                          tileSize: 7,
+                          color: AppColors.cream,
+                        ),
+                        size: const Size(double.infinity, 10),
                       ),
                     ),
-                    const Spacer(),
-                    _LeanLanguageToggle(
-                      language: language,
-                      onChanged: settings.setAppLanguage,
-                    ),
-                    const SizedBox(width: 8),
-                    // 음성 토글
-                    GestureDetector(
-                      onTap: () => settings.setTtsMuted(!settings.ttsMuted),
-                      child: Container(
-                        padding: const EdgeInsets.all(7),
-                        decoration: BoxDecoration(
-                          color: AppColors.panel.withValues(alpha: 0.78),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: AppColors.outlineVariant.withValues(
-                              alpha: 0.32,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                'READY TO RUN',
+                                style: AppText.mono(
+                                  size: 10,
+                                  weight: FontWeight.w700,
+                                  letterSpacing: 2,
+                                  color: AppColors.primaryContainer,
+                                ),
+                              ),
+                              const Spacer(),
+                              Text(
+                                '$readyCount ROUTES NEARBY',
+                                style: AppText.mono(
+                                  size: 10,
+                                  color: AppColors.stone,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            AppCopy.t(
+                              language,
+                              ko: '도로를 찾고\n주행을 시작하세요.',
+                              en: 'Find the road.\nStart the drive.',
+                              fr: 'Trouvez la route.\nLancez le run.',
+                            ),
+                            style: AppText.rajdhani(
+                              size: 42,
+                              weight: FontWeight.w800,
+                              height: 0.92,
+                              color: AppColors.cream,
                             ),
                           ),
-                        ),
-                        child: Icon(
-                          settings.ttsMuted
-                              ? Icons.volume_off_rounded
-                              : Icons.volume_up_rounded,
-                          size: 16,
-                          color: settings.ttsMuted
-                              ? AppColors.textHint
-                              : AppColors.primaryContainer,
-                        ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 54,
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.primaryContainer,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(13),
+                                ),
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const LeanRouteFinderScreen(),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+                              label: Text(
+                                AppCopy.routeFinder(language).toUpperCase(),
+                                style: AppText.label(
+                                  size: 19,
+                                  weight: FontWeight.w800,
+                                  letterSpacing: 1.5,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    _LeanStatusDot(
-                      active: supabase.isCloudAvailable,
-                      label: supabase.isCloudAvailable ? 'CLOUD' : 'LOCAL',
                     ),
                   ],
                 ),
+              ),
 
-                const SizedBox(height: 22),
-
-                Row(
-                  children: [
-                    _RaceStatusTile(
-                      label: 'SYNCED',
-                      value: supabase.isCloudAvailable ? 'READY' : 'LOCAL',
-                      active: supabase.isCloudAvailable,
-                    ),
-                    const SizedBox(width: 10),
-                    _RaceStatusTile(
-                      label: 'ROUTES NEARBY',
-                      value: '$readyCount',
-                      active: true,
-                    ),
-                  ],
-                ),
-
-                const Spacer(),
-
-                Text(
-                  AppCopy.t(
-                    language,
-                    ko: '도로를 찾고\n주행을 시작하세요.',
-                    en: 'Find the road.\nStart the drive.',
-                    fr: 'Trouvez la route.\nLancez le run.',
+              // ── 시작점 안내 카드 ──
+              if (routes.pendingGuideRoute != null) ...[
+                const SizedBox(height: 14),
+                _GuideToStartCard(
+                  route: routes.pendingGuideRoute!,
+                  current: location.bestKnownLatLng,
+                  onGoogle: () => _openGoogleMapsForRoute(
+                    context,
+                    routes.pendingGuideRoute!,
                   ),
-                  style: AppText.display(
-                    size: 54,
-                    height: 0.92,
-                    color: AppColors.textPrimary,
+                  onWaze: () =>
+                      _openWazeForRoute(context, routes.pendingGuideRoute!),
+                  onStart: () => unawaited(
+                    _startFromGuideCard(routes.pendingGuideRoute!),
                   ),
-                ),
-                const SizedBox(height: 24),
-
-                _LeanPrimaryButton(
-                  label: AppCopy.routeFinder(language),
-                  icon: Icons.travel_explore_rounded,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => const LeanRouteFinderScreen(),
-                      ),
-                    );
+                  onCancel: () {
+                    _guidePromptShown = false;
+                    routes.clearGuideToStart();
                   },
                 ),
-
-                // ── 시작점 안내 카드 ──
-                if (routes.pendingGuideRoute != null) ...[
-                  const SizedBox(height: 14),
-                  _GuideToStartCard(
-                    route: routes.pendingGuideRoute!,
-                    current: location.bestKnownLatLng,
-                    onGoogle: () => _openGoogleMapsForRoute(
-                      context,
-                      routes.pendingGuideRoute!,
-                    ),
-                    onWaze: () =>
-                        _openWazeForRoute(context, routes.pendingGuideRoute!),
-                    onStart: () => unawaited(
-                      _startFromGuideCard(routes.pendingGuideRoute!),
-                    ),
-                    onCancel: () {
-                      _guidePromptShown = false;
-                      routes.clearGuideToStart();
-                    },
-                  ),
-                ],
-
-                if (lastRun != null) ...[
-                  const SizedBox(height: 18),
-                  _SectionHeader(
-                    label: AppCopy.t(
-                      language,
-                      ko: 'RECENT RUNS',
-                      en: 'RECENT RUNS',
-                      fr: 'RUNS RÉCENTS',
-                    ),
-                    trailing: 'All ${history.totalRuns} ->',
-                    onTap: () => _showHistorySheet(context),
-                  ),
-                  const SizedBox(height: 10),
-                  _LastRunCard(run: lastRun, language: language),
-                ],
-
-                const Spacer(),
-
-                // ── 통계 한 줄 ──
-                if (history.totalRuns > 0) ...[
-                  _StatsLine(history: history),
-                  const SizedBox(height: 16),
-                ],
-
-                _RaceBottomNav(
-                  current: _RaceTab.home,
-                  onHome: _primeLocation,
-                  onHistory: () => _showHistorySheet(context),
-                  onSettings: () => _showSettingsSheet(context),
-                ),
               ],
-            ),
+
+              if (lastRun != null) ...[
+                const SizedBox(height: 22),
+                _SectionHeader(
+                  label: AppCopy.t(
+                    language,
+                    ko: 'RECENT RUNS',
+                    en: 'RECENT RUNS',
+                    fr: 'RUNS RÉCENTS',
+                  ),
+                  trailing: 'All ${history.totalRuns} →',
+                  onTap: () => _showHistorySheet(context),
+                ),
+                const SizedBox(height: 10),
+                _LastRunCard(run: lastRun, language: language),
+              ],
+
+              const Spacer(),
+
+              // ── 통계 한 줄 ──
+              if (history.totalRuns > 0) ...[
+                _StatsLine(history: history),
+                const SizedBox(height: 16),
+              ],
+
+              _RaceBottomNav(
+                current: _RaceTab.home,
+                onHome: _primeLocation,
+                onHistory: () => _showHistorySheet(context),
+                onSettings: () => _showSettingsSheet(context),
+              ),
+            ],
           ),
         ),
       ),
@@ -491,10 +538,10 @@ class _LastRunCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.82),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.22),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -509,19 +556,19 @@ class _LastRunCard extends StatelessWidget {
                   en: 'LAST DRIVE',
                   fr: 'DERNIER TRAJET',
                 ),
-                style: AppText.technicalLabel(
+                style: AppText.mono(
                   size: 9,
                   letterSpacing: 1.6,
-                  color: AppColors.textHint,
+                  color: AppColors.stone,
                 ),
               ),
               const Spacer(),
               Text(
                 relDate,
-                style: AppText.technicalLabel(
+                style: AppText.mono(
                   size: 9,
                   letterSpacing: 1.2,
-                  color: AppColors.textHint,
+                  color: AppColors.stone,
                 ),
               ),
             ],
@@ -534,7 +581,7 @@ class _LastRunCard extends StatelessWidget {
             style: AppText.body(
               size: 17,
               weight: FontWeight.w900,
-              color: AppColors.textPrimary,
+              color: AppColors.ink,
             ),
           ),
           const SizedBox(height: 10),
@@ -605,21 +652,21 @@ class _RunPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
         color: accent
-            ? AppColors.primaryContainer.withValues(alpha: 0.14)
-            : AppColors.cream.withValues(alpha: 0.10),
+            ? AppColors.primaryContainer.withValues(alpha: 0.10)
+            : AppColors.creamMuted,
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
           color: accent
               ? AppColors.primaryContainer.withValues(alpha: 0.28)
-              : AppColors.outlineVariant.withValues(alpha: 0.18),
+              : AppColors.ink.withValues(alpha: 0.14),
         ),
       ),
       child: Text(
         label,
-        style: AppText.body(
+        style: AppText.mono(
           size: 11,
-          weight: FontWeight.w900,
-          color: accent ? AppColors.primaryContainer : AppColors.textPrimary,
+          weight: FontWeight.w700,
+          color: accent ? AppColors.primaryContainer : AppColors.ink,
         ),
       ),
     );
@@ -691,10 +738,10 @@ class _SectionHeader extends StatelessWidget {
       children: [
         Text(
           label,
-          style: AppText.technicalLabel(
+          style: AppText.mono(
             size: 10,
             letterSpacing: 1.8,
-            color: AppColors.textHint,
+            color: AppColors.stone,
           ),
         ),
         const Spacer(),
@@ -703,9 +750,10 @@ class _SectionHeader extends StatelessWidget {
             onTap: onTap,
             child: Text(
               trailing!,
-              style: AppText.technicalLabel(
-                size: 10,
-                letterSpacing: 0.4,
+              style: AppText.label(
+                size: 14,
+                weight: FontWeight.w700,
+                letterSpacing: 0.5,
                 color: AppColors.primaryContainer,
               ),
             ),
@@ -737,7 +785,7 @@ class _RaceBottomNav extends StatelessWidget {
       decoration: BoxDecoration(
         border: Border(
           top: BorderSide(
-            color: AppColors.cream.withValues(alpha: 0.38),
+            color: AppColors.ink.withValues(alpha: 0.12),
             width: 2,
           ),
         ),
@@ -784,7 +832,7 @@ class _RaceNavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.textPrimary : AppColors.textHint;
+    final color = active ? AppColors.ink : AppColors.stone;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -833,10 +881,10 @@ class _StatsLine extends StatelessWidget {
 
     return Text(
       parts.join(' · '),
-      style: AppText.technicalLabel(
+      style: AppText.mono(
         size: 10,
         letterSpacing: 1.4,
-        color: AppColors.textHint,
+        color: AppColors.stone,
       ),
     );
   }
@@ -1944,24 +1992,53 @@ class _LeanStatusDot extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.14)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 7,
-            height: 7,
+            width: 6,
+            height: 6,
             decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
-          const SizedBox(width: 7),
-          Text(label, style: AppText.technicalLabel(size: 10, color: color)),
+          const SizedBox(width: 6),
+          Text(label, style: AppText.mono(size: 10, color: AppColors.stone)),
         ],
       ),
     );
   }
+}
+
+// ── Checkered flag painter ────────────────────────────────
+
+class _CheckeredPainter extends CustomPainter {
+  final double tileSize;
+  final Color color;
+
+  const _CheckeredPainter({required this.tileSize, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color.withValues(alpha: 0.9);
+    final cols = (size.width / tileSize).ceil() + 1;
+    final rows = (size.height / tileSize).ceil() + 1;
+    for (int row = 0; row < rows; row++) {
+      for (int col = 0; col < cols; col++) {
+        if ((row + col) % 2 == 0) {
+          canvas.drawRect(
+            Rect.fromLTWH(col * tileSize, row * tileSize, tileSize, tileSize),
+            paint,
+          );
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CheckeredPainter oldDelegate) =>
+      tileSize != oldDelegate.tileSize || color != oldDelegate.color;
 }
 
 class _LeanPrimaryButton extends StatelessWidget {

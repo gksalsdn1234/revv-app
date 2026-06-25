@@ -144,217 +144,329 @@ class _LoadingScreenState extends State<LoadingScreen>
     final screen = MediaQuery.of(context).size;
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: RevvCockpitBackground(
-        scanlines: true,
-        child: Stack(
-          children: [
-            // Corner brackets
-            Positioned.fill(
-              child: FadeTransition(
-                opacity: _bracketsOpacity,
-                child: const CornerBrackets(padding: 24, lineLength: 20),
-              ),
+      backgroundColor: const Color(0xFF15161A),
+      body: Stack(
+        children: [
+          // Corner brackets
+          Positioned.fill(
+            child: FadeTransition(
+              opacity: _bracketsOpacity,
+              child: const CornerBrackets(padding: 24, lineLength: 20),
             ),
-            // Center content
-            Center(
+          ),
+          // Full layout
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(30, 0, 30, 30),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Logo with scan reveal
-                  AnimatedBuilder(
-                    animation: _scanAnim,
-                    builder: (context, _) {
-                      final scanX = _scanAnim.value * screen.width;
-                      return Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // Trail
-                          Positioned(
-                            left: 0,
-                            child: Container(
-                              width: scanX,
-                              height: 80,
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  colors: [
-                                    AppColors.primaryContainer.withValues(
-                                      alpha: 0.04,
-                                    ),
-                                    Colors.transparent,
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          // Revealed logo
-                          ClipRect(
-                            clipper: _ScanClipper(revealX: scanX),
-                            child: _buildLogo(),
-                          ),
-                          // Scan line
-                          if (_scanAnim.value < 1)
-                            Positioned(
-                              left: scanX - 1,
-                              child: Container(
-                                width: 2,
-                                height: 80,
-                                decoration: BoxDecoration(
-                                  color: AppColors.primaryContainer,
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: AppColors.primaryContainer
-                                          .withValues(alpha: 0.6),
-                                      blurRadius: 20,
-                                      spreadRadius: 2,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  // Red underline
-                  AnimatedBuilder(
-                    animation: _lineWidth,
-                    builder: (context, _) {
-                      final w = _lineWidth.value * 240;
-                      return Container(
-                        width: w,
-                        height: 2,
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              Colors.transparent,
-                              AppColors.primaryContainer,
-                              Colors.transparent,
-                            ],
-                          ),
-                          boxShadow: [
-                            BoxShadow(color: AppColors.redGlow, blurRadius: 8),
-                          ],
+                  // Build version top-right
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'BUILD 1.38.0',
+                        style: AppText.mono(
+                          size: 9,
+                          color: const Color(0xFF54565C),
+                          letterSpacing: 1.4,
                         ),
-                      );
-                    },
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 16),
+                  // Center: F1 lights + logo + tagline
+                  Expanded(
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // F1 lights panel
+                          FadeTransition(
+                            opacity: _bracketsOpacity,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 15,
+                                vertical: 13,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0C0D10),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: AppColors.cream.withValues(alpha: 0.10),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _F1Light(lit: true),
+                                  SizedBox(width: 9),
+                                  _F1Light(lit: true),
+                                  SizedBox(width: 9),
+                                  _F1Light(lit: true),
+                                  SizedBox(width: 9),
+                                  _F1Light(lit: true),
+                                  SizedBox(width: 9),
+                                  _F1Light(lit: false),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 26),
+                          // Logo with scan reveal
+                          AnimatedBuilder(
+                            animation: _scanAnim,
+                            builder: (context, _) {
+                              final scanX = _scanAnim.value * screen.width;
+                              return Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  ClipRect(
+                                    clipper: _ScanClipper(revealX: scanX),
+                                    child: _buildLogo(),
+                                  ),
+                                  if (_scanAnim.value < 1)
+                                    Positioned(
+                                      left: scanX - 1,
+                                      child: Container(
+                                        width: 2,
+                                        height: 80,
+                                        decoration: BoxDecoration(
+                                          color: AppColors.primaryContainer,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: AppColors.primaryContainer
+                                                  .withValues(alpha: 0.6),
+                                              blurRadius: 20,
+                                              spreadRadius: 2,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          // Tagline
+                          FadeTransition(
+                            opacity: _subOpacity,
+                            child: Text(
+                              'Find the road · run the lap',
+                              style: AppText.mono(
+                                size: 11,
+                                color: AppColors.stone,
+                                letterSpacing: 3,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  // System checks
                   FadeTransition(
                     opacity: _subOpacity,
-                    child: Column(
-                      children: [
-                        Text(
-                          'GRID START',
-                          style: AppText.technicalLabel(
-                            size: 10,
-                            color: AppColors.textHint,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(
+                            color: AppColors.cream.withValues(alpha: 0.08),
+                          ),
+                          bottom: BorderSide(
+                            color: AppColors.cream.withValues(alpha: 0.08),
+                          ),
+                        ),
+                      ),
+                      child: const Column(
+                        children: [
+                          _SystemCheckRow(
+                            label: 'GPS LOCK',
+                            status: 'READY',
+                            statusColor: AppColors.success,
+                            dotColor: AppColors.success,
+                          ),
+                          SizedBox(height: 11),
+                          _SystemCheckRow(
+                            label: 'MOTION SENSORS',
+                            status: 'CALIBRATED',
+                            statusColor: AppColors.success,
+                            dotColor: AppColors.success,
+                          ),
+                          SizedBox(height: 11),
+                          _SystemCheckRow(
+                            label: 'LOCATION ACCESS',
+                            status: 'WHILE DRIVING',
+                            statusColor: AppColors.orange,
+                            dotColor: AppColors.orange,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  // Lights Out button
+                  FadeTransition(
+                    opacity: _subOpacity,
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 58,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AppColors.primaryContainer,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        onPressed: null,
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+                        label: Text(
+                          'LIGHTS OUT',
+                          style: AppText.label(
+                            size: 20,
+                            weight: FontWeight.w800,
                             letterSpacing: 2,
+                            color: Colors.white,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Find the road · run the lap',
-                          style: AppText.body(
-                            size: 14,
-                            weight: FontWeight.w700,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        const _GridStartChecks(),
-                      ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 11),
+                  FadeTransition(
+                    opacity: _subOpacity,
+                    child: Text(
+                      'START REVV · GRANTS LOCATION WHILE DRIVING',
+                      textAlign: TextAlign.center,
+                      style: AppText.mono(
+                        size: 10,
+                        color: AppColors.stone,
+                        letterSpacing: 1,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildLogo() {
-    return RichText(
-      text: TextSpan(
-        style: AppText.display(size: 104, weight: FontWeight.w900),
-        children: [
-          const TextSpan(
-            text: 'RE',
-            style: TextStyle(color: AppColors.white),
-          ),
-          TextSpan(
-            text: 'VV',
-            style: TextStyle(
-              color: AppColors.primaryContainer,
-              shadows: [
-                Shadow(color: AppColors.primaryContainer, blurRadius: 30),
-                Shadow(color: AppColors.redGlow, blurRadius: 60),
-              ],
-            ),
-          ),
-        ],
+    return Text(
+      'REVV',
+      style: AppText.label(
+        size: 66,
+        weight: FontWeight.w900,
+        letterSpacing: 11,
+        color: AppColors.cream,
       ),
     );
   }
 }
 
-class _GridStartChecks extends StatelessWidget {
-  const _GridStartChecks();
+// ── F1 light dot ─────────────────────────────────────────
+
+class _F1Light extends StatelessWidget {
+  final bool lit;
+
+  const _F1Light({required this.lit});
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
-      children: [
-        _GridStartCheck(label: 'GPS LOCK', value: 'READY'),
-        SizedBox(height: 8),
-        _GridStartCheck(label: 'MOTION SENSORS', value: 'CALIBRATED'),
-        SizedBox(height: 8),
-        _GridStartCheck(label: 'LOCATION ACCESS', value: 'WHILE DRIVING'),
-      ],
-    );
-  }
-}
-
-class _GridStartCheck extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _GridStartCheck({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
+    if (lit) {
+      return Container(
+        width: 20,
+        height: 20,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const RadialGradient(
+            center: Alignment(-0.24, -0.36),
+            colors: [Color(0xFFFF6457), Color(0xFFE2231A)],
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primaryContainer.withValues(alpha: 0.65),
+              blurRadius: 14,
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
-      width: 260,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      width: 20,
+      height: 20,
       decoration: BoxDecoration(
-        color: AppColors.cream.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.cream.withValues(alpha: 0.14)),
+        shape: BoxShape.circle,
+        color: const Color(0xFF1C1206),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.25),
+        ),
       ),
-      child: Row(
-        children: [
-          Text(
+    );
+  }
+}
+
+// ── System check row ─────────────────────────────────────
+
+class _SystemCheckRow extends StatelessWidget {
+  final String label;
+  final String status;
+  final Color statusColor;
+  final Color dotColor;
+
+  const _SystemCheckRow({
+    required this.label,
+    required this.status,
+    required this.statusColor,
+    required this.dotColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: dotColor,
+            boxShadow: [
+              BoxShadow(
+                color: dotColor.withValues(alpha: 0.6),
+                blurRadius: 8,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
             label,
-            style: AppText.technicalLabel(
-              size: 9,
-              letterSpacing: 1.4,
-              color: AppColors.textHint,
-            ),
-          ),
-          const Spacer(),
-          Text(
-            value,
-            style: AppText.technicalLabel(
-              size: 10,
+            style: AppText.mono(
+              size: 11,
+              color: const Color(0xFFA9A39B),
               letterSpacing: 1.2,
-              color: AppColors.primaryContainer,
             ),
           ),
-        ],
-      ),
+        ),
+        Text(
+          status,
+          style: AppText.mono(
+            size: 11,
+            weight: FontWeight.w700,
+            color: statusColor,
+            letterSpacing: 0.5,
+          ),
+        ),
+      ],
     );
   }
 }

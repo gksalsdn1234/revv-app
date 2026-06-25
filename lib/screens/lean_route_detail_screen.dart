@@ -55,7 +55,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
     final cautionBody = _cautionBody(copy, profile);
 
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: AppColors.cream,
       body: Stack(
         children: [
           CustomScrollView(
@@ -73,11 +73,9 @@ class LeanRouteDetailScreen extends StatelessWidget {
                             IconButton(
                               onPressed: () => Navigator.pop(context),
                               icon: const Icon(Icons.arrow_back_rounded),
-                              color: AppColors.textPrimary,
+                              color: AppColors.ink,
                               style: IconButton.styleFrom(
-                                backgroundColor: AppColors.surface.withValues(
-                                  alpha: 0.72,
-                                ),
+                                backgroundColor: AppColors.creamMuted,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
                                 ),
@@ -91,7 +89,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
                                 en: 'ROUTE DETAIL',
                                 fr: 'DÉTAIL ROUTE',
                               ),
-                              style: AppText.technicalLabel(
+                              style: AppText.mono(
                                 size: 11,
                                 color: AppColors.primaryContainer,
                                 letterSpacing: 2.0,
@@ -104,7 +102,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         const SizedBox(height: 18),
                         Text(
                           profile.typeLabel,
-                          style: AppText.technicalLabel(
+                          style: AppText.mono(
                             size: 10,
                             color: AppColors.primaryContainer,
                             letterSpacing: 1.8,
@@ -113,10 +111,11 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         const SizedBox(height: 8),
                         Text(
                           route.name,
-                          style: AppText.display(
+                          style: AppText.label(
                             size: 34,
-                            height: 0.98,
-                            color: AppColors.textPrimary,
+                            weight: FontWeight.w800,
+                            color: AppColors.ink,
+                            letterSpacing: 0,
                           ),
                         ),
                         const SizedBox(height: 14),
@@ -244,7 +243,7 @@ class _QuickStatPill extends StatelessWidget {
   const _QuickStatPill({
     required this.icon,
     required this.label,
-    this.accent = AppColors.textSecondary,
+    this.accent = AppColors.stone,
   });
 
   @override
@@ -286,10 +285,10 @@ class _CopilotJudgementCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xE80F1214),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: AppColors.primaryContainer.withValues(alpha: 0.26),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -302,7 +301,7 @@ class _CopilotJudgementCard extends StatelessWidget {
               en: 'COPILOT READ',
               fr: 'LECTURE COPILOTE',
             ),
-            style: AppText.technicalLabel(
+            style: AppText.mono(
               size: 10,
               color: AppColors.primaryContainer,
               letterSpacing: 1.6,
@@ -354,9 +353,9 @@ class _CopilotJudgementRow extends StatelessWidget {
             width: 76,
             child: Text(
               label,
-              style: AppText.technicalLabel(
+              style: AppText.mono(
                 size: 9,
-                color: AppColors.textHint,
+                color: AppColors.stone,
                 letterSpacing: 1.1,
               ),
             ),
@@ -368,7 +367,7 @@ class _CopilotJudgementRow extends StatelessWidget {
                 size: 13,
                 height: 1.36,
                 weight: FontWeight.w800,
-                color: AppColors.textSecondary,
+                color: AppColors.ink,
               ),
             ),
           ),
@@ -455,11 +454,8 @@ class _RouteConfidenceSection extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xE80F1214),
+        color: AppColors.ink,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.primaryContainer.withValues(alpha: 0.24),
-        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -471,17 +467,17 @@ class _RouteConfidenceSection extends StatelessWidget {
                 height: 56,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: AppColors.primaryContainer.withValues(alpha: 0.14),
+                  color: AppColors.primaryContainer.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: AppColors.primaryContainer.withValues(alpha: 0.42),
+                    color: AppColors.primaryContainer.withValues(alpha: 0.50),
                   ),
                 ),
                 child: Text(
                   '${profile.qualityScore}',
-                  style: AppText.body(
+                  style: AppText.label(
                     size: 22,
-                    weight: FontWeight.w900,
+                    weight: FontWeight.w800,
                     color: AppColors.primaryContainer,
                   ),
                 ),
@@ -498,7 +494,7 @@ class _RouteConfidenceSection extends StatelessWidget {
                         en: 'Route Confidence',
                         fr: 'Confiance route',
                       ),
-                      style: AppText.technicalLabel(
+                      style: AppText.mono(
                         size: 10,
                         color: AppColors.primaryContainer,
                         letterSpacing: 1.6,
@@ -509,10 +505,10 @@ class _RouteConfidenceSection extends StatelessWidget {
                       '${profile.typeLabel} · ${profile.curveDensityLabel}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: AppText.body(
+                      style: AppText.label(
                         size: 16,
-                        weight: FontWeight.w900,
-                        color: AppColors.textPrimary,
+                        weight: FontWeight.w700,
+                        color: AppColors.cream,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -520,11 +516,10 @@ class _RouteConfidenceSection extends StatelessWidget {
                       profile.reasonLabel,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: AppText.body(
+                      style: AppText.mono(
                         size: 12,
-                        height: 1.3,
                         weight: FontWeight.w700,
-                        color: AppColors.textSecondary,
+                        color: AppColors.stone,
                       ),
                     ),
                   ],
@@ -568,18 +563,18 @@ class _ConfidenceChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.68),
+        color: AppColors.cream.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.20),
+          color: AppColors.cream.withValues(alpha: 0.20),
         ),
       ),
       child: Text(
         '$label $value',
-        style: AppText.body(
+        style: AppText.mono(
           size: 11,
-          weight: FontWeight.w900,
-          color: AppColors.textSecondary,
+          weight: FontWeight.w700,
+          color: AppColors.stone,
         ),
       ),
     );
@@ -606,15 +601,15 @@ class _HeroBadge extends StatelessWidget {
       children: [
         Text(
           label,
-          style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
+          style: AppText.mono(size: 9, color: AppColors.stone),
         ),
         const SizedBox(height: 3),
         Text(
           value,
-          style: AppText.body(
+          style: AppText.label(
             size: 14,
-            weight: FontWeight.w900,
-            color: AppColors.textPrimary,
+            weight: FontWeight.w700,
+            color: AppColors.cream,
           ),
         ),
       ],
@@ -688,10 +683,10 @@ class _MetricTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.panel2.withValues(alpha: 0.9),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.24),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -700,15 +695,15 @@ class _MetricTile extends StatelessWidget {
         children: [
           Text(
             label,
-            style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
+            style: AppText.mono(size: 9, color: AppColors.stone),
           ),
           const SizedBox(height: 7),
           Text(
             value,
-            style: AppText.body(
+            style: AppText.label(
               size: 18,
-              weight: FontWeight.w900,
-              color: AppColors.textPrimary,
+              weight: FontWeight.w700,
+              color: AppColors.ink,
             ),
           ),
         ],
@@ -730,10 +725,10 @@ class _TurnPlanPreview extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.panel2.withValues(alpha: 0.92),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: AppColors.primaryContainer.withValues(alpha: 0.24),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -755,7 +750,7 @@ class _TurnPlanPreview extends StatelessWidget {
                     en: 'TURN BOOK',
                     fr: 'CARNET VIRAGES',
                   ),
-                  style: AppText.technicalLabel(
+                  style: AppText.mono(
                     size: 10,
                     color: AppColors.primaryContainer,
                     letterSpacing: 1.6,
@@ -769,9 +764,9 @@ class _TurnPlanPreview extends StatelessWidget {
                   en: '${plan.length} cues',
                   fr: '${plan.length} repères',
                 ),
-                style: AppText.technicalLabel(
+                style: AppText.mono(
                   size: 9,
-                  color: AppColors.textHint,
+                  color: AppColors.stone,
                 ),
               ),
             ],
@@ -789,7 +784,7 @@ class _TurnPlanPreview extends StatelessWidget {
                 size: 13,
                 height: 1.35,
                 weight: FontWeight.w700,
-                color: AppColors.textSecondary,
+                color: AppColors.stone,
               ),
             )
           else
@@ -847,14 +842,14 @@ class _TurnPlanRow extends StatelessWidget {
               style: AppText.body(
                 size: 14,
                 weight: FontWeight.w900,
-                color: AppColors.textPrimary,
+                color: AppColors.ink,
               ),
             ),
           ),
           const SizedBox(width: 8),
           Text(
             '#${instruction.sequence}',
-            style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
+            style: AppText.mono(size: 9, color: AppColors.stone),
           ),
         ],
       ),
@@ -879,10 +874,10 @@ class _DecisionBulletsSection extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xE80F1214),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.30),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -903,7 +898,7 @@ class _DecisionBulletsSection extends StatelessWidget {
                   en: 'Decision points',
                   fr: 'Points de choix',
                 ),
-                style: AppText.technicalLabel(
+                style: AppText.mono(
                   size: 10,
                   color: AppColors.primaryContainer,
                   letterSpacing: 1.6,
@@ -935,7 +930,7 @@ class _DecisionBulletsSection extends StatelessWidget {
                         size: 14,
                         height: 1.35,
                         weight: FontWeight.w700,
-                        color: AppColors.textSecondary,
+                        color: AppColors.ink,
                       ),
                     ),
                   ),
@@ -967,10 +962,10 @@ class _DetailSection extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xE80F1214),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.30),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Row(
@@ -984,7 +979,7 @@ class _DetailSection extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: AppText.technicalLabel(
+                  style: AppText.mono(
                     size: 10,
                     color: accent,
                     letterSpacing: 1.6,
@@ -997,7 +992,7 @@ class _DetailSection extends StatelessWidget {
                     size: 14,
                     height: 1.45,
                     weight: FontWeight.w700,
-                    color: AppColors.textSecondary,
+                    color: AppColors.stone,
                   ),
                 ),
               ],
@@ -1020,14 +1015,14 @@ class _StickyStartBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xF20F1214),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(26),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.34),
+          color: AppColors.ink.withValues(alpha: 0.12),
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.42),
+            color: Colors.black.withValues(alpha: 0.14),
             blurRadius: 30,
             offset: const Offset(0, 14),
           ),
@@ -1038,9 +1033,9 @@ class _StickyStartBar extends StatelessWidget {
           IconButton(
             onPressed: onBack,
             icon: const Icon(Icons.close_rounded),
-            color: AppColors.textPrimary,
+            color: AppColors.ink,
             style: IconButton.styleFrom(
-              backgroundColor: AppColors.surface.withValues(alpha: 0.74),
+              backgroundColor: AppColors.creamMuted,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(17),
               ),
@@ -1066,10 +1061,11 @@ class _StickyStartBar extends StatelessWidget {
                     en: 'Start drive',
                     fr: 'Démarrer',
                   ),
-                  style: AppText.body(
+                  style: AppText.label(
                     size: 16,
-                    weight: FontWeight.w900,
+                    weight: FontWeight.w800,
                     color: AppColors.onPrimary,
+                    letterSpacing: 1,
                   ),
                 ),
               ),

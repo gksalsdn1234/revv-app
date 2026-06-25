@@ -129,7 +129,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
     final session = widget.session;
     final language = context.watch<SettingsService>().appLanguage;
     return Scaffold(
-      backgroundColor: AppColors.bg,
+      backgroundColor: AppColors.cream,
       body: SafeArea(
         child: FutureBuilder<RunSummary?>(
           future: _saveFuture,
@@ -169,53 +169,86 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                             language: language,
                           ),
 
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 20),
 
-                        // ── 헤더 ──
-                        Text(
-                          'COPILOT SUMMARY',
-                          style: AppText.technicalLabel(
-                            size: 12,
-                            letterSpacing: 3,
-                            color: AppColors.primaryContainer,
+                        // ── RUN COMPLETE banner ──
+                        Container(
+                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                          decoration: BoxDecoration(
+                            color: AppColors.ink,
+                            borderRadius: BorderRadius.circular(18),
                           ),
-                        ),
-                        const SizedBox(height: 14),
-                        Text(
-                          session == null
-                              ? AppCopy.t(
+                          clipBehavior: Clip.antiAlias,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Checkered top stripe
+                              SizedBox(
+                                height: 8,
+                                width: double.infinity,
+                                child: CustomPaint(
+                                  painter: _SummaryCheckeredPainter(
+                                    tileSize: 8,
+                                    lightColor: AppColors.cream,
+                                    darkColor: AppColors.ink,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                AppCopy.t(
                                   language,
-                                  ko: '저장할 주행이 없어요',
-                                  en: 'No drive to save',
-                                  fr: 'Aucun trajet à sauvegarder',
-                                )
-                              : copy?.headline ??
-                                    AppCopy.t(
-                                      language,
-                                      ko: '오늘 주행 요약',
-                                      en: "Today's drive summary",
-                                      fr: 'Résumé du trajet',
-                                    ),
-                          style: AppText.display(
-                            size: 38,
-                            height: 0.96,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          session == null
-                              ? AppCopy.t(
-                                  language,
-                                  ko: '세션이 만들어지기 전에 종료됐습니다.',
-                                  en: 'Session ended before it was created.',
-                                  fr: 'Session terminée trop tôt.',
-                                )
-                              : copy?.summaryLine ?? '',
-                          style: AppText.body(
-                            size: 13,
-                            height: 1.45,
-                            color: AppColors.textSecondary,
+                                  ko: '주행 완료',
+                                  en: 'RUN COMPLETE',
+                                  fr: 'RUN COMPLET',
+                                ),
+                                style: AppText.mono(
+                                  size: 10,
+                                  weight: FontWeight.w700,
+                                  color: AppColors.primaryContainer,
+                                  letterSpacing: 3,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                session == null
+                                    ? AppCopy.t(
+                                        language,
+                                        ko: '저장할 주행이 없어요',
+                                        en: 'No drive to save',
+                                        fr: 'Aucun trajet à sauvegarder',
+                                      )
+                                    : copy?.headline ??
+                                          AppCopy.t(
+                                            language,
+                                            ko: '오늘 주행 요약',
+                                            en: "Today's drive summary",
+                                            fr: 'Résumé du trajet',
+                                          ),
+                                style: AppText.label(
+                                  size: 32,
+                                  weight: FontWeight.w800,
+                                  color: AppColors.cream,
+                                  letterSpacing: 0,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                session == null
+                                    ? AppCopy.t(
+                                        language,
+                                        ko: '세션이 만들어지기 전에 종료됐습니다.',
+                                        en: 'Session ended before it was created.',
+                                        fr: 'Session terminée trop tôt.',
+                                      )
+                                    : copy?.summaryLine ?? '',
+                                style: AppText.mono(
+                                  size: 11,
+                                  weight: FontWeight.w700,
+                                  color: AppColors.stone,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
 
@@ -317,10 +350,11 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                               en: 'Home',
                               fr: 'Accueil',
                             ),
-                            style: AppText.body(
+                            style: AppText.label(
                               size: 17,
-                              weight: FontWeight.w900,
+                              weight: FontWeight.w800,
                               color: AppColors.onPrimary,
+                              letterSpacing: 1,
                             ),
                           ),
                         ),
@@ -681,10 +715,10 @@ class _WindingReviewCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.9),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: AppColors.primaryContainer.withValues(alpha: 0.18),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -705,7 +739,7 @@ class _WindingReviewCard extends StatelessWidget {
                   en: 'Winding review data',
                   fr: 'Données virage',
                 ),
-                style: AppText.technicalLabel(
+                style: AppText.mono(
                   size: 10,
                   letterSpacing: 1.4,
                   color: AppColors.primaryContainer,
@@ -791,10 +825,10 @@ class _SessionLogSection extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(15, 15, 15, 8),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.92),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: AppColors.primaryContainer.withValues(alpha: 0.22),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -816,7 +850,7 @@ class _SessionLogSection extends StatelessWidget {
                     en: 'SESSION LOG',
                     fr: 'JOURNAL SESSION',
                   ),
-                  style: AppText.technicalLabel(
+                  style: AppText.mono(
                     size: 10,
                     letterSpacing: 1.5,
                     color: AppColors.primaryContainer,
@@ -830,10 +864,10 @@ class _SessionLogSection extends StatelessWidget {
                   en: 'TAP TO EXPAND',
                   fr: 'TOUCHER',
                 ),
-                style: AppText.technicalLabel(
+                style: AppText.mono(
                   size: 8,
                   letterSpacing: 0.8,
-                  color: AppColors.textHint,
+                  color: AppColors.stone,
                 ),
               ),
             ],
@@ -903,13 +937,13 @@ class _SessionLogAccordion extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: expanded
-                  ? AppColors.surface.withValues(alpha: 0.72)
-                  : AppColors.surface.withValues(alpha: 0.44),
+                  ? AppColors.creamMuted
+                  : AppColors.cream,
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
                 color: expanded
                     ? section.accent.withValues(alpha: 0.34)
-                    : AppColors.outlineVariant.withValues(alpha: 0.18),
+                    : AppColors.ink.withValues(alpha: 0.10),
               ),
             ),
             child: Column(
@@ -941,10 +975,10 @@ class _SessionLogAccordion extends StatelessWidget {
                             section.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: AppText.body(
+                            style: AppText.label(
                               size: 14,
-                              weight: FontWeight.w900,
-                              color: AppColors.textPrimary,
+                              weight: FontWeight.w700,
+                              color: AppColors.ink,
                             ),
                           ),
                           const SizedBox(height: 3),
@@ -952,10 +986,10 @@ class _SessionLogAccordion extends StatelessWidget {
                             section.summary,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: AppText.body(
+                            style: AppText.mono(
                               size: 11,
-                              weight: FontWeight.w800,
-                              color: AppColors.textHint,
+                              weight: FontWeight.w700,
+                              color: AppColors.stone,
                             ),
                           ),
                         ],
@@ -1014,10 +1048,10 @@ class _SessionLogDetailRow extends StatelessWidget {
             flex: 4,
             child: Text(
               row.label,
-              style: AppText.technicalLabel(
+              style: AppText.mono(
                 size: 8,
                 letterSpacing: 0.8,
-                color: AppColors.textHint,
+                color: AppColors.stone,
               ),
             ),
           ),
@@ -1027,11 +1061,10 @@ class _SessionLogDetailRow extends StatelessWidget {
             child: Text(
               row.value,
               textAlign: TextAlign.right,
-              style: AppText.body(
+              style: AppText.mono(
                 size: 12,
-                height: 1.24,
-                weight: FontWeight.w900,
-                color: AppColors.textSecondary,
+                weight: FontWeight.w700,
+                color: AppColors.ink,
               ),
             ),
           ),
@@ -1335,10 +1368,10 @@ class _ReviewChip extends StatelessWidget {
       width: 134,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
       decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.58),
+        color: AppColors.creamMuted,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.2),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -1348,19 +1381,19 @@ class _ReviewChip extends StatelessWidget {
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: AppText.technicalLabel(
+            style: AppText.mono(
               size: 8,
               letterSpacing: 0.8,
-              color: AppColors.textHint,
+              color: AppColors.stone,
             ),
           ),
           const SizedBox(height: 3),
           Text(
             value,
-            style: AppText.body(
+            style: AppText.label(
               size: 16,
-              weight: FontWeight.w900,
-              color: AppColors.textPrimary,
+              weight: FontWeight.w800,
+              color: AppColors.ink,
             ),
           ),
         ],
@@ -1391,12 +1424,12 @@ class _StatTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(15, 14, 15, 14),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.9),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
           color: item.accent
-              ? AppColors.primaryContainer.withValues(alpha: 0.24)
-              : AppColors.outlineVariant.withValues(alpha: 0.22),
+              ? AppColors.primaryContainer.withValues(alpha: 0.40)
+              : AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -1405,22 +1438,22 @@ class _StatTile extends StatelessWidget {
         children: [
           Text(
             item.label,
-            style: AppText.technicalLabel(
+            style: AppText.mono(
               size: 9,
               letterSpacing: 1.2,
               color: item.accent
                   ? AppColors.primaryContainer
-                  : AppColors.textHint,
+                  : AppColors.stone,
             ),
           ),
           Text(
             item.value,
-            style: AppText.body(
+            style: AppText.label(
               size: 20,
-              weight: FontWeight.w900,
+              weight: FontWeight.w800,
               color: item.accent
                   ? AppColors.primaryContainer
-                  : AppColors.textPrimary,
+                  : AppColors.ink,
             ),
           ),
         ],
@@ -1502,10 +1535,10 @@ class _DriveModeBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.9),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.22),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -1518,10 +1551,10 @@ class _DriveModeBar extends StatelessWidget {
               en: 'DRIVE MODE',
               fr: 'MODE CONDUITE',
             ),
-            style: AppText.technicalLabel(
+            style: AppText.mono(
               size: 9,
               letterSpacing: 1.6,
-              color: AppColors.textHint,
+              color: AppColors.stone,
             ),
           ),
           const SizedBox(height: 10),
@@ -1562,10 +1595,10 @@ class _DriveModeBar extends StatelessWidget {
                   const SizedBox(width: 5),
                   Text(
                     '${_modeLabel(entry.key, language)} $pct%',
-                    style: AppText.body(
+                    style: AppText.mono(
                       size: 11,
-                      weight: FontWeight.w800,
-                      color: AppColors.textSecondary,
+                      weight: FontWeight.w700,
+                      color: AppColors.stone,
                     ),
                   ),
                 ],
@@ -1626,10 +1659,10 @@ class _CopilotNextCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.9),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: AppColors.primaryContainer.withValues(alpha: 0.24),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Row(
@@ -1652,7 +1685,7 @@ class _CopilotNextCard extends StatelessWidget {
                     en: 'Next suggestion',
                     fr: 'Prochaine suggestion',
                   ),
-                  style: AppText.technicalLabel(
+                  style: AppText.mono(
                     size: 10,
                     color: AppColors.primaryContainer,
                     letterSpacing: 1.3,
@@ -1665,7 +1698,7 @@ class _CopilotNextCard extends StatelessWidget {
                     size: 13,
                     height: 1.36,
                     weight: FontWeight.w800,
-                    color: AppColors.textSecondary,
+                    color: AppColors.stone,
                   ),
                 ),
               ],
@@ -1697,10 +1730,10 @@ class _RouteFeedbackCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.9),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.28),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Column(
@@ -1729,10 +1762,10 @@ class _RouteFeedbackCard extends StatelessWidget {
                           en: 'How was this route?',
                           fr: 'Comment était cette route ?',
                         ),
-                  style: AppText.body(
+                  style: AppText.label(
                     size: 14,
-                    weight: FontWeight.w900,
-                    color: AppColors.textPrimary,
+                    weight: FontWeight.w700,
+                    color: AppColors.ink,
                   ),
                 ),
               ),
@@ -1751,11 +1784,11 @@ class _RouteFeedbackCard extends StatelessWidget {
                       : AppColors.textSecondary,
                   backgroundColor: active
                       ? AppColors.primaryContainer
-                      : AppColors.surface.withValues(alpha: 0.72),
+                      : AppColors.creamMuted,
                   side: BorderSide(
                     color: active
                         ? AppColors.primaryContainer
-                        : AppColors.outlineVariant.withValues(alpha: 0.34),
+                        : AppColors.ink.withValues(alpha: 0.14),
                   ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(999),
@@ -1774,7 +1807,7 @@ class _RouteFeedbackCard extends StatelessWidget {
                     weight: FontWeight.w900,
                     color: active
                         ? AppColors.onPrimary
-                        : AppColors.textSecondary,
+                        : AppColors.stone,
                   ),
                 ),
               );
@@ -1856,10 +1889,10 @@ class _SaveStateCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.86),
+        color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.28),
+          color: AppColors.ink.withValues(alpha: 0.10),
         ),
       ),
       child: Row(
@@ -1876,7 +1909,7 @@ class _SaveStateCard extends StatelessWidget {
           else
             const Icon(
               Icons.check_circle_rounded,
-              color: AppColors.primaryContainer,
+              color: AppColors.success,
             ),
           const SizedBox(width: 12),
           Expanded(
@@ -1885,10 +1918,10 @@ class _SaveStateCard extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: AppText.body(
+                  style: AppText.label(
                     size: 14,
-                    weight: FontWeight.w900,
-                    color: AppColors.textPrimary,
+                    weight: FontWeight.w700,
+                    color: AppColors.ink,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1896,7 +1929,7 @@ class _SaveStateCard extends StatelessWidget {
                   detail,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppText.body(size: 12, color: AppColors.textSecondary),
+                  style: AppText.mono(size: 11, color: AppColors.stone),
                 ),
               ],
             ),
@@ -1905,4 +1938,39 @@ class _SaveStateCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SummaryCheckeredPainter extends CustomPainter {
+  final double tileSize;
+  final Color lightColor;
+  final Color darkColor;
+
+  const _SummaryCheckeredPainter({
+    required this.tileSize,
+    required this.lightColor,
+    required this.darkColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paintLight = Paint()..color = lightColor;
+    final paintDark = Paint()..color = darkColor;
+    final cols = (size.width / tileSize).ceil() + 1;
+    final rows = (size.height / tileSize).ceil() + 1;
+    for (int row = 0; row < rows; row++) {
+      for (int col = 0; col < cols; col++) {
+        final isLight = (row + col) % 2 == 0;
+        canvas.drawRect(
+          Rect.fromLTWH(col * tileSize, row * tileSize, tileSize, tileSize),
+          isLight ? paintLight : paintDark,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SummaryCheckeredPainter old) =>
+      old.tileSize != tileSize ||
+      old.lightColor != lightColor ||
+      old.darkColor != darkColor;
 }
