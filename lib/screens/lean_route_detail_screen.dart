@@ -395,10 +395,10 @@ class _RouteShapeHero extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF101417), Color(0xFF182027), Color(0xFF0E0E0F)],
+          colors: [AppColors.ink, AppColors.surface, AppColors.surfaceLowest],
         ),
         borderRadius: BorderRadius.circular(30),
         border: Border.all(
@@ -1130,7 +1130,7 @@ class _RouteShapePainter extends CustomPainter {
       ..strokeJoin = StrokeJoin.round
       ..strokeWidth = 14;
     final casing = Paint()
-      ..color = const Color(0xFF071015)
+      ..color = AppColors.surfaceLowest
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round

@@ -492,7 +492,7 @@ class _DriveTopBar extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 9),
       decoration: BoxDecoration(
-        color: const Color(0xD80F1214),
+        color: AppColors.ink.withValues(alpha: 0.85),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: AppColors.outlineVariant.withValues(alpha: 0.28),
@@ -947,9 +947,9 @@ class _GDot extends StatelessWidget {
       lateralG * lateralG + longitudinalG * longitudinalG,
     );
     final dotColor = totalG > 0.6
-        ? const Color(0xFFFF4444)
+        ? AppColors.danger
         : totalG > 0.35
-        ? const Color(0xFFFF9800)
+        ? AppColors.orange
         : AppColors.primaryContainer;
     return SizedBox(
       width: 46,
@@ -1133,7 +1133,7 @@ class _DriveGlass extends StatelessWidget {
       width: width,
       padding: padding,
       decoration: BoxDecoration(
-        color: const Color(0xE80F1214),
+        color: AppColors.ink.withValues(alpha: 0.91),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
           color: AppColors.outlineVariant.withValues(alpha: 0.34),
@@ -1154,7 +1154,7 @@ class _DriveGlass extends StatelessWidget {
 Color _severityColor(int severity) {
   if (severity >= 3) return AppColors.danger;
   if (severity >= 2) return AppColors.warning;
-  if (severity >= 1) return const Color(0xFFE8D44D); // 중간 커브 — 옐로우
+  if (severity >= 1) return AppColors.warning; // 중간 커브 — 옐로우
   return AppColors.primaryContainer;
 }
 

@@ -478,7 +478,7 @@ class _MapReplaySection extends StatelessWidget {
                           vertical: 8,
                         ),
                         decoration: BoxDecoration(
-                          color: const Color(0xD00F1214),
+                          color: AppColors.ink.withValues(alpha: 0.82),
                           borderRadius: BorderRadius.circular(999),
                           border: Border.all(
                             color: AppColors.primaryContainer.withValues(
@@ -532,7 +532,7 @@ class _MapReplaySection extends StatelessWidget {
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: const Color(0xD00F1214),
+                        color: AppColors.ink.withValues(alpha: 0.82),
                         borderRadius: BorderRadius.circular(999),
                         border: Border.all(
                           color: AppColors.warning.withValues(alpha: 0.28),
@@ -1615,7 +1615,7 @@ Color _modeColor(String mode) {
   return switch (mode) {
     'cruise' => AppColors.primaryContainer,
     'winding' => AppColors.warning,
-    'sport' => const Color(0xFFFF9800),
+    'sport' => AppColors.orange,
     'attack' => AppColors.danger,
     'simulation' => AppColors.textHint,
     _ => AppColors.textSecondary,
