@@ -68,14 +68,11 @@ class _LoadingScreenState extends State<LoadingScreen>
       _sub.forward();
       _brackets.forward();
 
-      await _showPermissionIntroIfNeeded();
+      // 권한 조용히 요청 — 시트 없이 iOS 시스템 다이얼로그만
+      await _requestPermissions();
       if (!mounted) return;
 
-      // 권한 요청 (첫 실행 또는 미허용 시)
-      final permissions = await _requestPermissions();
-      await _showPermissionResultIfNeeded(permissions);
-
-      await Future.delayed(const Duration(milliseconds: 1200));
+      await Future.delayed(const Duration(milliseconds: 800));
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -96,39 +93,6 @@ class _LoadingScreenState extends State<LoadingScreen>
     return statuses;
   }
 
-  Future<void> _showPermissionIntroIfNeeded() async {
-    final location = await Permission.locationWhenInUse.status;
-    if (!mounted || location.isGranted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      builder: (_) =>
-          _PermissionIntroSheet(onContinue: () => Navigator.pop(context)),
-    );
-  }
-
-  Future<void> _showPermissionResultIfNeeded(
-    Map<Permission, PermissionStatus> statuses,
-  ) async {
-    if (!mounted) return;
-    final location = statuses[Permission.locationWhenInUse];
-    if (location?.isGranted ?? false) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _PermissionResultSheet(
-        locationGranted: location?.isGranted ?? false,
-        onSettings: () {
-          openAppSettings();
-          Navigator.pop(context);
-        },
-        onContinue: () => Navigator.pop(context),
-      ),
-    );
-  }
-
   @override
   void dispose() {
     _scan.dispose();
@@ -142,7 +106,7 @@ class _LoadingScreenState extends State<LoadingScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF15161A),
+      backgroundColor: AppColors.bg,
       body: Stack(
         children: [
           // Corner brackets
@@ -167,7 +131,7 @@ class _LoadingScreenState extends State<LoadingScreen>
                         'BUILD 1.38.0',
                         style: AppText.mono(
                           size: 9,
-                          color: const Color(0xFF54565C),
+                          color: AppColors.stone,
                           letterSpacing: 1.4,
                         ),
                       ),
@@ -188,7 +152,7 @@ class _LoadingScreenState extends State<LoadingScreen>
                                 vertical: 13,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF0C0D10),
+                                color: AppColors.surfaceLowest,
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
                                   color: AppColors.cream.withValues(alpha: 0.10),
@@ -399,7 +363,7 @@ class _F1Light extends StatelessWidget {
           shape: BoxShape.circle,
           gradient: const RadialGradient(
             center: Alignment(-0.24, -0.36),
-            colors: [Color(0xFFFF6457), Color(0xFFE2231A)],
+            colors: [AppColors.danger, AppColors.red],
           ),
           boxShadow: [
             BoxShadow(
@@ -415,7 +379,7 @@ class _F1Light extends StatelessWidget {
       height: 20,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: const Color(0xFF1C1206),
+        color: AppColors.panel2,
         border: Border.all(
           color: AppColors.primaryContainer.withValues(alpha: 0.25),
         ),
@@ -463,7 +427,7 @@ class _SystemCheckRow extends StatelessWidget {
             label,
             style: AppText.mono(
               size: 11,
-              color: const Color(0xFFA9A39B),
+              color: AppColors.stoneMuted,
               letterSpacing: 1.2,
             ),
           ),
@@ -493,6 +457,8 @@ class _ScanClipper extends CustomClipper<Rect> {
   bool shouldReclip(_ScanClipper old) => revealX != old.revealX;
 }
 
+// Permission sheets removed — silent permission request in initState instead.
+// Kept file boundary intact.
 class _PermissionIntroSheet extends StatelessWidget {
   final VoidCallback onContinue;
 
