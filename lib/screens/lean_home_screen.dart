@@ -881,6 +881,8 @@ class _StatsLine extends StatelessWidget {
 
     return Text(
       parts.join(' · '),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
       style: AppText.mono(
         size: 10,
         letterSpacing: 1.4,
@@ -1100,27 +1102,30 @@ class _MiniDistanceChart extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              for (final value
-                  in values.isEmpty ? const [0.4, 0.7, 0.5] : values)
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 2),
-                    child: FractionallySizedBox(
-                      heightFactor: (value / maxValue).clamp(0.16, 1.0),
-                      alignment: Alignment.bottomCenter,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryContainer,
-                          borderRadius: BorderRadius.circular(3),
+          SizedBox(
+            height: 52,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                for (final value
+                    in values.isEmpty ? const [0.4, 0.7, 0.5] : values)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 2),
+                      child: FractionallySizedBox(
+                        heightFactor: (value / maxValue).clamp(0.16, 1.0),
+                        alignment: Alignment.bottomCenter,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryContainer,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ],
       ),

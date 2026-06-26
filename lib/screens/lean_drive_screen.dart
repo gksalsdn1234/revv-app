@@ -847,6 +847,8 @@ class _CompactSpeedPill extends StatelessWidget {
                 curve: Curves.easeOut,
                 builder: (context, value, _) => Text(
                   value.toStringAsFixed(0),
+                  maxLines: 1,
+                  overflow: TextOverflow.clip,
                   style: AppText.display(
                     size: 30,
                     height: 0.9,

@@ -1466,7 +1466,6 @@ class _Metric extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 50,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
       decoration: BoxDecoration(
         color: AppColors.creamMuted,
@@ -1476,6 +1475,7 @@ class _Metric extends StatelessWidget {
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -141,8 +141,6 @@ class _LoadingScreenState extends State<LoadingScreen>
 
   @override
   Widget build(BuildContext context) {
-    final screen = MediaQuery.of(context).size;
-
     return Scaffold(
       backgroundColor: const Color(0xFF15161A),
       body: Stack(
@@ -217,34 +215,45 @@ class _LoadingScreenState extends State<LoadingScreen>
                           AnimatedBuilder(
                             animation: _scanAnim,
                             builder: (context, _) {
-                              final scanX = _scanAnim.value * screen.width;
-                              return Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  ClipRect(
-                                    clipper: _ScanClipper(revealX: scanX),
-                                    child: _buildLogo(),
-                                  ),
-                                  if (_scanAnim.value < 1)
-                                    Positioned(
-                                      left: scanX - 1,
-                                      child: Container(
-                                        width: 2,
-                                        height: 80,
-                                        decoration: BoxDecoration(
-                                          color: AppColors.primaryContainer,
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: AppColors.primaryContainer
-                                                  .withValues(alpha: 0.6),
-                                              blurRadius: 20,
-                                              spreadRadius: 2,
-                                            ),
-                                          ],
-                                        ),
+                              return LayoutBuilder(
+                                builder: (context, constraints) {
+                                  // Use the actual Stack width so the scan
+                                  // line never overflows the logo bounds.
+                                  final stackWidth = constraints.maxWidth;
+                                  final scanX = _scanAnim.value * stackWidth;
+                                  return Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      ClipRect(
+                                        clipper: _ScanClipper(revealX: scanX),
+                                        child: _buildLogo(),
                                       ),
-                                    ),
-                                ],
+                                      if (_scanAnim.value < 1)
+                                        Positioned(
+                                          left: (scanX - 1).clamp(
+                                            0.0,
+                                            stackWidth - 2,
+                                          ),
+                                          child: Container(
+                                            width: 2,
+                                            height: 80,
+                                            decoration: BoxDecoration(
+                                              color: AppColors.primaryContainer,
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: AppColors
+                                                      .primaryContainer
+                                                      .withValues(alpha: 0.6),
+                                                  blurRadius: 20,
+                                                  spreadRadius: 2,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  );
+                                },
                               );
                             },
                           ),
@@ -342,6 +351,8 @@ class _LoadingScreenState extends State<LoadingScreen>
                     child: Text(
                       'START REVV · GRANTS LOCATION WHILE DRIVING',
                       textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: AppText.mono(
                         size: 10,
                         color: AppColors.stone,

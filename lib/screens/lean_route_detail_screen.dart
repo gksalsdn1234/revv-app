@@ -167,7 +167,9 @@ class LeanRouteDetailScreen extends StatelessWidget {
                           icon: Icons.auto_awesome_rounded,
                           body: bestFor,
                         ),
-                        const SizedBox(height: 118),
+                        SizedBox(
+                          height: MediaQuery.paddingOf(context).bottom + 86,
+                        ),
                       ],
                     ),
                   ),
@@ -200,37 +202,41 @@ class _QuickStatRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final stopCount = route.stopSignCount + route.trafficSignalCount;
     final isFar = route.distanceFromUser >= 1.0;
-    return Row(
-      children: [
-        _QuickStatPill(
-          icon: Icons.flag_rounded,
-          label: route.distanceFromUserDisplay,
-          accent: isFar ? AppColors.warning : AppColors.primaryContainer,
-        ),
-        const SizedBox(width: 8),
-        _QuickStatPill(
-          icon: Icons.straighten_rounded,
-          label: route.distanceDisplay,
-        ),
-        const SizedBox(width: 8),
-        _QuickStatPill(
-          icon: Icons.timer_outlined,
-          label: route.durationDisplay,
-        ),
-        if (stopCount > 0) ...[
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: [
+          _QuickStatPill(
+            icon: Icons.flag_rounded,
+            label: route.distanceFromUserDisplay,
+            accent: isFar ? AppColors.warning : AppColors.primaryContainer,
+          ),
           const SizedBox(width: 8),
           _QuickStatPill(
-            icon: Icons.stop_circle_outlined,
-            label: AppCopy.t(
-              language,
-              ko: '정지 $stopCount개',
-              en: '$stopCount stops',
-              fr: '$stopCount arrêts',
-            ),
-            accent: AppColors.warning,
+            icon: Icons.straighten_rounded,
+            label: route.distanceDisplay,
           ),
+          const SizedBox(width: 8),
+          _QuickStatPill(
+            icon: Icons.timer_outlined,
+            label: route.durationDisplay,
+          ),
+          if (stopCount > 0) ...[
+            const SizedBox(width: 8),
+            _QuickStatPill(
+              icon: Icons.stop_circle_outlined,
+              label: AppCopy.t(
+                language,
+                ko: '정지 $stopCount개',
+                en: '$stopCount stops',
+                fr: '$stopCount arrêts',
+              ),
+              accent: AppColors.warning,
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }
