@@ -916,7 +916,7 @@ class _LeanRouteTicket extends StatelessWidget {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: const Color(0xFFF8F4EB),
+          color: AppColors.creamRaised,
           borderRadius: BorderRadius.circular(22),
           border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
           boxShadow: [
@@ -939,7 +939,7 @@ class _LeanRouteTicket extends StatelessWidget {
               child: CustomPaint(
                 painter: _CheckeredTicketPainter(
                   tileSize: 8,
-                  lightColor: const Color(0xFFF8F4EB),
+                  lightColor: AppColors.creamRaised,
                   darkColor: AppColors.ink,
                 ),
               ),
@@ -1319,7 +1319,7 @@ class _LensChip extends StatelessWidget {
     final disabled = onTap == null;
     final background = selected
         ? AppColors.primaryContainer
-        : const Color(0xDD101316);
+        : AppColors.ink.withValues(alpha: 0.87);
     final foreground = disabled
         ? AppColors.textHint.withValues(alpha: 0.55)
         : selected
@@ -1387,7 +1387,7 @@ class _CurveHeatLegend extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const _HeatDot(color: Color(0xFF37E7FF)),
+            _HeatDot(color: AppColors.cyan),
             const SizedBox(width: 5),
             Text(
               AppCopy.t(language, ko: '와인딩', en: 'Winding', fr: 'Sinueux'),
@@ -1398,7 +1398,7 @@ class _CurveHeatLegend extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
-            const _HeatDot(color: Color(0xFFFFB020)),
+            _HeatDot(color: AppColors.orange),
             const SizedBox(width: 5),
             Text(
               AppCopy.t(
@@ -1414,7 +1414,7 @@ class _CurveHeatLegend extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
-            const _HeatDot(color: Color(0xFFFF3B30)),
+            _HeatDot(color: AppColors.danger),
             const SizedBox(width: 5),
             Text(
               AppCopy.t(
@@ -1685,7 +1685,7 @@ class _LeanGlass extends StatelessWidget {
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: const Color(0xE80F1214),
+        color: AppColors.ink.withValues(alpha: 0.91),
         borderRadius: BorderRadius.circular(26),
         border: Border.all(
           color: AppColors.outlineVariant.withValues(alpha: 0.34),
