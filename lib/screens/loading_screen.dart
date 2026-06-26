@@ -2,13 +2,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:provider/provider.dart';
-import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
-import '../ui/app_copy.dart';
-import '../widgets/corner_brackets.dart';
-import '../widgets/revv_ui.dart';
 import 'lean_home_screen.dart';
 
 class LoadingScreen extends StatefulWidget {
@@ -20,59 +15,40 @@ class LoadingScreen extends StatefulWidget {
 
 class _LoadingScreenState extends State<LoadingScreen>
     with TickerProviderStateMixin {
-  late AnimationController _scan;
-  late AnimationController _line;
-  late AnimationController _sub;
-  late AnimationController _brackets;
-  late AnimationController _cursor;
+  late AnimationController _logoCtrl;
+  late AnimationController _contentCtrl;
 
-  late Animation<double> _scanAnim;
-  late Animation<double> _lineWidth;
-  late Animation<double> _subOpacity;
-  late Animation<double> _bracketsOpacity;
+  late Animation<double> _logoFade;
+  late Animation<double> _logoScale;
+  late Animation<double> _contentFade;
 
   @override
   void initState() {
     super.initState();
 
-    _scan = AnimationController(
+    _logoCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1600),
+      duration: const Duration(milliseconds: 900),
     );
-    _line = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 700),
-    );
-    _sub = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-    );
-    _brackets = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    _cursor = AnimationController(
+    _contentCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 500),
     );
 
-    _scanAnim = CurvedAnimation(parent: _scan, curve: Curves.easeInOut);
-    _lineWidth = CurvedAnimation(parent: _line, curve: Curves.easeOut);
-    _subOpacity = CurvedAnimation(parent: _sub, curve: Curves.easeIn);
-    _bracketsOpacity = CurvedAnimation(parent: _brackets, curve: Curves.easeIn);
+    _logoFade  = CurvedAnimation(parent: _logoCtrl,    curve: Curves.easeOut);
+    _logoScale = Tween<double>(begin: 0.88, end: 1.0).animate(
+      CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutCubic),
+    );
+    _contentFade = CurvedAnimation(parent: _contentCtrl, curve: Curves.easeIn);
 
-    _scan.forward().then((_) async {
-      _cursor.repeat(reverse: true);
-      _line.forward();
-      await Future.delayed(const Duration(milliseconds: 400));
-      _sub.forward();
-      _brackets.forward();
+    _logoCtrl.forward().then((_) async {
+      await Future.delayed(const Duration(milliseconds: 200));
+      _contentCtrl.forward();
 
-      // 권한 조용히 요청 — 시트 없이 iOS 시스템 다이얼로그만
       await _requestPermissions();
       if (!mounted) return;
 
-      await Future.delayed(const Duration(milliseconds: 800));
+      await Future.delayed(const Duration(milliseconds: 700));
       if (mounted) {
         Navigator.pushReplacement(
           context,
@@ -82,24 +58,19 @@ class _LoadingScreenState extends State<LoadingScreen>
     });
   }
 
-  /// MVP에서는 위치 권한만 시작 시 확인한다.
-  Future<Map<Permission, PermissionStatus>> _requestPermissions() async {
+  Future<void> _requestPermissions() async {
     final statuses = await [Permission.locationWhenInUse].request();
     if (kDebugMode) {
-      for (final entry in statuses.entries) {
-        debugPrint('[LoadingScreen] ${entry.key} → ${entry.value}');
+      for (final e in statuses.entries) {
+        debugPrint('[LoadingScreen] ${e.key} → ${e.value}');
       }
     }
-    return statuses;
   }
 
   @override
   void dispose() {
-    _scan.dispose();
-    _line.dispose();
-    _sub.dispose();
-    _brackets.dispose();
-    _cursor.dispose();
+    _logoCtrl.dispose();
+    _contentCtrl.dispose();
     super.dispose();
   }
 
@@ -107,338 +78,198 @@ class _LoadingScreenState extends State<LoadingScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: Stack(
-        children: [
-          // Corner brackets
-          Positioned.fill(
-            child: FadeTransition(
-              opacity: _bracketsOpacity,
-              child: const CornerBrackets(padding: 24, lineLength: 20),
-            ),
-          ),
-          // Full layout
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(30, 0, 30, 30),
-              child: Column(
-                children: [
-                  // Build version top-right
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        'BUILD 1.38.0',
-                        style: AppText.mono(
-                          size: 9,
-                          color: AppColors.stone,
-                          letterSpacing: 1.4,
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Center: F1 lights + logo + tagline
-                  Expanded(
-                    child: Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // F1 lights panel
-                          FadeTransition(
-                            opacity: _bracketsOpacity,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 15,
-                                vertical: 13,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.surfaceLowest,
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: AppColors.cream.withValues(alpha: 0.10),
-                                ),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  _F1Light(lit: true),
-                                  SizedBox(width: 9),
-                                  _F1Light(lit: true),
-                                  SizedBox(width: 9),
-                                  _F1Light(lit: true),
-                                  SizedBox(width: 9),
-                                  _F1Light(lit: true),
-                                  SizedBox(width: 9),
-                                  _F1Light(lit: false),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 26),
-                          // Logo with scan reveal
-                          AnimatedBuilder(
-                            animation: _scanAnim,
-                            builder: (context, _) {
-                              return LayoutBuilder(
-                                builder: (context, constraints) {
-                                  // Use the actual Stack width so the scan
-                                  // line never overflows the logo bounds.
-                                  final stackWidth = constraints.maxWidth;
-                                  final scanX = _scanAnim.value * stackWidth;
-                                  return Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      ClipRect(
-                                        clipper: _ScanClipper(revealX: scanX),
-                                        child: _buildLogo(),
-                                      ),
-                                      if (_scanAnim.value < 1)
-                                        Positioned(
-                                          left: (scanX - 1).clamp(
-                                            0.0,
-                                            stackWidth - 2,
-                                          ),
-                                          child: Container(
-                                            width: 2,
-                                            height: 80,
-                                            decoration: BoxDecoration(
-                                              color: AppColors.primaryContainer,
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: AppColors
-                                                      .primaryContainer
-                                                      .withValues(alpha: 0.6),
-                                                  blurRadius: 20,
-                                                  spreadRadius: 2,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                          // Tagline
-                          FadeTransition(
-                            opacity: _subOpacity,
-                            child: Text(
-                              'Find the road · run the lap',
-                              style: AppText.mono(
-                                size: 11,
-                                color: AppColors.stone,
-                                letterSpacing: 3,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  // System checks
-                  FadeTransition(
-                    opacity: _subOpacity,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      decoration: BoxDecoration(
-                        border: Border(
-                          top: BorderSide(
-                            color: AppColors.cream.withValues(alpha: 0.08),
-                          ),
-                          bottom: BorderSide(
-                            color: AppColors.cream.withValues(alpha: 0.08),
-                          ),
-                        ),
-                      ),
-                      child: const Column(
-                        children: [
-                          _SystemCheckRow(
-                            label: 'GPS LOCK',
-                            status: 'READY',
-                            statusColor: AppColors.success,
-                            dotColor: AppColors.success,
-                          ),
-                          SizedBox(height: 11),
-                          _SystemCheckRow(
-                            label: 'MOTION SENSORS',
-                            status: 'CALIBRATED',
-                            statusColor: AppColors.success,
-                            dotColor: AppColors.success,
-                          ),
-                          SizedBox(height: 11),
-                          _SystemCheckRow(
-                            label: 'LOCATION ACCESS',
-                            status: 'WHILE DRIVING',
-                            statusColor: AppColors.orange,
-                            dotColor: AppColors.orange,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  // Lights Out button
-                  FadeTransition(
-                    opacity: _subOpacity,
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 58,
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.primaryContainer,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        onPressed: null,
-                        icon: const Icon(Icons.arrow_forward_rounded, size: 20),
-                        label: Text(
-                          'LIGHTS OUT',
-                          style: AppText.label(
-                            size: 20,
-                            weight: FontWeight.w800,
-                            letterSpacing: 2,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 11),
-                  FadeTransition(
-                    opacity: _subOpacity,
-                    child: Text(
-                      'START REVV · GRANTS LOCATION WHILE DRIVING',
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.mono(
-                        size: 10,
-                        color: AppColors.stone,
-                        letterSpacing: 1,
-                      ),
-                    ),
-                  ),
-                ],
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            children: [
+              // ── F1 lights ──────────────────────────────────
+              const Spacer(),
+              FadeTransition(
+                opacity: _logoFade,
+                child: const _F1LightsRow(),
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+              const SizedBox(height: 32),
 
-  Widget _buildLogo() {
-    return Text(
-      'REVV',
-      style: AppText.label(
-        size: 66,
-        weight: FontWeight.w900,
-        letterSpacing: 11,
-        color: AppColors.cream,
+              // ── REVV wordmark ──────────────────────────────
+              FadeTransition(
+                opacity: _logoFade,
+                child: ScaleTransition(
+                  scale: _logoScale,
+                  child: RichText(
+                    text: TextSpan(
+                      style: AppText.display(
+                        size: 88,
+                        weight: FontWeight.w900,
+                        letterSpacing: 0,
+                      ),
+                      children: const [
+                        TextSpan(
+                          text: 'RE',
+                          style: TextStyle(color: AppColors.cream),
+                        ),
+                        TextSpan(
+                          text: 'VV',
+                          style: TextStyle(
+                            color: AppColors.red,
+                            shadows: [
+                              Shadow(color: AppColors.redGlow, blurRadius: 24),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              // ── Red underline ──────────────────────────────
+              FadeTransition(
+                opacity: _logoFade,
+                child: Container(
+                  height: 2,
+                  width: 56,
+                  margin: const EdgeInsets.only(top: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.red,
+                    borderRadius: BorderRadius.circular(1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.redGlow,
+                        blurRadius: 8,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // ── Tagline ────────────────────────────────────
+              FadeTransition(
+                opacity: _logoFade,
+                child: Text(
+                  'FIND THE ROAD · RUN THE LAP',
+                  style: AppText.mono(
+                    size: 10,
+                    color: AppColors.stone,
+                    letterSpacing: 2.5,
+                  ),
+                ),
+              ),
+
+              const Spacer(),
+
+              // ── System checks ──────────────────────────────
+              FadeTransition(
+                opacity: _contentFade,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(
+                        color: AppColors.cream.withValues(alpha: 0.07),
+                      ),
+                    ),
+                  ),
+                  child: const Column(
+                    children: [
+                      _CheckRow(label: 'GPS',      status: 'ACQUIRING'),
+                      SizedBox(height: 10),
+                      _CheckRow(label: 'IMU',      status: 'READY',    ok: true),
+                      SizedBox(height: 10),
+                      _CheckRow(label: 'LOCATION', status: 'CHECKING'),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
-// ── F1 light dot ─────────────────────────────────────────
+// ── F1 lights row ────────────────────────────────────────
 
-class _F1Light extends StatelessWidget {
-  final bool lit;
-
-  const _F1Light({required this.lit});
+class _F1LightsRow extends StatelessWidget {
+  const _F1LightsRow();
 
   @override
   Widget build(BuildContext context) {
-    if (lit) {
-      return Container(
-        width: 20,
-        height: 20,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: const RadialGradient(
-            center: Alignment(-0.24, -0.36),
-            colors: [AppColors.danger, AppColors.red],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primaryContainer.withValues(alpha: 0.65),
-              blurRadius: 14,
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: List.generate(5, (i) {
+        final lit = i < 4;
+        return Padding(
+          padding: EdgeInsets.only(left: i == 0 ? 0 : 10),
+          child: Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: lit ? AppColors.red : AppColors.surface,
+              boxShadow: lit
+                  ? [BoxShadow(color: AppColors.redGlow, blurRadius: 12)]
+                  : null,
+              border: lit
+                  ? null
+                  : Border.all(
+                      color: AppColors.cream.withValues(alpha: 0.12),
+                    ),
             ),
-          ],
-        ),
-      );
-    }
-    return Container(
-      width: 20,
-      height: 20,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: AppColors.panel2,
-        border: Border.all(
-          color: AppColors.primaryContainer.withValues(alpha: 0.25),
-        ),
-      ),
+          ),
+        );
+      }),
     );
   }
 }
 
 // ── System check row ─────────────────────────────────────
 
-class _SystemCheckRow extends StatelessWidget {
+class _CheckRow extends StatelessWidget {
   final String label;
   final String status;
-  final Color statusColor;
-  final Color dotColor;
+  final bool ok;
 
-  const _SystemCheckRow({
+  const _CheckRow({
     required this.label,
     required this.status,
-    required this.statusColor,
-    required this.dotColor,
+    this.ok = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final dotColor = ok ? AppColors.success : AppColors.stone;
     return Row(
       children: [
         Container(
-          width: 6,
-          height: 6,
+          width: 5,
+          height: 5,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: dotColor,
-            boxShadow: [
-              BoxShadow(
-                color: dotColor.withValues(alpha: 0.6),
-                blurRadius: 8,
-              ),
-            ],
+            boxShadow: ok
+                ? [BoxShadow(color: dotColor.withValues(alpha: 0.6), blurRadius: 6)]
+                : null,
           ),
         ),
         const SizedBox(width: 10),
         Expanded(
           child: Text(
             label,
-            style: AppText.mono(
-              size: 11,
-              color: AppColors.stoneMuted,
-              letterSpacing: 1.2,
-            ),
+            style: AppText.mono(size: 10, color: AppColors.stone, letterSpacing: 1.2),
           ),
         ),
         Text(
           status,
           style: AppText.mono(
-            size: 11,
+            size: 10,
             weight: FontWeight.w700,
-            color: statusColor,
-            letterSpacing: 0.5,
+            color: ok ? AppColors.success : AppColors.stoneMuted,
+            letterSpacing: 0.8,
           ),
         ),
       ],
@@ -446,206 +277,4 @@ class _SystemCheckRow extends StatelessWidget {
   }
 }
 
-class _ScanClipper extends CustomClipper<Rect> {
-  final double revealX;
-  const _ScanClipper({required this.revealX});
 
-  @override
-  Rect getClip(Size size) => Rect.fromLTWH(0, 0, revealX, size.height);
-
-  @override
-  bool shouldReclip(_ScanClipper old) => revealX != old.revealX;
-}
-
-// Permission sheets removed — silent permission request in initState instead.
-// Kept file boundary intact.
-class _PermissionIntroSheet extends StatelessWidget {
-  final VoidCallback onContinue;
-
-  const _PermissionIntroSheet({required this.onContinue});
-
-  @override
-  Widget build(BuildContext context) {
-    final language = context.watch<SettingsService>().appLanguage;
-    return SafeArea(
-      top: false,
-      child: RevvGlassCard(
-        margin: const EdgeInsets.all(14),
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-        radius: 24,
-        color: AppColors.panel.withValues(alpha: 0.96),
-        glow: true,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              AppCopy.permissionIntroTitle(language),
-              style: AppText.body(
-                size: 22,
-                weight: FontWeight.w900,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              AppCopy.permissionIntroBody(language),
-              style: AppText.body(
-                size: 13,
-                height: 1.35,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            _PermissionReasonTile(
-              icon: Icons.location_on_rounded,
-              title: AppCopy.location(language),
-              body: AppCopy.locationPermissionBody(language),
-            ),
-            const SizedBox(height: 16),
-            RevvPrimaryButton(
-              label: AppCopy.continuePermissions(language),
-              icon: Icons.verified_user_rounded,
-              onPressed: onContinue,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PermissionResultSheet extends StatelessWidget {
-  final bool locationGranted;
-  final VoidCallback onSettings;
-  final VoidCallback onContinue;
-
-  const _PermissionResultSheet({
-    required this.locationGranted,
-    required this.onSettings,
-    required this.onContinue,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final language = context.watch<SettingsService>().appLanguage;
-    final locationBlocked = !locationGranted;
-    return SafeArea(
-      top: false,
-      child: RevvGlassCard(
-        margin: const EdgeInsets.all(14),
-        padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-        radius: 24,
-        color: AppColors.panel.withValues(alpha: 0.96),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              locationBlocked
-                  ? AppCopy.locationBlockedTitle(language)
-                  : AppCopy.permissionsReadyTitle(language),
-              style: AppText.body(
-                size: 20,
-                weight: FontWeight.w900,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              locationBlocked
-                  ? AppCopy.locationBlockedBody(language)
-                  : AppCopy.permissionsReadyBody(language),
-              style: AppText.body(
-                size: 13,
-                height: 1.35,
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                if (locationBlocked) ...[
-                  Expanded(
-                    child: RevvGhostButton(
-                      label: AppCopy.openSettings(language),
-                      onPressed: onSettings,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                ],
-                Expanded(
-                  child: RevvPrimaryButton(
-                    label: locationBlocked
-                        ? AppCopy.continueAnyway(language)
-                        : AppCopy.continuePermissions(language),
-                    icon: Icons.arrow_forward_rounded,
-                    onPressed: onContinue,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PermissionReasonTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String body;
-
-  const _PermissionReasonTile({
-    required this.icon,
-    required this.title,
-    required this.body,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: AppColors.primaryContainer.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(icon, size: 18, color: AppColors.primaryContainer),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: AppText.body(
-                    size: 14,
-                    weight: FontWeight.w900,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  body,
-                  style: AppText.body(
-                    size: 12,
-                    height: 1.32,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
