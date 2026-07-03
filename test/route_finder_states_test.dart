@@ -4,8 +4,11 @@ import 'package:revv_app/core/app_language.dart';
 import 'package:provider/provider.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_route_finder_screen.dart';
+import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
+import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/settings_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   const forbiddenWords = ['MAX', 'BEST', 'PEAK', '어택', '스릴', '경쟁'];
@@ -197,6 +200,64 @@ void main() {
     },
   );
 
+  testWidgets('filter sheet applies lens selection to the finder overlay', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final route = RevvRoute(
+      id: 'sweeper',
+      name: 'Sweeper Road',
+      nodes: const [LatLng(45.0, -73.0), LatLng(45.02, -73.02)],
+      distanceKm: 30,
+      windingScore: 5.6,
+      starRating: 4,
+      sharpCurveCount: 12,
+      centerPoint: const LatLng(45.01, -73.01),
+      distanceFromUser: 40,
+      tightCurveKm: 0.2,
+      mediumCurveKm: 3.0,
+      maxContinuousKm: 1.8,
+    );
+    final routeService = RouteService()
+      ..routes = [route]
+      ..mapVisualRoutes = [route];
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsService>(
+            create: (_) => SettingsService(),
+          ),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _DeniedLocationService(),
+          ),
+        ],
+        child: const MaterialApp(home: LeanRouteFinderScreen()),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('route-finder-filter-badge')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('route-finder-filter-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Filters'), findsOneWidget);
+    expect(find.text('Sweepers 1'), findsOneWidget);
+
+    await tester.tap(find.text('Sweepers 1'));
+    await tester.pump();
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('route-finder-filter-button')),
+        matching: find.text('1'),
+      ),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('route duration meta renders estimate and chain segment count', (
     tester,
   ) async {
@@ -238,4 +299,17 @@ void main() {
     expect(find.textContaining('반경/지역'), findsOneWidget);
     expectSafeCopy(expected);
   });
+}
+
+class _DeniedLocationService extends LocationService {
+  @override
+  Future<void> requestPermission() async {}
+
+  @override
+  Future<void> startTracking() async {}
+
+  @override
+  Future<LatLng?> ensureLiveLocation({
+    Duration timeout = const Duration(seconds: 6),
+  }) async => null;
 }
