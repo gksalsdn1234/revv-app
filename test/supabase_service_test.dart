@@ -64,6 +64,13 @@ void main() {
       sharpEvents: const [
         {'lat': 45.0, 'lng': -73.0, 'lateralG': 0.5},
       ],
+      analytics: const {
+        'revvScore': 91,
+        'segments': [
+          {'mode': 'winding', 'score': 0.87},
+        ],
+        'gBuckets': {'0.2': 4, '0.4': 2},
+      },
       driveModeSeconds: const {'cruise': 12},
       weather: const {'emoji': '🌤', 'tempDisplay': '18°C'},
       createdAt: DateTime.parse('2026-04-01T10:00:00Z'),
@@ -77,6 +84,10 @@ void main() {
     expect(row['detail_version'], 1);
     expect(row['telemetry_json'], isA<Map<String, dynamic>>());
     expect(restored.samples.single.speedKmh, 42);
+    expect(restored.analytics['segments'], [
+      {'mode': 'winding', 'score': 0.87},
+    ]);
+    expect(restored.analytics['gBuckets'], {'0.2': 4, '0.4': 2});
     expect(restored.weather['tempDisplay'], '18°C');
   });
 

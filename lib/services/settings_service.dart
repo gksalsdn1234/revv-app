@@ -11,7 +11,7 @@ class SettingsService extends ChangeNotifier {
   int _searchRadius = 50;
   RouteFilterStrength _routeFilterStrength = RouteFilterStrength.balanced;
   String _distUnit = 'km';
-  bool _cloudRunStorageEnabled = true;
+  bool _cloudRunStorageEnabled = false;
 
   bool get ttsMuted => _ttsMuted;
   AppLanguage get appLanguage => _appLanguage;
@@ -34,7 +34,7 @@ class SettingsService extends ChangeNotifier {
     );
     _distUnit = prefs.getString(StorageKeys.distUnit) ?? 'km';
     _cloudRunStorageEnabled =
-        prefs.getBool(StorageKeys.cloudRunStorageEnabled) ?? true;
+        prefs.getBool(StorageKeys.cloudRunStorageEnabled) ?? false;
     notifyListeners();
   }
 

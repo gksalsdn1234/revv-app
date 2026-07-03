@@ -16,6 +16,8 @@ import 'secure_session_store.dart';
 
 enum SyncStatus { idle, syncing, done, error }
 
+enum CloudSessionState { unavailable, anonymous, identified }
+
 class SupabaseService extends ChangeNotifier {
   static final SupabaseService _instance = SupabaseService._();
   factory SupabaseService() => _instance;
@@ -30,22 +32,71 @@ class SupabaseService extends ChangeNotifier {
   SupabaseClient? _client;
   StreamSubscription<AuthState>? _authSubscription;
   SecureSessionStore sessionStore = SecureSessionStore();
+  bool? _debugReadyOverride;
+  String? _debugUidOverride;
+  bool? _debugAnonymousOverride;
 
   bool _ready = false;
-  bool get isReady => _ready;
-  bool get isCloudAvailable => _ready && uid != null;
+  bool get isReady => _debugReadyOverride ?? _ready;
+  bool get isCloudAvailable => isReady && uid != null;
+  bool get isIdentifiedCloudSession =>
+      cloudSessionState == CloudSessionState.identified;
+  CloudSessionState get cloudSessionState {
+    if (!isReady || uid == null) return CloudSessionState.unavailable;
+    final anonymous =
+        _debugAnonymousOverride ?? _client?.auth.currentUser?.isAnonymous;
+    return anonymous == true
+        ? CloudSessionState.anonymous
+        : CloudSessionState.identified;
+  }
+
   String get availabilityLabel {
-    if (_ready) return '클라우드 연결됨';
+    switch (cloudSessionState) {
+      case CloudSessionState.identified:
+        return '계정 클라우드 연결됨';
+      case CloudSessionState.anonymous:
+        return '게스트 클라우드 연결됨';
+      case CloudSessionState.unavailable:
+        break;
+    }
     if (_status == SyncStatus.error) return '클라우드 연결 실패';
     return '클라우드 비활성';
   }
 
   String? get uid {
+    if (_debugUidOverride != null) return _debugUidOverride;
     try {
       return _client?.auth.currentUser?.id;
     } catch (_) {
       return null;
     }
+  }
+
+  @visibleForTesting
+  void debugSetCloudSessionStateForTesting({
+    required bool ready,
+    required String? uid,
+    required bool anonymous,
+  }) {
+    _debugReadyOverride = ready;
+    _debugUidOverride = uid;
+    _debugAnonymousOverride = anonymous;
+  }
+
+  @visibleForTesting
+  void debugResetForTesting() {
+    _authSubscription?.cancel();
+    _authSubscription = null;
+    _config = null;
+    _initialized = false;
+    _status = SyncStatus.idle;
+    _lastFailureReason = null;
+    _client = null;
+    sessionStore = SecureSessionStore();
+    _ready = false;
+    _debugReadyOverride = null;
+    _debugUidOverride = null;
+    _debugAnonymousOverride = null;
   }
 
   SupabaseClient? get client {

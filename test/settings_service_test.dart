@@ -3,6 +3,7 @@ import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/core/storage_keys.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
 import 'package:revv_app/services/settings_service.dart';
+import 'package:revv_app/ui/app_copy.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -35,19 +36,43 @@ void main() {
     expect(reloaded.routeFilterStrength, RouteFilterStrength.broad);
   });
 
-  test('SettingsService persists cloud run storage toggle', () async {
+  test('SettingsService defaults detailed cloud upload to off', () async {
     SharedPreferences.setMockInitialValues({});
-
     final settings = SettingsService();
+
     await settings.load();
-    expect(settings.cloudRunStorageEnabled, isTrue);
 
-    await settings.setCloudRunStorageEnabled(false);
     expect(settings.cloudRunStorageEnabled, isFalse);
+  });
 
-    final reloaded = SettingsService();
-    await reloaded.load();
-    expect(reloaded.cloudRunStorageEnabled, isFalse);
+  test(
+    'SettingsService preserves existing detailed cloud upload preference',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: true,
+      });
+      final settings = SettingsService();
+
+      await settings.load();
+
+      expect(settings.cloudRunStorageEnabled, isTrue);
+    },
+  );
+
+  test('cloud copy describes detailed upload without requiring login now', () {
+    expect(
+      AppCopy.cloudOn(AppLanguage.english),
+      contains('detailed drive cloud upload'),
+    );
+    expect(
+      AppCopy.t(
+        AppLanguage.english,
+        ko: '',
+        en: 'Local reports stay available · cross-device cloud sync will require sign-in later',
+        fr: '',
+      ),
+      contains('sign-in later'),
+    );
   });
 
   test(

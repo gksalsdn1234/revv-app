@@ -79,6 +79,13 @@ class RunHistoryService extends ChangeNotifier {
   List<RunSummary> get history => List.unmodifiable(_history);
   List<RouteFeedback> get feedback => List.unmodifiable(_feedback);
 
+  RouteFeedback? feedbackForRun(String runId) {
+    for (final item in _feedback) {
+      if (item.runId == runId) return item;
+    }
+    return null;
+  }
+
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(StorageKeys.runs);
@@ -140,13 +147,15 @@ class RunHistoryService extends ChangeNotifier {
     final LatLng? startPt = path.isNotEmpty ? path.first : null;
     final LatLng? endPt = path.length > 1 ? path.last : null;
     final routeDistance = session.route?.distanceKm;
+    final runId = DateTime.now().millisecondsSinceEpoch.toString();
+    final analytics = RunTelemetryDetail.fromSession(runId, session).analytics;
     final routeCompletionPct = routeCompletionPercent(
       drivenKm: session.distanceKm,
       routeDistanceKm: routeDistance,
     );
 
     final summary = RunSummary(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: runId,
       date: session.startTime,
       distanceKm: session.distanceKm,
       durationSeconds: session.duration.inSeconds,
@@ -164,6 +173,13 @@ class RunHistoryService extends ChangeNotifier {
       sportSeconds:
           (session.driveModeSeconds['sport'] ?? 0) +
           (session.driveModeSeconds['attack'] ?? 0),
+      revvScore: (analytics['revvScore'] as num?)?.toInt(),
+      windingSamplePct: (analytics['windingSamplePct'] as num?)?.toDouble(),
+      p95LateralG: (analytics['p95AbsLateralG'] as num?)?.toDouble(),
+      brakingEventCount: (analytics['brakingEventCount'] as num?)?.toInt() ?? 0,
+      accelerationEventCount:
+          (analytics['accelerationEventCount'] as num?)?.toInt() ?? 0,
+      smoothnessScore: (analytics['smoothnessScore'] as num?)?.toInt(),
       routeDistanceKm: routeDistance,
       routeCompletionPct: routeCompletionPct,
       startPoint: startPt,
@@ -201,12 +217,25 @@ class RunHistoryService extends ChangeNotifier {
   }
 
   Future<void> saveDetail(RunTelemetryDetail detail) async {
-    if (!await _cloudUploadEnabled()) return;
+    if (!await _cloudUploadEnabled()) {
+      await _saveLocalDetail(detail);
+      return;
+    }
+
     await _pendingStore.saveDetail(detail);
     final sync = _cloud;
     if (await sync.uploadRunDetail(detail)) {
       await _pendingStore.removeDetail(detail.runId);
     }
+    await _saveLocalDetail(detail);
+  }
+
+  Future<void> _saveLocalDetail(RunTelemetryDetail detail) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      '${StorageKeys.runDetailPrefix}${detail.runId}',
+      jsonEncode(detail.toJson()),
+    );
   }
 
   Future<void> saveFeedback(RouteFeedback feedback) async {
@@ -239,6 +268,8 @@ class RunHistoryService extends ChangeNotifier {
   }
 
   Future<RunTelemetryDetail?> loadDetail(String runId) async {
+    if (!await _cloudUploadEnabled()) return _loadLocalDetail(runId);
+
     final remote = await _cloud.fetchRunDetail(runId);
     if (remote != null) {
       await _pendingStore.removeDetail(runId);
@@ -248,8 +279,13 @@ class RunHistoryService extends ChangeNotifier {
     final pending = await _pendingStore.loadDetail(runId);
     if (pending != null) return pending;
 
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('${StorageKeys.runDetailPrefix}$runId');
+    return _loadLocalDetail(runId);
+  }
+
+  Future<RunTelemetryDetail?> _loadLocalDetail(String runId) async {
+    final raw = (await SharedPreferences.getInstance()).getString(
+      '${StorageKeys.runDetailPrefix}$runId',
+    );
     if (raw != null) {
       try {
         return RunTelemetryDetail.fromJson(
@@ -276,9 +312,18 @@ class RunHistoryService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(StorageKeys.runs);
     await prefs.remove(StorageKeys.routeFeedback);
+    await _clearLocalDetails(prefs);
     await _pendingStore.clearAll();
     notifyListeners();
     return true;
+  }
+
+  Future<void> _clearLocalDetails(SharedPreferences prefs) async {
+    for (final key in prefs.getKeys().toList()) {
+      if (key.startsWith(StorageKeys.runDetailPrefix)) {
+        await prefs.remove(key);
+      }
+    }
   }
 
   Future<void> purgePendingUploads() async {
@@ -287,7 +332,7 @@ class RunHistoryService extends ChangeNotifier {
 
   Future<bool> _cloudUploadEnabled() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(StorageKeys.cloudRunStorageEnabled) ?? true;
+    return prefs.getBool(StorageKeys.cloudRunStorageEnabled) ?? false;
   }
 
   int visitCount(String? routeId) {

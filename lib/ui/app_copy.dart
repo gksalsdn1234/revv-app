@@ -77,13 +77,17 @@ class AppCopy {
 
   static String cloudOff(AppLanguage language) => t(
     language,
-    ko: '클라우드 끄기',
-    en: 'Turn cloud off',
-    fr: 'Désactiver le cloud',
+    ko: '상세 주행 데이터 클라우드 업로드 끄기',
+    en: 'Turn detailed drive cloud upload off',
+    fr: 'Désactiver l’upload détaillé',
   );
 
-  static String cloudOn(AppLanguage language) =>
-      t(language, ko: '클라우드 켜기', en: 'Turn cloud on', fr: 'Activer le cloud');
+  static String cloudOn(AppLanguage language) => t(
+    language,
+    ko: '상세 주행 데이터 클라우드 업로드 켜기',
+    en: 'Turn detailed drive cloud upload on',
+    fr: 'Activer l’upload détaillé',
+  );
 
   static String deleteHistory(AppLanguage language) => t(
     language,

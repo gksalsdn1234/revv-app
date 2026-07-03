@@ -145,6 +145,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     if (!mounted || loc == null) return;
     final position = loc.bestKnownLatLng;
     final speed = loc.speedKmh.clamp(0.0, 260.0);
+    _imuService?.updateSpeedKmh(speed);
     if (position != null) {
       _applyDriveSample(
         position,

@@ -22,6 +22,12 @@ class RunSummary {
   final int telemetrySampleCount;
   final int windingSeconds;
   final int sportSeconds;
+  final int? revvScore;
+  final double? windingSamplePct;
+  final double? p95LateralG;
+  final int brakingEventCount;
+  final int accelerationEventCount;
+  final int? smoothnessScore;
   final double? routeDistanceKm;
   final int? routeCompletionPct;
   final LatLng? startPoint;
@@ -44,6 +50,12 @@ class RunSummary {
     this.telemetrySampleCount = 0,
     this.windingSeconds = 0,
     this.sportSeconds = 0,
+    this.revvScore,
+    this.windingSamplePct,
+    this.p95LateralG,
+    this.brakingEventCount = 0,
+    this.accelerationEventCount = 0,
+    this.smoothnessScore,
     this.routeDistanceKm,
     this.routeCompletionPct,
     this.startPoint,
@@ -83,6 +95,13 @@ class RunSummary {
     if (telemetrySampleCount > 0) 'telemetrySampleCount': telemetrySampleCount,
     if (windingSeconds > 0) 'windingSeconds': windingSeconds,
     if (sportSeconds > 0) 'sportSeconds': sportSeconds,
+    if (revvScore != null) 'revvScore': revvScore,
+    if (windingSamplePct != null) 'windingSamplePct': windingSamplePct,
+    if (p95LateralG != null) 'p95LateralG': p95LateralG,
+    if (brakingEventCount > 0) 'brakingEventCount': brakingEventCount,
+    if (accelerationEventCount > 0)
+      'accelerationEventCount': accelerationEventCount,
+    if (smoothnessScore != null) 'smoothnessScore': smoothnessScore,
     if (routeDistanceKm != null) 'routeDistanceKm': routeDistanceKm,
     if (routeCompletionPct != null) 'routeCompletionPct': routeCompletionPct,
     if (startPoint != null)
@@ -108,6 +127,12 @@ class RunSummary {
     telemetrySampleCount: (j['telemetrySampleCount'] as num?)?.toInt() ?? 0,
     windingSeconds: (j['windingSeconds'] as num?)?.toInt() ?? 0,
     sportSeconds: (j['sportSeconds'] as num?)?.toInt() ?? 0,
+    revvScore: (j['revvScore'] as num?)?.toInt(),
+    windingSamplePct: (j['windingSamplePct'] as num?)?.toDouble(),
+    p95LateralG: (j['p95LateralG'] as num?)?.toDouble(),
+    brakingEventCount: (j['brakingEventCount'] as num?)?.toInt() ?? 0,
+    accelerationEventCount: (j['accelerationEventCount'] as num?)?.toInt() ?? 0,
+    smoothnessScore: (j['smoothnessScore'] as num?)?.toInt(),
     routeDistanceKm: (j['routeDistanceKm'] as num?)?.toDouble(),
     routeCompletionPct: (j['routeCompletionPct'] as num?)?.toInt(),
     startPoint: _latLngFromJson(j['startPoint']),

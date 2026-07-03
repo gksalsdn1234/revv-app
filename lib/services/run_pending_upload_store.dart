@@ -57,9 +57,6 @@ class RunPendingUploadStore {
     if (legacyMap.remove(runId) != null) {
       await _saveMap(StorageKeys.pendingRunDetails, legacyMap);
     }
-    await (await SharedPreferences.getInstance()).remove(
-      '${StorageKeys.runDetailPrefix}$runId',
-    );
   }
 
   Future<RunTelemetryDetail?> loadDetail(String runId) async {
@@ -182,11 +179,6 @@ class RunPendingUploadStore {
     await prefs.remove(StorageKeys.pendingRunDetails);
     await prefs.remove(StorageKeys.pendingRunDetailsIndex);
     await prefs.remove(StorageKeys.pendingRouteFeedback);
-    for (final key in prefs.getKeys()) {
-      if (key.startsWith(StorageKeys.runDetailPrefix)) {
-        await prefs.remove(key);
-      }
-    }
   }
 
   Future<Set<String>> _loadDetailIds() async {
@@ -236,21 +228,6 @@ class RunPendingUploadStore {
     }
     if (legacyMap.isNotEmpty) {
       await prefs.remove(StorageKeys.pendingRunDetails);
-    }
-
-    for (final key in prefs.getKeys()) {
-      if (!key.startsWith(StorageKeys.runDetailPrefix)) continue;
-      final id = key.substring(StorageKeys.runDetailPrefix.length);
-      final raw = prefs.getString(key);
-      if (id.isNotEmpty && raw != null && raw.isNotEmpty) {
-        final detailKey = _detailKey(id);
-        if (await _detailStore.read(detailKey) == null) {
-          await _detailStore.write(detailKey, raw);
-        }
-        ids.add(id);
-        changed = true;
-      }
-      await prefs.remove(key);
     }
 
     if (changed) {

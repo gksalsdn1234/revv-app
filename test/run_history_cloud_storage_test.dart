@@ -27,44 +27,32 @@ void main() {
     expect(await store.hasPending(), isFalse);
   });
 
+  test('RunPendingUploadStore does not delete local rich detail', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = _pendingStore();
+    final prefs = await SharedPreferences.getInstance();
+    final detail = _detail('run-1');
+    await prefs.setString(
+      '${StorageKeys.runDetailPrefix}run-1',
+      jsonEncode(detail.toJson()),
+    );
+
+    await store.saveDetail(detail);
+    await store.removeDetail('run-1');
+
+    expect(prefs.getString('${StorageKeys.runDetailPrefix}run-1'), isNotNull);
+
+    await store.saveDetail(detail);
+    await store.clearAll();
+
+    expect(prefs.getString('${StorageKeys.runDetailPrefix}run-1'), isNotNull);
+  });
+
   test(
     'RunHistoryService removes pending detail after cloud upload success',
     () async {
-      SharedPreferences.setMockInitialValues({});
-      final pending = _pendingStore();
-      final history = RunHistoryService(
-        pendingStore: pending,
-        cloudClient: _FakeCloud(uploadDetailResult: true),
-      );
-
-      await history.saveDetail(_detail('run-1'));
-
-      expect(await pending.loadDetail('run-1'), isNull);
-      expect(await pending.hasPending(), isFalse);
-    },
-  );
-
-  test(
-    'RunHistoryService keeps pending detail after cloud upload failure',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      final pending = _pendingStore();
-      final history = RunHistoryService(
-        pendingStore: pending,
-        cloudClient: _FakeCloud(uploadDetailResult: false),
-      );
-
-      await history.saveDetail(_detail('run-1'));
-
-      expect((await pending.loadDetail('run-1'))?.runId, 'run-1');
-    },
-  );
-
-  test(
-    'RunHistoryService does not persist detail when cloud storage is off',
-    () async {
       SharedPreferences.setMockInitialValues({
-        StorageKeys.cloudRunStorageEnabled: false,
+        StorageKeys.cloudRunStorageEnabled: true,
       });
       final pending = _pendingStore();
       final history = RunHistoryService(
@@ -74,7 +62,86 @@ void main() {
 
       await history.saveDetail(_detail('run-1'));
 
-      expect(await pending.loadDetail('run-1'), isNull);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(StorageKeys.pendingRunDetailsIndex), isNull);
+      expect(prefs.getString('${StorageKeys.runDetailPrefix}run-1'), isNotNull);
+    },
+  );
+
+  test(
+    'RunHistoryService keeps pending detail after cloud upload failure',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: true,
+      });
+      final pending = _pendingStore();
+      final cloud = _FakeCloud(uploadDetailResult: false);
+      final history = RunHistoryService(
+        pendingStore: pending,
+        cloudClient: cloud,
+      );
+
+      await history.saveDetail(_detail('run-1'));
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('${StorageKeys.runDetailPrefix}run-1'), isNotNull);
+      expect((await pending.loadDetail('run-1'))?.runId, 'run-1');
+      expect(cloud.uploadDetailCount, 1);
+    },
+  );
+
+  test(
+    'RunHistoryService saves local detail when cloud storage is off',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: false,
+      });
+      final pending = _pendingStore();
+      final cloud = _FakeCloud(uploadDetailResult: true);
+      final history = RunHistoryService(
+        pendingStore: pending,
+        cloudClient: cloud,
+      );
+
+      await history.saveDetail(_detail('run-1'));
+
+      expect(cloud.uploadDetailCount, 0);
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('${StorageKeys.runDetailPrefix}run-1');
+      expect(raw, isNotNull);
+      expect(
+        RunTelemetryDetail.fromJson(
+          jsonDecode(raw!) as Map<String, dynamic>,
+        ).runId,
+        'run-1',
+      );
+      expect(prefs.getString(StorageKeys.pendingRunDetailsIndex), isNull);
+      expect((await history.loadDetail('run-1'))?.runId, 'run-1');
+      expect(prefs.getString('${StorageKeys.runDetailPrefix}run-1'), isNotNull);
+    },
+  );
+
+  test(
+    'RunHistoryService defaults fresh install detail upload to local only',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final pending = _pendingStore();
+      final cloud = _FakeCloud(uploadDetailResult: true);
+      final history = RunHistoryService(
+        pendingStore: pending,
+        cloudClient: cloud,
+      );
+
+      await history.saveDetail(_detail('fresh-run'));
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(StorageKeys.cloudRunStorageEnabled), isFalse);
+      expect(cloud.uploadDetailCount, 0);
+      expect(
+        prefs.getString('${StorageKeys.runDetailPrefix}fresh-run'),
+        isNotNull,
+      );
+      expect(prefs.getString(StorageKeys.pendingRunDetailsIndex), isNull);
     },
   );
 
@@ -94,7 +161,9 @@ void main() {
   );
 
   test('deleteAllRunData keeps local data when cloud delete fails', () async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: true,
+    });
     final cloud = _FakeCloud(deleteResult: false);
     final history = RunHistoryService(cloudClient: cloud);
     await history.load();
@@ -104,6 +173,57 @@ void main() {
 
     expect(deleted, isFalse);
     expect(history.history, isNotEmpty);
+  });
+
+  test(
+    'deleteAllRunData removes rich local detail after cloud delete succeeds',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: true,
+      });
+      final pending = _pendingStore();
+      final history = RunHistoryService(
+        pendingStore: pending,
+        cloudClient: _FakeCloud(deleteResult: true),
+      );
+      await history.load();
+      final summary = await history.save(_sessionWithRoute());
+      await history.saveDetail(_detail(summary.id));
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('${StorageKeys.runDetailPrefix}${summary.id}'),
+        isNotNull,
+      );
+
+      final deleted = await history.deleteAllRunData();
+
+      expect(deleted, isTrue);
+      expect(history.history, isEmpty);
+      expect(
+        prefs.getString('${StorageKeys.runDetailPrefix}${summary.id}'),
+        isNull,
+      );
+      expect(await pending.hasPending(), isFalse);
+    },
+  );
+
+  test('purgePendingUploads preserves local rich detail', () async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: true,
+    });
+    final pending = _pendingStore();
+    final history = RunHistoryService(
+      pendingStore: pending,
+      cloudClient: _FakeCloud(uploadDetailResult: false),
+    );
+    final detail = _detail('run-1');
+
+    await history.saveDetail(detail);
+    await history.purgePendingUploads();
+
+    expect(await pending.hasPending(), isFalse);
+    expect((await history.loadDetail('run-1'))?.runId, 'run-1');
   });
 
   test(
@@ -231,6 +351,7 @@ class _FakeCloud implements RunHistoryCloudClient {
   final bool uploadDetailResult;
   final bool deleteResult;
   final recordedRouteIds = <String?>[];
+  var uploadDetailCount = 0;
 
   @override
   bool get isReady => true;
@@ -259,6 +380,8 @@ class _FakeCloud implements RunHistoryCloudClient {
   Future<bool> uploadRun(RunSummary summary) async => true;
 
   @override
-  Future<bool> uploadRunDetail(RunTelemetryDetail detail) async =>
-      uploadDetailResult;
+  Future<bool> uploadRunDetail(RunTelemetryDetail detail) async {
+    uploadDetailCount++;
+    return uploadDetailResult;
+  }
 }

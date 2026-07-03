@@ -1,6 +1,8 @@
 import 'revv_route.dart';
 import 'run_session.dart';
 
+part '_run_telemetry_event_analysis.dart';
+
 class TelemetrySample {
   final int tMs;
   final double lat;
@@ -44,7 +46,7 @@ class TelemetrySample {
 }
 
 class RunTelemetryDetail {
-  static const currentVersion = 2;
+  static const currentVersion = 3;
 
   final String runId;
   final int version;
@@ -140,58 +142,77 @@ class RunTelemetryDetail {
     );
   }
 
-  static Map<String, dynamic>? _routeSnapshot(RevvRoute? route) {
-    if (route == null) return null;
-    return {
-      'id': route.id,
-      'name': route.name,
-      'distanceKm': route.distanceKm,
-      'windingScore': route.windingScore,
-      'starRating': route.starRating,
-      'sharpCurveCount': route.sharpCurveCount,
-      'mediumCurveKm': route.mediumCurveKm,
-      'tightCurveKm': route.tightCurveKm,
-      'maxContinuousKm': route.maxContinuousKm,
-      'flowScore': route.flowScore,
-      'curveStyle': route.curveStyle,
-      'routeCharacter': route.routeCharacter,
-      'stopSignCount': route.stopSignCount,
-      'trafficSignalCount': route.trafficSignalCount,
-      'elevationDelta': route.elevationDelta,
-      'isLoop': route.isLoop,
-      'nodes': route.nodes
-          .map((node) => {'lat': node.lat, 'lng': node.lng})
-          .toList(),
-    };
-  }
-
   static Map<String, dynamic> _analytics(RunSession session) {
     final samples = session.telemetrySamples;
+    final eventAnalysis = _telemetryEventAnalysis(samples);
+    final smoothedSamples = eventAnalysis.smoothedSamples;
     final movingSamples = samples.where((s) => s.speedKmh >= 3).toList();
-    final absLatG = samples.map((s) => s.lateralG.abs()).toList()..sort();
-    final absLonG = samples.map((s) => s.longitudinalG.abs()).toList()..sort();
-    final brakingEvents = samples
-        .where((s) => s.longitudinalG <= -0.30 && s.speedKmh >= 8)
-        .length;
-    final accelerationEvents = samples
-        .where((s) => s.longitudinalG >= 0.25 && s.speedKmh >= 8)
-        .length;
-    final windingSamples = samples
-        .where((s) => s.lateralG.abs() >= 0.18 && s.speedKmh >= 12)
-        .length;
+    final absLatG = smoothedSamples.map((s) => s.lateralG.abs()).toList()
+      ..sort();
+    final absLonG = smoothedSamples.map((s) => s.longitudinalG.abs()).toList()
+      ..sort();
     final routeDistance = session.route?.distanceKm;
+    final sampleCount = samples.length;
+    final movingSampleCount = movingSamples.length;
+    final durationSeconds = session.duration.inSeconds;
+    final movingDurationSeconds =
+        (durationSeconds * _ratio(movingSampleCount, sampleCount)).round();
+    final idleDurationSeconds = durationSeconds - movingDurationSeconds;
+    final p95AbsLateralG = _percentile(absLatG, 0.95);
+    final p95AbsLongitudinalG = _percentile(absLonG, 0.95);
+    final sharpEventCount = samples.isEmpty
+        ? session.sharpCorners.length
+        : eventAnalysis.sharpEventCount;
+    final windingSamplePct = sampleCount == 0
+        ? 0.0
+        : eventAnalysis.windingSampleCount / sampleCount * 100;
+    final brakingEventsPer10Min = _ratio(
+      eventAnalysis.brakingEventCount * 600,
+      durationSeconds,
+    );
+    final accelerationEventsPer10Min = _ratio(
+      eventAnalysis.accelerationEventCount * 600,
+      durationSeconds,
+    );
+    final movingSampleRatio = _ratio(movingSampleCount, sampleCount);
+    final windingSeconds = session.driveModeSeconds['winding'] ?? 0;
+    final technicalScore = _clampedScore(
+      40 * _ratio(session.route?.tightCurveKm ?? 0, 2.5) +
+          30 * _ratio(session.route?.mediumCurveKm ?? 0, 5.0) +
+          30 * _ratio(p95AbsLateralG > 0.45 ? 0.45 : p95AbsLateralG, 0.45),
+    );
+    final smoothnessScore = _clampedScore(
+      100 -
+          35 * _ratio(brakingEventsPer10Min, 8) -
+          25 * _ratio(accelerationEventsPer10Min, 8) -
+          25 * _ratio(p95AbsLongitudinalG, 0.40) -
+          15 * _ratio(sharpEventCount, 6),
+    );
+    final flowScoreDisplay = _clampedScore(
+      40 * _ratio(session.route?.maxContinuousKm ?? 0, 4.0) +
+          25 * movingSampleRatio +
+          20 * _ratio(windingSeconds, durationSeconds) +
+          15 * (1 - _ratio(idleDurationSeconds, durationSeconds)),
+    );
+    final revvScore = _clampedScore(
+      0.30 * windingSamplePct +
+          0.25 * flowScoreDisplay +
+          0.25 * smoothnessScore +
+          0.20 * technicalScore,
+    );
 
     return {
-      'sampleCount': samples.length,
-      'movingSampleCount': movingSamples.length,
-      'durationSeconds': session.duration.inSeconds,
+      'sampleCount': sampleCount,
+      'movingSampleCount': movingSampleCount,
+      'durationSeconds': durationSeconds,
+      'movingDurationSeconds': movingDurationSeconds,
+      'idleDurationSeconds': idleDurationSeconds,
       'distanceKm': session.distanceKm,
+      'gpsPointCount': session.gpsPath.length,
       'routeDistanceKm': routeDistance,
-      if (routeDistance != null && routeDistance > 0)
-        'routeCompletionPct': (session.distanceKm / routeDistance * 100).clamp(
-          0.0,
-          999.0,
-        ),
+      'routeCompletionPct': routeDistance != null && routeDistance > 0
+          ? (session.distanceKm / routeDistance * 100).clamp(0.0, 999.0)
+          : 0,
       'maxSpeedKmh': session.maxSpeedKmh,
       'avgSpeedKmh': session.avgSpeedKmh,
       'avgMovingSpeedKmh': _avg(movingSamples.map((s) => s.speedKmh)),
@@ -201,19 +222,29 @@ class RunTelemetryDetail {
           ? session.maxLateralG.abs()
           : session.maxLonG.abs(),
       'avgAbsLateralG': _avg(absLatG),
-      'p95AbsLateralG': _percentile(absLatG, 0.95),
+      'p95AbsLateralG': p95AbsLateralG,
       'avgAbsLongitudinalG': _avg(absLonG),
-      'p95AbsLongitudinalG': _percentile(absLonG, 0.95),
-      'sharpEventCount': session.sharpCorners.length,
-      'brakingEventCount': brakingEvents,
-      'accelerationEventCount': accelerationEvents,
-      'windingSampleCount': windingSamples,
-      'windingSamplePct': samples.isEmpty
-          ? 0
-          : (windingSamples / samples.length * 100),
+      'p95AbsLongitudinalG': p95AbsLongitudinalG,
+      'sharpEventCount': sharpEventCount,
+      'brakingEventCount': eventAnalysis.brakingEventCount,
+      'accelerationEventCount': eventAnalysis.accelerationEventCount,
+      'windingSampleCount': eventAnalysis.windingSampleCount,
+      'windingSamplePct': windingSamplePct,
+      'technicalScore': technicalScore,
+      'smoothnessScore': smoothnessScore,
+      'flowScoreDisplay': flowScoreDisplay,
+      'revvScore': revvScore,
       'driveModeSeconds': Map.of(session.driveModeSeconds),
       'speedBuckets': _speedBuckets(samples),
     };
+  }
+
+  static int _clampedScore(num value) {
+    return value.round().clamp(0, 100).toInt();
+  }
+
+  static double _ratio(num numerator, num denominator) {
+    return denominator == 0 ? 0 : numerator / denominator;
   }
 
   static double _avg(Iterable<double> values) {
@@ -230,21 +261,5 @@ class RunTelemetryDetail {
     if (sortedValues.isEmpty) return 0;
     final index = ((sortedValues.length - 1) * percentile).round();
     return sortedValues[index.clamp(0, sortedValues.length - 1)];
-  }
-
-  static Map<String, int> _speedBuckets(List<TelemetrySample> samples) {
-    final buckets = {'0_30': 0, '30_60': 0, '60_90': 0, '90_plus': 0};
-    for (final sample in samples) {
-      if (sample.speedKmh < 30) {
-        buckets['0_30'] = buckets['0_30']! + 1;
-      } else if (sample.speedKmh < 60) {
-        buckets['30_60'] = buckets['30_60']! + 1;
-      } else if (sample.speedKmh < 90) {
-        buckets['60_90'] = buckets['60_90']! + 1;
-      } else {
-        buckets['90_plus'] = buckets['90_plus']! + 1;
-      }
-    }
-    return buckets;
   }
 }

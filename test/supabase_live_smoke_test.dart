@@ -13,6 +13,42 @@ void main() {
 
   final config = SupabaseConfig(url: _supabaseUrl, anonKey: _supabaseAnonKey);
 
+  tearDown(() {
+    SupabaseService().debugResetForTesting();
+  });
+
+  test(
+    'supabase service distinguishes unavailable guest and identified cloud',
+    () {
+      final service = SupabaseService()..debugResetForTesting();
+
+      expect(service.cloudSessionState, CloudSessionState.unavailable);
+      expect(service.isCloudAvailable, isFalse);
+      expect(service.isIdentifiedCloudSession, isFalse);
+      expect(service.availabilityLabel, '클라우드 비활성');
+
+      service.debugSetCloudSessionStateForTesting(
+        ready: true,
+        uid: 'guest-user',
+        anonymous: true,
+      );
+      expect(service.cloudSessionState, CloudSessionState.anonymous);
+      expect(service.isCloudAvailable, isTrue);
+      expect(service.isIdentifiedCloudSession, isFalse);
+      expect(service.availabilityLabel, '게스트 클라우드 연결됨');
+
+      service.debugSetCloudSessionStateForTesting(
+        ready: true,
+        uid: 'identified-user',
+        anonymous: false,
+      );
+      expect(service.cloudSessionState, CloudSessionState.identified);
+      expect(service.isCloudAvailable, isTrue);
+      expect(service.isIdentifiedCloudSession, isTrue);
+      expect(service.availabilityLabel, '계정 클라우드 연결됨');
+    },
+  );
+
   test(
     'live supabase smoke: init and find_curvy_roads returns Montreal routes',
     () async {
@@ -37,10 +73,7 @@ void main() {
 
       expect(routes, isNotEmpty);
       expect(routes.length, greaterThanOrEqualTo(5));
-      expect(
-        routes.any((route) => route.distanceFromUser > 0),
-        isTrue,
-      );
+      expect(routes.any((route) => route.distanceFromUser > 0), isTrue);
     },
     skip: !config.isConfigured,
   );
