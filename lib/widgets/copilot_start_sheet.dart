@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/revv_route.dart';
 import '../services/route_service.dart';
+import '../services/route_loading_policy.dart';
 import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
@@ -32,6 +33,7 @@ class _CopilotStartSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final language = context.watch<SettingsService>().appLanguage;
+    final displayName = routeDisplayName(route, language: language);
     final profile = RouteQualityProfile.fromRoute(route, language: language);
     final briefing = CopilotRouteBriefing.fromRoute(
       route,
@@ -81,7 +83,7 @@ class _CopilotStartSheet extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      route.name,
+                      displayName,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.body(
@@ -106,7 +108,9 @@ class _CopilotStartSheet extends StatelessWidget {
                       border: Border.all(
                         color: isFar
                             ? AppColors.warning.withValues(alpha: 0.30)
-                            : AppColors.primaryContainer.withValues(alpha: 0.28),
+                            : AppColors.primaryContainer.withValues(
+                                alpha: 0.28,
+                              ),
                       ),
                     ),
                     child: Text(

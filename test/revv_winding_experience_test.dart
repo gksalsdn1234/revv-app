@@ -82,6 +82,23 @@ void main() {
     );
     expect(routeCompletionPercent(drivenKm: 2.4, routeDistanceKm: 3.0), 80);
   });
+
+  test('generic caution uses observation language', () {
+    final profile = WindingExperienceProfile.fromRoute(
+      _route(
+        id: 'local',
+        name: 'Local road',
+        distanceKm: 8,
+        tightCurveKm: 0.5,
+        mediumCurveKm: 0.7,
+        maxContinuousKm: 1.0,
+        distanceFromUser: 4,
+      ),
+    );
+
+    expect(profile.caution, 'Read road signs and surface before continuing.');
+    expect(profile.caution, isNot(contains('pushing')));
+  });
 }
 
 RevvRoute _route({

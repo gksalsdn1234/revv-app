@@ -10,11 +10,14 @@ import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
 import 'package:revv_app/screens/lean_home_screen.dart';
 import 'package:revv_app/screens/lean_run_summary_screen.dart';
+import 'package:revv_app/services/location_service.dart';
+import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/run_history_service.dart';
 import 'package:revv_app/services/run_pending_upload_store.dart';
 import 'package:revv_app/services/run_session_service.dart';
 import 'package:revv_app/services/secure_session_store.dart';
 import 'package:revv_app/services/settings_service.dart';
+import 'package:revv_app/services/supabase_service.dart';
 import 'package:revv_app/models/run_summary.dart';
 
 void main() {
@@ -139,6 +142,66 @@ void main() {
     expect(restored.routeCompletionPct, 95);
     expect(restored.startPoint?.lat, 37.0);
     expect(restored.endPoint?.lng, 127.1);
+  });
+
+  testWidgets('settings profile uses run history instead of dummy data', (
+    tester,
+  ) async {
+    final runs = [
+      RunSummary(
+        id: 'run-2',
+        date: DateTime.parse('2026-05-02T10:00:00Z'),
+        distanceKm: 7.2,
+        durationSeconds: 600,
+        maxSpeedKmh: 58,
+        avgSpeedKmh: 42,
+        routeName: 'Second run',
+        weatherEmoji: '',
+        tempDisplay: '',
+      ),
+      RunSummary(
+        id: 'run-1',
+        date: DateTime.parse('2026-03-15T10:00:00Z'),
+        distanceKm: 5.1,
+        durationSeconds: 500,
+        maxSpeedKmh: 52,
+        avgSpeedKmh: 38,
+        routeName: 'First run',
+        weatherEmoji: '',
+        tempDisplay: '',
+      ),
+    ];
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.runs: RunSummary.listToJson(runs),
+    });
+    await tester.binding.setSurfaceSize(const Size(800, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final history = RunHistoryService();
+    await history.load();
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<RunHistoryService>.value(value: history),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+          ChangeNotifierProvider(create: (_) => LocationService()),
+          ChangeNotifierProvider(create: (_) => RouteService()),
+          ChangeNotifierProvider.value(value: SupabaseService()),
+        ],
+        child: const MaterialApp(home: LeanHomeScreen()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('JD'), findsNothing);
+    expect(find.text('Driver #042'), findsNothing);
+    expect(find.text('7 RUNS · MEMBER SINCE APR 2026'), findsNothing);
+    expect(find.text('Anonymous driver'), findsOneWidget);
+    expect(find.text('2 RUNS · SINCE MAR 2026'), findsOneWidget);
   });
 
   testWidgets('run summary session log expands detailed sections', (

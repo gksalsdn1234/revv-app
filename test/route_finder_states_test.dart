@@ -8,6 +8,7 @@ import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
 import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/settings_service.dart';
+import 'package:revv_app/services/supabase_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -299,6 +300,39 @@ void main() {
     expect(find.textContaining('반경/지역'), findsOneWidget);
     expectSafeCopy(expected);
   });
+
+  testWidgets('coverage request failure restores the request button', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: RouteService()),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _OutsideCoverageLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: const MaterialApp(home: LeanRouteFinderScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('우리 지역 알림 받기'), findsOneWidget);
+
+    await tester.tap(find.text('우리 지역 알림 받기'));
+    await tester.pumpAndSettle();
+    expect(find.text('우리 지역 알림 받기'), findsOneWidget);
+    expect(find.text('신청 중'), findsNothing);
+    expect(find.textContaining('알림 신청을 저장하지 못했어요'), findsOneWidget);
+  });
 }
 
 class _DeniedLocationService extends LocationService {
@@ -312,4 +346,21 @@ class _DeniedLocationService extends LocationService {
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
   }) async => null;
+}
+
+class _OutsideCoverageLocationService extends LocationService {
+  _OutsideCoverageLocationService() {
+    hasPermission = true;
+  }
+
+  @override
+  Future<void> requestPermission() async {}
+
+  @override
+  Future<void> startTracking() async {}
+
+  @override
+  Future<LatLng?> ensureLiveLocation({
+    Duration timeout = const Duration(seconds: 6),
+  }) async => const LatLng(43.6532, -79.3832);
 }

@@ -887,10 +887,7 @@ class _StatsLine extends StatelessWidget {
     final kmText = totalKm >= 1000
         ? '${(totalKm / 1000).toStringAsFixed(1)}k km'
         : '${totalKm.toStringAsFixed(1)} km';
-    final parts = [
-      '${history.totalRuns} runs',
-      kmText,
-    ];
+    final parts = ['${history.totalRuns} runs', kmText];
 
     return Text(
       parts.join(' · '),
@@ -1363,7 +1360,25 @@ class _SettingsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsService>();
+    final history = context.watch<RunHistoryService>();
     final language = settings.appLanguage;
+    final runCount = history.history.length;
+    final profileMeta = runCount == 0
+        ? AppCopy.t(
+            language,
+            ko: '저장된 런 없음',
+            en: 'No saved runs yet',
+            fr: 'Aucune sortie enregistrée',
+          )
+        : () {
+            final memberSince = _profileStartMonth(history.history, language);
+            return AppCopy.t(
+              language,
+              ko: '총 $runCount회 · 시작 $memberSince',
+              en: '$runCount ${runCount == 1 ? 'RUN' : 'RUNS'} · SINCE $memberSince',
+              fr: '$runCount ${runCount == 1 ? 'SORTIE' : 'SORTIES'} · DEPUIS $memberSince',
+            );
+          }();
 
     return SafeArea(
       top: false,
@@ -1427,7 +1442,7 @@ class _SettingsSheet extends StatelessWidget {
                           borderRadius: BorderRadius.circular(14),
                         ),
                         child: Text(
-                          'JD',
+                          'R',
                           style: AppText.display(
                             size: 22,
                             weight: FontWeight.w900,
@@ -1441,7 +1456,12 @@ class _SettingsSheet extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Driver #042',
+                              AppCopy.t(
+                                language,
+                                ko: '익명 드라이버',
+                                en: 'Anonymous driver',
+                                fr: 'Conducteur anonyme',
+                              ),
                               style: AppText.label(
                                 size: 20,
                                 weight: FontWeight.w900,
@@ -1450,7 +1470,7 @@ class _SettingsSheet extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '7 RUNS · MEMBER SINCE APR 2026',
+                              profileMeta,
                               style: AppText.technicalLabel(
                                 size: 10,
                                 letterSpacing: 0.5,
@@ -1549,6 +1569,45 @@ class _SettingsSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+String _profileStartMonth(List<RunSummary> history, AppLanguage language) {
+  var firstRun = history.first.date;
+  for (final run in history.skip(1)) {
+    if (run.date.isBefore(firstRun)) firstRun = run.date;
+  }
+  final month = switch (language) {
+    AppLanguage.french => const [
+      'JANV',
+      'FÉVR',
+      'MARS',
+      'AVR',
+      'MAI',
+      'JUIN',
+      'JUIL',
+      'AOÛT',
+      'SEPT',
+      'OCT',
+      'NOV',
+      'DÉC',
+    ][firstRun.month - 1],
+    AppLanguage.english => const [
+      'JAN',
+      'FEB',
+      'MAR',
+      'APR',
+      'MAY',
+      'JUN',
+      'JUL',
+      'AUG',
+      'SEP',
+      'OCT',
+      'NOV',
+      'DEC',
+    ][firstRun.month - 1],
+    _ => '${firstRun.year}.${firstRun.month.toString().padLeft(2, '0')}',
+  };
+  return language == AppLanguage.korean ? month : '$month ${firstRun.year}';
 }
 
 class _SettingsGroupLabel extends StatelessWidget {
@@ -1687,12 +1746,15 @@ class _SettingsInfoTile extends StatelessWidget {
               ),
             ),
           ),
-          Text(
-            value,
-            style: AppText.body(
-              size: 14,
-              weight: FontWeight.w700,
-              color: AppColors.stone,
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: AppText.body(
+                size: 14,
+                weight: FontWeight.w700,
+                color: AppColors.stone,
+              ),
             ),
           ),
           const SizedBox(width: 6),

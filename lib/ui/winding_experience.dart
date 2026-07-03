@@ -129,7 +129,7 @@ String _caution(RevvRoute route, int controls) {
   }
   if (controls >= 5) return 'Frequent interruptions may break flow.';
   if (route.distanceFromUser > 30) return 'Farther start; budget the transfer.';
-  return 'Read road signs and surface before pushing.';
+  return 'Read road signs and surface before continuing.';
 }
 
 List<String> _badges(RevvRoute route, double density) {

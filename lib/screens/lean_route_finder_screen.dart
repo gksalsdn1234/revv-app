@@ -178,13 +178,36 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final settings = context.read<SettingsService>();
     if (settings.hasRequestedRegion(grid.gridKey)) return;
     setState(() => _coverageRequestInProgress = true);
-    await context.read<SupabaseService>().recordRegionRequest(
-      grid,
-      locale: appLanguageStorageValue(settings.appLanguage),
-    );
-    await settings.markRegionRequested(grid.gridKey);
-    if (!mounted) return;
-    setState(() => _coverageRequestInProgress = false);
+    try {
+      final recorded = await context
+          .read<SupabaseService>()
+          .recordRegionRequest(
+            grid,
+            locale: appLanguageStorageValue(settings.appLanguage),
+          );
+      if (!recorded) {
+        throw StateError('region request was not recorded');
+      }
+      await settings.markRegionRequested(grid.gridKey);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppCopy.t(
+              settings.appLanguage,
+              ko: '알림 신청을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.',
+              en: 'Could not save the notification request. Try again shortly.',
+              fr: 'Impossible d’enregistrer la demande d’alerte. Réessayez bientôt.',
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _coverageRequestInProgress = false);
+      }
+    }
   }
 
   Future<void> _selectRegionPreset() async {

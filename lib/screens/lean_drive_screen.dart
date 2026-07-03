@@ -9,6 +9,7 @@ import '../models/revv_route.dart';
 import '../services/imu_service.dart';
 import '../services/location_service.dart';
 import '../services/route_geometry_matcher.dart';
+import '../services/route_loading_policy.dart';
 import '../services/run_session_service.dart';
 import '../services/settings_service.dart';
 import '../services/voice_briefing_service.dart';
@@ -85,6 +86,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       await _location?.requestPermission();
       await _location?.startTracking();
     }
+    if (!mounted) return;
     _startedAt = DateTime.now();
     _clock = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || _startedAt == null) return;
@@ -342,6 +344,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       _lateralG * _lateralG + _longitudinalG * _longitudinalG,
     );
     final routeNodes = _activeRouteNodes;
+    final routeName = routeDisplayName(widget.route, language: language);
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -367,7 +370,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
               child: Column(
                 children: [
                   _DriveTopBar(
-                    routeName: widget.route.name,
+                    routeName: routeName,
                     progress: _progress,
                     remainingKm: remainingKm,
                     simulated: widget.simulated,
@@ -847,37 +850,42 @@ class _CompactSpeedPill extends StatelessWidget {
             style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
           ),
           const SizedBox(height: 3),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              TweenAnimationBuilder<double>(
-                tween: Tween<double>(end: speedKmh),
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeOut,
-                builder: (context, value, _) => Text(
-                  value.toStringAsFixed(0),
-                  maxLines: 1,
-                  overflow: TextOverflow.clip,
-                  style: AppText.display(
-                    size: 30,
-                    height: 0.9,
-                    color: AppColors.primaryContainer,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.bottomLeft,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                TweenAnimationBuilder<double>(
+                  tween: Tween<double>(end: speedKmh),
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOut,
+                  builder: (context, value, _) => Text(
+                    value.toStringAsFixed(0),
+                    maxLines: 1,
+                    overflow: TextOverflow.clip,
+                    style: AppText.display(
+                      size: 30,
+                      height: 0.9,
+                      color: AppColors.primaryContainer,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 3),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(
-                  'km/h',
-                  style: AppText.body(
-                    size: 10,
-                    weight: FontWeight.w800,
-                    color: AppColors.textSecondary,
+                const SizedBox(width: 3),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    'km/h',
+                    style: AppText.body(
+                      size: 10,
+                      weight: FontWeight.w800,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
