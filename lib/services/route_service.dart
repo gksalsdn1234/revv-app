@@ -229,14 +229,13 @@ class RouteService extends ChangeNotifier {
 
       if (routes.isEmpty) {
         if (!cloudReady) {
-          errorMessage = '클라우드 설정이 필요해요';
-          routeDataStatusTitle = '클라우드 설정 없음';
-          routeDataStatusBody =
-              cloud.lastFailureReason ?? 'Supabase URL과 anon key를 확인해 주세요.';
+          errorMessage = '루트 데이터를 연결하지 못했어요';
+          routeDataStatusTitle = '루트 데이터 연결 필요';
+          routeDataStatusBody = '앱의 루트 데이터 연결을 확인한 뒤 다시 시도해 주세요.';
         } else if (cloud.lastFailureReason != null) {
           errorMessage = '네트워크 연결을 확인해 주세요';
           routeDataStatusTitle = '루트 로드 실패';
-          routeDataStatusBody = '클라우드 요청이 실패했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요.';
+          routeDataStatusBody = '루트 데이터 요청이 실패했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요.';
         } else {
           errorMessage = '주변 루트를 찾지 못했어요';
           routeDataStatusTitle = '루트 후보 없음';
@@ -283,7 +282,7 @@ class RouteService extends ChangeNotifier {
         errorMessage = '루트를 불러오지 못했어요';
         routeSuggestionMessage = null;
         routeDataStatusTitle = '루트 로드 실패';
-        routeDataStatusBody = '네트워크 또는 Supabase 설정을 확인해 주세요.';
+        routeDataStatusBody = '연결 상태를 확인한 뒤 다시 시도해 주세요.';
       }
     } finally {
       if (token == _fetchToken) {
@@ -373,7 +372,7 @@ class RouteService extends ChangeNotifier {
           ? '루트 로드 실패'
           : '캐시 유지 중';
       routeDataStatusBody = rawCandidateRoutes.isEmpty
-          ? '네트워크 또는 Supabase 설정을 확인해 주세요.'
+          ? '연결 상태를 확인한 뒤 다시 시도해 주세요.'
           : '최신 데이터 요청이 실패해 기존 커브길 캐시를 유지합니다.';
       if (kDebugMode) {
         debugPrint(

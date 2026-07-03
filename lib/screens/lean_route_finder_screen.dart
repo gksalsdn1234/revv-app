@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../core/app_language.dart';
@@ -24,6 +25,14 @@ import 'lean_route_detail_screen.dart';
 enum _RouteLens { all, nearby, sweeper, tight, flow, loop }
 
 enum _RouteMapMode { wide, balanced, close }
+
+enum RouteFinderStateKind {
+  temporaryLocationDenied,
+  permanentlyLocationDenied,
+  emptyRoutes,
+  loadFailed,
+  cachedRoutes,
+}
 
 const _routeRegionPresets = [
   _RouteRegion(
@@ -231,7 +240,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
             AppCopy.t(language, ko: '32개', en: '32', fr: '32'),
             AppCopy.t(
               language,
-              ko: '최대한 넓게 훑어봅니다.',
+              ko: '더 넓은 범위로 후보를 훑어봅니다.',
               en: 'Scan as broadly as possible.',
               fr: 'Balayer le plus largement possible.',
             ),
@@ -336,6 +345,10 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     _selectRouteFromMap(routeId);
   }
 
+  Future<void> _openLocationSettings() async {
+    await openAppSettings();
+  }
+
   void _selectRouteFromMap(String routeId) {
     final service = context.read<RouteService>();
     final visibleRoutes = _rankRoutes(_filterRoutes(service.routes, _lens));
@@ -361,6 +374,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   @override
   Widget build(BuildContext context) {
     final service = context.watch<RouteService>();
+    final location = context.watch<LocationService>();
     final routes = service.routes;
     final visibleRoutes = _rankRoutes(_filterRoutes(routes, _lens));
     final mapDisplayRoutes = _routesForViewport(
@@ -384,6 +398,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         service.filterStrength != RouteFilterStrength.broad;
     final language = context.watch<SettingsService>().appLanguage;
     final localStatus = _localizedInlineStatus(_localStatusMessage, language);
+    final cacheStatus = service.routeFieldFromCache
+        ? _cacheInlineStatus(service, language)
+        : null;
     final serviceStatus = _localizedInlineStatus(
       service.errorMessage ??
           service.routeSuggestionMessage ??
@@ -404,7 +421,13 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
             en: 'No ${_lensLabel(_lens, language)} picks. Go back to All.',
             fr: 'Aucune option ${_lensLabel(_lens, language)}. Revenez à Tout.',
           )
-        : localStatus ?? serviceStatus;
+        : localStatus ?? cacheStatus ?? serviceStatus;
+    final stateKind = _routeFinderStateKind(
+      location: location,
+      service: service,
+      visibleRoutes: visibleRoutes,
+      filterEmpty: filterEmpty,
+    );
     final emptyTitle = filterEmpty
         ? AppCopy.t(
             language,
@@ -499,7 +522,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
               bottom: MediaQuery.paddingOf(context).bottom + 14,
               child: selected == null
                   ? _LeanEmptyTicket(
-                      title: visibleRoutes.isNotEmpty
+                      title: stateKind != null
+                          ? routeFinderStateTitle(stateKind, language)
+                          : visibleRoutes.isNotEmpty
                           ? AppCopy.t(
                               language,
                               ko: '지도에서 커브길을 눌러 선택',
@@ -507,7 +532,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                               fr: 'Touchez une route sinueuse',
                             )
                           : emptyTitle,
-                      body: visibleRoutes.isNotEmpty
+                      body: stateKind != null
+                          ? routeFinderStateBody(stateKind, language)
+                          : visibleRoutes.isNotEmpty
                           ? AppCopy.t(
                               language,
                               ko: '노랑은 완만, 주황은 와인딩, 빨강은 타이트 구간이에요. 원하는 길을 탭하면 상세 카드가 열립니다.',
@@ -515,14 +542,18 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                               fr: 'Jaune doux, orange sinueux, rouge serré. Touchez une route pour ouvrir sa carte.',
                             )
                           : emptyBody,
-                      actionIcon: visibleRoutes.isNotEmpty
+                      actionIcon: stateKind != null
+                          ? routeFinderStateActionIcon(stateKind)
+                          : visibleRoutes.isNotEmpty
                           ? Icons.route_rounded
                           : filterEmpty
                           ? Icons.layers_rounded
                           : canBroadenStrength
                           ? Icons.tune_rounded
                           : Icons.refresh_rounded,
-                      actionLabel: visibleRoutes.isNotEmpty
+                      actionLabel: stateKind != null
+                          ? routeFinderStateActionLabel(stateKind, language)
+                          : visibleRoutes.isNotEmpty
                           ? AppCopy.t(
                               language,
                               ko: '추천 보기',
@@ -549,7 +580,21 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                               en: 'Retry',
                               fr: 'Réessayer',
                             ),
-                      onAction: visibleRoutes.isNotEmpty
+                      onAction: stateKind != null
+                          ? switch (stateKind) {
+                              RouteFinderStateKind.temporaryLocationDenied =>
+                                _searchCurrentLocation,
+                              RouteFinderStateKind.permanentlyLocationDenied =>
+                                _openLocationSettings,
+                              RouteFinderStateKind.emptyRoutes =>
+                                _selectRegionPreset,
+                              RouteFinderStateKind.loadFailed => _searchHere,
+                              RouteFinderStateKind.cachedRoutes =>
+                                visibleRoutes.isNotEmpty
+                                    ? () => _selectIndex(visibleRoutes, 0)
+                                    : _searchHere,
+                            }
+                          : visibleRoutes.isNotEmpty
                           ? () => _selectIndex(visibleRoutes, 0)
                           : filterEmpty
                           ? () => _setLens(_RouteLens.all)
@@ -583,6 +628,30 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class RouteFinderStateCard extends StatelessWidget {
+  final RouteFinderStateKind kind;
+  final AppLanguage language;
+  final VoidCallback onAction;
+
+  const RouteFinderStateCard({
+    super.key,
+    required this.kind,
+    required this.language,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _LeanEmptyTicket(
+      title: routeFinderStateTitle(kind, language),
+      body: routeFinderStateBody(kind, language),
+      actionLabel: routeFinderStateActionLabel(kind, language),
+      actionIcon: routeFinderStateActionIcon(kind),
+      onAction: onAction,
     );
   }
 }
@@ -1938,14 +2007,170 @@ _RouteMapMode _mapModeForZoom(double zoom) {
   return _RouteMapMode.close;
 }
 
+RouteFinderStateKind? _routeFinderStateKind({
+  required LocationService location,
+  required RouteService service,
+  required List<RevvRoute> visibleRoutes,
+  required bool filterEmpty,
+}) {
+  final locationBlocked =
+      !location.hasPermission && !location.hasBestKnownLocation;
+  if (locationBlocked) {
+    return location.permissionStatus.isPermanentlyDenied
+        ? RouteFinderStateKind.permanentlyLocationDenied
+        : RouteFinderStateKind.temporaryLocationDenied;
+  }
+  if (filterEmpty) return null;
+  if (service.routeFieldFromCache && visibleRoutes.isNotEmpty) {
+    return RouteFinderStateKind.cachedRoutes;
+  }
+  if (service.routeDataStatusTitle == '루트 로드 실패' ||
+      service.errorMessage == '루트를 불러오지 못했어요') {
+    return RouteFinderStateKind.loadFailed;
+  }
+  if (visibleRoutes.isEmpty &&
+      (service.routeDataStatusTitle == '루트 후보 없음' ||
+          service.routeDataStatusTitle == '커브길 없음' ||
+          service.errorMessage == '주변 커브길을 찾지 못했어요' ||
+          service.errorMessage == '주변 루트를 찾지 못했어요')) {
+    return RouteFinderStateKind.emptyRoutes;
+  }
+  return null;
+}
+
+String routeFinderStateTitle(RouteFinderStateKind kind, AppLanguage language) {
+  return switch (kind) {
+    RouteFinderStateKind.temporaryLocationDenied => AppCopy.t(
+      language,
+      ko: '위치 권한이 꺼져 있어요',
+      en: 'Location permission is off',
+      fr: 'La position est désactivée',
+    ),
+    RouteFinderStateKind.permanentlyLocationDenied => AppCopy.t(
+      language,
+      ko: '설정에서 위치 권한을 켜주세요',
+      en: 'Turn on location in Settings',
+      fr: 'Activez la position dans Réglages',
+    ),
+    RouteFinderStateKind.emptyRoutes => AppCopy.t(
+      language,
+      ko: '이 반경엔 아직 발견된 루트가 없어요',
+      en: 'No routes found in this radius yet',
+      fr: 'Aucune route trouvée dans ce rayon',
+    ),
+    RouteFinderStateKind.loadFailed => AppCopy.t(
+      language,
+      ko: '루트를 불러오지 못했어요',
+      en: 'Could not load routes',
+      fr: 'Impossible de charger les routes',
+    ),
+    RouteFinderStateKind.cachedRoutes => AppCopy.t(
+      language,
+      ko: '저장된 루트를 먼저 보여드려요',
+      en: 'Showing saved routes first',
+      fr: 'Affichage des routes enregistrées',
+    ),
+  };
+}
+
+String routeFinderStateBody(RouteFinderStateKind kind, AppLanguage language) {
+  return switch (kind) {
+    RouteFinderStateKind.temporaryLocationDenied => AppCopy.t(
+      language,
+      ko: '근처 루트를 찾으려면 위치 권한을 허용하거나 지역 프리셋을 선택하세요.',
+      en: 'Allow location to find nearby routes, or choose a region preset.',
+      fr: 'Autorisez la position ou choisissez une région.',
+    ),
+    RouteFinderStateKind.permanentlyLocationDenied => AppCopy.t(
+      language,
+      ko: '권한이 차단되어 앱 안에서 다시 묻기 어렵습니다. 설정에서 위치를 허용하거나 지역 프리셋을 선택하세요.',
+      en: 'Permission is blocked. Open Settings to allow location, or choose a region preset.',
+      fr: 'Autorisation bloquée. Ouvrez Réglages ou choisissez une région.',
+    ),
+    RouteFinderStateKind.emptyRoutes => AppCopy.t(
+      language,
+      ko: '반경을 넓히거나 지역 프리셋으로 다른 도시를 살펴보세요.',
+      en: 'Broaden the radius or use a region preset to check another city.',
+      fr: 'Élargissez le rayon ou choisissez une autre région.',
+    ),
+    RouteFinderStateKind.loadFailed => AppCopy.t(
+      language,
+      ko: '연결 상태가 안정되면 다시 시도해 주세요. 저장된 루트가 있으면 먼저 보여드릴게요.',
+      en: 'Try again when the connection is stable. Saved routes will be shown first when available.',
+      fr: 'Réessayez avec une connexion stable. Les routes enregistrées s’affichent si possible.',
+    ),
+    RouteFinderStateKind.cachedRoutes => AppCopy.t(
+      language,
+      ko: '최신 데이터 연결이 실패해 마지막으로 저장된 커브길을 사용 중입니다.',
+      en: 'Fresh route data failed to load, so the last saved curvy roads are in use.',
+      fr: 'Les données récentes ont échoué; les routes enregistrées sont utilisées.',
+    ),
+  };
+}
+
+String routeFinderStateActionLabel(
+  RouteFinderStateKind kind,
+  AppLanguage language,
+) {
+  return switch (kind) {
+    RouteFinderStateKind.temporaryLocationDenied => AppCopy.t(
+      language,
+      ko: '위치 다시 허용',
+      en: 'Allow location',
+      fr: 'Autoriser',
+    ),
+    RouteFinderStateKind.permanentlyLocationDenied => AppCopy.openSettings(
+      language,
+    ),
+    RouteFinderStateKind.emptyRoutes => AppCopy.t(
+      language,
+      ko: '지역 프리셋',
+      en: 'Region presets',
+      fr: 'Régions',
+    ),
+    RouteFinderStateKind.loadFailed => AppCopy.t(
+      language,
+      ko: '다시 찾기',
+      en: 'Retry',
+      fr: 'Réessayer',
+    ),
+    RouteFinderStateKind.cachedRoutes => AppCopy.t(
+      language,
+      ko: '추천 보기',
+      en: 'Show picks',
+      fr: 'Voir options',
+    ),
+  };
+}
+
+IconData routeFinderStateActionIcon(RouteFinderStateKind kind) {
+  return switch (kind) {
+    RouteFinderStateKind.temporaryLocationDenied => Icons.my_location_rounded,
+    RouteFinderStateKind.permanentlyLocationDenied => Icons.settings_rounded,
+    RouteFinderStateKind.emptyRoutes => Icons.public_rounded,
+    RouteFinderStateKind.loadFailed => Icons.refresh_rounded,
+    RouteFinderStateKind.cachedRoutes => Icons.route_rounded,
+  };
+}
+
+String _cacheInlineStatus(RouteService service, AppLanguage language) {
+  final count = service.mapVisualRoutes.length;
+  return AppCopy.t(
+    language,
+    ko: '저장된 커브길 $count개를 먼저 표시하고 있어요.',
+    en: 'Showing $count saved curvy roads first.',
+    fr: '$count routes enregistrées affichées.',
+  );
+}
+
 String _emptyRouteBody(RouteService service, AppLanguage language) {
   final base =
       _localizedRouteStatusBody(service, language) ??
       AppCopy.t(
         language,
-        ko: '현재 위치와 클라우드 연결 상태를 확인한 뒤 다시 시도해 주세요.',
-        en: 'Check location and cloud connection, then try again.',
-        fr: 'Vérifiez la position et le cloud, puis réessayez.',
+        ko: '현재 위치와 연결 상태를 확인한 뒤 다시 시도해 주세요.',
+        en: 'Check location and connection, then try again.',
+        fr: 'Vérifiez la position et la connexion, puis réessayez.',
       );
   if (service.lastCloudCandidateCount == 0 &&
       service.lastFilteredRouteCount == 0) {
@@ -1978,12 +2203,12 @@ String? _localizedInlineStatus(String? raw, AppLanguage language) {
       fr: 'Peu d’options. Déplacez la carte et rechargez la zone.',
     );
   }
-  if (raw.contains('클라우드 설정')) {
+  if (raw.contains('루트 데이터를 연결') || raw.contains('클라우드 설정')) {
     return AppCopy.t(
       language,
       ko: raw,
-      en: 'Cloud setup needed.',
-      fr: 'Configuration cloud requise.',
+      en: 'Route data connection needed.',
+      fr: 'Connexion aux données requise.',
     );
   }
   if (raw.contains('네트워크')) {
@@ -2048,11 +2273,17 @@ String? _localizedRouteStatusTitle(RouteService service, AppLanguage language) {
       en: 'Finding routes',
       fr: 'Recherche de routes',
     ),
+    '루트 데이터 연결 필요' => AppCopy.t(
+      language,
+      ko: raw,
+      en: 'Route data connection needed',
+      fr: 'Connexion aux données requise',
+    ),
     '클라우드 설정 없음' => AppCopy.t(
       language,
       ko: raw,
-      en: 'Cloud not configured',
-      fr: 'Cloud non configuré',
+      en: 'Route data connection needed',
+      fr: 'Connexion aux données requise',
     ),
     '루트 로드 실패' => AppCopy.t(
       language,
@@ -2096,12 +2327,12 @@ String? _localizedRouteStatusBody(RouteService service, AppLanguage language) {
   final filtered = service.lastFilteredRouteCount;
   final picks = service.lastUsableCloudRouteCount;
   final mapCount = service.mapVisualRoutes.length;
-  if (raw.contains('Supabase URL') || raw.contains('클라우드')) {
+  if (raw.contains('루트 데이터 연결') || raw.contains('클라우드')) {
     return AppCopy.t(
       language,
       ko: raw,
-      en: 'Check Supabase URL and anon key.',
-      fr: 'Vérifiez l’URL Supabase et la clé anon.',
+      en: 'Check the route data connection, then try again.',
+      fr: 'Vérifiez la connexion aux données, puis réessayez.',
     );
   }
   if (raw.contains('네트워크') || raw.contains('요청이 실패')) {
