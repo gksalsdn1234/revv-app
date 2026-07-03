@@ -43,7 +43,7 @@ def load_context_payload_for_bbox(
   node["natural"~"peak|water|wood|beach"]({south},{west},{north},{east});
   node["amenity"~"fuel|cafe|parking"]({south},{west},{north},{east});
 );
-out tags geom center;
+out geom;
 """
     return load_overpass_payload(query, timeout_seconds)
 
