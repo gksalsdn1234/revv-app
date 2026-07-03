@@ -34,7 +34,9 @@ void main() {
     });
 
     test('rest inserted exactly at the interval boundary', () {
-      final plan = insertRestLegs(planOf([transit(60), transit(60), transit(30)]));
+      final plan = insertRestLegs(
+        planOf([transit(60), transit(60), transit(30)]),
+      );
       final restLegs = plan.legs
           .where((leg) => leg.kind == DrivePlanLegKind.rest)
           .toList();
@@ -45,6 +47,39 @@ void main() {
       expect(plan.restMinutes, restStopMinutes);
       expect(plan.totalMinutes, 150 + restStopMinutes);
     });
+
+    test('rest is inserted inside a long final leg before arrival', () {
+      final plan = insertRestLegs(planOf([transit(121)]));
+      final restLegs = plan.legs
+          .where((leg) => leg.kind == DrivePlanLegKind.rest)
+          .toList();
+      expect(restLegs, hasLength(1));
+      expect(plan.legs.map((leg) => leg.estimatedMinutes), [120, 15, 1]);
+      expect(plan.legs.last.kind, isNot(DrivePlanLegKind.rest));
+      expect(plan.restMinutes, restStopMinutes);
+      expect(plan.totalMinutes, 121 + restStopMinutes);
+    });
+
+    test(
+      'long uninterrupted legs get repeated rests before the final segment',
+      () {
+        final plan = insertRestLegs(planOf([transit(241)]));
+        final restLegs = plan.legs
+            .where((leg) => leg.kind == DrivePlanLegKind.rest)
+            .toList();
+        expect(restLegs, hasLength(2));
+        expect(plan.legs.map((leg) => leg.estimatedMinutes), [
+          120,
+          15,
+          120,
+          15,
+          1,
+        ]);
+        expect(plan.legs.last.kind, isNot(DrivePlanLegKind.rest));
+        expect(plan.restMinutes, restStopMinutes * 2);
+        expect(plan.totalMinutes, 241 + restStopMinutes * 2);
+      },
+    );
 
     test('multiple rests for long drives, none after arrival', () {
       final plan = insertRestLegs(

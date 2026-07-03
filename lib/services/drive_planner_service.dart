@@ -43,40 +43,81 @@ class DrivePlanOption {
 /// 연속 주행 [restIntervalMinutes]마다 [restStopMinutes] 휴식 leg를 삽입한다.
 /// 마지막 leg 뒤(도착 후)에는 삽입하지 않는다. 휴식은 총 소요에 포함된다.
 DrivePlan insertRestLegs(DrivePlan plan) {
-  if (plan.legs.length < 2) return plan;
+  if (plan.legs.isEmpty) return plan;
 
   final legs = <DrivePlanLeg>[];
   var minutesSinceRest = 0;
-  var restMinutes = 0;
+  var insertedRestMinutes = 0;
   for (var i = 0; i < plan.legs.length; i++) {
     final leg = plan.legs[i];
-    legs.add(leg);
-    minutesSinceRest += leg.estimatedMinutes;
-    final isLast = i == plan.legs.length - 1;
-    if (!isLast && minutesSinceRest >= restIntervalMinutes) {
-      legs.add(
-        const DrivePlanLeg(
-          kind: DrivePlanLegKind.rest,
-          nodes: [],
-          distanceKm: 0,
-          estimatedMinutes: restStopMinutes,
-        ),
-      );
-      restMinutes += restStopMinutes;
+
+    if (leg.kind == DrivePlanLegKind.rest) {
+      legs.add(leg);
       minutesSinceRest = 0;
+      continue;
+    }
+
+    if (leg.estimatedMinutes <= 0) {
+      legs.add(leg);
+      continue;
+    }
+
+    var remainingMinutes = leg.estimatedMinutes;
+    while (remainingMinutes > 0) {
+      final minutesUntilRest = restIntervalMinutes - minutesSinceRest;
+      final segmentMinutes = math.min(remainingMinutes, minutesUntilRest);
+      legs.add(_legWithEstimatedMinutes(leg, segmentMinutes));
+      remainingMinutes -= segmentMinutes;
+      minutesSinceRest += segmentMinutes;
+
+      final hasMoreDriving =
+          remainingMinutes > 0 || _hasDrivingBeforeNextRest(plan.legs, i);
+      if (minutesSinceRest >= restIntervalMinutes && hasMoreDriving) {
+        legs.add(
+          const DrivePlanLeg(
+            kind: DrivePlanLegKind.rest,
+            nodes: [],
+            distanceKm: 0,
+            estimatedMinutes: restStopMinutes,
+          ),
+        );
+        insertedRestMinutes += restStopMinutes;
+        minutesSinceRest = 0;
+      }
     }
   }
-  if (restMinutes == 0) return plan;
+  if (insertedRestMinutes == 0) return plan;
 
   return DrivePlan(
     legs: legs,
-    totalMinutes: plan.totalMinutes + restMinutes,
+    totalMinutes: plan.totalMinutes + insertedRestMinutes,
     windingMinutes: plan.windingMinutes,
     transitMinutes: plan.transitMinutes,
-    restMinutes: restMinutes,
+    restMinutes: plan.restMinutes + insertedRestMinutes,
     waypoints: plan.waypoints,
     budgetShortfallMinutes: plan.budgetShortfallMinutes,
   );
+}
+
+DrivePlanLeg _legWithEstimatedMinutes(DrivePlanLeg leg, int minutes) {
+  if (leg.estimatedMinutes == minutes) return leg;
+  final distanceRatio = minutes / leg.estimatedMinutes;
+  return DrivePlanLeg(
+    kind: leg.kind,
+    nodes: leg.nodes,
+    distanceKm: leg.distanceKm * distanceRatio,
+    estimatedMinutes: minutes,
+    route: leg.route,
+  );
+}
+
+bool _hasDrivingBeforeNextRest(List<DrivePlanLeg> legs, int currentIndex) {
+  for (var i = currentIndex + 1; i < legs.length; i++) {
+    final leg = legs[i];
+    if (leg.kind == DrivePlanLegKind.rest) return false;
+    if (leg.estimatedMinutes > 0) return true;
+  }
+  return false;
 }
 
 /// 도착 희망 시각까지 완주 가능한 옵션 중 와인딩이 가장 긴 옵션을 추천한다.
