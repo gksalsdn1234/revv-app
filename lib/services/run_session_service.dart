@@ -6,6 +6,11 @@ import '../models/run_telemetry_detail.dart';
 // SharpCorner는 run_session.dart에 정의됨
 
 class RunSessionService extends ChangeNotifier {
+  RunSessionService({DateTime Function()? clock})
+    : _clock = clock ?? DateTime.now;
+
+  final DateTime Function() _clock;
+
   // ── post-frame 안전 notify ────────────────────────────────────
   // recordPosition()은 LocationService post-frame callback 안에서 호출됨.
   // 직접 notifyListeners() → Consumer rebuild → 같은 프레임 layout 재진입 가능.
@@ -52,9 +57,8 @@ class RunSessionService extends ChangeNotifier {
 
   double get currentMaxSpeed => _maxSpeedKmh;
   double get currentDistance => _distanceKm;
-  Duration get currentDuration => _startTime != null
-      ? DateTime.now().difference(_startTime!)
-      : Duration.zero;
+  Duration get currentDuration =>
+      _startTime != null ? _clock().difference(_startTime!) : Duration.zero;
 
   void startSession(
     RevvRoute? route, {
@@ -62,7 +66,8 @@ class RunSessionService extends ChangeNotifier {
     String tempDisplay = '—',
     String weatherDesc = '',
   }) {
-    _startTime = DateTime.now();
+    final now = _clock();
+    _startTime = now;
     isRecording = true;
     _maxSpeedKmh = 0;
     _totalSpeedSum = 0;
@@ -79,7 +84,7 @@ class RunSessionService extends ChangeNotifier {
     _tempDisplay = tempDisplay;
     _weatherDesc = weatherDesc;
     _currentMode = 'cruise';
-    _currentModeStart = DateTime.now();
+    _currentModeStart = now;
     _driveModeSeconds.clear();
     _sharpCorners.clear();
     _lastSharpTime = null;
@@ -124,7 +129,7 @@ class RunSessionService extends ChangeNotifier {
   }) {
     final start = _startTime;
     if (start == null) return;
-    final now = DateTime.now();
+    final now = _clock();
     final lastTime = _lastTelemetrySampleTime;
     final lastPoint = _lastTelemetrySamplePosition;
     final movedKm = lastPoint == null
@@ -160,7 +165,7 @@ class RunSessionService extends ChangeNotifier {
     String? driveMode,
   }) {
     if (!isRecording) return;
-    final now = DateTime.now();
+    final now = _clock();
     // 쿨다운: 마지막 급조작 후 3초 이내 중복 감지 방지
     if (_lastSharpTime != null &&
         now.difference(_lastSharpTime!) < _sharpCooldown) {
@@ -187,13 +192,13 @@ class RunSessionService extends ChangeNotifier {
     if (!isRecording || modeName == _currentMode) return;
     _finalizeCurrentMode();
     _currentMode = modeName;
-    _currentModeStart = DateTime.now();
+    _currentModeStart = _clock();
   }
 
   void _finalizeCurrentMode() {
     final start = _currentModeStart;
     if (start == null) return;
-    final secs = DateTime.now().difference(start).inSeconds;
+    final secs = _clock().difference(start).inSeconds;
     _driveModeSeconds[_currentMode] =
         (_driveModeSeconds[_currentMode] ?? 0) + secs;
   }
@@ -205,7 +210,7 @@ class RunSessionService extends ChangeNotifier {
     _finalizeCurrentMode();
     final session = RunSession(
       startTime: _startTime!,
-      endTime: DateTime.now(),
+      endTime: _clock(),
       maxSpeedKmh: _maxSpeedKmh,
       avgSpeedKmh: _speedSamples > 0 ? _totalSpeedSum / _speedSamples : 0,
       distanceKm: _distanceKm,
