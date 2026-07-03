@@ -849,9 +849,9 @@ class _MapReplaySection extends StatelessWidget {
                           Text(
                             AppCopy.t(
                               language,
-                              ko: '$sharpCount G이벤트',
-                              en: '$sharpCount G events',
-                              fr: '$sharpCount événements G',
+                              ko: '$sharpCount 코너 이벤트',
+                              en: '$sharpCount corner events',
+                              fr: '$sharpCount événements',
                             ),
                             style: AppText.technicalLabel(
                               size: 10,
@@ -907,8 +907,8 @@ class _RevvRecapSection extends StatelessWidget {
         value: displayed['Duration'] ?? '0s',
         accent: false,
       ),
-      if (displayed['Peak G'] case final value?)
-        _StatItem(label: 'Peak G', value: value, accent: true),
+      if (displayed['Corner events'] case final value?)
+        _StatItem(label: 'Corner events', value: value, accent: true),
       if (displayed['Route'] case final value?)
         _StatItem(label: 'Route', value: value, accent: false),
     ];
@@ -1396,7 +1396,7 @@ List<_SessionLogGroup> _sessionLogGroups({
   final sharpRows = session.sharpCorners.take(6).map((event) {
     return _SessionLogRow(
       _formatClock(event.time),
-      '${event.lateralG.toStringAsFixed(2)}G · ${_modeLabel(event.driveMode, language)}',
+      _modeLabel(event.driveMode, language),
     );
   }).toList();
 
@@ -1515,7 +1515,7 @@ List<_SessionLogGroup> _sessionLogGroups({
           '${_analyticsInt(analytics, 'sharpEventCount') ?? session.sharpCorners.length}',
         ),
         _SessionLogRow(
-          AppCopy.t(language, ko: '95% 종G', en: 'P95 LONG G', fr: 'G LONG P95'),
+          AppCopy.t(language, ko: '종G 흐름', en: 'LONG G RANGE', fr: 'PLAGE G LONG'),
           _formatG(_analyticsDouble(analytics, 'p95AbsLongitudinalG')),
         ),
       ],
@@ -1525,21 +1525,33 @@ List<_SessionLogGroup> _sessionLogGroups({
       icon: Icons.graphic_eq_rounded,
       title: AppCopy.t(
         language,
-        ko: 'G-Force 분석',
-        en: 'G-Force analysis',
-        fr: 'Analyse G',
+        ko: '핸들링 분석',
+        en: 'Handling notes',
+        fr: 'Notes de tenue',
       ),
-      summary: peakG > 0 ? 'Peak ${peakG.toStringAsFixed(2)}G' : 'No G peak',
+      summary: session.sharpCorners.isEmpty
+          ? AppCopy.t(
+              language,
+              ko: '안정된 리듬',
+              en: 'Steady rhythm',
+              fr: 'Rythme stable',
+            )
+          : AppCopy.t(
+              language,
+              ko: '${session.sharpCorners.length}개 코너 이벤트',
+              en: '${session.sharpCorners.length} corner events',
+              fr: '${session.sharpCorners.length} événements',
+            ),
       accent: peakG >= 0.4 ? AppColors.warning : AppColors.gold,
       rows: [
         _SessionLogRow(
-          AppCopy.t(language, ko: '최대 횡G', en: 'MAX LAT G', fr: 'G LAT MAX'),
+          AppCopy.t(language, ko: '횡G 범위', en: 'LAT G RANGE', fr: 'PLAGE G LAT'),
           _formatG(
             _analyticsDouble(analytics, 'maxLateralG') ?? session.maxLateralG,
           ),
         ),
         _SessionLogRow(
-          AppCopy.t(language, ko: '최대 종G', en: 'MAX LONG G', fr: 'G LONG MAX'),
+          AppCopy.t(language, ko: '종G 범위', en: 'LONG G RANGE', fr: 'PLAGE G LONG'),
           _formatG(
             _analyticsDouble(analytics, 'maxLongitudinalG') ?? session.maxLonG,
           ),
@@ -1547,9 +1559,9 @@ List<_SessionLogGroup> _sessionLogGroups({
         _SessionLogRow(
           AppCopy.t(
             language,
-            ko: '평균/95% 횡G',
-            en: 'AVG / P95 LAT',
-            fr: 'LAT MOY / P95',
+            ko: '횡G 평균 범위',
+            en: 'LAT G FLOW',
+            fr: 'FLUX G LAT',
           ),
           '${_formatG(_analyticsDouble(analytics, 'avgAbsLateralG'))} / '
           '${_formatG(_analyticsDouble(analytics, 'p95AbsLateralG'))}',
@@ -1557,9 +1569,9 @@ List<_SessionLogGroup> _sessionLogGroups({
         _SessionLogRow(
           AppCopy.t(
             language,
-            ko: '평균/95% 종G',
-            en: 'AVG / P95 LONG',
-            fr: 'LONG MOY / P95',
+            ko: '종G 평균 범위',
+            en: 'LONG G FLOW',
+            fr: 'FLUX G LONG',
           ),
           '${_formatG(_analyticsDouble(analytics, 'avgAbsLongitudinalG'))} / '
           '${_formatG(_analyticsDouble(analytics, 'p95AbsLongitudinalG'))}',
@@ -1599,9 +1611,9 @@ List<_SessionLogGroup> _sessionLogGroups({
                 AppCopy.t(language, ko: '기록', en: 'LOG', fr: 'JOURNAL'),
                 AppCopy.t(
                   language,
-                  ko: '0.45G 이상 코너 이벤트가 없었습니다.',
-                  en: 'No corner events above 0.45G.',
-                  fr: 'Aucun événement au-dessus de 0.45G.',
+                  ko: '특별한 코너 이벤트가 기록되지 않았습니다.',
+                  en: 'No notable corner events recorded.',
+                  fr: 'Aucun événement notable enregistré.',
                 ),
               ),
             ]
@@ -2024,7 +2036,7 @@ Color _modeColor(String mode) {
     'cruise' => AppColors.primaryContainer,
     'winding' => AppColors.warning,
     'sport' => AppColors.orange,
-    'attack' => AppColors.danger,
+    'attack' => AppColors.gold,
     'simulation' => AppColors.textHint,
     _ => AppColors.textSecondary,
   };
@@ -2035,7 +2047,7 @@ String _modeLabel(String mode, AppLanguage language) {
     'cruise' => AppCopy.t(language, ko: '크루즈', en: 'Cruise', fr: 'Cruise'),
     'winding' => AppCopy.t(language, ko: '와인딩', en: 'Winding', fr: 'Virage'),
     'sport' => AppCopy.t(language, ko: '스포츠', en: 'Sport', fr: 'Sport'),
-    'attack' => AppCopy.t(language, ko: '어택', en: 'Attack', fr: 'Attaque'),
+    'attack' => AppCopy.t(language, ko: '집중', en: 'Focus', fr: 'Focus'),
     'simulation' => AppCopy.t(language, ko: '시뮬레이션', en: 'Sim', fr: 'Sim'),
     _ => mode,
   };

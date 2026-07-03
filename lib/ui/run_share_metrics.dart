@@ -52,9 +52,11 @@ RunShareMetrics buildRunShareMetrics({
         drivenKm: distanceKm,
         routeDistanceKm: session?.route?.distanceKm ?? summary?.routeDistanceKm,
       );
-  final peakG = _metricDouble(analytics, 'peakG') ?? summary?.peakG;
-  final p95LateralG =
-      _metricDouble(analytics, 'p95AbsLateralG') ?? summary?.p95LateralG;
+  final cornerEventCount =
+      _metricInt(analytics, 'sharpEventCount') ??
+      summary?.sharpCornersCount ??
+      session?.sharpCorners.length ??
+      0;
   final maxSpeedKmh =
       _metricDouble(analytics, 'maxSpeedKmh') ??
       summary?.maxSpeedKmh ??
@@ -89,15 +91,10 @@ RunShareMetrics buildRunShareMetrics({
               summary?.windingSamplePct
           case final value?)
         RunShareDisplayMetric(label: 'Winding', value: '${value.round()}%'),
-      if (peakG != null && peakG > 0)
+      if (cornerEventCount > 0)
         RunShareDisplayMetric(
-          label: 'Peak G',
-          value: '${peakG.toStringAsFixed(2)}g',
-        ),
-      if (p95LateralG != null && p95LateralG > 0)
-        RunShareDisplayMetric(
-          label: 'P95 lateral G',
-          value: '${p95LateralG.toStringAsFixed(2)}g',
+          label: 'Corner events',
+          value: '$cornerEventCount',
         ),
       if (routeCompletionPct != null)
         RunShareDisplayMetric(

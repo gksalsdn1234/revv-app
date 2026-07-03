@@ -71,15 +71,6 @@ class CopilotRunSummaryCopy {
             fr: '$sharpCount',
           ),
         ),
-        CopilotRunStat(
-          AppCopy.t(
-            language ?? AppLanguage.korean,
-            ko: '최고 G',
-            en: 'Peak G',
-            fr: 'G max',
-          ),
-          peakG.toStringAsFixed(2),
-        ),
       ],
     );
   }
@@ -103,9 +94,9 @@ String _headline(
   if (session.route != null && sharpCount >= 3) {
     return AppCopy.t(
       lang,
-      ko: '루트 리듬과 G 피크가 함께 남았어요.',
-      en: 'Route rhythm and G peaks were saved.',
-      fr: 'Rythme de route et pics G enregistrés.',
+      ko: '루트 리듬과 코너 흐름이 함께 남았어요.',
+      en: 'Route rhythm and corner flow were saved.',
+      fr: 'Rythme de route et enchaînement des virages enregistrés.',
     );
   }
   if (session.route != null) {
@@ -155,15 +146,15 @@ String _summaryLine(
   final eventText = sharpCount == 0
       ? AppCopy.t(
           lang,
-          ko: '큰 G 이벤트 없이',
-          en: 'with no major G events',
-          fr: 'sans gros événement G',
+          ko: '안정된 리듬으로',
+          en: 'with a steady rhythm',
+          fr: 'avec un rythme stable',
         )
       : AppCopy.t(
           lang,
-          ko: 'G 이벤트 $sharpCount회와 함께',
-          en: 'with $sharpCount G events',
-          fr: 'avec $sharpCount événements G',
+          ko: '코너 이벤트 $sharpCount회와 함께',
+          en: 'with $sharpCount corner events',
+          fr: 'avec $sharpCount événements',
         );
   return AppCopy.t(
     lang,

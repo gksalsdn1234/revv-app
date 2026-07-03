@@ -233,7 +233,7 @@ void main() {
     expect(find.text('Route context'), findsOneWidget);
     expect(find.text('Collection quality'), findsOneWidget);
     expect(find.text('Privacy & share'), findsOneWidget);
-    expect(find.text('G-Force analysis'), findsOneWidget);
+    expect(find.text('Handling notes'), findsOneWidget);
     expect(find.text('GPS POINTS'), findsWidgets);
 
     await tester.tap(find.text('Flow').last);
@@ -246,10 +246,10 @@ void main() {
     expect(find.text('SMOOTHNESS'), findsOneWidget);
     expect(find.text('BRAKE / ACCEL'), findsOneWidget);
 
-    await tester.tap(find.text('G-Force analysis'));
+    await tester.tap(find.text('Handling notes'));
     await tester.pumpAndSettle();
 
-    expect(find.text('MAX LAT G'), findsOneWidget);
+    expect(find.text('LAT G RANGE'), findsOneWidget);
     expect(find.text('0.54'), findsWidgets);
 
     await tester.tap(find.text('Route context'));
@@ -385,6 +385,14 @@ void main() {
       weatherDesc: 'Clear',
       maxLateralG: 0.4,
       maxLonG: 0.2,
+      sharpCorners: [
+        SharpCorner(
+          position: const LatLng(37.01, 127.01),
+          lateralG: 0.4,
+          driveMode: 'winding',
+          time: startedAt.add(const Duration(minutes: 1)),
+        ),
+      ],
       telemetrySamples: const [
         TelemetrySample(
           tMs: 1000,
@@ -411,8 +419,7 @@ void main() {
 
     expect(find.text('Route'), findsOneWidget);
     expect(find.text('90% done'), findsOneWidget);
-    expect(find.text('Peak G'), findsOneWidget);
-    expect(find.text('0.40g'), findsOneWidget);
+    expect(find.text('Corner events'), findsOneWidget);
   });
 
   testWidgets('run summary saves route feedback', (tester) async {

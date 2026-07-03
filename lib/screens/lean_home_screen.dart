@@ -549,7 +549,7 @@ class _LastRunCard extends StatelessWidget {
     final diff = now.difference(run.date);
     final relDate = _relativeDate(diff, language);
     final distText = '${run.distanceKm.toStringAsFixed(1)} km';
-    final hasG = run.maxLateralG != null && run.maxLateralG! > 0;
+    final hasCornerEvents = run.sharpCornersCount > 0;
 
     return Container(
       width: double.infinity,
@@ -605,10 +605,15 @@ class _LastRunCard extends StatelessWidget {
               _RunPill(label: distText),
               const SizedBox(width: 7),
               _RunPill(label: run.durationDisplay),
-              if (hasG) ...[
+              if (hasCornerEvents) ...[
                 const SizedBox(width: 7),
                 _RunPill(
-                  label: '${run.maxLateralG!.toStringAsFixed(2)}G',
+                  label: AppCopy.t(
+                    language,
+                    ko: '${run.sharpCornersCount} 코너',
+                    en: '${run.sharpCornersCount} corners',
+                    fr: '${run.sharpCornersCount} virages',
+                  ),
                   accent: true,
                 ),
               ],
@@ -835,11 +840,9 @@ class _StatsLine extends StatelessWidget {
     final kmText = totalKm >= 1000
         ? '${(totalKm / 1000).toStringAsFixed(1)}k km'
         : '${totalKm.toStringAsFixed(1)} km';
-    final bestG = history.bestMaxG;
     final parts = [
       '${history.totalRuns} runs',
       kmText,
-      if (bestG != null && bestG > 0) 'Best ${bestG.toStringAsFixed(2)}G',
     ];
 
     return Text(
@@ -867,7 +870,6 @@ class HistorySheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final history = context.watch<RunHistoryService>();
     final runs = history.history;
-    final bestG = history.bestMaxG;
     final bestRevv = runs.fold<int?>(
       null,
       (best, run) => run.revvScore == null
@@ -934,8 +936,11 @@ class HistorySheet extends StatelessWidget {
                       value: history.totalDistanceKm.toStringAsFixed(0),
                     ),
                     _HistoryMetric(
-                      label: 'BEST G',
-                      value: bestG == null ? '--' : bestG.toStringAsFixed(2),
+                      label: 'AVG KM',
+                      value: history.totalRuns == 0
+                          ? '--'
+                          : (history.totalDistanceKm / history.totalRuns)
+                                .toStringAsFixed(1),
                     ),
                   ],
                 ),
@@ -952,7 +957,7 @@ class HistorySheet extends StatelessWidget {
                       ),
                     ),
                     _HistoryMetric(
-                      label: 'BEST REVV',
+                      label: 'REVV',
                       value: bestRevv == null ? '--' : '$bestRevv',
                     ),
                   ],

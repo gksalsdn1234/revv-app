@@ -4,7 +4,7 @@ import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/ui/copilot_run_summary.dart';
 
 void main() {
-  test('summary copy uses route, sharp events, and G peak', () {
+  test('summary copy uses route rhythm and corner events', () {
     final route = RevvRoute(
       id: 'route-1',
       name: 'Rang Saint-Simon',
@@ -42,7 +42,7 @@ void main() {
 
     expect(copy.headline, contains('루트'));
     expect(copy.summaryLine, contains('Rang Saint-Simon'));
-    expect(copy.summaryLine, contains('G 이벤트 1회'));
+    expect(copy.summaryLine, contains('코너 이벤트 1회'));
     expect(copy.notableStats.map((stat) => stat.label), contains('커브 이벤트'));
     expect(copy.nextSuggestion, contains('추천'));
   });

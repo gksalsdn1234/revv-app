@@ -27,8 +27,7 @@ void main() {
     expect(shareMetrics['Technical'], '73');
     expect(shareMetrics['Smoothness'], '80');
     expect(shareMetrics['Winding'], '43%');
-    expect(shareMetrics['Peak G'], '0.62g');
-    expect(shareMetrics['P95 lateral G'], '0.31g');
+    expect(shareMetrics['Corner events'], '4');
     expect(shareMetrics['Route'], '88% done');
     expect(shareMetrics['Distance'], '12.3 km');
     expect(shareMetrics['Duration'], '12m 34s');
@@ -65,6 +64,33 @@ void main() {
     expect(metrics.maxSpeedInternalOnly.value, '181 km/h');
   });
 
+  test('default share metrics avoid record-framed safety copy', () {
+    // Given: metrics include telemetry fields that stay internal.
+    final metrics = buildRunShareMetrics(
+      session: _session(),
+      summary: _summary(),
+      detail: _detail(),
+    );
+
+    // When: public labels and values are collected.
+    final visibleText = metrics.defaultShareMetrics
+        .expand((metric) => [metric.label, metric.value])
+        .join(' | ');
+
+    // Then: public metric copy does not use record or limit framing.
+    expect(
+      visibleText,
+      isNot(
+        matches(
+          RegExp(
+            r'\b(MAX|BEST|PEAK|PK|RECORD)\b|GRIP LIMIT|Attack|어택|최고|최대|신기록|0\.45G',
+            caseSensitive: false,
+          ),
+        ),
+      ),
+    );
+  });
+
   test('summary-only share metrics stay finite and safe', () {
     // Given: detail is missing, but summary/session still have headline data.
     final metrics = buildRunShareMetrics(
@@ -82,7 +108,7 @@ void main() {
     expect(shareMetrics['Distance'], '12.3 km');
     expect(shareMetrics['Duration'], '12m 34s');
     expect(shareMetrics['Route'], '91% done');
-    expect(shareMetrics['Peak G'], '0.64g');
+    expect(shareMetrics['Corner events'], '4');
     expect(shareMetrics['Max speed'], isNull);
   });
 }
@@ -118,6 +144,7 @@ RunSummary _summary() {
     tempDisplay: '22 C',
     maxLateralG: 0.64,
     maxLongitudinalG: -0.52,
+    sharpCornersCount: 4,
     routeDistanceKm: 13.5,
     routeCompletionPct: 91,
   );
@@ -142,6 +169,7 @@ RunTelemetryDetail _detail() {
       'technicalScore': 73,
       'smoothnessScore': 80,
       'windingSamplePct': 42.6,
+      'sharpEventCount': 4,
       'peakG': 0.62,
       'p95AbsLateralG': 0.31,
       'routeCompletionPct': 88,

@@ -903,7 +903,7 @@ class _CompactGInstrument extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'G METER',
+                  'BALANCE',
                   style: AppText.technicalLabel(
                     size: 9,
                     color: AppColors.textHint,
@@ -916,13 +916,6 @@ class _CompactGInstrument extends StatelessWidget {
                     size: 28,
                     height: 0.9,
                     color: AppColors.textPrimary,
-                  ),
-                ),
-                Text(
-                  'PK ${peakG.toStringAsFixed(2)}',
-                  style: AppText.technicalLabel(
-                    size: 9,
-                    color: AppColors.primaryContainer,
                   ),
                 ),
               ],
