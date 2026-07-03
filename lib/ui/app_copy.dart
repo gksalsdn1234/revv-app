@@ -42,6 +42,12 @@ class AppCopy {
   static String history(AppLanguage language) =>
       t(language, ko: '기록', en: 'History', fr: 'Historique');
 
+  static String homeNav(AppLanguage language) =>
+      t(language, ko: '홈', en: 'Home', fr: 'Accueil');
+
+  static String settingsNav(AppLanguage language) =>
+      t(language, ko: '설정', en: 'Settings', fr: 'Réglages');
+
   static String cloudRuns(AppLanguage language) =>
       t(language, ko: '클라우드', en: 'Cloud sync', fr: 'Sync cloud');
 
@@ -245,4 +251,218 @@ class AppCopy {
     en: 'Test drive from here',
     fr: 'Tester depuis ici',
   );
+
+  static String sharePreview(AppLanguage language) =>
+      t(language, ko: '공유 미리보기', en: 'Share preview', fr: 'Aperçu');
+
+  static String exportCard(AppLanguage language) =>
+      t(language, ko: '카드 내보내기', en: 'Export card', fr: 'Exporter');
+
+  static String privateRoute(AppLanguage language) =>
+      t(language, ko: '비공개 루트', en: 'Private route', fr: 'Route privée');
+
+  static String sharePresetStory(AppLanguage language) =>
+      t(language, ko: '스토리', en: 'Story', fr: 'Story');
+
+  static String sharePresetSquare(AppLanguage language) =>
+      t(language, ko: '스퀘어', en: 'Square', fr: 'Carré');
+
+  static String sharePresetSticker(AppLanguage language) =>
+      t(language, ko: '스티커', en: 'Sticker', fr: 'Sticker');
+
+  static String sharePresetSubtitle(AppLanguage language, String presetLabel) =>
+      t(
+        language,
+        ko: 'REVV $presetLabel',
+        en: 'REVV $presetLabel',
+        fr: 'REVV $presetLabel',
+      );
+
+  static String shareDateLabel(AppLanguage language, DateTime date) {
+    final month = switch (language) {
+      AppLanguage.korean => '${date.month}월',
+      AppLanguage.french => const [
+        'janv.',
+        'févr.',
+        'mars',
+        'avr.',
+        'mai',
+        'juin',
+        'juil.',
+        'août',
+        'sept.',
+        'oct.',
+        'nov.',
+        'déc.',
+      ][date.month - 1],
+      AppLanguage.english => const [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
+      ][date.month - 1],
+    };
+    return switch (language) {
+      AppLanguage.korean => '${date.year}년 $month ${date.day}일',
+      AppLanguage.french => '${date.day} $month ${date.year}',
+      AppLanguage.english => '$month ${date.day}, ${date.year}',
+    };
+  }
+
+  static String shareMetricLabel(AppLanguage language, String metricId) {
+    return switch (metricId) {
+      'distance' => t(language, ko: '거리', en: 'Distance', fr: 'Distance'),
+      'duration' => t(language, ko: '시간', en: 'Duration', fr: 'Durée'),
+      'avgSpeed' => t(
+        language,
+        ko: '평균 속도',
+        en: 'Avg speed',
+        fr: 'Vitesse moy.',
+      ),
+      'revvScore' => t(
+        language,
+        ko: 'REVV 점수',
+        en: 'REVV Score',
+        fr: 'Score REVV',
+      ),
+      'flow' => t(language, ko: '흐름', en: 'Flow', fr: 'Flow'),
+      'technical' => t(language, ko: '테크닉', en: 'Technical', fr: 'Technique'),
+      'smoothness' => t(language, ko: '스무스', en: 'Smoothness', fr: 'Fluidité'),
+      'winding' => t(language, ko: '와인딩', en: 'Winding', fr: 'Virages'),
+      'cornerEvents' => t(
+        language,
+        ko: '코너 이벤트',
+        en: 'Corner events',
+        fr: 'Virages',
+      ),
+      'route' => t(language, ko: '루트', en: 'Route', fr: 'Route'),
+      'maxSpeed' => t(
+        language,
+        ko: '최고 속도',
+        en: 'Max speed',
+        fr: 'Vitesse max',
+      ),
+      _ => metricId,
+    };
+  }
+
+  static String routeCompletion(AppLanguage language, int percent) => t(
+    language,
+    ko: '$percent% 완료',
+    en: '$percent% done',
+    fr: '$percent % fait',
+  );
+
+  static String loadingTagline(AppLanguage language) => t(
+    language,
+    ko: '루트 확인 · 안전 준비',
+    en: 'Route check · Safe start',
+    fr: 'Route prête · Départ sûr',
+  );
+
+  static String loadingGps(AppLanguage language) =>
+      t(language, ko: 'GPS', en: 'GPS', fr: 'GPS');
+
+  static String loadingImu(AppLanguage language) =>
+      t(language, ko: '센서', en: 'IMU', fr: 'IMU');
+
+  static String loadingLocation(AppLanguage language) =>
+      t(language, ko: '위치', en: 'Location', fr: 'Position');
+
+  static String loadingScanning(AppLanguage language) =>
+      t(language, ko: '확인 중', en: 'Scan', fr: 'Scan');
+
+  static String loadingReady(AppLanguage language) =>
+      t(language, ko: '완료', en: 'OK', fr: 'OK');
+
+  static String settingsGarage(AppLanguage language) => t(
+    language,
+    ko: '설정 / 차고',
+    en: 'Settings / Garage',
+    fr: 'Réglages / Garage',
+  );
+
+  static String anonymousDriver(AppLanguage language) => t(
+    language,
+    ko: '익명 드라이버',
+    en: 'Anonymous driver',
+    fr: 'Conducteur anonyme',
+  );
+
+  static String noSavedRuns(AppLanguage language) => t(
+    language,
+    ko: '저장된 런 없음',
+    en: 'No saved runs yet',
+    fr: 'Aucune sortie enregistrée',
+  );
+
+  static String profileRunsMeta(
+    AppLanguage language,
+    int runCount,
+    String since,
+  ) {
+    return t(
+      language,
+      ko: '총 $runCount회 · 시작 $since',
+      en: '$runCount ${runCount == 1 ? 'run' : 'runs'} · since $since',
+      fr: '$runCount ${runCount == 1 ? 'sortie' : 'sorties'} · depuis $since',
+    );
+  }
+
+  static String settingsUnitsDisplay(AppLanguage language) => t(
+    language,
+    ko: '단위 / 표시',
+    en: 'Units / Display',
+    fr: 'Unités / Affichage',
+  );
+
+  static String settingsDistance(AppLanguage language) =>
+      t(language, ko: '거리', en: 'Distance', fr: 'Distance');
+
+  static String settingsLanguage(AppLanguage language) =>
+      t(language, ko: '언어', en: 'Language', fr: 'Langue');
+
+  static String settingsDrive(AppLanguage language) =>
+      t(language, ko: '주행', en: 'Drive', fr: 'Trajet');
+
+  static String settingsCloudSync(AppLanguage language) =>
+      t(language, ko: '클라우드 동기화', en: 'Cloud sync', fr: 'Sync cloud');
+
+  static String cloudSyncDetail(AppLanguage language) => t(
+    language,
+    ko: '로컬 리포트 유지 · 기기 동기화는 나중에 로그인 필요',
+    en: 'Local reports stay · device sync needs sign-in later',
+    fr: 'Rapports locaux gardés · sync avec connexion plus tard',
+  );
+
+  static String settingsVoiceGuidance(AppLanguage language) =>
+      t(language, ko: '음성 안내', en: 'Voice guidance', fr: 'Guidage vocal');
+
+  static String voiceGuidanceDetail(AppLanguage language) => t(
+    language,
+    ko: '페이스 노트와 회전 안내',
+    en: 'Pace notes and turns',
+    fr: 'Notes et virages',
+  );
+
+  static String settingsCurveAlerts(AppLanguage language) =>
+      t(language, ko: '커브 알림', en: 'Curve alerts', fr: 'Alertes virage');
+
+  static String curveAlertsDetail(AppLanguage language) => t(
+    language,
+    ko: '미리 속도 확인',
+    en: 'Early ease-off cues',
+    fr: 'Rappels de lever tôt',
+  );
+
+  static String settingsData(AppLanguage language) =>
+      t(language, ko: '데이터', en: 'Data', fr: 'Données');
 }

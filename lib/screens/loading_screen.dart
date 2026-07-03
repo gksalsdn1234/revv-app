@@ -2,8 +2,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
+import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
+import '../ui/app_copy.dart';
 import 'lean_home_screen.dart';
 
 class LoadingScreen extends StatefulWidget {
@@ -35,10 +38,11 @@ class _LoadingScreenState extends State<LoadingScreen>
       duration: const Duration(milliseconds: 500),
     );
 
-    _logoFade  = CurvedAnimation(parent: _logoCtrl,    curve: Curves.easeOut);
-    _logoScale = Tween<double>(begin: 0.88, end: 1.0).animate(
-      CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutCubic),
-    );
+    _logoFade = CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOut);
+    _logoScale = Tween<double>(
+      begin: 0.88,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _logoCtrl, curve: Curves.easeOutCubic));
     _contentFade = CurvedAnimation(parent: _contentCtrl, curve: Curves.easeIn);
 
     _logoCtrl.forward().then((_) async {
@@ -76,116 +80,134 @@ class _LoadingScreenState extends State<LoadingScreen>
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<SettingsService>().appLanguage;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            children: [
-              // ── F1 lights ──────────────────────────────────
-              const Spacer(),
-              FadeTransition(
-                opacity: _logoFade,
-                child: const _F1LightsRow(),
-              ),
-              const SizedBox(height: 32),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 620;
+            final tight = constraints.maxHeight < 520;
+            final logoSize = tight ? 58.0 : (compact ? 72.0 : 88.0);
+            final topGap = tight ? 22.0 : (compact ? 34.0 : 0.0);
+            final lightGap = tight ? 18.0 : (compact ? 24.0 : 32.0);
+            final bottomGap = tight ? 8.0 : 16.0;
 
-              // ── REVV wordmark ──────────────────────────────
-              FadeTransition(
-                opacity: _logoFade,
-                child: ScaleTransition(
-                  scale: _logoScale,
-                  child: RichText(
-                    text: TextSpan(
-                      style: AppText.display(
-                        size: 88,
-                        weight: FontWeight.w900,
-                        letterSpacing: 0,
-                      ),
-                      children: const [
-                        TextSpan(
-                          text: 'RE',
-                          style: TextStyle(color: AppColors.cream),
+            return Padding(
+              padding: EdgeInsets.symmetric(horizontal: compact ? 24 : 32),
+              child: Column(
+                children: [
+                  SizedBox(height: topGap),
+                  if (!compact) const Spacer(),
+                  FadeTransition(
+                    opacity: _logoFade,
+                    child: const _F1LightsRow(),
+                  ),
+                  SizedBox(height: lightGap),
+                  FadeTransition(
+                    opacity: _logoFade,
+                    child: ScaleTransition(
+                      scale: _logoScale,
+                      child: RichText(
+                        text: TextSpan(
+                          style: AppText.display(
+                            size: logoSize,
+                            weight: FontWeight.w900,
+                            letterSpacing: 0,
+                          ),
+                          children: const [
+                            TextSpan(
+                              text: 'RE',
+                              style: TextStyle(color: AppColors.cream),
+                            ),
+                            TextSpan(
+                              text: 'VV',
+                              style: TextStyle(
+                                color: AppColors.red,
+                                shadows: [
+                                  Shadow(
+                                    color: AppColors.redGlow,
+                                    blurRadius: 24,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        TextSpan(
-                          text: 'VV',
-                          style: TextStyle(
-                            color: AppColors.red,
-                            shadows: [
-                              Shadow(color: AppColors.redGlow, blurRadius: 24),
-                            ],
+                      ),
+                    ),
+                  ),
+                  FadeTransition(
+                    opacity: _logoFade,
+                    child: Container(
+                      height: 2,
+                      width: 56,
+                      margin: const EdgeInsets.only(top: 6),
+                      decoration: BoxDecoration(
+                        color: AppColors.red,
+                        borderRadius: BorderRadius.circular(1),
+                        boxShadow: [
+                          BoxShadow(color: AppColors.redGlow, blurRadius: 8),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: compact ? 10 : 12),
+                  FadeTransition(
+                    opacity: _logoFade,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        AppCopy.loadingTagline(language).toUpperCase(),
+                        style: AppText.mono(
+                          size: 10,
+                          color: AppColors.stone,
+                          letterSpacing: 1.6,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (!tight) const Spacer() else const SizedBox(height: 20),
+                  FadeTransition(
+                    opacity: _contentFade,
+                    child: Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(
+                        vertical: compact ? 12 : 16,
+                      ),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(
+                            color: AppColors.cream.withValues(alpha: 0.07),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-
-              // ── Red underline ──────────────────────────────
-              FadeTransition(
-                opacity: _logoFade,
-                child: Container(
-                  height: 2,
-                  width: 56,
-                  margin: const EdgeInsets.only(top: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.red,
-                    borderRadius: BorderRadius.circular(1),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.redGlow,
-                        blurRadius: 8,
                       ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // ── Tagline ────────────────────────────────────
-              FadeTransition(
-                opacity: _logoFade,
-                child: Text(
-                  'FIND THE ROAD · RUN THE LAP',
-                  style: AppText.mono(
-                    size: 10,
-                    color: AppColors.stone,
-                    letterSpacing: 2.5,
-                  ),
-                ),
-              ),
-
-              const Spacer(),
-
-              // ── System checks ──────────────────────────────
-              FadeTransition(
-                opacity: _contentFade,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      top: BorderSide(
-                        color: AppColors.cream.withValues(alpha: 0.07),
+                      child: Column(
+                        children: [
+                          _CheckRow(
+                            label: AppCopy.loadingGps(language),
+                            status: AppCopy.loadingScanning(language),
+                          ),
+                          SizedBox(height: compact ? 8 : 10),
+                          _CheckRow(
+                            label: AppCopy.loadingImu(language),
+                            status: AppCopy.loadingReady(language),
+                            ok: true,
+                          ),
+                          SizedBox(height: compact ? 8 : 10),
+                          _CheckRow(
+                            label: AppCopy.loadingLocation(language),
+                            status: AppCopy.loadingScanning(language),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                  child: const Column(
-                    children: [
-                      _CheckRow(label: 'GPS',      status: 'ACQUIRING'),
-                      SizedBox(height: 10),
-                      _CheckRow(label: 'IMU',      status: 'READY',    ok: true),
-                      SizedBox(height: 10),
-                      _CheckRow(label: 'LOCATION', status: 'CHECKING'),
-                    ],
-                  ),
-                ),
+                  SizedBox(height: bottomGap),
+                ],
               ),
-              const SizedBox(height: 8),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -216,9 +238,7 @@ class _F1LightsRow extends StatelessWidget {
                   : null,
               border: lit
                   ? null
-                  : Border.all(
-                      color: AppColors.cream.withValues(alpha: 0.12),
-                    ),
+                  : Border.all(color: AppColors.cream.withValues(alpha: 0.12)),
             ),
           ),
         );
@@ -234,11 +254,7 @@ class _CheckRow extends StatelessWidget {
   final String status;
   final bool ok;
 
-  const _CheckRow({
-    required this.label,
-    required this.status,
-    this.ok = false,
-  });
+  const _CheckRow({required this.label, required this.status, this.ok = false});
 
   @override
   Widget build(BuildContext context) {
@@ -252,7 +268,12 @@ class _CheckRow extends StatelessWidget {
             shape: BoxShape.circle,
             color: dotColor,
             boxShadow: ok
-                ? [BoxShadow(color: dotColor.withValues(alpha: 0.6), blurRadius: 6)]
+                ? [
+                    BoxShadow(
+                      color: dotColor.withValues(alpha: 0.6),
+                      blurRadius: 6,
+                    ),
+                  ]
                 : null,
           ),
         ),
@@ -260,7 +281,11 @@ class _CheckRow extends StatelessWidget {
         Expanded(
           child: Text(
             label,
-            style: AppText.mono(size: 10, color: AppColors.stone, letterSpacing: 1.2),
+            style: AppText.mono(
+              size: 10,
+              color: AppColors.stone,
+              letterSpacing: 1.2,
+            ),
           ),
         ),
         Text(
@@ -276,5 +301,3 @@ class _CheckRow extends StatelessWidget {
     );
   }
 }
-
-

@@ -314,7 +314,6 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header bar: REVV logo + red stripe + sync status
               Row(
                 children: [
                   Text(
@@ -332,244 +331,283 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                     height: 18,
                     color: AppColors.primaryContainer,
                   ),
-                  const Spacer(),
-                  _LeanLanguageToggle(
-                    language: language,
-                    onChanged: settings.setAppLanguage,
-                  ),
-                  const SizedBox(width: 8),
-                  // Voice toggle
-                  GestureDetector(
-                    onTap: () => settings.setTtsMuted(!settings.ttsMuted),
-                    child: Container(
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: AppColors.ink.withValues(alpha: 0.07),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: AppColors.ink.withValues(alpha: 0.14),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _LeanLanguageToggle(
+                              language: language,
+                              onChanged: settings.setAppLanguage,
+                            ),
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () =>
+                                  settings.setTtsMuted(!settings.ttsMuted),
+                              child: Container(
+                                padding: const EdgeInsets.all(7),
+                                decoration: BoxDecoration(
+                                  color: AppColors.ink.withValues(alpha: 0.07),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: AppColors.ink.withValues(
+                                      alpha: 0.14,
+                                    ),
+                                  ),
+                                ),
+                                child: Icon(
+                                  settings.ttsMuted
+                                      ? Icons.volume_off_rounded
+                                      : Icons.volume_up_rounded,
+                                  size: 16,
+                                  color: settings.ttsMuted
+                                      ? AppColors.stone
+                                      : AppColors.primaryContainer,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _LeanStatusDot(
+                              active: supabase.isCloudAvailable,
+                              label: supabase.isCloudAvailable
+                                  ? 'SYNCED'
+                                  : 'LOCAL',
+                            ),
+                          ],
                         ),
                       ),
-                      child: Icon(
-                        settings.ttsMuted
-                            ? Icons.volume_off_rounded
-                            : Icons.volume_up_rounded,
-                        size: 16,
-                        color: settings.ttsMuted
-                            ? AppColors.stone
-                            : AppColors.primaryContainer,
-                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  _LeanStatusDot(
-                    active: supabase.isCloudAvailable,
-                    label: supabase.isCloudAvailable ? 'SYNCED' : 'LOCAL',
                   ),
                 ],
               ),
-
               const SizedBox(height: 18),
-
-              // Hero card — dark panel with checkered top stripe
-              Container(
-                decoration: BoxDecoration(
-                  color: AppColors.ink,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Checkered stripe header
-                    Container(
-                      height: 10,
-                      decoration: const BoxDecoration(color: AppColors.ink),
-                      child: CustomPaint(
-                        painter: _CheckeredPainter(
-                          tileSize: 7,
-                          color: AppColors.cream,
+              Expanded(
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: AppColors.ink,
+                          borderRadius: BorderRadius.circular(18),
                         ),
-                        size: const Size(double.infinity, 10),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                'READY TO RUN',
-                                style: AppText.mono(
-                                  size: 10,
-                                  weight: FontWeight.w700,
-                                  letterSpacing: 2,
-                                  color: AppColors.primaryContainer,
-                                ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              height: 10,
+                              decoration: const BoxDecoration(
+                                color: AppColors.ink,
                               ),
-                              const Spacer(),
-                              Text(
-                                '$readyCount ROUTES NEARBY',
-                                style: AppText.mono(
-                                  size: 10,
-                                  color: AppColors.stone,
-                                  letterSpacing: 1,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            AppCopy.t(
-                              language,
-                              ko: '도로를 찾고\n주행을 시작하세요.',
-                              en: 'Find the road.\nStart the drive.',
-                              fr: 'Trouvez la route.\nLancez le run.',
-                            ),
-                            style: AppText.rajdhani(
-                              size: 42,
-                              weight: FontWeight.w800,
-                              height: 0.92,
-                              color: AppColors.cream,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 54,
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.primaryContainer,
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(13),
-                                ),
-                              ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                        const LeanRouteFinderScreen(),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(
-                                Icons.arrow_forward_rounded,
-                                size: 20,
-                              ),
-                              label: Text(
-                                AppCopy.routeFinder(language).toUpperCase(),
-                                style: AppText.label(
-                                  size: 19,
-                                  weight: FontWeight.w800,
-                                  letterSpacing: 1.5,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 46,
-                            child: OutlinedButton.icon(
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: AppColors.cream,
-                                side: BorderSide(
-                                  color: AppColors.cream.withValues(
-                                    alpha: 0.28,
-                                  ),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(13),
-                                ),
-                              ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                        const LeanDrivePlannerScreen(),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(
-                                Icons.alt_route_rounded,
-                                size: 19,
-                              ),
-                              label: Text(
-                                AppCopy.t(
-                                  language,
-                                  ko: '목적지까지 여정 만들기',
-                                  en: 'Plan to destination',
-                                  fr: 'Planifier la destination',
-                                ).toUpperCase(),
-                                style: AppText.label(
-                                  size: 14,
-                                  weight: FontWeight.w800,
-                                  letterSpacing: 1.2,
+                              child: CustomPaint(
+                                painter: _CheckeredPainter(
+                                  tileSize: 7,
                                   color: AppColors.cream,
                                 ),
+                                size: const Size(double.infinity, 10),
                               ),
                             ),
-                          ),
-                        ],
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                18,
+                                20,
+                                20,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        'READY TO RUN',
+                                        style: AppText.mono(
+                                          size: 10,
+                                          weight: FontWeight.w700,
+                                          letterSpacing: 2,
+                                          color: AppColors.primaryContainer,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          '$readyCount ROUTES NEARBY',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.right,
+                                          style: AppText.mono(
+                                            size: 10,
+                                            color: AppColors.stone,
+                                            letterSpacing: 1,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    AppCopy.t(
+                                      language,
+                                      ko: '도로를 찾고\n주행을 시작하세요.',
+                                      en: 'Find the road.\nStart the drive.',
+                                      fr: 'Trouvez la route.\nLancez le run.',
+                                    ),
+                                    style: AppText.rajdhani(
+                                      size: 40,
+                                      weight: FontWeight.w800,
+                                      height: 0.95,
+                                      color: AppColors.cream,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 18),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    height: 54,
+                                    child: FilledButton.icon(
+                                      style: FilledButton.styleFrom(
+                                        backgroundColor:
+                                            AppColors.primaryContainer,
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                      ),
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                const LeanRouteFinderScreen(),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(
+                                        Icons.arrow_forward_rounded,
+                                        size: 20,
+                                      ),
+                                      label: Text(
+                                        AppCopy.routeFinder(
+                                          language,
+                                        ).toUpperCase(),
+                                        style: AppText.label(
+                                          size: 19,
+                                          weight: FontWeight.w800,
+                                          letterSpacing: 1.5,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  SizedBox(
+                                    width: double.infinity,
+                                    height: 46,
+                                    child: OutlinedButton.icon(
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppColors.cream,
+                                        side: BorderSide(
+                                          color: AppColors.cream.withValues(
+                                            alpha: 0.28,
+                                          ),
+                                        ),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                      ),
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                const LeanDrivePlannerScreen(),
+                                          ),
+                                        );
+                                      },
+                                      icon: const Icon(
+                                        Icons.alt_route_rounded,
+                                        size: 19,
+                                      ),
+                                      label: Text(
+                                        AppCopy.t(
+                                          language,
+                                          ko: '목적지까지 여정 만들기',
+                                          en: 'Plan to destination',
+                                          fr: 'Planifier la destination',
+                                        ).toUpperCase(),
+                                        style: AppText.label(
+                                          size: 14,
+                                          weight: FontWeight.w800,
+                                          letterSpacing: 1.2,
+                                          color: AppColors.cream,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                      if (routes.pendingGuideRoute != null) ...[
+                        const SizedBox(height: 14),
+                        _GuideToStartCard(
+                          route: routes.pendingGuideRoute!,
+                          current: location.bestKnownLatLng,
+                          onGoogle: () => _openGoogleMapsForRoute(
+                            context,
+                            routes.pendingGuideRoute!,
+                          ),
+                          onWaze: () => _openWazeForRoute(
+                            context,
+                            routes.pendingGuideRoute!,
+                          ),
+                          onStart: () => unawaited(
+                            _startFromGuideCard(routes.pendingGuideRoute!),
+                          ),
+                          onCancel: () {
+                            _guidePromptShown = false;
+                            routes.clearGuideToStart();
+                          },
+                        ),
+                      ],
+                      if (lastRun != null) ...[
+                        const SizedBox(height: 20),
+                        _SectionHeader(
+                          label: AppCopy.t(
+                            language,
+                            ko: 'RECENT RUNS',
+                            en: 'RECENT RUNS',
+                            fr: 'RUNS RÉCENTS',
+                          ),
+                          trailing: 'All ${history.totalRuns} →',
+                          onTap: () => _showHistorySheet(context),
+                        ),
+                        const SizedBox(height: 10),
+                        _LastRunCard(run: lastRun, language: language),
+                      ],
+                      if (history.totalRuns > 0) ...[
+                        const SizedBox(height: 16),
+                        _StatsLine(history: history),
+                      ],
+                      const SizedBox(height: 16),
+                    ],
+                  ),
                 ),
               ),
-
-              // ── 시작점 안내 카드 ──
-              if (routes.pendingGuideRoute != null) ...[
-                const SizedBox(height: 14),
-                _GuideToStartCard(
-                  route: routes.pendingGuideRoute!,
-                  current: location.bestKnownLatLng,
-                  onGoogle: () => _openGoogleMapsForRoute(
-                    context,
-                    routes.pendingGuideRoute!,
-                  ),
-                  onWaze: () =>
-                      _openWazeForRoute(context, routes.pendingGuideRoute!),
-                  onStart: () =>
-                      unawaited(_startFromGuideCard(routes.pendingGuideRoute!)),
-                  onCancel: () {
-                    _guidePromptShown = false;
-                    routes.clearGuideToStart();
-                  },
-                ),
-              ],
-
-              if (lastRun != null) ...[
-                const SizedBox(height: 22),
-                _SectionHeader(
-                  label: AppCopy.t(
-                    language,
-                    ko: 'RECENT RUNS',
-                    en: 'RECENT RUNS',
-                    fr: 'RUNS RÉCENTS',
-                  ),
-                  trailing: 'All ${history.totalRuns} →',
-                  onTap: () => _showHistorySheet(context),
-                ),
-                const SizedBox(height: 10),
-                _LastRunCard(run: lastRun, language: language),
-              ],
-
-              const Spacer(),
-
-              // ── 통계 한 줄 ──
-              if (history.totalRuns > 0) ...[
-                _StatsLine(history: history),
-                const SizedBox(height: 16),
-              ],
-
               _RaceBottomNav(
                 current: _RaceTab.home,
+                language: language,
                 onHome: _primeLocation,
                 onHistory: () => _showHistorySheet(context),
                 onSettings: () => _showSettingsSheet(context),
@@ -782,12 +820,14 @@ enum _RaceTab { home, history, settings }
 
 class _RaceBottomNav extends StatelessWidget {
   final _RaceTab current;
+  final AppLanguage language;
   final VoidCallback onHome;
   final VoidCallback onHistory;
   final VoidCallback onSettings;
 
   const _RaceBottomNav({
     required this.current,
+    required this.language,
     required this.onHome,
     required this.onHistory,
     required this.onSettings,
@@ -806,25 +846,30 @@ class _RaceBottomNav extends StatelessWidget {
         ),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _RaceNavItem(
-            icon: Icons.home_outlined,
-            label: 'Home',
-            active: current == _RaceTab.home,
-            onTap: onHome,
+          Expanded(
+            child: _RaceNavItem(
+              icon: Icons.home_outlined,
+              label: AppCopy.homeNav(language),
+              active: current == _RaceTab.home,
+              onTap: onHome,
+            ),
           ),
-          _RaceNavItem(
-            icon: Icons.history_rounded,
-            label: 'History',
-            active: current == _RaceTab.history,
-            onTap: onHistory,
+          Expanded(
+            child: _RaceNavItem(
+              icon: Icons.history_rounded,
+              label: AppCopy.history(language),
+              active: current == _RaceTab.history,
+              onTap: onHistory,
+            ),
           ),
-          _RaceNavItem(
-            icon: Icons.settings_outlined,
-            label: 'Settings',
-            active: current == _RaceTab.settings,
-            onTap: onSettings,
+          Expanded(
+            child: _RaceNavItem(
+              icon: Icons.settings_outlined,
+              label: AppCopy.settingsNav(language),
+              active: current == _RaceTab.settings,
+              onTap: onSettings,
+            ),
           ),
         ],
       ),
@@ -852,7 +897,7 @@ class _RaceNavItem extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -860,6 +905,8 @@ class _RaceNavItem extends StatelessWidget {
             const SizedBox(height: 5),
             Text(
               label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: AppText.label(
                 size: 12,
                 weight: FontWeight.w800,
@@ -1364,20 +1411,10 @@ class _SettingsSheet extends StatelessWidget {
     final language = settings.appLanguage;
     final runCount = history.history.length;
     final profileMeta = runCount == 0
-        ? AppCopy.t(
-            language,
-            ko: '저장된 런 없음',
-            en: 'No saved runs yet',
-            fr: 'Aucune sortie enregistrée',
-          )
+        ? AppCopy.noSavedRuns(language)
         : () {
             final memberSince = _profileStartMonth(history.history, language);
-            return AppCopy.t(
-              language,
-              ko: '총 $runCount회 · 시작 $memberSince',
-              en: '$runCount ${runCount == 1 ? 'RUN' : 'RUNS'} · SINCE $memberSince',
-              fr: '$runCount ${runCount == 1 ? 'SORTIE' : 'SORTIES'} · DEPUIS $memberSince',
-            );
+            return AppCopy.profileRunsMeta(language, runCount, memberSince);
           }();
 
     return SafeArea(
@@ -1385,185 +1422,184 @@ class _SettingsSheet extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
         child: Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+          ),
           decoration: BoxDecoration(
             color: AppColors.cream,
-            borderRadius: BorderRadius.circular(30),
+            borderRadius: BorderRadius.circular(18),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 14),
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.outlineVariant.withValues(alpha: 0.38),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Text(
-                      AppCopy.t(
-                        language,
-                        ko: 'SETTINGS / GARAGE',
-                        en: 'SETTINGS / GARAGE',
-                        fr: 'RÉGLAGES / GARAGE',
-                      ),
-                      style: AppText.technicalLabel(
-                        size: 10,
-                        letterSpacing: 1.8,
-                        color: AppColors.stone,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 14),
+                Container(
+                  width: 36,
+                  height: 4,
                   decoration: BoxDecoration(
-                    color: AppColors.ink,
-                    borderRadius: BorderRadius.circular(18),
+                    color: AppColors.outlineVariant.withValues(alpha: 0.38),
+                    borderRadius: BorderRadius.circular(999),
                   ),
+                ),
+                const SizedBox(height: 18),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(
                     children: [
-                      Container(
-                        width: 48,
-                        height: 48,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryContainer,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Text(
-                          'R',
-                          style: AppText.display(
-                            size: 22,
-                            weight: FontWeight.w900,
-                            color: AppColors.onPrimary,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              AppCopy.t(
-                                language,
-                                ko: '익명 드라이버',
-                                en: 'Anonymous driver',
-                                fr: 'Conducteur anonyme',
-                              ),
-                              style: AppText.label(
-                                size: 20,
-                                weight: FontWeight.w900,
-                                color: AppColors.cream,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              profileMeta,
-                              style: AppText.technicalLabel(
-                                size: 10,
-                                letterSpacing: 0.5,
-                                color: AppColors.stoneMuted,
-                              ),
-                            ),
-                          ],
+                      Text(
+                        AppCopy.settingsGarage(language).toUpperCase(),
+                        style: AppText.technicalLabel(
+                          size: 10,
+                          letterSpacing: 1.8,
+                          color: AppColors.stone,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              _SettingsGroupLabel(label: 'UNITS & DISPLAY'),
-              _SettingsSegmentTile(
-                label: 'Distance',
-                left: 'KM',
-                right: 'MI',
-                leftActive: settings.distUnit != 'mi',
-                onLeft: () => settings.setDistUnit('km'),
-                onRight: () => settings.setDistUnit('mi'),
-              ),
-              _SettingsInfoTile(label: 'Language', value: language.name),
-              const SizedBox(height: 10),
-              _SettingsGroupLabel(label: 'DRIVE'),
-              // 클라우드 저장 토글
-              _SettingsTile(
-                icon: settings.cloudRunStorageEnabled
-                    ? Icons.cloud_done_rounded
-                    : Icons.cloud_off_rounded,
-                label: settings.cloudRunStorageEnabled
-                    ? AppCopy.cloudOff(language)
-                    : AppCopy.cloudOn(language),
-                onTap: () {
-                  Navigator.pop(context);
-                  onToggleCloud();
-                },
-              ),
-              _SettingsInfoTile(
-                label: 'Cloud sync',
-                value: AppCopy.t(
-                  language,
-                  ko: '로컬 리포트는 유지돼요 · 기기 간 클라우드 동기화는 나중에 로그인 필요',
-                  en: 'Local reports stay available · cross-device cloud sync will require sign-in later',
-                  fr: 'Les rapports locaux restent disponibles · la synchro cloud multi-appareil demandera une connexion',
-                ),
-              ),
-              _SettingsToggleRow(
-                label: 'Voice guidance',
-                detail: 'SPOKEN PACE NOTES & TURNS',
-                active: !settings.ttsMuted,
-                onTap: () => settings.setTtsMuted(!settings.ttsMuted),
-              ),
-              _SettingsToggleRow(
-                label: 'Curve alerts',
-                detail: 'EARLY EASE-OFF WARNINGS',
-                active: true,
-                onTap: () {},
-              ),
-              const SizedBox(height: 10),
-              _SettingsGroupLabel(label: 'DATA'),
-              // 기록 삭제
-              _SettingsTile(
-                icon: Icons.delete_outline_rounded,
-                label: AppCopy.deleteHistory(language),
-                danger: true,
-                onTap: () {
-                  Navigator.pop(context);
-                  onDeleteHistory();
-                },
-              ),
-              _SettingsTile(
-                icon: Icons.privacy_tip_outlined,
-                label: AppCopy.privacyPolicy(language),
-                onTap: () {
-                  Navigator.pop(context);
-                  onPrivacy();
-                },
-              ),
-              Padding(
-                padding: const EdgeInsets.only(top: 10, bottom: 14),
-                child: Text(
-                  'REVV · BUILD 1.38.0+42',
-                  style: AppText.technicalLabel(
-                    size: 10,
-                    letterSpacing: 1,
-                    color: AppColors.stoneMuted,
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.ink,
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: AppColors.primaryContainer,
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Text(
+                            'R',
+                            style: AppText.display(
+                              size: 22,
+                              weight: FontWeight.w900,
+                              color: AppColors.onPrimary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                AppCopy.anonymousDriver(language),
+                                style: AppText.label(
+                                  size: 20,
+                                  weight: FontWeight.w900,
+                                  color: AppColors.cream,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                profileMeta,
+                                style: AppText.technicalLabel(
+                                  size: 10,
+                                  letterSpacing: 0.5,
+                                  color: AppColors.stoneMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-            ],
+                const SizedBox(height: 18),
+                _SettingsGroupLabel(
+                  label: AppCopy.settingsUnitsDisplay(language).toUpperCase(),
+                ),
+                _SettingsSegmentTile(
+                  label: AppCopy.settingsDistance(language),
+                  left: 'KM',
+                  right: 'MI',
+                  leftActive: settings.distUnit != 'mi',
+                  onLeft: () => settings.setDistUnit('km'),
+                  onRight: () => settings.setDistUnit('mi'),
+                ),
+                _SettingsInfoTile(
+                  label: AppCopy.settingsLanguage(language),
+                  value: language.label,
+                ),
+                const SizedBox(height: 10),
+                _SettingsGroupLabel(
+                  label: AppCopy.settingsDrive(language).toUpperCase(),
+                ),
+                // 클라우드 저장 토글
+                _SettingsTile(
+                  icon: settings.cloudRunStorageEnabled
+                      ? Icons.cloud_done_rounded
+                      : Icons.cloud_off_rounded,
+                  label: settings.cloudRunStorageEnabled
+                      ? AppCopy.cloudOff(language)
+                      : AppCopy.cloudOn(language),
+                  onTap: () {
+                    Navigator.pop(context);
+                    onToggleCloud();
+                  },
+                ),
+                _SettingsInfoTile(
+                  label: AppCopy.settingsCloudSync(language),
+                  value: AppCopy.cloudSyncDetail(language),
+                ),
+                _SettingsToggleRow(
+                  label: AppCopy.settingsVoiceGuidance(language),
+                  detail: AppCopy.voiceGuidanceDetail(language),
+                  active: !settings.ttsMuted,
+                  onTap: () => settings.setTtsMuted(!settings.ttsMuted),
+                ),
+                _SettingsToggleRow(
+                  label: AppCopy.settingsCurveAlerts(language),
+                  detail: AppCopy.curveAlertsDetail(language),
+                  active: true,
+                  onTap: () {},
+                ),
+                const SizedBox(height: 10),
+                _SettingsGroupLabel(
+                  label: AppCopy.settingsData(language).toUpperCase(),
+                ),
+                // 기록 삭제
+                _SettingsTile(
+                  icon: Icons.delete_outline_rounded,
+                  label: AppCopy.deleteHistory(language),
+                  danger: true,
+                  onTap: () {
+                    Navigator.pop(context);
+                    onDeleteHistory();
+                  },
+                ),
+                _SettingsTile(
+                  icon: Icons.privacy_tip_outlined,
+                  label: AppCopy.privacyPolicy(language),
+                  onTap: () {
+                    Navigator.pop(context);
+                    onPrivacy();
+                  },
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 10, bottom: 14),
+                  child: Text(
+                    'REVV · BUILD 1.38.0+42',
+                    style: AppText.technicalLabel(
+                      size: 10,
+                      letterSpacing: 1,
+                      color: AppColors.stoneMuted,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         ),
       ),
@@ -1874,12 +1910,16 @@ class _SettingsTile extends StatelessWidget {
           children: [
             Icon(icon, size: 20, color: color),
             const SizedBox(width: 14),
-            Text(
-              label,
-              style: AppText.body(
-                size: 15,
-                weight: FontWeight.w800,
-                color: color,
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.body(
+                  size: 15,
+                  weight: FontWeight.w800,
+                  color: color,
+                ),
               ),
             ),
           ],

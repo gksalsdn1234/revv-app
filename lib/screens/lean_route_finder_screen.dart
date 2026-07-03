@@ -1782,21 +1782,22 @@ class DriveBudgetChoiceStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final language = context.watch<SettingsService>().appLanguage;
-    return SizedBox(
-      height: 38,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        itemCount: DriveBudget.values.length,
-        separatorBuilder: (_, index) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final item = DriveBudget.values[index];
-          return _BudgetChip(
-            label: driveBudgetLabel(item, language),
-            selected: budget == item,
-            onTap: () => onChanged(item),
-          );
-        },
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            for (final item in DriveBudget.values) ...[
+              _BudgetChip(
+                label: driveBudgetLabel(item, language),
+                selected: budget == item,
+                onTap: () => onChanged(item),
+              ),
+              if (item != DriveBudget.values.last) const SizedBox(width: 8),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1860,7 +1861,9 @@ class _BudgetChip extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(999),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        constraints: const BoxConstraints(minHeight: 44),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: background,
           borderRadius: BorderRadius.circular(999),
@@ -1880,6 +1883,8 @@ class _BudgetChip extends StatelessWidget {
         ),
         child: Text(
           label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: AppText.body(
             size: 12,
             weight: FontWeight.w900,
