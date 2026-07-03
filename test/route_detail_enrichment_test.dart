@@ -48,7 +48,15 @@ RevvRoute _route({
 }
 
 Future<void> _pumpRoute(WidgetTester tester, RevvRoute route) async {
-  await tester.binding.setSurfaceSize(const Size(390, 2200));
+  await _pumpRouteAtSize(tester, route, const Size(390, 2200));
+}
+
+Future<void> _pumpRouteAtSize(
+  WidgetTester tester,
+  RevvRoute route,
+  Size size,
+) async {
+  await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
   await tester.pumpWidget(
@@ -101,7 +109,7 @@ void main() {
     expect(find.byType(CustomPaint), findsWidgets);
     expect(find.text('CURVE MIX'), findsOneWidget);
     expect(
-      find.text('Tight 1.4km · Medium 2.1km · Sharp curves 7'),
+      find.text('Tight 1.4km · Medium 2.1km · Straight/gentle 8.5km'),
       findsOneWidget,
     );
     expect(find.text('Longest winding flow 1.8km'), findsOneWidget);
@@ -121,13 +129,13 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('REVV runs 5'), findsOneWidget);
-    expect(find.text('LOOP'), findsOneWidget);
+    expect(find.text('LOOP'), findsWidgets);
     expect(find.text('Flow'), findsNothing);
 
     _expectNoForbiddenSafetyWords(
       [
         'Delta 58m',
-        'Tight 1.4km · Medium 2.1km · Sharp curves 7',
+        'Tight 1.4km · Medium 2.1km · Straight/gentle 8.5km',
         'Longest winding flow 1.8km',
         'Posted speed-limit sections 50 — follow roadside signs',
         'Nearby: Cafe Nord · Belvedere Est · Lookout',
@@ -146,6 +154,76 @@ void main() {
     expect(find.text('CURVE MIX'), findsNothing);
     expect(find.text('ROAD INFO'), findsNothing);
     expect(find.text('JOURNEY INFO'), findsNothing);
-    expect(find.text('Flow'), findsOneWidget);
+    expect(find.text('Flow'), findsNothing);
+  });
+
+  testWidgets('route detail stays readable when server fields are empty', (
+    tester,
+  ) async {
+    final route = _route(
+      tightCurveKm: 1.1,
+      mediumCurveKm: 1.6,
+      maxContinuousKm: 1.2,
+      sharpCurveCount: 5,
+    );
+
+    await _pumpRouteAtSize(tester, route, const Size(390, 844));
+
+    expect(find.byKey(const ValueKey('route-detail-hero')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('route-detail-stat-strip')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('route-detail-curve-mix')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('route-detail-copilot-headline')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('route-detail-drive-environment')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('route-detail-expansion')),
+      findsOneWidget,
+    );
+    expect(find.text('ELEVATION PROFILE'), findsNothing);
+    expect(find.text('ROAD INFO'), findsNothing);
+    expect(find.text('JOURNEY INFO'), findsNothing);
+    expect(find.text('Few stop controls'), findsOneWidget);
+
+    for (final key in const [
+      ValueKey('route-detail-hero'),
+      ValueKey('route-detail-stat-strip'),
+      ValueKey('route-detail-curve-mix'),
+    ]) {
+      expect(tester.getBottomLeft(find.byKey(key)).dy, lessThan(844));
+    }
+
+    expect(
+      find.text('Start is 2.5km away. Navigate there, then enter the route.'),
+      findsNothing,
+    );
+    await tester.ensureVisible(find.text('Details'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Details'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Start is 2.5km away. Navigate there, then enter the route.'),
+      findsOneWidget,
+    );
+
+    _expectNoForbiddenSafetyWords(
+      [
+        'Detail Route',
+        'Tight 1.1km · Medium 1.6km · Straight/gentle 9.3km',
+        'Longest winding flow 1.2km',
+        'Few stop controls',
+        'Details',
+      ].join(' | '),
+    );
   });
 }

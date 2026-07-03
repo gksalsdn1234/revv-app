@@ -52,7 +52,6 @@ class LeanRouteDetailScreen extends StatelessWidget {
       language: language,
     );
     final turnPlan = buildTurnByTurnPlan(route.nodes, language: language);
-    final bestFor = _bestFor(route, language);
     final cautionBody = _cautionBody(copy, profile);
 
     return Scaffold(
@@ -101,26 +100,11 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         const SizedBox(height: 18),
                         _RouteShapeHero(route: route),
                         const SizedBox(height: 18),
-                        Text(
-                          profile.typeLabel,
-                          style: AppText.mono(
-                            size: 10,
-                            color: AppColors.primaryContainer,
-                            letterSpacing: 1.8,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          route.name,
-                          style: AppText.label(
-                            size: 34,
-                            weight: FontWeight.w800,
-                            color: AppColors.ink,
-                            letterSpacing: 0,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
                         _QuickStatRow(route: route, language: language),
+                        if (_hasCurveMix(route)) ...[
+                          const SizedBox(height: 12),
+                          _CurveMixSection(route: route, language: language),
+                        ],
                         if (_routeChainSegmentNames(route).isNotEmpty) ...[
                           const SizedBox(height: 12),
                           _ChainSegmentsSection(
@@ -135,10 +119,6 @@ class LeanRouteDetailScreen extends StatelessWidget {
                             language: language,
                           ),
                         ],
-                        if (_hasCurveMix(route)) ...[
-                          const SizedBox(height: 12),
-                          _CurveMixSection(route: route, language: language),
-                        ],
                         if (_hasRoadInfo(route)) ...[
                           const SizedBox(height: 12),
                           _RoadInfoSection(route: route, language: language),
@@ -147,55 +127,20 @@ class LeanRouteDetailScreen extends StatelessWidget {
                           const SizedBox(height: 12),
                           _JourneyInfoSection(route: route, language: language),
                         ],
-                        const SizedBox(height: 14),
-                        _RouteConfidenceSection(profile: profile),
                         const SizedBox(height: 12),
-                        _CopilotJudgementCard(
+                        _CopilotHeadlineCard(
                           briefing: briefing,
                           language: language,
                         ),
                         const SizedBox(height: 12),
-                        _MetricsGrid(
-                          route: route,
-                          hideFlowMetric: _hasCurveMix(route),
-                        ),
-                        const SizedBox(height: 18),
-                        _TurnPlanPreview(plan: turnPlan, language: language),
+                        _DriveEnvironmentRow(route: route, language: language),
                         const SizedBox(height: 12),
-                        _DetailSection(
-                          title: AppCopy.t(
-                            language,
-                            ko: '왜 이 루트인가',
-                            en: 'Why this route',
-                            fr: 'Pourquoi cette route',
-                          ),
-                          icon: Icons.psychology_rounded,
-                          body: copy.heroReason,
-                        ),
-                        const SizedBox(height: 12),
-                        _DecisionBulletsSection(lines: copy.decisionBullets),
-                        const SizedBox(height: 12),
-                        _DetailSection(
-                          title: AppCopy.t(
-                            language,
-                            ko: '주의할 점',
-                            en: 'Watch-outs',
-                            fr: 'À surveiller',
-                          ),
-                          icon: Icons.warning_amber_rounded,
-                          body: cautionBody,
-                          accent: AppColors.warning,
-                        ),
-                        const SizedBox(height: 12),
-                        _DetailSection(
-                          title: AppCopy.t(
-                            language,
-                            ko: '맞는 운전자',
-                            en: 'Best for',
-                            fr: 'Idéal pour',
-                          ),
-                          icon: Icons.auto_awesome_rounded,
-                          body: bestFor,
+                        _RouteDetailExpansion(
+                          briefing: briefing,
+                          copy: copy,
+                          cautionBody: cautionBody,
+                          turnPlan: turnPlan,
+                          language: language,
                         ),
                         SizedBox(
                           height: MediaQuery.paddingOf(context).bottom + 86,
@@ -230,82 +175,117 @@ class _QuickStatRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final stopCount = route.stopSignCount + route.trafficSignalCount;
     final isFar = route.distanceFromUser >= 1.0;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
+    return Container(
+      key: const ValueKey('route-detail-stat-strip'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
       child: Row(
         children: [
-          _QuickStatPill(
+          _QuickStatTile(
+            icon: Icons.straighten_rounded,
+            label: AppCopy.t(language, ko: '거리', en: 'Dist.', fr: 'Dist.'),
+            value: route.distanceDisplay,
+          ),
+          _QuickStatDivider(),
+          _QuickStatTile(
+            icon: Icons.timer_outlined,
+            label: AppCopy.t(language, ko: '예상', en: 'ETA', fr: 'Temps'),
+            value: _driveMinutesLabel(route, language),
+          ),
+          _QuickStatDivider(),
+          _QuickStatTile(
+            icon: Icons.route_rounded,
+            label: AppCopy.t(language, ko: '커브', en: 'Curves', fr: 'Virages'),
+            value: AppCopy.t(
+              language,
+              ko: '${route.sharpCurveCount}개',
+              en: '${route.sharpCurveCount}',
+              fr: '${route.sharpCurveCount}',
+            ),
+          ),
+          _QuickStatDivider(),
+          _QuickStatTile(
             icon: Icons.flag_rounded,
-            label: route.distanceFromUserDisplay,
+            label: AppCopy.t(language, ko: '집', en: 'Home', fr: 'Maison'),
+            value: route.distanceFromUserDisplay,
             accent: isFar ? AppColors.warning : AppColors.primaryContainer,
           ),
-          const SizedBox(width: 8),
-          _QuickStatPill(
-            icon: Icons.straighten_rounded,
-            label: route.distanceDisplay,
-          ),
-          const SizedBox(width: 8),
-          _QuickStatPill(
-            icon: Icons.timer_outlined,
-            label: _driveMinutesLabel(route, language),
-          ),
-          if (stopCount > 0) ...[
-            const SizedBox(width: 8),
-            _QuickStatPill(
-              icon: Icons.stop_circle_outlined,
-              label: AppCopy.t(
-                language,
-                ko: '정지 $stopCount개',
-                en: '$stopCount stops',
-                fr: '$stopCount arrêts',
-              ),
-              accent: AppColors.warning,
-            ),
-          ],
         ],
       ),
     );
   }
 }
 
-class _QuickStatPill extends StatelessWidget {
+class _QuickStatTile extends StatelessWidget {
   final IconData icon;
   final String label;
+  final String value;
   final Color accent;
 
-  const _QuickStatPill({
+  const _QuickStatTile({
     required this.icon,
     required this.label,
+    required this.value,
     this.accent = AppColors.stone,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: accent.withValues(alpha: 0.22)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 13, color: accent),
-          const SizedBox(width: 5),
+          Row(
+            children: [
+              Icon(icon, size: 14, color: accent),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.mono(
+                    size: 9,
+                    weight: FontWeight.w800,
+                    color: AppColors.stone,
+                    letterSpacing: 0.7,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
           Text(
-            label,
-            style: AppText.body(
-              size: 12,
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.label(
+              size: 18,
               weight: FontWeight.w900,
-              color: accent,
+              color: AppColors.ink,
+              letterSpacing: 0,
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _QuickStatDivider extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: 42,
+      margin: const EdgeInsets.symmetric(horizontal: 8),
+      color: AppColors.ink.withValues(alpha: 0.08),
     );
   }
 }
@@ -446,6 +426,7 @@ class _CurveMixSection extends StatelessWidget {
         .toDouble();
     final gentleKm = math.max(0.0, route.distanceKm - tightKm - mediumKm);
     return Container(
+      key: const ValueKey('route-detail-curve-mix'),
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -486,9 +467,9 @@ class _CurveMixSection extends StatelessWidget {
           Text(
             AppCopy.t(
               language,
-              ko: '타이트 ${route.tightCurveKm.toStringAsFixed(1)}km · 중간 ${route.mediumCurveKm.toStringAsFixed(1)}km · 급커브 ${route.sharpCurveCount}개',
-              en: 'Tight ${route.tightCurveKm.toStringAsFixed(1)}km · Medium ${route.mediumCurveKm.toStringAsFixed(1)}km · Sharp curves ${route.sharpCurveCount}',
-              fr: 'Serrés ${route.tightCurveKm.toStringAsFixed(1)}km · Moyens ${route.mediumCurveKm.toStringAsFixed(1)}km · Virages marqués ${route.sharpCurveCount}',
+              ko: '타이트 ${route.tightCurveKm.toStringAsFixed(1)}km · 중간 ${route.mediumCurveKm.toStringAsFixed(1)}km · 직선/완만 ${gentleKm.toStringAsFixed(1)}km',
+              en: 'Tight ${route.tightCurveKm.toStringAsFixed(1)}km · Medium ${route.mediumCurveKm.toStringAsFixed(1)}km · Straight/gentle ${gentleKm.toStringAsFixed(1)}km',
+              fr: 'Serrés ${route.tightCurveKm.toStringAsFixed(1)}km · Moyens ${route.mediumCurveKm.toStringAsFixed(1)}km · Droits/doux ${gentleKm.toStringAsFixed(1)}km',
             ),
             style: AppText.body(
               size: 13,
@@ -765,56 +746,215 @@ class _JourneyChip extends StatelessWidget {
   }
 }
 
-class _CopilotJudgementCard extends StatelessWidget {
+class _CopilotHeadlineCard extends StatelessWidget {
   final CopilotRouteBriefing briefing;
   final AppLanguage language;
 
-  const _CopilotJudgementCard({required this.briefing, required this.language});
+  const _CopilotHeadlineCard({required this.briefing, required this.language});
 
   @override
   Widget build(BuildContext context) {
     return Container(
+      key: const ValueKey('route-detail-copilot-headline'),
       padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.redSoft,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: AppColors.primaryContainer.withValues(alpha: 0.16),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.psychology_rounded,
+                size: 20,
+                color: AppColors.primaryContainer,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                AppCopy.t(
+                  language,
+                  ko: '코파일럿 한 줄 판단',
+                  en: 'COPILOT READ',
+                  fr: 'LECTURE COPILOTE',
+                ),
+                style: AppText.mono(
+                  size: 10,
+                  color: AppColors.primaryContainer,
+                  letterSpacing: 1.6,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            briefing.primaryAdvice,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.body(
+              size: 16,
+              height: 1.28,
+              weight: FontWeight.w900,
+              color: AppColors.ink,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriveEnvironmentRow extends StatelessWidget {
+  final RevvRoute route;
+  final AppLanguage language;
+
+  const _DriveEnvironmentRow({required this.route, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = route.stopSignCount + route.trafficSignalCount;
+    return Container(
+      key: const ValueKey('route-detail-drive-environment'),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: (total == 0 ? AppColors.success : AppColors.warning)
+                  .withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              total == 0
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.traffic_rounded,
+              size: 21,
+              color: total == 0 ? AppColors.success : AppColors.warning,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              total == 0
+                  ? AppCopy.t(
+                      language,
+                      ko: '정지 요소 거의 없음',
+                      en: 'Few stop controls',
+                      fr: 'Peu d’arrêts',
+                    )
+                  : AppCopy.t(
+                      language,
+                      ko: '정지표지 ${route.stopSignCount} · 신호 ${route.trafficSignalCount}',
+                      en: 'Stops ${route.stopSignCount} · signals ${route.trafficSignalCount}',
+                      fr: 'Stops ${route.stopSignCount} · feux ${route.trafficSignalCount}',
+                    ),
+              style: AppText.body(
+                size: 14,
+                height: 1.25,
+                weight: FontWeight.w900,
+                color: AppColors.ink,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RouteDetailExpansion extends StatelessWidget {
+  final CopilotRouteBriefing briefing;
+  final RouteDetailCopy copy;
+  final String cautionBody;
+  final List<TurnInstruction> turnPlan;
+  final AppLanguage language;
+
+  const _RouteDetailExpansion({
+    required this.briefing,
+    required this.copy,
+    required this.cautionBody,
+    required this.turnPlan,
+    required this.language,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('route-detail-expansion'),
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            AppCopy.t(
-              language,
-              ko: '코파일럿 판단',
-              en: 'COPILOT READ',
-              fr: 'LECTURE COPILOTE',
-            ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          iconColor: AppColors.primaryContainer,
+          collapsedIconColor: AppColors.stone,
+          title: Text(
+            AppCopy.t(language, ko: '자세히', en: 'Details', fr: 'Détails'),
             style: AppText.mono(
               size: 10,
+              weight: FontWeight.w900,
               color: AppColors.primaryContainer,
               letterSpacing: 1.6,
             ),
           ),
-          const SizedBox(height: 10),
-          _CopilotJudgementRow(
-            label: AppCopy.t(language, ko: '판단', en: 'Read', fr: 'Lecture'),
-            text: briefing.primaryAdvice,
+          subtitle: Text(
+            briefing.headline,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppText.body(
+              size: 13,
+              weight: FontWeight.w800,
+              color: AppColors.ink,
+            ),
           ),
-          _CopilotJudgementRow(
-            label: AppCopy.t(language, ko: '시작', en: 'Start', fr: 'Départ'),
-            text: briefing.startAdvice,
-          ),
-          _CopilotJudgementRow(
-            label: AppCopy.t(language, ko: '주의', en: 'Risk', fr: 'Risque'),
-            text: briefing.riskAdvice,
-          ),
-          _CopilotJudgementRow(
-            label: AppCopy.t(language, ko: '성향', en: 'Fit', fr: 'Profil'),
-            text: briefing.fitLabel,
-            last: true,
-          ),
-        ],
+          children: [
+            _CopilotJudgementRow(
+              label: AppCopy.t(language, ko: '판단', en: 'Read', fr: 'Lecture'),
+              text: briefing.primaryAdvice,
+            ),
+            _CopilotJudgementRow(
+              label: AppCopy.t(language, ko: '시작', en: 'Start', fr: 'Départ'),
+              text: briefing.startAdvice,
+            ),
+            _CopilotJudgementRow(
+              label: AppCopy.t(language, ko: '주의', en: 'Risk', fr: 'Risque'),
+              text: cautionBody,
+            ),
+            _CopilotJudgementRow(
+              label: AppCopy.t(language, ko: '성향', en: 'Fit', fr: 'Profil'),
+              text: briefing.fitLabel,
+            ),
+            _CopilotJudgementRow(
+              label: AppCopy.t(language, ko: '근거', en: 'Why', fr: 'Pourquoi'),
+              text: copy.heroReason,
+              last: copy.decisionBullets.isEmpty,
+            ),
+            if (copy.decisionBullets.isNotEmpty)
+              _CopilotJudgementRow(
+                label: AppCopy.t(language, ko: '선택', en: 'Choice', fr: 'Choix'),
+                text: copy.decisionBullets.take(3).join('\n'),
+                last: true,
+              ),
+            const SizedBox(height: 6),
+            _TurnPlanPreview(plan: turnPlan, language: language),
+          ],
+        ),
       ),
     );
   }
@@ -873,8 +1013,10 @@ class _RouteShapeHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<SettingsService>().appLanguage;
     return Container(
-      height: 250,
+      key: const ValueKey('route-detail-hero'),
+      height: 286,
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -902,14 +1044,49 @@ class _RouteShapeHero extends StatelessWidget {
           ),
           Positioned(
             left: 4,
+            top: 2,
+            right: 92,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  route.difficultyLabel,
+                  style: AppText.mono(
+                    size: 10,
+                    color: AppColors.primaryContainer,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  route.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.label(
+                    size: 32,
+                    weight: FontWeight.w900,
+                    color: AppColors.cream,
+                    letterSpacing: 0,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 7,
+                  runSpacing: 7,
+                  children: [
+                    _HeroChip(label: route.difficultyLabel),
+                    _HeroChip(label: route.curveStyle),
+                    if (route.isLoop) const _HeroChip(label: 'LOOP'),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 4,
             bottom: 4,
             child: _HeroBadge(
-              label: AppCopy.t(
-                context.watch<SettingsService>().appLanguage,
-                ko: '시작점',
-                en: 'START',
-                fr: 'DÉPART',
-              ),
+              label: AppCopy.t(language, ko: '시작점', en: 'START', fr: 'DÉPART'),
               value: route.distanceFromUserDisplay,
             ),
           ),
@@ -917,12 +1094,7 @@ class _RouteShapeHero extends StatelessWidget {
             right: 4,
             top: 4,
             child: _HeroBadge(
-              label: AppCopy.t(
-                context.watch<SettingsService>().appLanguage,
-                ko: '루트',
-                en: 'ROUTE',
-                fr: 'ROUTE',
-              ),
+              label: AppCopy.t(language, ko: '루트', en: 'ROUTE', fr: 'ROUTE'),
               value: route.distanceDisplay,
               alignRight: true,
             ),
@@ -933,107 +1105,139 @@ class _RouteShapeHero extends StatelessWidget {
   }
 }
 
-class _RouteConfidenceSection extends StatelessWidget {
-  final RouteQualityProfile profile;
+class _TurnPlanPreview extends StatelessWidget {
+  final List<TurnInstruction> plan;
+  final AppLanguage language;
 
-  const _RouteConfidenceSection({required this.profile});
+  const _TurnPlanPreview({required this.plan, required this.language});
 
   @override
   Widget build(BuildContext context) {
+    final visible = plan.take(5).toList();
+    final hiddenCount = plan.length - visible.length;
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.ink,
-        borderRadius: BorderRadius.circular(24),
+        color: AppColors.creamMuted,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.08)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 56,
-                height: 56,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.primaryContainer.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: AppColors.primaryContainer.withValues(alpha: 0.50),
-                  ),
-                ),
-                child: Text(
-                  '${profile.qualityScore}',
-                  style: AppText.label(
-                    size: 22,
-                    weight: FontWeight.w800,
-                    color: AppColors.primaryContainer,
-                  ),
-                ),
+              const Icon(
+                Icons.route_rounded,
+                color: AppColors.primaryContainer,
+                size: 20,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      AppCopy.t(
-                        context.watch<SettingsService>().appLanguage,
-                        ko: '루트 신뢰도',
-                        en: 'Route Confidence',
-                        fr: 'Confiance route',
-                      ),
-                      style: AppText.mono(
-                        size: 10,
-                        color: AppColors.primaryContainer,
-                        letterSpacing: 1.6,
-                      ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      '${profile.typeLabel} · ${profile.curveDensityLabel}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.label(
-                        size: 16,
-                        weight: FontWeight.w700,
-                        color: AppColors.cream,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      profile.reasonLabel,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.mono(
-                        size: 12,
-                        weight: FontWeight.w700,
-                        color: AppColors.stone,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  AppCopy.t(
+                    language,
+                    ko: '턴북',
+                    en: 'TURN BOOK',
+                    fr: 'CARNET VIRAGES',
+                  ),
+                  style: AppText.mono(
+                    size: 10,
+                    color: AppColors.primaryContainer,
+                    letterSpacing: 1.4,
+                  ),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final metric in profile.quickMetrics)
-                _ConfidenceChip(label: metric.label, value: metric.value),
+              Text(
+                AppCopy.t(
+                  language,
+                  ko: '${plan.length}개 안내',
+                  en: '${plan.length} cues',
+                  fr: '${plan.length} repères',
+                ),
+                style: AppText.mono(size: 9, color: AppColors.stone),
+              ),
             ],
           ),
           const SizedBox(height: 10),
-          Text(
-            profile.riskLabel,
-            style: AppText.body(
-              size: 12,
-              height: 1.3,
-              weight: FontWeight.w800,
-              color: AppColors.warning,
+          if (visible.isEmpty)
+            Text(
+              AppCopy.t(
+                language,
+                ko: '루트 라인을 불러오면 턴 안내가 표시됩니다.',
+                en: 'Turn guidance appears once the route line is loaded.',
+                fr: 'Les repères apparaissent avec la ligne de route.',
+              ),
+              style: AppText.body(
+                size: 13,
+                height: 1.35,
+                weight: FontWeight.w700,
+                color: AppColors.stone,
+              ),
+            )
+          else
+            ...visible.map((instruction) {
+              return _TurnPlanRow(instruction: instruction);
+            }),
+          if (hiddenCount > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              AppCopy.t(
+                language,
+                ko: '+$hiddenCount개 더',
+                en: '+$hiddenCount more',
+                fr: '+$hiddenCount autres',
+              ),
+              style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
             ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _TurnPlanRow extends StatelessWidget {
+  final TurnInstruction instruction;
+
+  const _TurnPlanRow({required this.instruction});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = instruction.finish
+        ? AppColors.success
+        : _turnSeverityColor(instruction.severity);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: accent.withValues(alpha: 0.28)),
+            ),
+            child: Icon(instruction.icon, size: 16, color: accent),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              instruction.headline,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.body(
+                size: 13,
+                weight: FontWeight.w900,
+                color: AppColors.ink,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '#${instruction.sequence}',
+            style: AppText.mono(size: 9, color: AppColors.stone),
           ),
         ],
       ),
@@ -1041,27 +1245,33 @@ class _RouteConfidenceSection extends StatelessWidget {
   }
 }
 
-class _ConfidenceChip extends StatelessWidget {
-  final String label;
-  final String value;
+Color _turnSeverityColor(int severity) {
+  if (severity >= 3) return AppColors.primaryContainer;
+  if (severity == 2) return AppColors.warning;
+  return AppColors.gold;
+}
 
-  const _ConfidenceChip({required this.label, required this.value});
+class _HeroChip extends StatelessWidget {
+  final String label;
+
+  const _HeroChip({required this.label});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
       decoration: BoxDecoration(
         color: AppColors.cream.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: AppColors.cream.withValues(alpha: 0.20)),
       ),
       child: Text(
-        '$label $value',
+        label,
         style: AppText.mono(
-          size: 11,
-          weight: FontWeight.w700,
-          color: AppColors.stone,
+          size: 9,
+          weight: FontWeight.w900,
+          color: AppColors.cream,
+          letterSpacing: 0.8,
         ),
       ),
     );
@@ -1097,381 +1307,6 @@ class _HeroBadge extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _MetricsGrid extends StatelessWidget {
-  final RevvRoute route;
-  final bool hideFlowMetric;
-
-  const _MetricsGrid({required this.route, this.hideFlowMetric = false});
-
-  @override
-  Widget build(BuildContext context) {
-    final language = context.watch<SettingsService>().appLanguage;
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 10,
-      mainAxisSpacing: 10,
-      childAspectRatio: 1.9,
-      children: [
-        _MetricTile(
-          label: AppCopy.t(language, ko: '거리', en: 'Distance', fr: 'Distance'),
-          value: route.distanceDisplay,
-        ),
-        _MetricTile(
-          label: AppCopy.t(language, ko: '예상 시간', en: 'ETA', fr: 'Temps'),
-          value: route.durationDisplay,
-        ),
-        _MetricTile(
-          label: AppCopy.t(
-            language,
-            ko: '커브 구간',
-            en: 'Curve km',
-            fr: 'Virages',
-          ),
-          value: '${_curveKm(route)}km',
-        ),
-        if (!hideFlowMetric)
-          _MetricTile(
-            label: AppCopy.t(language, ko: '연속 흐름', en: 'Flow', fr: 'Rythme'),
-            value: '${route.maxContinuousKm.toStringAsFixed(1)}km',
-          ),
-        _MetricTile(
-          label: AppCopy.t(language, ko: '시작점', en: 'Start', fr: 'Départ'),
-          value: route.distanceFromUserDisplay,
-        ),
-        _MetricTile(
-          label: AppCopy.t(language, ko: '정지 요소', en: 'Stops', fr: 'Arrêts'),
-          value: AppCopy.t(
-            language,
-            ko: '${route.stopSignCount + route.trafficSignalCount}개',
-            en: '${route.stopSignCount + route.trafficSignalCount}',
-            fr: '${route.stopSignCount + route.trafficSignalCount}',
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MetricTile extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _MetricTile({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.creamRaised,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(label, style: AppText.mono(size: 9, color: AppColors.stone)),
-          const SizedBox(height: 7),
-          Text(
-            value,
-            style: AppText.label(
-              size: 18,
-              weight: FontWeight.w700,
-              color: AppColors.ink,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TurnPlanPreview extends StatelessWidget {
-  final List<TurnInstruction> plan;
-  final AppLanguage language;
-
-  const _TurnPlanPreview({required this.plan, required this.language});
-
-  @override
-  Widget build(BuildContext context) {
-    final visible = plan.take(5).toList();
-    final hiddenCount = plan.length - visible.length;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.creamRaised,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.route_rounded,
-                color: AppColors.primaryContainer,
-                size: 22,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  AppCopy.t(
-                    language,
-                    ko: '턴북',
-                    en: 'TURN BOOK',
-                    fr: 'CARNET VIRAGES',
-                  ),
-                  style: AppText.mono(
-                    size: 10,
-                    color: AppColors.primaryContainer,
-                    letterSpacing: 1.6,
-                  ),
-                ),
-              ),
-              Text(
-                AppCopy.t(
-                  language,
-                  ko: '${plan.length}개 안내',
-                  en: '${plan.length} cues',
-                  fr: '${plan.length} repères',
-                ),
-                style: AppText.mono(size: 9, color: AppColors.stone),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (visible.isEmpty)
-            Text(
-              AppCopy.t(
-                language,
-                ko: '루트 라인을 불러오면 턴 안내가 표시됩니다.',
-                en: 'Turn guidance appears once the route line is loaded.',
-                fr: 'Les repères apparaissent avec la ligne de route.',
-              ),
-              style: AppText.body(
-                size: 13,
-                height: 1.35,
-                weight: FontWeight.w700,
-                color: AppColors.stone,
-              ),
-            )
-          else
-            ...visible.map((instruction) {
-              return _TurnPlanRow(instruction: instruction);
-            }),
-          if (hiddenCount > 0) ...[
-            const SizedBox(height: 8),
-            Text(
-              AppCopy.t(
-                language,
-                ko: '+$hiddenCount개 더',
-                en: '+$hiddenCount more',
-                fr: '+$hiddenCount autres',
-              ),
-              style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _TurnPlanRow extends StatelessWidget {
-  final TurnInstruction instruction;
-
-  const _TurnPlanRow({required this.instruction});
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = instruction.finish
-        ? AppColors.success
-        : _turnSeverityColor(instruction.severity);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 9),
-      child: Row(
-        children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.14),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: accent.withValues(alpha: 0.28)),
-            ),
-            child: Icon(instruction.icon, size: 17, color: accent),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              instruction.headline,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppText.body(
-                size: 14,
-                weight: FontWeight.w900,
-                color: AppColors.ink,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            '#${instruction.sequence}',
-            style: AppText.mono(size: 9, color: AppColors.stone),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-Color _turnSeverityColor(int severity) {
-  if (severity >= 3) return AppColors.primaryContainer;
-  if (severity == 2) return AppColors.warning;
-  return AppColors.gold;
-}
-
-class _DecisionBulletsSection extends StatelessWidget {
-  final List<String> lines;
-
-  const _DecisionBulletsSection({required this.lines});
-
-  @override
-  Widget build(BuildContext context) {
-    if (lines.isEmpty) return const SizedBox.shrink();
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.creamRaised,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.fact_check_rounded,
-                color: AppColors.primaryContainer,
-                size: 22,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                AppCopy.t(
-                  context.watch<SettingsService>().appLanguage,
-                  ko: '선택 포인트',
-                  en: 'Decision points',
-                  fr: 'Points de choix',
-                ),
-                style: AppText.mono(
-                  size: 10,
-                  color: AppColors.primaryContainer,
-                  letterSpacing: 1.6,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ...lines.map(
-            (line) => Padding(
-              padding: const EdgeInsets.only(bottom: 9),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 6,
-                    height: 6,
-                    margin: const EdgeInsets.only(top: 7),
-                    decoration: const BoxDecoration(
-                      color: AppColors.primaryContainer,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      line,
-                      style: AppText.body(
-                        size: 14,
-                        height: 1.35,
-                        weight: FontWeight.w700,
-                        color: AppColors.ink,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DetailSection extends StatelessWidget {
-  final String title;
-  final IconData icon;
-  final String body;
-  final Color accent;
-
-  const _DetailSection({
-    required this.title,
-    required this.icon,
-    required this.body,
-    this.accent = AppColors.primaryContainer,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.creamRaised,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: accent, size: 24),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: AppText.mono(
-                    size: 10,
-                    color: accent,
-                    letterSpacing: 1.6,
-                  ),
-                ),
-                const SizedBox(height: 7),
-                Text(
-                  body,
-                  style: AppText.body(
-                    size: 14,
-                    height: 1.45,
-                    weight: FontWeight.w700,
-                    color: AppColors.stone,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1690,51 +1525,6 @@ class _ElevationProfilePainter extends CustomPainter {
   bool shouldRepaint(covariant _ElevationProfilePainter oldDelegate) {
     return oldDelegate.profile != profile;
   }
-}
-
-String _bestFor(RevvRoute route, AppLanguage language) {
-  if (route.isLoop) {
-    return AppCopy.t(
-      language,
-      ko: '짧게 확인하고 시작점 근처로 돌아오기 좋은 루프입니다.',
-      en: 'A short validation drive that brings you back near the start.',
-      fr: 'Une courte boucle de validation qui revient près du départ.',
-    );
-  }
-  if (route.curveStyle == 'SWITCHBACK') {
-    return AppCopy.t(
-      language,
-      ko: '타이트한 코너와 차분한 진입 라인을 읽는 데 좋습니다.',
-      en: 'Reading tight corners and calm entry lines.',
-      fr: 'Lire des virages serrés et des lignes d’entrée calmes.',
-    );
-  }
-  if (route.curveStyle == 'SWEEPER') {
-    return AppCopy.t(
-      language,
-      ko: '완만한 스위퍼와 길게 이어지는 조향 흐름에 좋습니다.',
-      en: 'Smooth sweepers and longer steering flow.',
-      fr: 'Grandes courbes fluides et rythme au volant.',
-    );
-  }
-  if (route.maxContinuousKm >= 2.5) {
-    return AppCopy.t(
-      language,
-      ko: '중간 리듬이 끊기지 않는 루트를 찾는 데 좋습니다.',
-      en: 'Finding a route where the middle rhythm stays connected.',
-      fr: 'Trouver une route où le rythme reste connecté.',
-    );
-  }
-  return AppCopy.t(
-    language,
-    ko: '부담 없이 근처 도로를 비교하고 하나를 고르기 좋습니다.',
-    en: 'Comparing nearby roads and picking one with low commitment.',
-    fr: 'Comparer des routes proches sans gros engagement.',
-  );
-}
-
-String _curveKm(RevvRoute route) {
-  return (route.tightCurveKm + route.mediumCurveKm).toStringAsFixed(1);
 }
 
 bool _hasElevationProfile(RevvRoute route) {

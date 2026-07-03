@@ -39,6 +39,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.text('Details'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Details'));
+    await tester.pumpAndSettle();
+
     expect(find.text('TURN BOOK'), findsOneWidget);
     expect(find.text('4 cues'), findsOneWidget);
     expect(find.text('110m Right Hairpin'), findsOneWidget);
