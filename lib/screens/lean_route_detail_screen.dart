@@ -1060,7 +1060,7 @@ class _RouteShapeHero extends StatelessWidget {
                 ),
                 const SizedBox(height: 7),
                 Text(
-                  route.name,
+                  routeDisplayName(route, language: language),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppText.label(

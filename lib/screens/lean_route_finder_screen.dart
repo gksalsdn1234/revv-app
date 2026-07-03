@@ -1425,7 +1425,7 @@ class _LeanRouteTicket extends StatelessWidget {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              route.name,
+                              routeDisplayName(route, language: language),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: AppText.label(

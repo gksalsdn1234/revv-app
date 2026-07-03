@@ -1020,7 +1020,7 @@ class _TimelineLeg extends StatelessWidget {
   Widget build(BuildContext context) {
     final title = switch (leg.kind) {
       DrivePlanLegKind.winding =>
-        '${leg.route?.name ?? _copy(language, ko: '와인딩 루트', en: 'Winding route', fr: 'Route sinueuse')} ${_minutes(language, leg.estimatedMinutes)}',
+        '${leg.route == null ? _copy(language, ko: '와인딩 루트', en: 'Winding route', fr: 'Route sinueuse') : routeDisplayName(leg.route!, language: language)} ${_minutes(language, leg.estimatedMinutes)}',
       DrivePlanLegKind.rest => _copy(
         language,
         ko: '휴식 ${leg.estimatedMinutes}분',

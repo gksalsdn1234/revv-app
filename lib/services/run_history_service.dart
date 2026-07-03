@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/storage_keys.dart';
+import 'route_loading_policy.dart';
 import '../models/revv_route.dart';
 import '../models/route_feedback.dart';
 import '../models/run_session.dart';
@@ -161,7 +162,9 @@ class RunHistoryService extends ChangeNotifier {
       durationSeconds: session.duration.inSeconds,
       maxSpeedKmh: session.maxSpeedKmh,
       avgSpeedKmh: session.avgSpeedKmh,
-      routeName: session.routeName,
+      routeName: session.route == null
+          ? session.routeName
+          : routeDisplayName(session.route!),
       routeId: session.route?.id,
       weatherEmoji: session.weatherEmoji,
       tempDisplay: session.tempDisplay,

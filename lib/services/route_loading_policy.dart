@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../core/app_language.dart';
 import '../models/revv_route.dart';
 
 const targetVisibleRoutes = 12;
@@ -952,6 +953,33 @@ bool hasNumericOnlyName(String name) {
   if (normalized.isEmpty) return true;
   return normalized.length >= 5 &&
       _numericOnlyRouteNamePattern.hasMatch(normalized);
+}
+
+/// 사용자 노출용 루트 이름. OSM way id 같은 숫자 이름을 그대로 보여주지 않는다.
+/// 폴백 순서: 원래 이름 → (enrich된) 실제 도로명 → 커브 성격 + 거리.
+String routeDisplayName(RevvRoute route, {AppLanguage? language}) {
+  final raw = route.name.trim();
+  if (raw.isNotEmpty && !hasNumericOnlyName(raw)) return raw;
+
+  for (final road in route.roadNames) {
+    final name = road.trim();
+    if (name.isNotEmpty && !hasNumericOnlyName(name)) return name;
+  }
+
+  String pick(String ko, String en, String fr) {
+    return switch (language) {
+      AppLanguage.english => en,
+      AppLanguage.french => fr,
+      _ => ko,
+    };
+  }
+
+  final style = switch (route.curveStyle) {
+    'SWITCHBACK' => pick('스위치백 코스', 'Switchback run', 'Parcours en lacets'),
+    'SWEEPER' => pick('스위퍼 코스', 'Sweeper run', 'Parcours en courbes'),
+    _ => pick('와인딩 코스', 'Winding run', 'Parcours sinueux'),
+  };
+  return '$style ${route.distanceKm.toStringAsFixed(1)}km';
 }
 
 bool isBridgeLikeRouteName(String name) {

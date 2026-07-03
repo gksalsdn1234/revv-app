@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_language.dart';
+import '../services/route_loading_policy.dart';
 import '../core/app_links.dart';
 import '../models/revv_route.dart';
 import '../models/run_summary.dart';
@@ -1906,7 +1907,7 @@ class _GuideToStartCard extends StatelessWidget {
           ),
           const SizedBox(height: 7),
           Text(
-            route.name,
+            routeDisplayName(route),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: AppText.body(
