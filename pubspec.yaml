@@ -41,6 +41,7 @@ dependencies:
   shared_preferences: ^2.3.0
   flutter_secure_storage: ^9.2.4
   sensors_plus: ^7.0.0
+  sentry_flutter: ^9.23.0
   supabase: ^2.10.6
   url_launcher: ^6.3.2
 

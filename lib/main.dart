@@ -13,8 +13,11 @@ import 'services/run_history_service.dart';
 import 'services/imu_service.dart';
 import 'services/settings_service.dart';
 import 'services/supabase_service.dart';
+import 'services/crash_reporting.dart';
 
-void main() async {
+Future<void> main() => runWithCrashReporting(_startApp);
+
+Future<void> _startApp() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SupabaseService().init();
 
