@@ -76,6 +76,8 @@ class MapWidget extends StatefulWidget {
   final LatLng? simulatedPosition;
   final double? navigationBearing;
   final int recenterSignal;
+  final LatLng? cameraTarget;
+  final int cameraTargetSignal;
   final ValueChanged<LatLng>? onCameraCenterChanged;
   final ValueChanged<RouteMapViewport>? onCameraViewportChanged;
   final ValueChanged<String>? onRouteLineTap;
@@ -94,6 +96,8 @@ class MapWidget extends StatefulWidget {
     this.simulatedPosition,
     this.navigationBearing,
     this.recenterSignal = 0,
+    this.cameraTarget,
+    this.cameraTargetSignal = 0,
     this.onCameraCenterChanged,
     this.onCameraViewportChanged,
     this.onRouteLineTap,
@@ -304,6 +308,10 @@ class _MapWidgetState extends State<MapWidget> {
     if (_styleLoaded) {
       if (oldWidget.recenterSignal != widget.recenterSignal) {
         _recenterOnUser();
+      }
+      if (oldWidget.cameraTargetSignal != widget.cameraTargetSignal &&
+          widget.cameraTarget != null) {
+        _moveCameraToPoint(widget.cameraTarget!, zoom: 14.0, fly: true);
       }
       if (oldWidget.simulatedPosition != widget.simulatedPosition) {
         _drawSimulationMarker(widget.simulatedPosition);
@@ -727,6 +735,13 @@ class _MapWidgetState extends State<MapWidget> {
       }
     }
     await _drawSimulationMarker(widget.simulatedPosition);
+    if (widget.cameraTarget != null && widget.cameraTargetSignal > 0) {
+      await _moveCameraToPoint(
+        widget.cameraTarget!,
+        zoom: 14.0,
+        immediate: true,
+      );
+    }
   }
 
   static bool _samePolylineGroups(List<List<LatLng>> a, List<List<LatLng>> b) {
@@ -1507,6 +1522,7 @@ class _MapWidgetState extends State<MapWidget> {
     double pitch = 0.0,
     double? bearing,
     bool immediate = false,
+    bool fly = false,
   }) async {
     final map = _mapController;
     if (!_styleLoaded || map == null) return;
@@ -1521,6 +1537,8 @@ class _MapWidgetState extends State<MapWidget> {
     try {
       if (immediate) {
         await map.setCamera(camera);
+      } else if (fly) {
+        await map.flyTo(camera, mbx.MapAnimationOptions(duration: 620));
       } else {
         await map.easeTo(camera, mbx.MapAnimationOptions(duration: 320));
       }

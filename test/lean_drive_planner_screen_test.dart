@@ -7,6 +7,7 @@ import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_drive_planner_screen.dart';
 import 'package:revv_app/services/drive_planner_service.dart';
 import 'package:revv_app/services/location_service.dart';
+import 'package:revv_app/services/place_search_service.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/services/weather_service.dart';
 import 'package:revv_app/theme/text_styles.dart';
@@ -28,6 +29,7 @@ void main() {
     DrivePlan? lightPlan,
     DrivePlan? extendedPlan,
     TimeOfDay? arriveBy,
+    PlaceSearchService? placeSearch,
   }) async {
     final location = LocationService()..hasPermission = true;
     final settings = SettingsService();
@@ -49,6 +51,7 @@ void main() {
               lightPlan: lightPlan,
               extendedPlan: extendedPlan,
             ),
+            placeSearch: placeSearch,
             originResolver: (_) async => const LatLng(45.5, -73.6),
             initialArriveBy: arriveBy,
           ),
@@ -153,6 +156,42 @@ void main() {
     expect(find.text('변경'), findsOneWidget);
   });
 
+  testWidgets('destination search updates the planner destination', (
+    tester,
+  ) async {
+    final search = _FakePlaceSearch([
+      const PlaceResult(
+        name: 'Circuit Gilles-Villeneuve',
+        address: 'Montreal, Quebec',
+        point: LatLng(45.5001, -73.5229),
+      ),
+    ]);
+    await pumpPlanner(
+      tester,
+      plan: _planWithWinding(windingMinutes: 30),
+      placeSearch: search,
+    );
+
+    await tester.tap(find.text('45.5017,-73.5673'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('planner-place-search-field')),
+      'circuit',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(search.lastQuery, 'circuit');
+    expect(search.lastLanguage, 'ko');
+    expect(find.text('Circuit Gilles-Villeneuve'), findsOneWidget);
+
+    await tester.tap(find.text('Circuit Gilles-Villeneuve'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Circuit Gilles-Villeneuve'), findsOneWidget);
+    expect(find.text('45.5017,-73.5673'), findsNothing);
+  });
+
   testWidgets('planner visible copy avoids forbidden terms', (tester) async {
     await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 12));
 
@@ -169,6 +208,28 @@ void main() {
       }
     }
   });
+}
+
+class _FakePlaceSearch extends PlaceSearchService {
+  final List<PlaceResult> results;
+  String? lastQuery;
+  String? lastLanguage;
+
+  _FakePlaceSearch(this.results);
+
+  @override
+  bool get isEnabled => true;
+
+  @override
+  Future<List<PlaceResult>> searchPlaces(
+    String query, {
+    LatLng? proximity,
+    String language = 'en',
+  }) async {
+    lastQuery = query;
+    lastLanguage = language;
+    return results;
+  }
 }
 
 class _FakePlanner extends DrivePlannerService {
