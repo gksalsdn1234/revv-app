@@ -87,8 +87,24 @@ void main() {
     );
 
     expect(tight.primaryAdvice, contains('타이트'));
-    expect(sweeper.primaryAdvice, contains('중간 커브'));
-    expect(flow.primaryAdvice, contains('페이스'));
+    expect(sweeper.primaryAdvice, matches(RegExp(r'\d')));
+    expect(flow.primaryAdvice, matches(RegExp(r'\d')));
+    expect(tight.primaryAdvice, isNot(sweeper.primaryAdvice));
+  });
+
+  test('primary advice reuses informative preview copy', () {
+    final briefing = CopilotRouteBriefing.fromRoute(
+      _route(
+        id: 'numeric-preview',
+        distanceKm: 18,
+        tightCurveKm: 1.4,
+        mediumCurveKm: 1.2,
+        maxContinuousKm: 2.0,
+      ),
+    );
+
+    expect(briefing.primaryAdvice, matches(RegExp(r'\d')));
+    expect(briefing.primaryAdvice, isNot(matches(RegExp(r'속도|스릴|짜릿|과속'))));
   });
 
   test('broad and road-risk candidates expose caution explicitly', () {
@@ -129,8 +145,10 @@ void main() {
     );
 
     expect(english.startAdvice, contains('Start is'));
+    expect(english.primaryAdvice, matches(RegExp(r'\d')));
     expect(english.primaryAdvice, isNot(contains('좋아요')));
     expect(french.startAdvice, contains('Départ'));
+    expect(french.primaryAdvice, matches(RegExp(r'\d')));
     expect(french.nextActionLabel, 'Aller au départ');
   });
 }

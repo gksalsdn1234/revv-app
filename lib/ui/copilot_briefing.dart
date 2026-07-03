@@ -2,6 +2,7 @@ import '../core/app_language.dart';
 import '../models/revv_route.dart';
 import '../services/route_loading_policy.dart';
 import 'app_copy.dart';
+import 'route_detail_copy.dart';
 import 'route_quality_profile.dart';
 
 class CopilotRouteBriefing {
@@ -36,7 +37,7 @@ class CopilotRouteBriefing {
     final curvyKm = route.tightCurveKm + route.mediumCurveKm;
     final controls = route.stopSignCount + route.trafficSignalCount;
     final headline = _headline(route, p, language);
-    final primary = _primaryAdvice(route, p, curvyKm, controls, language);
+    final primary = routeInformativePreviewLine(route, language: language);
     final start = _startAdvice(startKm, language);
     final risk = _riskAdvice(route, p, controls, filterStrength, language);
     final fit = _fitLabel(route, p, language);
@@ -152,77 +153,6 @@ String _headline(
     '지도에서 먼저 읽어볼 후보',
     'Read it on the map first',
     'À lire sur la carte',
-  );
-}
-
-String _primaryAdvice(
-  RevvRoute route,
-  RouteQualityProfile profile,
-  double curvyKm,
-  int controls,
-  AppLanguage? language,
-) {
-  if (profile.hasTag(RouteQualityTag.tight)) {
-    return _text(
-      language,
-      '타이트 구간 ${route.tightCurveKm.toStringAsFixed(1)}km가 모여 있어 속도보다 진입 라인 판단이 핵심이에요.',
-      '${route.tightCurveKm.toStringAsFixed(1)}km of tight sections. Entry line matters more than pace.',
-      '${route.tightCurveKm.toStringAsFixed(1)}km de sections serrées. La ligne d’entrée compte plus que le rythme.',
-    );
-  }
-  if (profile.hasTag(RouteQualityTag.sweeper)) {
-    return _text(
-      language,
-      '중간 커브 ${route.mediumCurveKm.toStringAsFixed(1)}km가 이어져 부드러운 조향 흐름을 보기 좋아요.',
-      '${route.mediumCurveKm.toStringAsFixed(1)}km of medium curves. Good for smooth steering flow.',
-      '${route.mediumCurveKm.toStringAsFixed(1)}km de virages moyens. Bon rythme au volant.',
-    );
-  }
-  if (profile.hasTag(RouteQualityTag.flow)) {
-    return _text(
-      language,
-      '코너 사이 간격이 자연스러워 페이스를 자주 끊지 않고 이어가기 좋은 후보예요.',
-      'Corner spacing is natural, so the rhythm should stay connected.',
-      'Les virages respirent bien, le rythme reste connecté.',
-    );
-  }
-  if (profile.hasTag(RouteQualityTag.loop)) {
-    return _text(
-      language,
-      '시작점과 복귀 동선이 단순해서 짧게 확인하고 돌아오기 좋은 루프예요.',
-      'Simple start and return path. Good loop for a short check.',
-      'Départ et retour simples. Bonne boucle courte.',
-    );
-  }
-  if (controls == 0 && route.maxContinuousKm >= 1.4) {
-    return _text(
-      language,
-      '정지 요소가 적고 ${route.maxContinuousKm.toStringAsFixed(1)}km 연속 흐름이 있어 리듬 잡기 좋아요.',
-      'Few stops and ${route.maxContinuousKm.toStringAsFixed(1)}km of flow. Easy to read the rhythm.',
-      'Peu d’arrêts et ${route.maxContinuousKm.toStringAsFixed(1)}km de rythme continu. Rythme lisible.',
-    );
-  }
-  if (route.distanceKm >= 30) {
-    return _text(
-      language,
-      '${route.distanceDisplay}라 루트 전체보다 중간 휴식/복귀 동선까지 보고 시작하는 게 좋아요.',
-      '${route.distanceDisplay}. Check rest points and return path before committing.',
-      '${route.distanceDisplay}. Vérifiez pauses et retour avant de partir.',
-    );
-  }
-  if (curvyKm >= 0.8) {
-    return _text(
-      language,
-      '커브 집중 구간 ${curvyKm.toStringAsFixed(1)}km가 있어 지도에서 리듬이 살아나는 후보예요.',
-      '${curvyKm.toStringAsFixed(1)}km of curve focus. The rhythm should show clearly on the map.',
-      '${curvyKm.toStringAsFixed(1)}km de virages. Le rythme se lit sur la carte.',
-    );
-  }
-  return _text(
-    language,
-    '${route.distanceDisplay} 안에서 부담 없이 루트 성격을 확인하기 좋은 후보예요.',
-    '${route.distanceDisplay}. Low-friction candidate to sample the route character.',
-    '${route.distanceDisplay}. Option simple pour tester le caractère.',
   );
 }
 

@@ -52,7 +52,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
       language: language,
     );
     final turnPlan = buildTurnByTurnPlan(route.nodes, language: language);
-    final cautionBody = _cautionBody(copy, profile);
+    final cautionBody = _cautionBody(copy);
 
     return Scaffold(
       backgroundColor: AppColors.cream,
@@ -876,7 +876,7 @@ class _DriveEnvironmentRow extends StatelessWidget {
 class _RouteDetailExpansion extends StatelessWidget {
   final CopilotRouteBriefing briefing;
   final RouteDetailCopy copy;
-  final String cautionBody;
+  final String? cautionBody;
   final List<TurnInstruction> turnPlan;
   final AppLanguage language;
 
@@ -932,10 +932,11 @@ class _RouteDetailExpansion extends StatelessWidget {
               label: AppCopy.t(language, ko: '시작', en: 'Start', fr: 'Départ'),
               text: briefing.startAdvice,
             ),
-            _CopilotJudgementRow(
-              label: AppCopy.t(language, ko: '주의', en: 'Risk', fr: 'Risque'),
-              text: cautionBody,
-            ),
+            if (cautionBody != null)
+              _CopilotJudgementRow(
+                label: AppCopy.t(language, ko: '주의', en: 'Risk', fr: 'Risque'),
+                text: cautionBody!,
+              ),
             _CopilotJudgementRow(
               label: AppCopy.t(language, ko: '성향', en: 'Fit', fr: 'Profil'),
               text: briefing.fitLabel,
@@ -1595,9 +1596,8 @@ List<String> _routeChainSegmentNames(RevvRoute route) {
   return names.take(3).toList(growable: false);
 }
 
-String _cautionBody(RouteDetailCopy copy, RouteQualityProfile profile) {
+String? _cautionBody(RouteDetailCopy copy) {
   final caution = copy.cautionLine?.trim();
-  if (caution == null || caution.isEmpty) return profile.riskLabel;
-  if (profile.riskLabel.startsWith('기본 주의')) return caution;
-  return '${profile.riskLabel}\n$caution';
+  if (caution == null || caution.isEmpty) return null;
+  return caution;
 }

@@ -10,6 +10,8 @@ RevvRoute _route({
   double tightCurveKm = 0.8,
   double mediumCurveKm = 2.4,
   double maxContinuousKm = 1.6,
+  double stopControlDensity = 0,
+  int sharpCurveCount = 9,
   int stopSignCount = 0,
   int trafficSignalCount = 0,
   String routeCharacter = 'fast_sweeper',
@@ -33,7 +35,7 @@ RevvRoute _route({
     distanceKm: distanceKm,
     windingScore: 6.4,
     starRating: 4,
-    sharpCurveCount: 9,
+    sharpCurveCount: sharpCurveCount,
     centerPoint: const LatLng(45.025, -73.02),
     distanceFromUser: 8,
     tightCurveKm: tightCurveKm,
@@ -41,6 +43,7 @@ RevvRoute _route({
     maxContinuousKm: maxContinuousKm,
     stopSignCount: stopSignCount,
     trafficSignalCount: trafficSignalCount,
+    stopControlDensity: stopControlDensity,
     roadClassBucket: roadClassBucket,
     isMajorRoadLike: isMajorRoadLike,
     isBridgeLike: isBridgeLike,
@@ -57,7 +60,7 @@ RevvRoute _route({
 }
 
 void main() {
-  test('injected primary reason and caution copy are preserved', () {
+  test('server caution copy is preserved and preview stays data based', () {
     final route = _route(
       primaryReason: '강변을 따라 긴 중속 코너가 이어지는 주입 리뷰예요.',
       cautionNote: '후반부 마을 진입에서 흐름이 잠깐 느려집니다.',
@@ -65,7 +68,8 @@ void main() {
 
     final copy = RouteDetailCopy.fromRoute(route, startDistanceKm: 3.2);
 
-    expect(copy.heroReason, route.primaryReason);
+    expect(copy.heroReason, isNot(route.primaryReason));
+    expect(copy.heroReason, matches(RegExp(r'\d')));
     expect(copy.cautionLine, route.cautionNote);
     expect(copy.decisionBullets, isNot(contains(route.primaryReason)));
     expect(copy.decisionBullets, isNot(contains(route.cautionNote)));
@@ -76,7 +80,8 @@ void main() {
 
     final copy = RouteDetailCopy.fromRoute(route, startDistanceKm: 0.2);
 
-    expect(copy.heroReason, '커스텀 히어로 문구입니다.');
+    expect(copy.heroReason, isNot('커스텀 히어로 문구입니다.'));
+    expect(copy.heroReason, matches(RegExp(r'\d')));
     expect(copy.decisionBullets.join('\n'), contains('커브 집중 구간'));
     expect(copy.decisionBullets.join('\n'), contains('시작점'));
     expect(copy.decisionBullets, isNot(contains(copy.heroReason)));
@@ -108,6 +113,64 @@ void main() {
     expect(stopHeavy.cautionLine, contains('정지 요소'));
   });
 
+  test('preview and caution generators are deterministic and numeric', () {
+    final route = _route(
+      id: 'deterministic',
+      name: 'Deterministic Route',
+      distanceKm: 12,
+      tightCurveKm: 2.2,
+      mediumCurveKm: 0.4,
+      maxContinuousKm: 1.1,
+    );
+
+    final first = routeInformativePreviewLine(route);
+    final second = routeInformativePreviewLine(route);
+
+    expect(first, second);
+    expect(first, matches(RegExp(r'\d')));
+    expect(routeInformativeCautionLine(route), contains('타이트 커브'));
+  });
+
+  test('caution generator follows data rules and avoids unsafe wording', () {
+    final cases = [
+      routeInformativeCautionLine(
+        _route(maxContinuousKm: 3.2, tightCurveKm: 0.2, mediumCurveKm: 0.4),
+      ),
+      routeInformativeCautionLine(
+        _route(
+          stopSignCount: 4,
+          trafficSignalCount: 2,
+          stopControlDensity: 0.5,
+          tightCurveKm: 0.2,
+          mediumCurveKm: 0.4,
+        ),
+      ),
+      routeInformativeCautionLine(
+        _route(isMajorRoadLike: true, tightCurveKm: 0.2, mediumCurveKm: 0.4),
+      ),
+      routeInformativeCautionLine(
+        _route(
+          distanceKm: 10,
+          sharpCurveCount: 12,
+          tightCurveKm: 0.2,
+          mediumCurveKm: 0.4,
+        ),
+      ),
+    ].whereType<String>().join('\n');
+
+    expect(cases, contains('긴 연속 구간'));
+    expect(cases, contains('정지 요소'));
+    expect(cases, contains('간선도로'));
+    expect(cases, contains('커브 밀도'));
+    expect(cases, isNot(matches(RegExp(r'속도|스릴|짜릿|과속|페이스'))));
+    expect(
+      routeInformativeCautionLine(
+        _route(tightCurveKm: 0.2, mediumCurveKm: 0.4, maxContinuousKm: 1.0),
+      ),
+      isNull,
+    );
+  });
+
   test(
     'route geometry creates section-aware copy when nodes are available',
     () {
@@ -127,7 +190,7 @@ void main() {
       final copy = RouteDetailCopy.fromRoute(route);
       final body = [copy.heroReason, ...copy.decisionBullets].join('\n');
 
-      expect(body, contains('Geometry Route'));
+      expect(body, matches(RegExp(r'\d')));
       expect(body, anyOf(contains('초반'), contains('중반'), contains('후반')));
       expect(body, contains('방향 전환'));
     },
@@ -150,8 +213,8 @@ void main() {
     final copy = RouteDetailCopy.fromRoute(route);
 
     expect(copy.heroReason, isNot('좋은 와인딩 루트예요.'));
-    expect(copy.heroReason, contains('Specific Shape'));
-    expect(copy.heroReason, contains('방향 전환'));
+    expect(copy.heroReason, matches(RegExp(r'\d')));
+    expect(copy.decisionBullets.join('\n'), contains('방향 전환'));
   });
 
   test('route detail copy includes road and elevation context', () {
@@ -212,9 +275,9 @@ void main() {
       language: AppLanguage.french,
     );
 
-    expect(english.heroReason, contains('curve-focused'));
+    expect(english.heroReason, matches(RegExp(r'\d')));
     expect(english.decisionBullets.join(' '), contains('navigate first'));
-    expect(french.heroReason, contains('virages'));
+    expect(french.heroReason, matches(RegExp(r'\d')));
     expect(french.decisionBullets.join(' '), contains('naviguer'));
   });
 }
