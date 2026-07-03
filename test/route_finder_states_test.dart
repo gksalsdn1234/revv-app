@@ -24,6 +24,28 @@ void main() {
     );
   }
 
+  Future<void> pumpCoverageCard(
+    WidgetTester tester, {
+    bool requested = false,
+    bool requesting = false,
+    VoidCallback? onRequest,
+    VoidCallback? onBrowseMontreal,
+  }) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RouteCoverageBoundaryCard(
+            language: AppLanguage.korean,
+            requested: requested,
+            requesting: requesting,
+            onRequest: onRequest ?? () {},
+            onBrowseMontreal: onBrowseMontreal ?? () {},
+          ),
+        ),
+      ),
+    );
+  }
+
   void expectSafeCopy(List<String> values) {
     for (final value in values) {
       for (final forbidden in forbiddenWords) {
@@ -96,5 +118,41 @@ void main() {
     expect(find.text(expected[1]), findsOneWidget);
     expect(find.textContaining('저장된 커브길'), findsOneWidget);
     expectSafeCopy(expected);
+  });
+
+  testWidgets(
+    'coverage boundary card renders demand request and Montreal cue',
+    (tester) async {
+      var requestTapped = false;
+      var browseTapped = false;
+
+      await pumpCoverageCard(
+        tester,
+        onRequest: () => requestTapped = true,
+        onBrowseMontreal: () => browseTapped = true,
+      );
+
+      const expected = ['지금은 몬트리올 일대의 루트를 제공해요', '우리 지역 알림 받기', '몬트리올 보기'];
+      expect(find.text(expected[0]), findsOneWidget);
+      expect(find.text(expected[1]), findsOneWidget);
+      expect(find.text(expected[2]), findsOneWidget);
+      expect(find.textContaining('이 지역은 준비 중'), findsOneWidget);
+      expectSafeCopy(expected);
+
+      await tester.tap(find.text(expected[1]));
+      await tester.tap(find.text(expected[2]));
+
+      expect(requestTapped, isTrue);
+      expect(browseTapped, isTrue);
+    },
+  );
+
+  testWidgets('coverage boundary card renders completed request state', (
+    tester,
+  ) async {
+    await pumpCoverageCard(tester, requested: true);
+
+    expect(find.text('알림 신청됨'), findsOneWidget);
+    expect(find.text('우리 지역 알림 받기'), findsNothing);
   });
 }

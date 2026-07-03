@@ -29,6 +29,40 @@ enum RouteSearchStage { strict, balanced, expanded }
 
 enum RouteFilterStrength { precise, balanced, broad }
 
+const routeCoverageRadiusKm = 150.0;
+const routeCoverageCenters = <LatLng>[LatLng(45.5017, -73.5673)];
+
+class RegionRequestGrid {
+  final double latRounded;
+  final double lngRounded;
+
+  const RegionRequestGrid({required this.latRounded, required this.lngRounded});
+
+  String get gridKey =>
+      '${latRounded.toStringAsFixed(1)},${lngRounded.toStringAsFixed(1)}';
+}
+
+bool isPointInsideRouteCoverage(
+  LatLng point, {
+  Iterable<LatLng> centers = routeCoverageCenters,
+  double radiusKm = routeCoverageRadiusKm,
+}) {
+  return centers.any(
+    (center) => RevvRoute.haversineKm(point, center) <= radiusKm,
+  );
+}
+
+RegionRequestGrid regionRequestGridFor(LatLng point) {
+  return RegionRequestGrid(
+    latRounded: _roundToTenth(point.lat),
+    lngRounded: _roundToTenth(point.lng),
+  );
+}
+
+double _roundToTenth(double value) {
+  return (value * 10).roundToDouble() / 10;
+}
+
 RouteFilterStrength routeFilterStrengthFromStorage(String? value) {
   return switch (value) {
     'precise' => RouteFilterStrength.precise,

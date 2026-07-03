@@ -12,6 +12,7 @@ class SettingsService extends ChangeNotifier {
   RouteFilterStrength _routeFilterStrength = RouteFilterStrength.balanced;
   String _distUnit = 'km';
   bool _cloudRunStorageEnabled = false;
+  Set<String> _regionRequestGrids = const {};
 
   bool get ttsMuted => _ttsMuted;
   AppLanguage get appLanguage => _appLanguage;
@@ -19,6 +20,8 @@ class SettingsService extends ChangeNotifier {
   RouteFilterStrength get routeFilterStrength => _routeFilterStrength;
   String get distUnit => _distUnit;
   bool get cloudRunStorageEnabled => _cloudRunStorageEnabled;
+  bool hasRequestedRegion(String gridKey) =>
+      _regionRequestGrids.contains(gridKey);
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -35,6 +38,9 @@ class SettingsService extends ChangeNotifier {
     _distUnit = prefs.getString(StorageKeys.distUnit) ?? 'km';
     _cloudRunStorageEnabled =
         prefs.getBool(StorageKeys.cloudRunStorageEnabled) ?? false;
+    _regionRequestGrids =
+        prefs.getStringList(StorageKeys.regionRequestGrids)?.toSet() ??
+        const {};
     notifyListeners();
   }
 
@@ -92,6 +98,17 @@ class SettingsService extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(StorageKeys.cloudRunStorageEnabled, value);
+  }
+
+  Future<void> markRegionRequested(String gridKey) async {
+    if (_regionRequestGrids.contains(gridKey)) return;
+    _regionRequestGrids = {..._regionRequestGrids, gridKey};
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      StorageKeys.regionRequestGrids,
+      _regionRequestGrids.toList()..sort(),
+    );
   }
 
   int _normalizeSearchRadius(int value) {

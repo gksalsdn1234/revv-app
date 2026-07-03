@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
@@ -55,6 +57,32 @@ RevvRoute _route({
 }
 
 void main() {
+  test('coverage includes Montreal and the exact 150km boundary', () {
+    const montreal = LatLng(45.5017, -73.5673);
+    final boundaryLat =
+        montreal.lat + routeCoverageRadiusKm / 6371.0 * 180 / math.pi;
+    final boundary = LatLng(boundaryLat, montreal.lng);
+
+    expect(isPointInsideRouteCoverage(montreal), isTrue);
+    expect(isPointInsideRouteCoverage(boundary), isTrue);
+  });
+
+  test('coverage excludes cities outside the Montreal operating area', () {
+    const toronto = LatLng(43.6532, -79.3832);
+    const vancouver = LatLng(49.2827, -123.1207);
+
+    expect(isPointInsideRouteCoverage(toronto), isFalse);
+    expect(isPointInsideRouteCoverage(vancouver), isFalse);
+  });
+
+  test('region request grid rounds coordinates to one decimal place', () {
+    final grid = regionRequestGridFor(const LatLng(43.6532, -79.3832));
+
+    expect(grid.latRounded, 43.7);
+    expect(grid.lngRounded, -79.4);
+    expect(grid.gridKey, '43.7,-79.4');
+  });
+
   test('initial overpass query skips primary roads by default', () {
     final query = buildOverpassQuery(
       lat: 37.5,

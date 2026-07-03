@@ -228,6 +228,28 @@ class SupabaseService extends ChangeNotifier {
     }
   }
 
+  Future<bool> recordRegionRequest(
+    RegionRequestGrid grid, {
+    required String locale,
+  }) async {
+    _config ??= SupabaseConfig.instance;
+    if (!_config!.isConfigured) return false;
+    try {
+      final requestClient = SupabaseClient(_config!.url, _config!.anonKey);
+      await requestClient.from(SupabaseTables.regionRequests).insert({
+        'grid_key': grid.gridKey,
+        'lat_rounded': grid.latRounded,
+        'lng_rounded': grid.lngRounded,
+        'locale': locale,
+      });
+      _debugLog('[Supabase] region request recorded — ${grid.gridKey}');
+      return true;
+    } catch (e) {
+      _debugLog('[Supabase] recordRegionRequest failed: ${_safeError(e)}');
+      return false;
+    }
+  }
+
   Future<RunTelemetryDetail?> fetchRunDetail(String runId) async {
     if (!_ready || uid == null) return null;
     try {

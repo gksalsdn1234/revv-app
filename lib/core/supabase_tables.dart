@@ -8,4 +8,5 @@ class SupabaseTables {
   static const String routeRecords = 'route_records';
   static const String routeFeedback = 'route_feedback';
   static const String savedRoutes = 'saved_routes';
+  static const String regionRequests = 'region_requests';
 }

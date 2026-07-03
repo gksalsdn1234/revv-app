@@ -14,6 +14,8 @@ void main() {
       'supabase/migrations/20260501004000_security_advisor_cleanup.sql';
   const revokeAnonMigration =
       'supabase/migrations/20260501005000_revoke_anon_user_data.sql';
+  const regionRequestsMigration =
+      'supabase/migrations/20260703070628_region_requests.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -21,6 +23,7 @@ void main() {
     grantsMigration,
     advisorCleanupMigration,
     revokeAnonMigration,
+    regionRequestsMigration,
   ];
 
   const userTables = [
@@ -196,6 +199,37 @@ void main() {
     expect(sql, contains('grant select, insert, update, delete'));
     expect(sql, contains('to authenticated, service_role'));
   });
+
+  test(
+    'region requests allow anonymous insert only with rounded coordinates',
+    () {
+      final sql = _readLower(regionRequestsMigration);
+
+      expect(
+        sql,
+        contains('create table if not exists public.region_requests'),
+      );
+      expect(
+        sql,
+        contains(
+          'alter table public.region_requests enable row level security',
+        ),
+      );
+      expect(sql, contains('create policy region_requests_anon_insert'));
+      expect(sql, contains('for insert'));
+      expect(sql, contains('to anon'));
+      expect(sql, contains('with check (true)'));
+      expect(sql, contains('lat_rounded'));
+      expect(sql, contains('lng_rounded'));
+      expect(sql, contains('numeric(4,1)'));
+      expect(sql, isNot(contains('device')));
+      expect(sql, isNot(contains('user_id')));
+      expect(sql, isNot(contains('grant select')));
+      expect(sql, isNot(contains('grant update')));
+      expect(sql, isNot(contains('grant delete')));
+      expect(sql, contains('grant insert on public.region_requests to anon'));
+    },
+  );
 }
 
 String _readLower(String path) => File(path).readAsStringSync().toLowerCase();

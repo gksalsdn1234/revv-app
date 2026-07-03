@@ -59,6 +59,21 @@ void main() {
     },
   );
 
+  test('SettingsService persists requested region grid keys', () async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+
+    await settings.load();
+    await settings.markRegionRequested('43.7,-79.4');
+
+    expect(settings.hasRequestedRegion('43.7,-79.4'), isTrue);
+
+    final reloaded = SettingsService();
+    await reloaded.load();
+
+    expect(reloaded.hasRequestedRegion('43.7,-79.4'), isTrue);
+  });
+
   test('cloud copy describes detailed upload without requiring login now', () {
     expect(
       AppCopy.cloudOn(AppLanguage.english),

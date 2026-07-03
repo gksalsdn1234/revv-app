@@ -10,6 +10,7 @@ import '../services/location_service.dart';
 import '../services/route_loading_policy.dart';
 import '../services/route_service.dart';
 import '../services/settings_service.dart';
+import '../services/supabase_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
@@ -77,8 +78,10 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   double _mapZoom = 11.0;
   bool _curveRoadView = false;
   bool _hasUserSelectedRoute = false;
+  bool _coverageRequestInProgress = false;
   RevvRoute? _selectedRouteOverride;
   String? _selectedRegionKey;
+  LatLng? _coverageRequestPoint;
 
   @override
   void initState() {
@@ -134,6 +137,20 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     if (routes.visibleRouteLimit < 32) {
       routes.visibleRouteLimit = 32;
     }
+    if (!isPointInsideRouteCoverage(point)) {
+      setState(() {
+        _lens = _RouteLens.all;
+        _selectedIndex = 0;
+        _hasUserSelectedRoute = false;
+        _selectedRouteOverride = null;
+        _localStatusMessage = null;
+        _selectedRegionKey = regionKey;
+        _mapCenterPoint = point;
+        _mapZoom = 11.0;
+        _coverageRequestPoint = point;
+      });
+      return;
+    }
     await routes.prefetchRouteField(
       point.lat,
       point.lng,
@@ -147,11 +164,26 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedRouteOverride = null;
       _localStatusMessage = null;
       _selectedRegionKey = regionKey;
+      _coverageRequestPoint = null;
       if (regionKey != null) {
         _mapCenterPoint = point;
         _mapZoom = 11.0;
       }
     });
+  }
+
+  Future<void> _requestCoverageNotification(RegionRequestGrid grid) async {
+    if (_coverageRequestInProgress) return;
+    final settings = context.read<SettingsService>();
+    if (settings.hasRequestedRegion(grid.gridKey)) return;
+    setState(() => _coverageRequestInProgress = true);
+    await context.read<SupabaseService>().recordRegionRequest(
+      grid,
+      locale: appLanguageStorageValue(settings.appLanguage),
+    );
+    await settings.markRegionRequested(grid.gridKey);
+    if (!mounted) return;
+    setState(() => _coverageRequestInProgress = false);
   }
 
   Future<void> _selectRegionPreset() async {
@@ -397,6 +429,13 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         service.lastFilteredRouteCount == 0 &&
         service.filterStrength != RouteFilterStrength.broad;
     final language = context.watch<SettingsService>().appLanguage;
+    final settings = context.watch<SettingsService>();
+    final coverageGrid = _coverageRequestPoint == null
+        ? null
+        : regionRequestGridFor(_coverageRequestPoint!);
+    final coverageRequested =
+        coverageGrid != null &&
+        settings.hasRequestedRegion(coverageGrid.gridKey);
     final localStatus = _localizedInlineStatus(_localStatusMessage, language);
     final cacheStatus = service.routeFieldFromCache
         ? _cacheInlineStatus(service, language)
@@ -520,7 +559,16 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
               left: 14,
               right: 14,
               bottom: MediaQuery.paddingOf(context).bottom + 14,
-              child: selected == null
+              child: coverageGrid != null
+                  ? RouteCoverageBoundaryCard(
+                      language: language,
+                      requested: coverageRequested,
+                      requesting: _coverageRequestInProgress,
+                      onRequest: () =>
+                          _requestCoverageNotification(coverageGrid),
+                      onBrowseMontreal: _selectRegionPreset,
+                    )
+                  : selected == null
                   ? _LeanEmptyTicket(
                       title: stateKind != null
                           ? routeFinderStateTitle(stateKind, language)
@@ -652,6 +700,105 @@ class RouteFinderStateCard extends StatelessWidget {
       actionLabel: routeFinderStateActionLabel(kind, language),
       actionIcon: routeFinderStateActionIcon(kind),
       onAction: onAction,
+    );
+  }
+}
+
+class RouteCoverageBoundaryCard extends StatelessWidget {
+  final AppLanguage language;
+  final bool requested;
+  final bool requesting;
+  final VoidCallback onRequest;
+  final VoidCallback onBrowseMontreal;
+
+  const RouteCoverageBoundaryCard({
+    super.key,
+    required this.language,
+    required this.requested,
+    required this.requesting,
+    required this.onRequest,
+    required this.onBrowseMontreal,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final canRequest = !requested && !requesting;
+    return _LeanGlass(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.public_rounded,
+                color: AppColors.primaryContainer,
+                size: 26,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      coverageBoundaryTitle(language),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body(
+                        size: 14,
+                        weight: FontWeight.w900,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      coverageBoundaryBody(language),
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body(
+                        size: 11,
+                        weight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              _LeanTextButton(
+                label: requested
+                    ? coverageBoundaryDoneLabel(language)
+                    : requesting
+                    ? coverageBoundarySavingLabel(language)
+                    : coverageBoundaryRequestLabel(language),
+                icon: requested
+                    ? Icons.check_circle_rounded
+                    : Icons.notifications_active_rounded,
+                onTap: canRequest ? onRequest : null,
+              ),
+              _LeanTextButton(
+                label: AppCopy.t(
+                  language,
+                  ko: '몬트리올 보기',
+                  en: 'View Montreal',
+                  fr: 'Voir Montréal',
+                ),
+                icon: Icons.route_rounded,
+                onTap: onBrowseMontreal,
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -2106,6 +2253,46 @@ String routeFinderStateBody(RouteFinderStateKind kind, AppLanguage language) {
       fr: 'Les données récentes ont échoué; les routes enregistrées sont utilisées.',
     ),
   };
+}
+
+String coverageBoundaryTitle(AppLanguage language) {
+  return AppCopy.t(
+    language,
+    ko: '지금은 몬트리올 일대의 루트를 제공해요',
+    en: 'Routes are available around Montreal right now',
+    fr: 'Les routes sont disponibles autour de Montréal pour l’instant',
+  );
+}
+
+String coverageBoundaryBody(AppLanguage language) {
+  return AppCopy.t(
+    language,
+    ko: '이 지역은 준비 중이에요. 지역 프리셋에서 몬트리올 루트를 먼저 구경할 수 있어요.',
+    en: 'This area is in preparation. Use region presets to preview Montreal routes first.',
+    fr: 'Cette région est en préparation. Utilisez les régions pour voir les routes de Montréal.',
+  );
+}
+
+String coverageBoundaryRequestLabel(AppLanguage language) {
+  return AppCopy.t(
+    language,
+    ko: '우리 지역 알림 받기',
+    en: 'Notify me here',
+    fr: 'M’aviser ici',
+  );
+}
+
+String coverageBoundarySavingLabel(AppLanguage language) {
+  return AppCopy.t(language, ko: '신청 중', en: 'Saving', fr: 'Enregistrement');
+}
+
+String coverageBoundaryDoneLabel(AppLanguage language) {
+  return AppCopy.t(
+    language,
+    ko: '알림 신청됨',
+    en: 'Notification requested',
+    fr: 'Alerte enregistrée',
+  );
 }
 
 String routeFinderStateActionLabel(

@@ -52,6 +52,7 @@ class StorageKeys {
   static const routeFilterStrength = 'setting_routeFilterStrength';
   static const distUnit = 'setting_distUnit';
   static const cloudRunStorageEnabled = 'setting_cloudRunStorageEnabled';
+  static const regionRequestGrids = 'setting_regionRequestGrids';
   static const showSpeedHud = 'setting_showSpeedHud';
   static const offRouteAlert = 'setting_offRouteAlert';
   static const jarvisPersona =
