@@ -19,6 +19,7 @@ import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
 import '../widgets/copilot_start_sheet.dart';
 import 'lean_drive_screen.dart';
+import 'lean_drive_planner_screen.dart';
 import 'lean_route_finder_screen.dart';
 import 'lean_run_summary_screen.dart';
 
@@ -465,6 +466,51 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                                   weight: FontWeight.w800,
                                   letterSpacing: 1.5,
                                   color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 46,
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.cream,
+                                side: BorderSide(
+                                  color: AppColors.cream.withValues(
+                                    alpha: 0.28,
+                                  ),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(13),
+                                ),
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const LeanDrivePlannerScreen(),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(
+                                Icons.alt_route_rounded,
+                                size: 19,
+                              ),
+                              label: Text(
+                                AppCopy.t(
+                                  language,
+                                  ko: '목적지까지 여정 만들기',
+                                  en: 'Plan to destination',
+                                  fr: 'Planifier la destination',
+                                ).toUpperCase(),
+                                style: AppText.label(
+                                  size: 14,
+                                  weight: FontWeight.w800,
+                                  letterSpacing: 1.2,
+                                  color: AppColors.cream,
                                 ),
                               ),
                             ),
