@@ -128,6 +128,25 @@ class LeanRouteDetailScreen extends StatelessWidget {
                             language: language,
                           ),
                         ],
+                        if (_hasElevationProfile(route)) ...[
+                          const SizedBox(height: 12),
+                          _ElevationProfileSection(
+                            route: route,
+                            language: language,
+                          ),
+                        ],
+                        if (_hasCurveMix(route)) ...[
+                          const SizedBox(height: 12),
+                          _CurveMixSection(route: route, language: language),
+                        ],
+                        if (_hasRoadInfo(route)) ...[
+                          const SizedBox(height: 12),
+                          _RoadInfoSection(route: route, language: language),
+                        ],
+                        if (_hasJourneyInfo(route)) ...[
+                          const SizedBox(height: 12),
+                          _JourneyInfoSection(route: route, language: language),
+                        ],
                         const SizedBox(height: 14),
                         _RouteConfidenceSection(profile: profile),
                         const SizedBox(height: 12),
@@ -136,7 +155,10 @@ class LeanRouteDetailScreen extends StatelessWidget {
                           language: language,
                         ),
                         const SizedBox(height: 12),
-                        _MetricsGrid(route: route),
+                        _MetricsGrid(
+                          route: route,
+                          hideFlowMetric: _hasCurveMix(route),
+                        ),
                         const SizedBox(height: 18),
                         _TurnPlanPreview(plan: turnPlan, language: language),
                         const SizedBox(height: 12),
@@ -354,6 +376,390 @@ class _ChainSegmentsSection extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _ElevationProfileSection extends StatelessWidget {
+  final RevvRoute route;
+  final AppLanguage language;
+
+  const _ElevationProfileSection({required this.route, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = route.elevationProfile!;
+    final deltaM = _elevationDeltaM(route);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeader(
+            icon: Icons.terrain_rounded,
+            title: AppCopy.t(
+              language,
+              ko: '고도 프로파일',
+              en: 'ELEVATION PROFILE',
+              fr: 'PROFIL ALTITUDE',
+            ),
+            trailing: AppCopy.t(
+              language,
+              ko: '고도차 ${deltaM.toStringAsFixed(0)}m',
+              en: 'Delta ${deltaM.toStringAsFixed(0)}m',
+              fr: 'Dénivelé ${deltaM.toStringAsFixed(0)}m',
+            ),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 90,
+            width: double.infinity,
+            child: CustomPaint(
+              painter: _ElevationProfilePainter(profile),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CurveMixSection extends StatelessWidget {
+  final RevvRoute route;
+  final AppLanguage language;
+
+  const _CurveMixSection({required this.route, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final tightKm = route.tightCurveKm.clamp(0, route.distanceKm).toDouble();
+    final mediumKm = route.mediumCurveKm
+        .clamp(0, math.max(0, route.distanceKm - tightKm))
+        .toDouble();
+    final gentleKm = math.max(0.0, route.distanceKm - tightKm - mediumKm);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeader(
+            icon: Icons.show_chart_rounded,
+            title: AppCopy.t(
+              language,
+              ko: '커브 구성',
+              en: 'CURVE MIX',
+              fr: 'MIX VIRAGES',
+            ),
+          ),
+          const SizedBox(height: 13),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: SizedBox(
+              height: 13,
+              child: Row(
+                children: [
+                  if (tightKm > 0)
+                    _CurveBarSegment(km: tightKm, color: AppColors.red),
+                  if (mediumKm > 0)
+                    _CurveBarSegment(km: mediumKm, color: AppColors.orange),
+                  if (gentleKm > 0)
+                    _CurveBarSegment(km: gentleKm, color: AppColors.gold),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 11),
+          Text(
+            AppCopy.t(
+              language,
+              ko: '타이트 ${route.tightCurveKm.toStringAsFixed(1)}km · 중간 ${route.mediumCurveKm.toStringAsFixed(1)}km · 급커브 ${route.sharpCurveCount}개',
+              en: 'Tight ${route.tightCurveKm.toStringAsFixed(1)}km · Medium ${route.mediumCurveKm.toStringAsFixed(1)}km · Sharp curves ${route.sharpCurveCount}',
+              fr: 'Serrés ${route.tightCurveKm.toStringAsFixed(1)}km · Moyens ${route.mediumCurveKm.toStringAsFixed(1)}km · Virages marqués ${route.sharpCurveCount}',
+            ),
+            style: AppText.body(
+              size: 13,
+              height: 1.32,
+              weight: FontWeight.w900,
+              color: AppColors.ink,
+            ),
+          ),
+          if (route.maxContinuousKm > 0) ...[
+            const SizedBox(height: 7),
+            Text(
+              AppCopy.t(
+                language,
+                ko: '최장 연속 와인딩 ${route.maxContinuousKm.toStringAsFixed(1)}km',
+                en: 'Longest winding flow ${route.maxContinuousKm.toStringAsFixed(1)}km',
+                fr: 'Plus long rythme sinueux ${route.maxContinuousKm.toStringAsFixed(1)}km',
+              ),
+              style: AppText.mono(
+                size: 10,
+                weight: FontWeight.w800,
+                color: AppColors.primaryContainer,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _RoadInfoSection extends StatelessWidget {
+  final RevvRoute route;
+  final AppLanguage language;
+
+  const _RoadInfoSection({required this.route, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final names = _roadInfoNames(route);
+    final surface = route.surfaceSummary.trim();
+    final speed = route.speedLimitSummary.trim();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeader(
+            icon: Icons.signpost_rounded,
+            title: AppCopy.t(
+              language,
+              ko: '도로 정보',
+              en: 'ROAD INFO',
+              fr: 'INFOS ROUTE',
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (names.isNotEmpty)
+            _InfoLine(icon: Icons.alt_route_rounded, text: names.join(' → ')),
+          if (surface.isNotEmpty)
+            _InfoLine(
+              icon: Icons.layers_rounded,
+              text: AppCopy.t(
+                language,
+                ko: '노면 $surface',
+                en: 'Surface $surface',
+                fr: 'Revêtement $surface',
+              ),
+            ),
+          if (speed.isNotEmpty)
+            _InfoLine(
+              icon: Icons.speed_rounded,
+              last: true,
+              text: AppCopy.t(
+                language,
+                ko: '제한속도 표기 구간 $speed — 현장 표지 기준',
+                en: 'Posted speed-limit sections $speed — follow roadside signs',
+                fr: 'Sections avec vitesse affichée $speed — suivre les panneaux',
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _JourneyInfoSection extends StatelessWidget {
+  final RevvRoute route;
+  final AppLanguage language;
+
+  const _JourneyInfoSection({required this.route, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final pois = _nearbyPoiNames(route);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeader(
+            icon: Icons.explore_rounded,
+            title: AppCopy.t(
+              language,
+              ko: '여정 정보',
+              en: 'JOURNEY INFO',
+              fr: 'INFOS TRAJET',
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (pois.isNotEmpty)
+            _JourneyChip(
+              text: AppCopy.t(
+                language,
+                ko: '주변: ${pois.join(' · ')}',
+                en: 'Nearby: ${pois.join(' · ')}',
+                fr: 'Autour: ${pois.join(' · ')}',
+              ),
+            ),
+          if (route.runCount > 0)
+            _JourneyChip(
+              text: AppCopy.t(
+                language,
+                ko: 'REVV 주행 ${route.runCount}회',
+                en: 'REVV runs ${route.runCount}',
+                fr: 'Trajets REVV ${route.runCount}',
+              ),
+              accent: AppColors.primaryContainer,
+            ),
+          if (route.isLoop)
+            _JourneyChip(text: 'LOOP', accent: AppColors.gold, last: true),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? trailing;
+
+  const _SectionHeader({
+    required this.icon,
+    required this.title,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: AppColors.primaryContainer, size: 22),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            title,
+            style: AppText.mono(
+              size: 10,
+              color: AppColors.primaryContainer,
+              letterSpacing: 1.6,
+            ),
+          ),
+        ),
+        if (trailing != null)
+          Text(
+            trailing!,
+            style: AppText.mono(
+              size: 10,
+              weight: FontWeight.w800,
+              color: AppColors.stone,
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _CurveBarSegment extends StatelessWidget {
+  final double km;
+  final Color color;
+
+  const _CurveBarSegment({required this.km, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Flexible(
+      flex: math.max(1, (km * 100).round()),
+      child: ColoredBox(color: color, child: const SizedBox.expand()),
+    );
+  }
+}
+
+class _InfoLine extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final bool last;
+
+  const _InfoLine({required this.icon, required this.text, this.last = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 9),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 17, color: AppColors.stone),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              text,
+              style: AppText.body(
+                size: 13,
+                height: 1.34,
+                weight: FontWeight.w800,
+                color: AppColors.ink,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _JourneyChip extends StatelessWidget {
+  final String text;
+  final Color accent;
+  final bool last;
+
+  const _JourneyChip({
+    required this.text,
+    this.accent = AppColors.stone,
+    this.last = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 8),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: accent.withValues(alpha: 0.22)),
+          ),
+          child: Text(
+            text,
+            style: AppText.body(
+              size: 12,
+              weight: FontWeight.w900,
+              color: accent,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -697,8 +1103,9 @@ class _HeroBadge extends StatelessWidget {
 
 class _MetricsGrid extends StatelessWidget {
   final RevvRoute route;
+  final bool hideFlowMetric;
 
-  const _MetricsGrid({required this.route});
+  const _MetricsGrid({required this.route, this.hideFlowMetric = false});
 
   @override
   Widget build(BuildContext context) {
@@ -728,10 +1135,11 @@ class _MetricsGrid extends StatelessWidget {
           ),
           value: '${_curveKm(route)}km',
         ),
-        _MetricTile(
-          label: AppCopy.t(language, ko: '연속 흐름', en: 'Flow', fr: 'Rythme'),
-          value: '${route.maxContinuousKm.toStringAsFixed(1)}km',
-        ),
+        if (!hideFlowMetric)
+          _MetricTile(
+            label: AppCopy.t(language, ko: '연속 흐름', en: 'Flow', fr: 'Rythme'),
+            value: '${route.maxContinuousKm.toStringAsFixed(1)}km',
+          ),
         _MetricTile(
           label: AppCopy.t(language, ko: '시작점', en: 'Start', fr: 'Départ'),
           value: route.distanceFromUserDisplay,
@@ -1217,6 +1625,73 @@ class _RouteShapePainter extends CustomPainter {
   }
 }
 
+class _ElevationProfilePainter extends CustomPainter {
+  final List<double> profile;
+
+  const _ElevationProfilePainter(this.profile);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final minElevation = profile.reduce(math.min);
+    final maxElevation = profile.reduce(math.max);
+    final span = math.max(1.0, maxElevation - minElevation);
+    const horizontalInset = 4.0;
+    const verticalInset = 8.0;
+    final chartWidth = size.width - horizontalInset * 2;
+    final chartHeight = size.height - verticalInset * 2;
+    final path = Path();
+
+    for (var i = 0; i < profile.length; i++) {
+      final x = horizontalInset + (i / (profile.length - 1)) * chartWidth;
+      final y =
+          verticalInset +
+          (1 - ((profile[i] - minElevation) / span)) * chartHeight;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+
+    final fillPath = Path.from(path)
+      ..lineTo(size.width - horizontalInset, size.height - verticalInset)
+      ..lineTo(horizontalInset, size.height - verticalInset)
+      ..close();
+    final fillPaint = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          AppColors.primaryContainer.withValues(alpha: 0.20),
+          AppColors.gold.withValues(alpha: 0.05),
+        ],
+      ).createShader(Offset.zero & size);
+    final linePaint = Paint()
+      ..color = AppColors.primaryContainer
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..strokeWidth = 3;
+    final guidePaint = Paint()
+      ..color = AppColors.ink.withValues(alpha: 0.08)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+
+    canvas.drawLine(
+      Offset(horizontalInset, size.height - verticalInset),
+      Offset(size.width - horizontalInset, size.height - verticalInset),
+      guidePaint,
+    );
+    canvas.drawPath(fillPath, fillPaint);
+    canvas.drawPath(path, linePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ElevationProfilePainter oldDelegate) {
+    return oldDelegate.profile != profile;
+  }
+}
+
 String _bestFor(RevvRoute route, AppLanguage language) {
   if (route.isLoop) {
     return AppCopy.t(
@@ -1260,6 +1735,53 @@ String _bestFor(RevvRoute route, AppLanguage language) {
 
 String _curveKm(RevvRoute route) {
   return (route.tightCurveKm + route.mediumCurveKm).toStringAsFixed(1);
+}
+
+bool _hasElevationProfile(RevvRoute route) {
+  final profile = route.elevationProfile;
+  return profile != null && profile.length >= 2;
+}
+
+double _elevationDeltaM(RevvRoute route) {
+  if (route.elevationDelta > 0) return route.elevationDelta;
+  final profile = route.elevationProfile;
+  if (profile == null || profile.length < 2) return 0;
+  return profile.reduce(math.max) - profile.reduce(math.min);
+}
+
+bool _hasCurveMix(RevvRoute route) {
+  return route.distanceKm > 0 &&
+      (route.tightCurveKm > 0 ||
+          route.mediumCurveKm > 0 ||
+          route.sharpCurveCount > 0);
+}
+
+bool _hasRoadInfo(RevvRoute route) {
+  return _roadInfoNames(route).isNotEmpty ||
+      route.surfaceSummary.trim().isNotEmpty ||
+      route.speedLimitSummary.trim().isNotEmpty;
+}
+
+bool _hasJourneyInfo(RevvRoute route) {
+  return _nearbyPoiNames(route).isNotEmpty ||
+      route.runCount > 0 ||
+      route.isLoop;
+}
+
+List<String> _roadInfoNames(RevvRoute route) {
+  return route.roadNames
+      .map((name) => name.trim())
+      .where((name) => name.isNotEmpty)
+      .take(4)
+      .toList(growable: false);
+}
+
+List<String> _nearbyPoiNames(RevvRoute route) {
+  return route.nearbyPoiNames
+      .map((name) => name.trim())
+      .where((name) => name.isNotEmpty)
+      .take(3)
+      .toList(growable: false);
 }
 
 String _driveMinutesLabel(RevvRoute route, AppLanguage language) {
