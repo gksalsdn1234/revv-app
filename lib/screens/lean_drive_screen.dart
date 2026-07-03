@@ -11,6 +11,7 @@ import '../services/location_service.dart';
 import '../services/route_geometry_matcher.dart';
 import '../services/run_session_service.dart';
 import '../services/settings_service.dart';
+import '../services/voice_briefing_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
@@ -37,6 +38,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   RunSessionService? _session;
   ImuService? _imuService;
   SettingsService? _settings;
+  final VoiceBriefingService _voice = VoiceBriefingService();
   bool _started = false;
   DateTime? _startedAt;
   Timer? _clock;
@@ -183,6 +185,11 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       _activeRouteNodes,
       language: language,
     );
+    _voice.onCue(
+      routeState.cue,
+      language: language,
+      muted: _settings?.ttsMuted ?? true,
+    );
     final turnByTurn = readTurnByTurnState(
       position,
       _activeRouteNodes,
@@ -316,6 +323,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     _simulationTimer?.cancel();
     _location?.removeListener(_onLocation);
     _imuService?.removeListener(_onImu);
+    _voice.dispose();
     super.dispose();
   }
 
