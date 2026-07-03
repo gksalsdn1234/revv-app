@@ -178,6 +178,15 @@ def enrich_routes(
     return enriched, cache
 
 
+def _safe_enrich(fn, record, label: str):
+    """루트 1건의 enrich 실패가 배치 전체를 죽이지 않게 격리한다."""
+    try:
+        return fn()
+    except Exception as error:  # noqa: BLE001 — 배치 연속성이 우선
+        print(f"[warn] {label} enrich failed for {record.get('id', '?')}: {type(error).__name__}: {error}", flush=True)
+        return dict(record)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Incrementally enrich stop-control data for a configured region")
     parser.add_argument("--region", required=True, help="Region name from regions.json")
@@ -262,12 +271,16 @@ def main(argv: list[str] | None = None) -> int:
         cache_dir=(Path(args.tile_cache_dir) / "residential") if args.tile_cache_dir else None,
     )
     residential_enriched_routes = [
-        enrich_residential_record(
-            stop_enriched_by_id.get(str(route.get("id")), dict(route)),
-            args.padding_deg,
-            args.timeout_seconds,
-            residential_cache,
-            args.residential_version,
+        _safe_enrich(
+            lambda route=route: enrich_residential_record(
+                stop_enriched_by_id.get(str(route.get("id")), dict(route)),
+                args.padding_deg,
+                args.timeout_seconds,
+                residential_cache,
+                args.residential_version,
+            ),
+            route,
+            "residential",
         )
         for route in residential_to_update
     ]
@@ -279,15 +292,19 @@ def main(argv: list[str] | None = None) -> int:
         cache_dir=(Path(args.tile_cache_dir) / "route_context") if args.tile_cache_dir else None,
     )
     context_enriched_routes = [
-        enrich_context_record(
-            residential_enriched_by_id.get(
-                str(route.get("id")),
-                stop_enriched_by_id.get(str(route.get("id")), dict(route)),
+        _safe_enrich(
+            lambda route=route: enrich_context_record(
+                residential_enriched_by_id.get(
+                    str(route.get("id")),
+                    stop_enriched_by_id.get(str(route.get("id")), dict(route)),
+                ),
+                args.padding_deg,
+                args.timeout_seconds,
+                context_cache,
+                args.context_version,
             ),
-            args.padding_deg,
-            args.timeout_seconds,
-            context_cache,
-            args.context_version,
+            route,
+            "context",
         )
         for route in context_to_update
     ]

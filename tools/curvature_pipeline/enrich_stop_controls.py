@@ -12,11 +12,14 @@ from pathlib import Path
 from typing import Any
 
 
+# osm.ch는 스위스 전용 추출본이라 캐나다 쿼리가 빈 값으로 "성공"한다 — 제외
 OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.osm.ch/api/interpreter",
 ]
+
+# Overpass 공개 인스턴스는 식별 가능한 User-Agent를 요구한다 (기본 UA는 406)
+OVERPASS_USER_AGENT = "REVV-route-pipeline/1.0 (+https://github.com/gksalsdn1234/revv-app)"
 DEFAULT_TILE_SIZE_DEG = 0.15
 
 
@@ -61,14 +64,23 @@ def load_overpass_payload(query: str, timeout_seconds: int) -> dict[str, Any]:
     body = urllib.parse.urlencode({"data": query}).encode("utf-8")
     last_error: Exception | None = None
 
-    for endpoint in OVERPASS_ENDPOINTS:
-        request = urllib.request.Request(endpoint, data=body, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds + 2) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except (HTTPError, URLError, TimeoutError) as error:
-            last_error = error
-            continue
+    # 공개 인스턴스는 혼잡 시 504/타임아웃이 잦다 — 라운드 간 백오프를 두고 재시도
+    for attempt in range(3):
+        if attempt:
+            time.sleep(6 * attempt)
+        for endpoint in OVERPASS_ENDPOINTS:
+            request = urllib.request.Request(
+                endpoint,
+                data=body,
+                method="POST",
+                headers={"User-Agent": OVERPASS_USER_AGENT},
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=timeout_seconds + 5) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except (HTTPError, URLError, TimeoutError, OSError) as error:
+                last_error = error
+                continue
 
     if last_error is not None:
         raise last_error
