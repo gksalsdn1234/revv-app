@@ -34,7 +34,15 @@ class LeanDrivePlannerScreen extends StatefulWidget {
   final DrivePlannerService? planner;
   final DrivePlannerOriginResolver? originResolver;
 
-  const LeanDrivePlannerScreen({super.key, this.planner, this.originResolver});
+  /// 테스트 주입용 초기 도착 희망 시각 (프로덕션에서는 사용하지 않음)
+  final TimeOfDay? initialArriveBy;
+
+  const LeanDrivePlannerScreen({
+    super.key,
+    this.planner,
+    this.originResolver,
+    this.initialArriveBy,
+  });
 
   @override
   State<LeanDrivePlannerScreen> createState() => _LeanDrivePlannerScreenState();
@@ -42,7 +50,7 @@ class LeanDrivePlannerScreen extends StatefulWidget {
 
 class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   static const _defaultOrigin = LatLng(45.5017, -73.5673);
-  static const _requestTimeout = Duration(seconds: 12);
+  static const _requestTimeout = Duration(seconds: 20);
 
   late final DrivePlannerService _planner =
       widget.planner ?? DrivePlannerService();
@@ -50,10 +58,52 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   LatLng _destination = _plannerRegions.first.point;
   LatLng _mapCenter = _plannerRegions.first.point;
   DriveBudget _budget = DriveBudget.short;
-  DrivePlan? _plan;
+  List<DrivePlanOption>? _options;
+  DrivePlanOptionKind _selectedKind = DrivePlanOptionKind.standard;
+  late TimeOfDay? _arriveBy = widget.initialArriveBy;
   bool _loadingOrigin = true;
   bool _planning = false;
   String? _status;
+
+  DrivePlan? get _plan {
+    final options = _options;
+    if (options == null || options.isEmpty) return null;
+    return options
+        .firstWhere(
+          (option) => option.kind == _selectedKind,
+          orElse: () => options.first,
+        )
+        .plan;
+  }
+
+  DateTime? get _arriveByDateTime {
+    final arriveBy = _arriveBy;
+    if (arriveBy == null) return null;
+    final now = DateTime.now();
+    var candidate = DateTime(
+      now.year,
+      now.month,
+      now.day,
+      arriveBy.hour,
+      arriveBy.minute,
+    );
+    // 이미 지난 시각이면 다음 날로 해석 (야간 계획 대비)
+    if (!candidate.isAfter(now)) {
+      candidate = candidate.add(const Duration(days: 1));
+    }
+    return candidate;
+  }
+
+  DrivePlanOption? get _recommendedOption {
+    final options = _options;
+    final arriveBy = _arriveByDateTime;
+    if (options == null || options.isEmpty || arriveBy == null) return null;
+    return recommendOptionForArrival(
+      options,
+      now: DateTime.now(),
+      arriveBy: arriveBy,
+    );
+  }
 
   @override
   void initState() {
@@ -84,11 +134,11 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     setState(() {
       _planning = true;
       _status = null;
-      _plan = null;
+      _options = null;
     });
     try {
-      final plan = await _planner
-          .buildPlan(
+      final options = await _planner
+          .buildPlanOptions(
             DrivePlanRequest(
               origin: _origin,
               destination: _destination,
@@ -98,8 +148,9 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
           .timeout(_requestTimeout);
       if (!mounted) return;
       setState(() {
-        _plan = plan;
-        _status = plan == null
+        _options = options.isEmpty ? null : options;
+        _selectedKind = DrivePlanOptionKind.standard;
+        _status = options.isEmpty
             ? _copy(
                 language,
                 ko: '이 조건으로 여정을 만들지 못했어요.',
@@ -108,6 +159,11 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
               )
             : null;
       });
+      // 도착 시각이 있으면 완주 가능한 최대 와인딩 옵션을 자동 선택
+      final recommended = _recommendedOption;
+      if (recommended != null && mounted) {
+        setState(() => _selectedKind = recommended.kind);
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -121,6 +177,23 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     } finally {
       if (mounted) setState(() => _planning = false);
     }
+  }
+
+  Future<void> _pickArriveBy() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _arriveBy ?? TimeOfDay.now(),
+    );
+    if (!mounted || picked == null) return;
+    setState(() {
+      _arriveBy = picked;
+      final recommended = _recommendedOption;
+      if (recommended != null) _selectedKind = recommended.kind;
+    });
+  }
+
+  void _clearArriveBy() {
+    setState(() => _arriveBy = null);
   }
 
   Future<void> _startFirstWinding() async {
@@ -171,6 +244,17 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     );
   }
 
+  int get _selectedOptionBudget {
+    final options = _options;
+    if (options == null || options.isEmpty) return _budgetMinutes(_budget);
+    return options
+        .firstWhere(
+          (option) => option.kind == _selectedKind,
+          orElse: () => options.first,
+        )
+        .budgetMinutes;
+  }
+
   RevvRoute? get _firstWindingRoute {
     final plan = _plan;
     if (plan == null) return null;
@@ -199,7 +283,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     setState(() {
       _destination = region.point;
       _mapCenter = region.point;
-      _plan = null;
+      _options = null;
       _status = null;
     });
   }
@@ -251,21 +335,24 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
                   budget: _budget,
                   onUsePinAsOrigin: () => setState(() {
                     _origin = _mapCenter;
-                    _plan = null;
+                    _options = null;
                     _status = null;
                   }),
                   onUsePinAsDestination: () => setState(() {
                     _destination = _mapCenter;
-                    _plan = null;
+                    _options = null;
                     _status = null;
                   }),
                   onBudget: (value) => setState(() {
                     _budget = value;
-                    _plan = null;
+                    _options = null;
                     _status = null;
                   }),
                   onPlan: _planning || _loadingOrigin ? null : _buildPlan,
                   planning: _planning,
+                  arriveBy: _arriveBy,
+                  onPickArriveBy: _pickArriveBy,
+                  onClearArriveBy: _clearArriveBy,
                 ),
                 const SizedBox(height: 10),
                 _RegionStrip(
@@ -284,23 +371,41 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
                     ),
                     body: _copy(
                       language,
-                      ko: '최대 12초 안에 결과를 보여드릴게요.',
-                      en: 'This stops after 12 seconds if no plan returns.',
-                      fr: 'Le calcul s’arrête après 12 secondes sans résultat.',
+                      ko: '최대 20초 안에 결과를 보여드릴게요.',
+                      en: 'This stops after 20 seconds if no plan returns.',
+                      fr: 'Le calcul s’arrête après 20 secondes sans résultat.',
                     ),
                   )
                 else if (_status != null)
                   _StateCard(title: _status!, body: _retryCopy(language))
-                else if (_plan != null)
+                else if (_options != null && _plan != null) ...[
+                  _PlanOptionStrip(
+                    options: _options!,
+                    selected: _selectedKind,
+                    recommended: _recommendedOption?.kind,
+                    language: language,
+                    onSelected: (kind) =>
+                        setState(() => _selectedKind = kind),
+                  ),
+                  const SizedBox(height: 10),
+                  if (_arriveByDateTime != null &&
+                      _recommendedOption == null)
+                    _ArrivalInfeasibleCard(
+                      options: _options!,
+                      arriveBy: _arriveByDateTime!,
+                      language: language,
+                    ),
                   _PlanResultCard(
                     plan: _plan!,
                     language: language,
-                    targetMinutes: _budgetMinutes(_budget),
+                    targetMinutes: _selectedOptionBudget,
+                    arriveBy: _arriveByDateTime,
                     onStart: _firstWindingRoute == null
                         ? null
                         : _startFirstWinding,
                     onNavigate: _openExternalNavigation,
                   ),
+                ],
               ],
             ),
           ),
@@ -321,6 +426,9 @@ class _PlannerInputCard extends StatelessWidget {
   final ValueChanged<DriveBudget> onBudget;
   final VoidCallback? onPlan;
   final bool planning;
+  final TimeOfDay? arriveBy;
+  final VoidCallback onPickArriveBy;
+  final VoidCallback onClearArriveBy;
 
   const _PlannerInputCard({
     required this.language,
@@ -333,6 +441,9 @@ class _PlannerInputCard extends StatelessWidget {
     required this.onBudget,
     required this.onPlan,
     required this.planning,
+    required this.arriveBy,
+    required this.onPickArriveBy,
+    required this.onClearArriveBy,
   });
 
   @override
@@ -394,6 +505,51 @@ class _PlannerInputCard extends StatelessWidget {
             budget: budget,
             routes: const [],
             onChanged: onBudget,
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _copy(
+                        language,
+                        ko: '도착 희망 시각 (선택)',
+                        en: 'Arrive by (optional)',
+                        fr: 'Arrivée souhaitée (option)',
+                      ),
+                      style: AppText.technicalLabel(
+                        size: 10,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      arriveBy == null
+                          ? _copy(language, ko: '없음', en: 'None', fr: 'Aucune')
+                          : _formatTimeOfDay(arriveBy!),
+                      style: AppText.body(size: 13, weight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ),
+              if (arriveBy != null)
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  color: AppColors.textHint,
+                  onPressed: onClearArriveBy,
+                ),
+              TextButton(
+                onPressed: onPickArriveBy,
+                child: Text(
+                  arriveBy == null
+                      ? _copy(language, ko: '시각 선택', en: 'Pick time', fr: 'Choisir')
+                      : _copy(language, ko: '변경', en: 'Change', fr: 'Modifier'),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 14),
           RevvPrimaryButton(
@@ -496,6 +652,7 @@ class _PlanResultCard extends StatelessWidget {
   final DrivePlan plan;
   final AppLanguage language;
   final int targetMinutes;
+  final DateTime? arriveBy;
   final VoidCallback? onStart;
   final VoidCallback onNavigate;
 
@@ -503,6 +660,7 @@ class _PlanResultCard extends StatelessWidget {
     required this.plan,
     required this.language,
     required this.targetMinutes,
+    required this.arriveBy,
     required this.onStart,
     required this.onNavigate,
   });
@@ -512,6 +670,7 @@ class _PlanResultCard extends StatelessWidget {
     final windingRatio = plan.totalMinutes == 0
         ? 0
         : (plan.windingMinutes / plan.totalMinutes * 100).round();
+    final eta = DateTime.now().add(Duration(minutes: plan.totalMinutes));
     return RevvGlassCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -532,6 +691,16 @@ class _PlanResultCard extends StatelessWidget {
               ko: '총 ${plan.totalMinutes}분 · 와인딩 $windingRatio%',
               en: '${plan.totalMinutes} min total · $windingRatio% winding',
               fr: '${plan.totalMinutes} min au total · $windingRatio% sinueux',
+            ),
+            style: AppText.body(size: 12, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            _copy(
+              language,
+              ko: '지금 출발하면 ${_formatClock(eta)} 도착 예상',
+              en: 'Leave now to arrive around ${_formatClock(eta)}',
+              fr: 'En partant maintenant, arrivée vers ${_formatClock(eta)}',
             ),
             style: AppText.body(size: 12, color: AppColors.textSecondary),
           ),
@@ -586,24 +755,37 @@ class _TimelineLeg extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isWinding = leg.kind == DrivePlanLegKind.winding;
-    final title = isWinding
-        ? '${leg.route?.name ?? _copy(language, ko: '와인딩 루트', en: 'Winding route', fr: 'Route sinueuse')} ${_minutes(language, leg.estimatedMinutes)}'
-        : _copy(
-            language,
-            ko: '이동 ${leg.estimatedMinutes}분',
-            en: 'Transit ${leg.estimatedMinutes} min',
-            fr: 'Liaison ${leg.estimatedMinutes} min',
-          );
+    final title = switch (leg.kind) {
+      DrivePlanLegKind.winding =>
+        '${leg.route?.name ?? _copy(language, ko: '와인딩 루트', en: 'Winding route', fr: 'Route sinueuse')} ${_minutes(language, leg.estimatedMinutes)}',
+      DrivePlanLegKind.rest => _copy(
+        language,
+        ko: '휴식 ${leg.estimatedMinutes}분',
+        en: 'Rest ${leg.estimatedMinutes} min',
+        fr: 'Pause ${leg.estimatedMinutes} min',
+      ),
+      DrivePlanLegKind.transit => _copy(
+        language,
+        ko: '이동 ${leg.estimatedMinutes}분',
+        en: 'Transit ${leg.estimatedMinutes} min',
+        fr: 'Liaison ${leg.estimatedMinutes} min',
+      ),
+    };
+    final icon = switch (leg.kind) {
+      DrivePlanLegKind.winding => Icons.route_rounded,
+      DrivePlanLegKind.rest => Icons.local_cafe_rounded,
+      DrivePlanLegKind.transit => Icons.near_me_rounded,
+    };
+    final color = switch (leg.kind) {
+      DrivePlanLegKind.winding => AppColors.primaryContainer,
+      DrivePlanLegKind.rest => AppColors.warning,
+      DrivePlanLegKind.transit => AppColors.cyan,
+    };
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
-          Icon(
-            isWinding ? Icons.route_rounded : Icons.near_me_rounded,
-            size: 17,
-            color: isWinding ? AppColors.primaryContainer : AppColors.cyan,
-          ),
+          Icon(icon, size: 17, color: color),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -612,6 +794,131 @@ class _TimelineLeg extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PlanOptionStrip extends StatelessWidget {
+  final List<DrivePlanOption> options;
+  final DrivePlanOptionKind selected;
+  final DrivePlanOptionKind? recommended;
+  final AppLanguage language;
+  final ValueChanged<DrivePlanOptionKind> onSelected;
+
+  const _PlanOptionStrip({
+    required this.options,
+    required this.selected,
+    required this.recommended,
+    required this.language,
+    required this.onSelected,
+  });
+
+  String _optionLabel(DrivePlanOption option) {
+    final name = switch (option.kind) {
+      DrivePlanOptionKind.light => _copy(
+        language,
+        ko: '가볍게',
+        en: 'Shorter',
+        fr: 'Court',
+      ),
+      DrivePlanOptionKind.standard => _copy(
+        language,
+        ko: '기본',
+        en: 'Standard',
+        fr: 'Standard',
+      ),
+      DrivePlanOptionKind.extended => _copy(
+        language,
+        ko: '길게',
+        en: 'Longer',
+        fr: 'Long',
+      ),
+    };
+    return '$name ${option.plan.totalMinutes}${_copy(language, ko: '분', en: 'm', fr: 'min')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 옵션이 3개뿐이라 lazy build 없이 전부 렌더 (오프스크린 칩 접근성 보장)
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: [
+          for (final option in options) ...[
+            _optionChip(option),
+            if (option != options.last) const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _optionChip(DrivePlanOption option) {
+    final active = option.kind == selected;
+    final isRecommended = option.kind == recommended;
+    return ChoiceChip(
+      avatar: isRecommended
+          ? const Icon(
+              Icons.check_circle_rounded,
+              size: 16,
+              color: AppColors.gold,
+            )
+          : null,
+      label: Text(
+        isRecommended
+            ? '${_optionLabel(option)} · ${_copy(language, ko: '추천', en: 'Fits', fr: 'Adapté')}'
+            : _optionLabel(option),
+      ),
+      selected: active,
+      onSelected: (_) => onSelected(option.kind),
+      selectedColor: AppColors.primaryContainer,
+      backgroundColor: AppColors.panel2.withValues(alpha: 0.92),
+      labelStyle: AppText.body(
+        size: 12,
+        weight: FontWeight.w800,
+        color: active ? AppColors.onPrimary : AppColors.textPrimary,
+      ),
+    );
+  }
+}
+
+class _ArrivalInfeasibleCard extends StatelessWidget {
+  final List<DrivePlanOption> options;
+  final DateTime arriveBy;
+  final AppLanguage language;
+
+  const _ArrivalInfeasibleCard({
+    required this.options,
+    required this.arriveBy,
+    required this.language,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final availableMinutes = arriveBy.difference(DateTime.now()).inMinutes;
+    final lightest = options.reduce(
+      (a, b) => a.plan.totalMinutes <= b.plan.totalMinutes ? a : b,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: _StateCard(
+        title: _copy(
+          language,
+          ko: '희망 시각까지 맞는 여정이 없어요',
+          en: 'No plan fits the arrival time',
+          fr: 'Aucun trajet ne convient à cette heure',
+        ),
+        body: _copy(
+          language,
+          ko:
+              '남은 시간 $availableMinutes분, 가장 가벼운 여정도 ${lightest.plan.totalMinutes}분이 필요해요. 도착 시각을 늦추거나 목적지를 조정해 보세요.',
+          en:
+              '$availableMinutes min left, but the lightest plan needs ${lightest.plan.totalMinutes} min. Push the arrival time or adjust the destination.',
+          fr:
+              '$availableMinutes min restantes, mais le trajet le plus court demande ${lightest.plan.totalMinutes} min. Décalez l’arrivée ou ajustez la destination.',
+        ),
       ),
     );
   }
@@ -705,6 +1012,18 @@ int _budgetMinutes(DriveBudget budget) {
 
 String _coord(LatLng point) {
   return '${point.lat.toStringAsFixed(4)},${point.lng.toStringAsFixed(4)}';
+}
+
+String _formatTimeOfDay(TimeOfDay time) {
+  final hour = time.hour.toString().padLeft(2, '0');
+  final minute = time.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
+String _formatClock(DateTime time) {
+  final hour = time.hour.toString().padLeft(2, '0');
+  final minute = time.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
 }
 
 String _minutes(AppLanguage language, int value) {

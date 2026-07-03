@@ -11,6 +11,92 @@ typedef RouteCandidateLoader =
 typedef TransitLegLoader =
     Future<List<TransitLegEta>> Function(List<LatLng> waypoints);
 
+/// 연속 주행이 이 분을 넘기면 휴식을 삽입한다.
+const int restIntervalMinutes = 120;
+
+/// 삽입되는 휴식 1회 길이.
+const int restStopMinutes = 15;
+
+/// 같은 목적지에 대한 와인딩 분량 3옵션. 이름은 중립 (강도·스릴 어휘 금지).
+enum DrivePlanOptionKind {
+  light('light', 0.6),
+  standard('standard', 1.0),
+  extended('extended', 1.5);
+
+  final String key;
+  final double budgetFactor;
+  const DrivePlanOptionKind(this.key, this.budgetFactor);
+}
+
+class DrivePlanOption {
+  final DrivePlanOptionKind kind;
+  final int budgetMinutes;
+  final DrivePlan plan;
+
+  const DrivePlanOption({
+    required this.kind,
+    required this.budgetMinutes,
+    required this.plan,
+  });
+}
+
+/// 연속 주행 [restIntervalMinutes]마다 [restStopMinutes] 휴식 leg를 삽입한다.
+/// 마지막 leg 뒤(도착 후)에는 삽입하지 않는다. 휴식은 총 소요에 포함된다.
+DrivePlan insertRestLegs(DrivePlan plan) {
+  if (plan.legs.length < 2) return plan;
+
+  final legs = <DrivePlanLeg>[];
+  var minutesSinceRest = 0;
+  var restMinutes = 0;
+  for (var i = 0; i < plan.legs.length; i++) {
+    final leg = plan.legs[i];
+    legs.add(leg);
+    minutesSinceRest += leg.estimatedMinutes;
+    final isLast = i == plan.legs.length - 1;
+    if (!isLast && minutesSinceRest >= restIntervalMinutes) {
+      legs.add(
+        const DrivePlanLeg(
+          kind: DrivePlanLegKind.rest,
+          nodes: [],
+          distanceKm: 0,
+          estimatedMinutes: restStopMinutes,
+        ),
+      );
+      restMinutes += restStopMinutes;
+      minutesSinceRest = 0;
+    }
+  }
+  if (restMinutes == 0) return plan;
+
+  return DrivePlan(
+    legs: legs,
+    totalMinutes: plan.totalMinutes + restMinutes,
+    windingMinutes: plan.windingMinutes,
+    transitMinutes: plan.transitMinutes,
+    restMinutes: restMinutes,
+    waypoints: plan.waypoints,
+    budgetShortfallMinutes: plan.budgetShortfallMinutes,
+  );
+}
+
+/// 도착 희망 시각까지 완주 가능한 옵션 중 와인딩이 가장 긴 옵션을 추천한다.
+/// 아무 옵션도 맞지 않으면 null (UI가 정직하게 안내).
+DrivePlanOption? recommendOptionForArrival(
+  List<DrivePlanOption> options, {
+  required DateTime now,
+  required DateTime arriveBy,
+}) {
+  final availableMinutes = arriveBy.difference(now).inMinutes;
+  DrivePlanOption? best;
+  for (final option in options) {
+    if (option.plan.totalMinutes > availableMinutes) continue;
+    if (best == null || option.plan.windingMinutes > best.plan.windingMinutes) {
+      best = option;
+    }
+  }
+  return best;
+}
+
 class DrivePlannerService {
   final RouteCandidateLoader _candidateLoader;
   final TransitLegLoader _transitLegLoader;
@@ -30,6 +116,33 @@ class DrivePlannerService {
     final candidates = await _corridorCandidates(request);
     final selected = _selectWindingRoutes(candidates, request);
     return _assemblePlan(request, selected);
+  }
+
+  /// 같은 목적지의 예산 3옵션(가볍게 ×0.6 / 기본 ×1.0 / 길게 ×1.5)을 만든다.
+  /// 후보 수집(회랑 검색)은 1회만 수행해 옵션 간 중복 계산을 없앤다.
+  /// 각 옵션에는 휴식 leg가 삽입돼 총 소요에 반영된다.
+  Future<List<DrivePlanOption>> buildPlanOptions(
+    DrivePlanRequest request,
+  ) async {
+    final candidates = await _corridorCandidates(request);
+    final options = <DrivePlanOption>[];
+    for (final kind in DrivePlanOptionKind.values) {
+      final budgetMinutes = math.max(
+        10,
+        (request.windingBudgetMinutes * kind.budgetFactor).round(),
+      );
+      final scaled = DrivePlanRequest(
+        origin: request.origin,
+        destination: request.destination,
+        windingBudgetMinutes: budgetMinutes,
+      );
+      final selected = _selectWindingRoutes(candidates, scaled);
+      final plan = insertRestLegs(await _assemblePlan(scaled, selected));
+      options.add(
+        DrivePlanOption(kind: kind, budgetMinutes: budgetMinutes, plan: plan),
+      );
+    }
+    return options;
   }
 
   static RouteCandidateLoader _routeServiceLoader(RouteService service) {

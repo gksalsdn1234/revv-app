@@ -25,6 +25,9 @@ void main() {
   Future<void> pumpPlanner(
     WidgetTester tester, {
     required DrivePlan plan,
+    DrivePlan? lightPlan,
+    DrivePlan? extendedPlan,
+    TimeOfDay? arriveBy,
   }) async {
     final location = LocationService()..hasPermission = true;
     final settings = SettingsService();
@@ -41,8 +44,13 @@ void main() {
         ],
         child: MaterialApp(
           home: LeanDrivePlannerScreen(
-            planner: _FakePlanner(plan),
+            planner: _FakePlanner(
+              plan,
+              lightPlan: lightPlan,
+              extendedPlan: extendedPlan,
+            ),
             originResolver: (_) async => const LatLng(45.5, -73.6),
+            initialArriveBy: arriveBy,
           ),
         ),
       ),
@@ -92,6 +100,59 @@ void main() {
     expect(startButton.onPressed, isNull);
   });
 
+  testWidgets('plan options switch the displayed timeline', (tester) async {
+    await pumpPlanner(
+      tester,
+      plan: _planWithWinding(windingMinutes: 30),
+      lightPlan: _planWithWinding(windingMinutes: 10, routeName: 'Hill Loop'),
+    );
+
+    await tester.tap(find.text('여정 만들기'));
+    await tester.pumpAndSettle();
+
+    // 기본 옵션이 먼저 표시된다
+    expect(find.text('Lakeside Road 30분'), findsOneWidget);
+
+    await tester.tap(find.textContaining('가볍게'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hill Loop 10분'), findsOneWidget);
+    expect(find.text('Lakeside Road 30분'), findsNothing);
+  });
+
+  testWidgets('rest legs render in the timeline', (tester) async {
+    await pumpPlanner(tester, plan: _planWithRest());
+
+    await tester.tap(find.text('여정 만들기'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('휴식 15분'), findsOneWidget);
+  });
+
+  testWidgets('arrival time picks the longest fitting option', (tester) async {
+    // 현재 시각 + 12시간: 오늘 또는 내일로 해석돼도 항상 12시간 이상 여유
+    final now = TimeOfDay.now();
+    final arriveBy = TimeOfDay(hour: (now.hour + 12) % 24, minute: now.minute);
+    await pumpPlanner(
+      tester,
+      plan: _planWithWinding(windingMinutes: 30),
+      lightPlan: _planWithWinding(windingMinutes: 10, routeName: 'Hill Loop'),
+      extendedPlan: _planWithWinding(
+        windingMinutes: 45,
+        routeName: 'Ridge Sweep',
+      ),
+      arriveBy: arriveBy,
+    );
+
+    await tester.tap(find.text('여정 만들기'));
+    await tester.pumpAndSettle();
+
+    // 여유 충분 → 와인딩이 가장 긴 옵션이 추천되고 자동 선택된다
+    expect(find.textContaining('추천'), findsOneWidget);
+    expect(find.text('Ridge Sweep 45분'), findsOneWidget);
+    expect(find.text('변경'), findsOneWidget);
+  });
+
   testWidgets('planner visible copy avoids forbidden terms', (tester) async {
     await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 12));
 
@@ -112,8 +173,10 @@ void main() {
 
 class _FakePlanner extends DrivePlannerService {
   final DrivePlan plan;
+  final DrivePlan? lightPlan;
+  final DrivePlan? extendedPlan;
 
-  _FakePlanner(this.plan)
+  _FakePlanner(this.plan, {this.lightPlan, this.extendedPlan})
     : super(
         candidateLoader: (_, _) async => const [],
         transitLegLoader: (_) async => const [],
@@ -123,12 +186,65 @@ class _FakePlanner extends DrivePlannerService {
   Future<DrivePlan?> buildPlan(DrivePlanRequest request) async {
     return plan;
   }
+
+  @override
+  Future<List<DrivePlanOption>> buildPlanOptions(
+    DrivePlanRequest request,
+  ) async {
+    return [
+      DrivePlanOption(
+        kind: DrivePlanOptionKind.light,
+        budgetMinutes: (request.windingBudgetMinutes * 0.6).round(),
+        plan: lightPlan ?? plan,
+      ),
+      DrivePlanOption(
+        kind: DrivePlanOptionKind.standard,
+        budgetMinutes: request.windingBudgetMinutes,
+        plan: plan,
+      ),
+      DrivePlanOption(
+        kind: DrivePlanOptionKind.extended,
+        budgetMinutes: (request.windingBudgetMinutes * 1.5).round(),
+        plan: extendedPlan ?? plan,
+      ),
+    ];
+  }
 }
 
-DrivePlan _planWithWinding({required int windingMinutes}) {
+DrivePlan _planWithRest() {
+  final base = _planWithWinding(windingMinutes: 30);
+  return DrivePlan(
+    legs: [
+      ...base.legs,
+      const DrivePlanLeg(
+        kind: DrivePlanLegKind.rest,
+        nodes: [],
+        distanceKm: 0,
+        estimatedMinutes: 15,
+      ),
+      const DrivePlanLeg(
+        kind: DrivePlanLegKind.transit,
+        nodes: [LatLng(45.7, -73.8), LatLng(45.75, -73.85)],
+        distanceKm: 5,
+        estimatedMinutes: 8,
+      ),
+    ],
+    totalMinutes: base.totalMinutes + 23,
+    windingMinutes: base.windingMinutes,
+    transitMinutes: base.transitMinutes + 8,
+    restMinutes: 15,
+    waypoints: base.waypoints,
+    budgetShortfallMinutes: 0,
+  );
+}
+
+DrivePlan _planWithWinding({
+  required int windingMinutes,
+  String routeName = 'Lakeside Road',
+}) {
   final route = RevvRoute(
     id: 'lakeside',
-    name: 'Lakeside Road',
+    name: routeName,
     nodes: const [LatLng(45.55, -73.65), LatLng(45.60, -73.70)],
     distanceKm: 12,
     windingScore: 5,

@@ -2,7 +2,8 @@ import 'revv_route.dart';
 
 enum DrivePlanLegKind {
   transit('transit'),
-  winding('winding');
+  winding('winding'),
+  rest('rest');
 
   final String value;
   const DrivePlanLegKind(this.value);
@@ -10,6 +11,7 @@ enum DrivePlanLegKind {
   static DrivePlanLegKind fromJsonValue(String value) {
     return switch (value) {
       'winding' => DrivePlanLegKind.winding,
+      'rest' => DrivePlanLegKind.rest,
       _ => DrivePlanLegKind.transit,
     };
   }
@@ -68,6 +70,7 @@ class DrivePlan {
   final int totalMinutes;
   final int windingMinutes;
   final int transitMinutes;
+  final int restMinutes;
   final List<LatLng> waypoints;
   final int budgetShortfallMinutes;
 
@@ -76,6 +79,7 @@ class DrivePlan {
     required this.totalMinutes,
     required this.windingMinutes,
     required this.transitMinutes,
+    this.restMinutes = 0,
     required this.waypoints,
     this.budgetShortfallMinutes = 0,
   });
@@ -85,6 +89,7 @@ class DrivePlan {
     'totalMinutes': totalMinutes,
     'windingMinutes': windingMinutes,
     'transitMinutes': transitMinutes,
+    'restMinutes': restMinutes,
     'waypoints': waypoints.map(_latLngToJson).toList(),
     'budgetShortfallMinutes': budgetShortfallMinutes,
   };
@@ -98,6 +103,7 @@ class DrivePlan {
       totalMinutes: (json['totalMinutes'] as num).toInt(),
       windingMinutes: (json['windingMinutes'] as num).toInt(),
       transitMinutes: (json['transitMinutes'] as num).toInt(),
+      restMinutes: (json['restMinutes'] as num?)?.toInt() ?? 0,
       waypoints: _latLngListFromJson(json['waypoints']),
       budgetShortfallMinutes:
           (json['budgetShortfallMinutes'] as num?)?.toInt() ?? 0,
