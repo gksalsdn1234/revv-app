@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -16,13 +17,30 @@ import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
 import '../ui/copilot_run_summary.dart';
-import '../ui/run_report_metrics.dart';
+import '../ui/run_share_card_content.dart';
+import '../ui/run_share_card_widget.dart';
+import '../ui/run_share_metrics.dart';
 import '../widgets/map_widget.dart';
 
 class LeanRunSummaryScreen extends StatefulWidget {
   final RunSession? session;
+  final RunSummary? historySummary;
+  final RunTelemetryDetail? historyDetail;
+  final Future<File> Function()? shareExporter;
 
-  const LeanRunSummaryScreen({super.key, required this.session});
+  const LeanRunSummaryScreen({super.key, required this.session})
+    : historySummary = null,
+      historyDetail = null,
+      shareExporter = null;
+
+  const LeanRunSummaryScreen.history({
+    super.key,
+    required RunSummary summary,
+    RunTelemetryDetail? detail,
+    this.shareExporter,
+  }) : session = null,
+       historySummary = summary,
+       historyDetail = detail;
 
   @override
   State<LeanRunSummaryScreen> createState() => _LeanRunSummaryScreenState();
@@ -32,6 +50,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
   Future<RunSummary?>? _saveFuture;
   String? _selectedFeedback;
   bool _feedbackSaved = false;
+  bool _shareExporting = false;
   final Set<String> _expandedLogSections = {'pace'};
 
   // ── 리플레이 ──
@@ -42,7 +61,9 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
   @override
   void initState() {
     super.initState();
-    _saveFuture = _save();
+    _saveFuture = widget.historySummary == null
+        ? _save()
+        : Future.value(widget.historySummary);
   }
 
   @override
@@ -78,25 +99,70 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
     });
   }
 
+  Future<void> _exportShareCard(GlobalKey repaintKey) async {
+    if (_shareExporting) return;
+    setState(() => _shareExporting = true);
+    try {
+      final exporter = widget.shareExporter;
+      final file = exporter == null
+          ? await exportRunShareCardPngFile(
+              repaintKey: repaintKey,
+              directory: Directory.systemTemp,
+              fileName: 'revv-share-card.png',
+            )
+          : await exporter();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Share card exported: ${file.path}')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppCopy.t(
+              context.read<SettingsService>().appLanguage,
+              ko: '공유 카드를 만들지 못했어요',
+              en: 'Could not prepare share card',
+              fr: 'Impossible de préparer la carte',
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _shareExporting = false);
+    }
+  }
+
+  void _showSharePreview({
+    required RunSummary summary,
+    required RunTelemetryDetail? detail,
+    required RunSession? session,
+    required AppLanguage language,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SharePreviewSheet(
+        summary: summary,
+        detail: detail,
+        session: session,
+        language: language,
+        exporting: _shareExporting,
+        onExport: _exportShareCard,
+      ),
+    );
+  }
+
   // ── 리플레이 제어 ──
   void _startReplay(List<LatLng> path) {
     if (path.length < 2) return;
-    _replayTimer?.cancel();
-    final intervalMs = math.max(40, 12000 ~/ path.length);
     setState(() {
       _replayIndex = 0;
       _replayPlaying = true;
     });
-    _replayTimer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
-      if (!mounted) return;
-      final next = _replayIndex + 1;
-      if (next >= path.length) {
-        _replayTimer?.cancel();
-        setState(() => _replayPlaying = false);
-        return;
-      }
-      setState(() => _replayIndex = next);
-    });
+    _runReplayTimer(path);
   }
 
   void _pauseReplay() {
@@ -109,9 +175,13 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
       _startReplay(path);
       return;
     }
+    setState(() => _replayPlaying = true);
+    _runReplayTimer(path);
+  }
+
+  void _runReplayTimer(List<LatLng> path) {
     _replayTimer?.cancel();
     final intervalMs = math.max(40, 12000 ~/ path.length);
-    setState(() => _replayPlaying = true);
     _replayTimer = Timer.periodic(Duration(milliseconds: intervalMs), (_) {
       if (!mounted) return;
       final next = _replayIndex + 1;
@@ -134,7 +204,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
         child: FutureBuilder<RunSummary?>(
           future: _saveFuture,
           builder: (context, snapshot) {
-            final summary = snapshot.data;
+            final summary = widget.historySummary ?? snapshot.data;
             final copy = session == null
                 ? null
                 : CopilotRunSummaryCopy.fromSession(
@@ -142,225 +212,279 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                     summary: summary,
                     language: language,
                   );
+            final detail = session == null
+                ? widget.historyDetail
+                : RunTelemetryDetail.fromSession(
+                    summary?.id ?? 'preview',
+                    session,
+                  );
+            final shareMetrics = buildRunShareMetrics(
+              session: session,
+              summary: summary,
+              detail: detail,
+            );
+            final storedFeedback = summary == null
+                ? null
+                : context.watch<RunHistoryService>().feedbackForRun(summary.id);
+            final selectedFeedback =
+                storedFeedback?.feedbackType ?? _selectedFeedback;
+            final feedbackSaved = storedFeedback != null || _feedbackSaved;
             final waiting = snapshot.connectionState != ConnectionState.done;
-            return Column(
+            return Stack(
               children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-                    physics: const BouncingScrollPhysics(),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // ── 지도 리플레이 ──
-                        if (session != null)
-                          _MapReplaySection(
-                            session: session,
-                            replayIndex: _replayIndex,
-                            replayPlaying: _replayPlaying,
-                            onPlay: () {
-                              if (_replayPlaying) {
-                                _pauseReplay();
-                              } else {
-                                _resumeReplay(session.gpsPath);
-                              }
-                            },
-                            onRestart: () => _startReplay(session.gpsPath),
-                            language: language,
-                          ),
+                Column(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                        physics: const BouncingScrollPhysics(),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // ── 지도 리플레이 ──
+                            if (session != null)
+                              _MapReplaySection(
+                                session: session,
+                                replayIndex: _replayIndex,
+                                replayPlaying: _replayPlaying,
+                                onPlay: () {
+                                  if (_replayPlaying) {
+                                    _pauseReplay();
+                                  } else {
+                                    _resumeReplay(session.gpsPath);
+                                  }
+                                },
+                                onRestart: () => _startReplay(session.gpsPath),
+                                language: language,
+                              ),
 
-                        const SizedBox(height: 20),
+                            const SizedBox(height: 20),
 
-                        // ── RUN COMPLETE banner ──
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                          decoration: BoxDecoration(
-                            color: AppColors.ink,
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          clipBehavior: Clip.antiAlias,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Checkered top stripe
-                              SizedBox(
-                                height: 8,
-                                width: double.infinity,
-                                child: CustomPaint(
-                                  painter: _SummaryCheckeredPainter(
-                                    tileSize: 8,
-                                    lightColor: AppColors.cream,
-                                    darkColor: AppColors.ink,
+                            // ── RUN COMPLETE banner ──
+                            Container(
+                              padding: const EdgeInsets.fromLTRB(
+                                16,
+                                14,
+                                16,
+                                16,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.ink,
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  // Checkered top stripe
+                                  SizedBox(
+                                    height: 8,
+                                    width: double.infinity,
+                                    child: CustomPaint(
+                                      painter: _SummaryCheckeredPainter(
+                                        tileSize: 8,
+                                        lightColor: AppColors.cream,
+                                        darkColor: AppColors.ink,
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    AppCopy.t(
+                                      language,
+                                      ko: summary == null ? '주행 완료' : '주행 리포트',
+                                      en: summary == null
+                                          ? 'RUN COMPLETE'
+                                          : 'RUN REPORT',
+                                      fr: summary == null
+                                          ? 'RUN COMPLET'
+                                          : 'RAPPORT',
+                                    ),
+                                    style: AppText.mono(
+                                      size: 10,
+                                      weight: FontWeight.w700,
+                                      color: AppColors.primaryContainer,
+                                      letterSpacing: 3,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    summary?.routeName ??
+                                        copy?.headline ??
+                                        AppCopy.t(
+                                          language,
+                                          ko: '저장할 주행이 없어요',
+                                          en: 'No drive to save',
+                                          fr: 'Aucun trajet à sauvegarder',
+                                        ),
+                                    style: AppText.label(
+                                      size: 32,
+                                      weight: FontWeight.w800,
+                                      color: AppColors.cream,
+                                      letterSpacing: 0,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    session == null
+                                        ? historySummaryLine(summary)
+                                        : copy?.summaryLine ?? '',
+                                    style: AppText.mono(
+                                      size: 11,
+                                      weight: FontWeight.w700,
+                                      color: AppColors.stone,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 12),
-                              Text(
-                                AppCopy.t(
-                                  language,
-                                  ko: '주행 완료',
-                                  en: 'RUN COMPLETE',
-                                  fr: 'RUN COMPLET',
-                                ),
-                                style: AppText.mono(
-                                  size: 10,
-                                  weight: FontWeight.w700,
-                                  color: AppColors.primaryContainer,
-                                  letterSpacing: 3,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                session == null
-                                    ? AppCopy.t(
-                                        language,
-                                        ko: '저장할 주행이 없어요',
-                                        en: 'No drive to save',
-                                        fr: 'Aucun trajet à sauvegarder',
-                                      )
-                                    : copy?.headline ??
-                                          AppCopy.t(
-                                            language,
-                                            ko: '오늘 주행 요약',
-                                            en: "Today's drive summary",
-                                            fr: 'Résumé du trajet',
-                                          ),
-                                style: AppText.label(
-                                  size: 32,
-                                  weight: FontWeight.w800,
-                                  color: AppColors.cream,
-                                  letterSpacing: 0,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                session == null
-                                    ? AppCopy.t(
-                                        language,
-                                        ko: '세션이 만들어지기 전에 종료됐습니다.',
-                                        en: 'Session ended before it was created.',
-                                        fr: 'Session terminée trop tôt.',
-                                      )
-                                    : copy?.summaryLine ?? '',
-                                style: AppText.mono(
-                                  size: 11,
-                                  weight: FontWeight.w700,
-                                  color: AppColors.stone,
-                                ),
+                            ),
+
+                            // ── 상세 스탯 ──
+                            if (session != null || summary != null) ...[
+                              const SizedBox(height: 24),
+                              _RevvRecapSection(
+                                metrics: shareMetrics,
+                                language: language,
                               ),
                             ],
-                          ),
+
+                            // ── 드라이브 모드 바 ──
+                            if (session != null &&
+                                session.driveModeSeconds.isNotEmpty) ...[
+                              const SizedBox(height: 14),
+                              _DriveModeBar(
+                                modes: session.driveModeSeconds,
+                                language: language,
+                              ),
+                            ],
+
+                            if (session != null) ...[
+                              const SizedBox(height: 14),
+                              _SessionLogSection(
+                                session: session,
+                                summary: summary,
+                                detail: detail,
+                                metrics: shareMetrics,
+                                feedbackType: selectedFeedback,
+                                waiting: waiting,
+                                language: language,
+                                expandedKeys: _expandedLogSections,
+                                onToggle: (key) {
+                                  setState(() {
+                                    if (_expandedLogSections.contains(key)) {
+                                      _expandedLogSections.remove(key);
+                                    } else {
+                                      _expandedLogSections.add(key);
+                                    }
+                                  });
+                                },
+                              ),
+                            ],
+
+                            if (session != null && copy != null) ...[
+                              const SizedBox(height: 16),
+                              _CopilotNextCard(text: copy.nextSuggestion),
+                              const SizedBox(height: 16),
+                              _RouteFeedbackCard(
+                                enabled: summary != null,
+                                selected: selectedFeedback,
+                                saved: feedbackSaved,
+                                language: language,
+                                onSelected: summary == null
+                                    ? null
+                                    : (type) => _saveFeedback(summary, type),
+                              ),
+                            ],
+                            if (session == null && summary != null) ...[
+                              const SizedBox(height: 14),
+                              _SavedRunReportSection(
+                                summary: summary,
+                                detail: detail,
+                                metrics: shareMetrics,
+                                language: language,
+                              ),
+                            ],
+                          ],
                         ),
-
-                        // ── 상세 스탯 ──
-                        if (session != null) ...[
-                          const SizedBox(height: 24),
-                          _DetailedStatsSection(
-                            session: session,
-                            language: language,
-                          ),
-                        ],
-
-                        // ── 드라이브 모드 바 ──
-                        if (session != null &&
-                            session.driveModeSeconds.isNotEmpty) ...[
-                          const SizedBox(height: 14),
-                          _DriveModeBar(
-                            modes: session.driveModeSeconds,
-                            language: language,
-                          ),
-                        ],
-
-                        if (session != null &&
-                            session.telemetrySamples.isNotEmpty) ...[
-                          const SizedBox(height: 14),
-                          _WindingReviewCard(
-                            session: session,
-                            language: language,
-                          ),
-                        ],
-
-                        if (session != null) ...[
-                          const SizedBox(height: 14),
-                          _SessionLogSection(
-                            session: session,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                      child: Column(
+                        children: [
+                          _SaveStateCard(
                             summary: summary,
                             waiting: waiting,
                             language: language,
-                            expandedKeys: _expandedLogSections,
-                            onToggle: (key) {
-                              setState(() {
-                                if (_expandedLogSections.contains(key)) {
-                                  _expandedLogSections.remove(key);
-                                } else {
-                                  _expandedLogSections.add(key);
-                                }
-                              });
-                            },
+                          ),
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: OutlinedButton.icon(
+                              onPressed: summary == null
+                                  ? null
+                                  : () => _showSharePreview(
+                                      summary: summary,
+                                      detail: detail,
+                                      session: session,
+                                      language: language,
+                                    ),
+                              icon: _shareExporting
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.ios_share_rounded),
+                              label: Text(
+                                AppCopy.t(
+                                  language,
+                                  ko: '공유 카드 만들기',
+                                  en: 'Share ride card',
+                                  fr: 'Partager la carte',
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 58,
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.primaryContainer,
+                                foregroundColor: AppColors.onPrimary,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(22),
+                                ),
+                              ),
+                              onPressed: () => Navigator.of(
+                                context,
+                              ).popUntil((route) => route.isFirst),
+                              icon: const Icon(Icons.home_rounded),
+                              label: Text(
+                                AppCopy.t(
+                                  language,
+                                  ko: '홈으로',
+                                  en: 'Home',
+                                  fr: 'Accueil',
+                                ),
+                                style: AppText.label(
+                                  size: 17,
+                                  weight: FontWeight.w800,
+                                  color: AppColors.onPrimary,
+                                  letterSpacing: 1,
+                                ),
+                              ),
+                            ),
                           ),
                         ],
-
-                        if (session != null && copy != null) ...[
-                          const SizedBox(height: 16),
-                          _CopilotNextCard(text: copy.nextSuggestion),
-                          const SizedBox(height: 16),
-                          _RouteFeedbackCard(
-                            enabled: summary != null,
-                            selected: _selectedFeedback,
-                            saved: _feedbackSaved,
-                            language: language,
-                            onSelected: summary == null
-                                ? null
-                                : (type) => _saveFeedback(summary, type),
-                          ),
-                        ],
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                  child: Column(
-                    children: [
-                      _SaveStateCard(
-                        summary: summary,
-                        waiting: waiting,
-                        language: language,
-                      ),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 58,
-                        child: FilledButton.icon(
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.primaryContainer,
-                            foregroundColor: AppColors.onPrimary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(22),
-                            ),
-                          ),
-                          onPressed: () => Navigator.of(
-                            context,
-                          ).popUntil((route) => route.isFirst),
-                          icon: const Icon(Icons.home_rounded),
-                          label: Text(
-                            AppCopy.t(
-                              language,
-                              ko: '홈으로',
-                              en: 'Home',
-                              fr: 'Accueil',
-                            ),
-                            style: AppText.label(
-                              size: 17,
-                              weight: FontWeight.w800,
-                              color: AppColors.onPrimary,
-                              letterSpacing: 1,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                  ],
                 ),
               ],
             );
@@ -369,6 +493,181 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
       ),
     );
   }
+}
+
+class _SharePreviewSheet extends StatefulWidget {
+  final RunSummary summary;
+  final RunTelemetryDetail? detail;
+  final RunSession? session;
+  final AppLanguage language;
+  final bool exporting;
+  final Future<void> Function(GlobalKey repaintKey) onExport;
+
+  const _SharePreviewSheet({
+    required this.summary,
+    required this.detail,
+    required this.session,
+    required this.language,
+    required this.exporting,
+    required this.onExport,
+  });
+
+  @override
+  State<_SharePreviewSheet> createState() => _SharePreviewSheetState();
+}
+
+class _SharePreviewSheetState extends State<_SharePreviewSheet> {
+  final GlobalKey _repaintKey = GlobalKey();
+  ShareCardPreset _preset = ShareCardPreset.square;
+  bool _exporting = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = buildRunShareCardContent(
+      preset: _preset,
+      summary: widget.summary,
+      detail: widget.detail,
+      session: widget.session,
+    );
+    final previewHeight = _preset == ShareCardPreset.story ? 320.0 : 260.0;
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.92,
+        ),
+        child: SingleChildScrollView(
+          child: Container(
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+            decoration: BoxDecoration(
+              color: AppColors.ink,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: AppColors.cream.withValues(alpha: 0.12),
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Share preview',
+                        style: AppText.label(
+                          size: 18,
+                          weight: FontWeight.w800,
+                          color: AppColors.cream,
+                          letterSpacing: 0,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                      color: AppColors.cream,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    for (final preset in ShareCardPreset.values) ...[
+                      Expanded(
+                        child: _SharePresetButton(
+                          label: _sharePresetLabel(preset),
+                          selected: preset == _preset,
+                          onTap: () => setState(() => _preset = preset),
+                        ),
+                      ),
+                      if (preset != ShareCardPreset.values.last)
+                        const SizedBox(width: 8),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: FilledButton.icon(
+                    onPressed: _exporting || widget.exporting
+                        ? null
+                        : () async {
+                            setState(() => _exporting = true);
+                            try {
+                              await widget.onExport(_repaintKey);
+                            } finally {
+                              if (mounted) setState(() => _exporting = false);
+                            }
+                          },
+                    icon: _exporting || widget.exporting
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.ios_share_rounded),
+                    label: const Text('Export card'),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  height: previewHeight,
+                  child: Center(
+                    child: RepaintBoundary(
+                      key: _repaintKey,
+                      child: RunShareCardWidget(content: content),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SharePresetButton extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _SharePresetButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        backgroundColor: selected
+            ? AppColors.primaryContainer
+            : AppColors.surfaceLowest,
+        foregroundColor: selected ? AppColors.onPrimary : AppColors.cream,
+        side: BorderSide(
+          color: selected
+              ? AppColors.primaryContainer
+              : AppColors.cream.withValues(alpha: 0.22),
+        ),
+      ),
+      child: Text(label),
+    );
+  }
+}
+
+String _sharePresetLabel(ShareCardPreset preset) {
+  return switch (preset) {
+    ShareCardPreset.story => 'Story',
+    ShareCardPreset.square => 'Square',
+    ShareCardPreset.sticker => 'Sticker',
+  };
 }
 
 // ── 지도 리플레이 섹션 ─────────────────────────────────────
@@ -575,151 +874,51 @@ class _MapReplaySection extends StatelessWidget {
 
 // ── 상세 스탯 섹션 ────────────────────────────────────────
 
-class _DetailedStatsSection extends StatelessWidget {
-  final RunSession session;
+class _RevvRecapSection extends StatelessWidget {
+  final RunShareMetrics metrics;
   final AppLanguage language;
 
-  const _DetailedStatsSection({required this.session, required this.language});
+  const _RevvRecapSection({required this.metrics, required this.language});
 
   @override
   Widget build(BuildContext context) {
-    final peakG = session.maxLateralG.abs() >= session.maxLonG.abs()
-        ? session.maxLateralG.abs()
-        : session.maxLonG.abs();
-    final sharpCount = session.sharpCorners.length;
-    final routeDistanceKm = session.route?.distanceKm;
-    final completionPct = routeCompletionPercent(
-      drivenKm: session.distanceKm,
-      routeDistanceKm: routeDistanceKm,
-    );
-
-    final stats = [
+    final displayed = {
+      for (final metric in metrics.defaultShareMetrics)
+        metric.label: metric.value,
+    };
+    final stats = <_StatItem>[
+      if (displayed['REVV Score'] case final value?)
+        _StatItem(label: 'REVV Score', value: value, accent: true),
+      if (displayed['Winding'] case final value?)
+        _StatItem(label: 'Winding', value: value, accent: true),
+      if (displayed['Flow'] case final value?)
+        _StatItem(label: 'Flow', value: value, accent: false),
+      if (displayed['Technical'] case final value?)
+        _StatItem(label: 'Technical', value: value, accent: false),
+      if (displayed['Smoothness'] case final value?)
+        _StatItem(label: 'Smoothness', value: value, accent: false),
       _StatItem(
-        label: AppCopy.t(language, ko: '거리', en: 'DISTANCE', fr: 'DISTANCE'),
-        value: '${session.distanceKm.toStringAsFixed(2)} km',
+        label: 'Distance',
+        value: displayed['Distance'] ?? '0.0 km',
         accent: false,
       ),
       _StatItem(
-        label: AppCopy.t(language, ko: '시간', en: 'TIME', fr: 'DURÉE'),
-        value: session.durationDisplay,
+        label: 'Duration',
+        value: displayed['Duration'] ?? '0s',
         accent: false,
       ),
-      _StatItem(
-        label: AppCopy.t(
-          language,
-          ko: '최고 속도',
-          en: 'MAX SPEED',
-          fr: 'VITESSE MAX',
-        ),
-        value: session.maxSpeedKmh > 0
-            ? '${session.maxSpeedKmh.toStringAsFixed(0)} km/h'
-            : '—',
-        accent: false,
-      ),
-      _StatItem(
-        label: AppCopy.t(
-          language,
-          ko: '평균 속도',
-          en: 'AVG SPEED',
-          fr: 'VITESSE MOY.',
-        ),
-        value: session.avgSpeedKmh > 0
-            ? '${session.avgSpeedKmh.toStringAsFixed(0)} km/h'
-            : '—',
-        accent: false,
-      ),
-      _StatItem(
-        label: AppCopy.t(language, ko: '피크 G', en: 'PEAK G', fr: 'G MAX'),
-        value: peakG > 0 ? peakG.toStringAsFixed(2) : '—',
-        accent: peakG >= 0.4,
-      ),
-      _StatItem(
-        label: AppCopy.t(
-          language,
-          ko: '커브 이벤트',
-          en: 'CURVE EVENTS',
-          fr: 'ÉVÉNEMENTS',
-        ),
-        value: AppCopy.t(
-          language,
-          ko: sharpCount > 0 ? '$sharpCount회' : '없음',
-          en: sharpCount > 0 ? '$sharpCount' : '—',
-          fr: sharpCount > 0 ? '$sharpCount' : '—',
-        ),
-        accent: sharpCount > 0,
-      ),
-      if (completionPct != null)
-        _StatItem(
-          label: AppCopy.t(
-            language,
-            ko: '완주율',
-            en: 'COMPLETION',
-            fr: 'COMPLÉTION',
-          ),
-          value: '$completionPct%',
-          accent: completionPct >= 80,
-        ),
-      if (session.telemetrySamples.isNotEmpty)
-        _StatItem(
-          label: AppCopy.t(language, ko: '샘플', en: 'SAMPLES', fr: 'ÉCHANT.'),
-          value: '${session.telemetrySamples.length}',
-          accent: false,
-        ),
-      if ((session.driveModeSeconds['winding'] ?? 0) > 0)
-        _StatItem(
-          label: AppCopy.t(language, ko: '와인딩', en: 'WINDING', fr: 'VIRAGE'),
-          value: _formatCompactDuration(
-            session.driveModeSeconds['winding'] ?? 0,
-          ),
-          accent: true,
-        ),
+      if (displayed['Peak G'] case final value?)
+        _StatItem(label: 'Peak G', value: value, accent: true),
+      if (displayed['Route'] case final value?)
+        _StatItem(label: 'Route', value: value, accent: false),
     ];
 
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 1.55,
-        mainAxisSpacing: 10,
-        crossAxisSpacing: 10,
-      ),
-      itemCount: stats.length,
-      itemBuilder: (_, i) => _StatTile(item: stats[i]),
-    );
-  }
-}
-
-class _WindingReviewCard extends StatelessWidget {
-  final RunSession session;
-  final AppLanguage language;
-
-  const _WindingReviewCard({required this.session, required this.language});
-
-  @override
-  Widget build(BuildContext context) {
-    final samples = session.telemetrySamples;
-    final absLatG = samples.map((s) => s.lateralG.abs()).toList()..sort();
-    final p95LatG = _percentile(absLatG, 0.95);
-    final avgLatG = _avg(absLatG);
-    final brakingEvents = samples
-        .where((s) => s.longitudinalG <= -0.30 && s.speedKmh >= 8)
-        .length;
-    final windingSamples = samples
-        .where((s) => s.lateralG.abs() >= 0.18 && s.speedKmh >= 12)
-        .length;
-    final windingPct = samples.isEmpty
-        ? 0
-        : (windingSamples / samples.length * 100).round();
-
     return Container(
-      padding: const EdgeInsets.all(15),
+      padding: const EdgeInsets.fromLTRB(15, 15, 15, 16),
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -727,68 +926,143 @@ class _WindingReviewCard extends StatelessWidget {
           Row(
             children: [
               const Icon(
-                Icons.timeline_rounded,
+                Icons.flag_circle_rounded,
                 color: AppColors.primaryContainer,
-                size: 18,
+                size: 19,
               ),
               const SizedBox(width: 8),
               Text(
                 AppCopy.t(
                   language,
-                  ko: '와인딩 리뷰 데이터',
-                  en: 'Winding review data',
-                  fr: 'Données virage',
+                  ko: 'REVV 리캡',
+                  en: 'REVV Recap',
+                  fr: 'REVV Recap',
                 ),
                 style: AppText.mono(
                   size: 10,
-                  letterSpacing: 1.4,
+                  letterSpacing: 1.5,
                   color: AppColors.primaryContainer,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _ReviewChip(
-                label: AppCopy.t(
-                  language,
-                  ko: '평균 횡G',
-                  en: 'AVG LAT G',
-                  fr: 'G LAT MOY.',
-                ),
-                value: avgLatG.toStringAsFixed(2),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              childAspectRatio: 1.55,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+            ),
+            itemCount: stats.length,
+            itemBuilder: (_, i) => _StatTile(item: stats[i]),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavedRunReportSection extends StatelessWidget {
+  final RunSummary summary;
+  final RunTelemetryDetail? detail;
+  final RunShareMetrics metrics;
+  final AppLanguage language;
+
+  const _SavedRunReportSection({
+    required this.summary,
+    required this.detail,
+    required this.metrics,
+    required this.language,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final analytics = detail?.analytics ?? const <String, dynamic>{};
+    final sampleCount =
+        _analyticsInt(analytics, 'sampleCount') ?? summary.telemetrySampleCount;
+    final gpsPointCount = _analyticsInt(analytics, 'gpsPointCount');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(15, 15, 15, 16),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppCopy.t(
+              language,
+              ko: '저장된 리포트',
+              en: 'Saved report',
+              fr: 'Rapport sauvegardé',
+            ),
+            style: AppText.mono(
+              size: 10,
+              letterSpacing: 1.5,
+              color: AppColors.primaryContainer,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _SavedRunReportRow(
+            label: 'DETAIL DATA',
+            value: detail == null ? 'Summary only' : 'Detail loaded',
+          ),
+          _SavedRunReportRow(label: 'SAMPLES', value: '$sampleCount'),
+          if (gpsPointCount != null)
+            _SavedRunReportRow(label: 'GPS POINTS', value: '$gpsPointCount'),
+          _SavedRunReportRow(
+            label: 'BRAKE / ACCEL',
+            value:
+                '${summary.brakingEventCount} / ${summary.accelerationEventCount}',
+          ),
+          _SavedRunReportRow(
+            label: 'PUBLIC DEFAULT',
+            value: 'Private speed data hidden',
+          ),
+          _SavedRunReportRow(
+            label: 'REPORT METRICS',
+            value: '${metrics.defaultShareMetrics.length}',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SavedRunReportRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _SavedRunReportRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: AppText.technicalLabel(
+                size: 9,
+                letterSpacing: 1,
+                color: AppColors.stone,
               ),
-              _ReviewChip(
-                label: AppCopy.t(
-                  language,
-                  ko: '95% 횡G',
-                  en: 'P95 LAT G',
-                  fr: 'G LAT P95',
-                ),
-                value: p95LatG.toStringAsFixed(2),
-              ),
-              _ReviewChip(
-                label: AppCopy.t(
-                  language,
-                  ko: '와인딩 비율',
-                  en: 'WINDING',
-                  fr: 'VIRAGE',
-                ),
-                value: '$windingPct%',
-              ),
-              _ReviewChip(
-                label: AppCopy.t(
-                  language,
-                  ko: '제동 이벤트',
-                  en: 'BRAKING',
-                  fr: 'FREINAGE',
-                ),
-                value: '$brakingEvents',
-              ),
-            ],
+            ),
+          ),
+          Text(
+            value,
+            style: AppText.body(
+              size: 14,
+              weight: FontWeight.w800,
+              color: AppColors.ink,
+            ),
           ),
         ],
       ),
@@ -799,6 +1073,9 @@ class _WindingReviewCard extends StatelessWidget {
 class _SessionLogSection extends StatelessWidget {
   final RunSession session;
   final RunSummary? summary;
+  final RunTelemetryDetail? detail;
+  final RunShareMetrics metrics;
+  final String? feedbackType;
   final bool waiting;
   final AppLanguage language;
   final Set<String> expandedKeys;
@@ -807,6 +1084,9 @@ class _SessionLogSection extends StatelessWidget {
   const _SessionLogSection({
     required this.session,
     required this.summary,
+    required this.detail,
+    required this.metrics,
+    required this.feedbackType,
     required this.waiting,
     required this.language,
     required this.expandedKeys,
@@ -818,6 +1098,9 @@ class _SessionLogSection extends StatelessWidget {
     final sections = _sessionLogGroups(
       session: session,
       summary: summary,
+      detail: detail,
+      metrics: metrics,
+      feedbackType: feedbackType,
       waiting: waiting,
       language: language,
     );
@@ -827,9 +1110,7 @@ class _SessionLogSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -936,9 +1217,7 @@ class _SessionLogAccordion extends StatelessWidget {
             curve: Curves.easeOutCubic,
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: expanded
-                  ? AppColors.creamMuted
-                  : AppColors.cream,
+              color: expanded ? AppColors.creamMuted : AppColors.cream,
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
                 color: expanded
@@ -1077,40 +1356,47 @@ class _SessionLogDetailRow extends StatelessWidget {
 List<_SessionLogGroup> _sessionLogGroups({
   required RunSession session,
   required RunSummary? summary,
+  required RunTelemetryDetail? detail,
+  required RunShareMetrics metrics,
+  required String? feedbackType,
   required bool waiting,
   required AppLanguage language,
 }) {
-  final samples = session.telemetrySamples;
-  final absLatG = samples.map((s) => s.lateralG.abs()).toList()..sort();
-  final absLonG = samples.map((s) => s.longitudinalG.abs()).toList()..sort();
-  final brakingEvents = samples
-      .where((s) => s.longitudinalG <= -0.30 && s.speedKmh >= 8)
-      .length;
-  final accelerationEvents = samples
-      .where((s) => s.longitudinalG >= 0.25 && s.speedKmh >= 8)
-      .length;
-  final windingSamples = samples
-      .where((s) => s.lateralG.abs() >= 0.18 && s.speedKmh >= 12)
-      .length;
-  final windingPct = samples.isEmpty
-      ? 0
-      : (windingSamples / samples.length * 100).round();
-  final peakG = math.max(session.maxLateralG.abs(), session.maxLonG.abs());
+  final analytics = detail?.analytics ?? const <String, dynamic>{};
+  final displayed = {
+    for (final metric in metrics.defaultShareMetrics)
+      metric.label: metric.value,
+  };
+  final sampleCount =
+      _analyticsInt(analytics, 'sampleCount') ??
+      summary?.telemetrySampleCount ??
+      session.telemetrySamples.length;
+  final gpsPointCount =
+      _analyticsInt(analytics, 'gpsPointCount') ?? session.gpsPath.length;
+  final movingSampleCount = _analyticsInt(analytics, 'movingSampleCount') ?? 0;
+  final brakingEvents =
+      _analyticsInt(analytics, 'brakingEventCount') ??
+      summary?.brakingEventCount ??
+      0;
+  final accelerationEvents =
+      _analyticsInt(analytics, 'accelerationEventCount') ??
+      summary?.accelerationEventCount ??
+      0;
+  final windingSampleCount =
+      _analyticsInt(analytics, 'windingSampleCount') ?? 0;
+  final windingPct =
+      _analyticsDouble(analytics, 'windingSamplePct') ??
+      summary?.windingSamplePct ??
+      0;
+  final peakG = _analyticsDouble(analytics, 'peakG') ?? summary?.peakG ?? 0;
+  final routeCompletionPct =
+      _analyticsDouble(analytics, 'routeCompletionPct') ??
+      summary?.routeCompletionPct?.toDouble();
   final route = session.route;
-  final completionPct = routeCompletionPercent(
-    drivenKm: session.distanceKm,
-    routeDistanceKm: route?.distanceKm,
-  );
-  final path = session.gpsPath;
-  final startPoint = path.isEmpty ? null : path.first;
-  final endPoint = path.length < 2 ? null : path.last;
   final sharpRows = session.sharpCorners.take(6).map((event) {
     return _SessionLogRow(
       _formatClock(event.time),
-      '${event.lateralG.toStringAsFixed(2)}G · '
-      '${event.speedKmh.toStringAsFixed(0)} km/h · '
-      '${_modeLabel(event.driveMode, language)} · '
-      '${_formatCoordinate(event.position)}',
+      '${event.lateralG.toStringAsFixed(2)}G · ${_modeLabel(event.driveMode, language)}',
     );
   }).toList();
 
@@ -1136,8 +1422,12 @@ List<_SessionLogGroup> _sessionLogGroups({
           '${session.distanceKm.toStringAsFixed(2)} km',
         ),
         _SessionLogRow(
-          AppCopy.t(language, ko: '평균/최고 속도', en: 'AVG / MAX', fr: 'MOY / MAX'),
-          '${session.avgSpeedKmh.toStringAsFixed(0)} / ${session.maxSpeedKmh.toStringAsFixed(0)} km/h',
+          AppCopy.t(language, ko: '시간', en: 'DURATION', fr: 'DURÉE'),
+          session.durationDisplay,
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '평균 속도', en: 'AVG SPEED', fr: 'MOYENNE'),
+          displayed['Avg speed'] ?? '—',
         ),
         _SessionLogRow(
           AppCopy.t(
@@ -1146,7 +1436,7 @@ List<_SessionLogGroup> _sessionLogGroups({
             en: 'GPS POINTS',
             fr: 'POINTS GPS',
           ),
-          '${path.length}',
+          '$gpsPointCount',
         ),
         _SessionLogRow(
           AppCopy.t(
@@ -1155,7 +1445,78 @@ List<_SessionLogGroup> _sessionLogGroups({
             en: 'TELEMETRY',
             fr: 'TÉLÉMÉTRIE',
           ),
-          '${samples.length}',
+          '$sampleCount',
+        ),
+      ],
+    ),
+    _SessionLogGroup(
+      key: 'flow',
+      icon: Icons.timeline_rounded,
+      title: AppCopy.t(language, ko: '흐름', en: 'Flow', fr: 'Flow'),
+      summary: displayed['Flow'] == null ? '—' : 'Score ${displayed['Flow']}',
+      accent: AppColors.primaryContainer,
+      rows: [
+        _SessionLogRow(
+          AppCopy.t(language, ko: '흐름 점수', en: 'FLOW SCORE', fr: 'SCORE FLOW'),
+          displayed['Flow'] ?? '—',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '이동 샘플',
+            en: 'MOVING SAMPLES',
+            fr: 'ÉCHANT. MOUV.',
+          ),
+          '$movingSampleCount / $sampleCount',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '이동 시간',
+            en: 'MOVING TIME',
+            fr: 'TEMPS MOUV.',
+          ),
+          _formatAnalyticsDuration(analytics, 'movingDurationSeconds'),
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '정지 시간', en: 'IDLE TIME', fr: 'ARRÊT'),
+          _formatAnalyticsDuration(analytics, 'idleDurationSeconds'),
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '와인딩 시간', en: 'WINDING TIME', fr: 'VIRAGE'),
+          _formatCompactDuration(session.driveModeSeconds['winding'] ?? 0),
+        ),
+      ],
+    ),
+    _SessionLogGroup(
+      key: 'smoothness',
+      icon: Icons.waves_rounded,
+      title: AppCopy.t(language, ko: '스무스니스', en: 'Smoothness', fr: 'Fluidité'),
+      summary: displayed['Smoothness'] == null
+          ? '—'
+          : 'Score ${displayed['Smoothness']}',
+      accent: AppColors.success,
+      rows: [
+        _SessionLogRow(
+          AppCopy.t(language, ko: '스무스니스', en: 'SMOOTHNESS', fr: 'FLUIDITÉ'),
+          displayed['Smoothness'] ?? '—',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '제동/가속 이벤트',
+            en: 'BRAKE / ACCEL',
+            fr: 'FREIN / ACCEL',
+          ),
+          '$brakingEvents / $accelerationEvents',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '샤프 이벤트', en: 'SHARP EVENTS', fr: 'BRUSQUE'),
+          '${_analyticsInt(analytics, 'sharpEventCount') ?? session.sharpCorners.length}',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '95% 종G', en: 'P95 LONG G', fr: 'G LONG P95'),
+          _formatG(_analyticsDouble(analytics, 'p95AbsLongitudinalG')),
         ),
       ],
     ),
@@ -1173,13 +1534,15 @@ List<_SessionLogGroup> _sessionLogGroups({
       rows: [
         _SessionLogRow(
           AppCopy.t(language, ko: '최대 횡G', en: 'MAX LAT G', fr: 'G LAT MAX'),
-          session.maxLateralG > 0
-              ? session.maxLateralG.toStringAsFixed(2)
-              : '—',
+          _formatG(
+            _analyticsDouble(analytics, 'maxLateralG') ?? session.maxLateralG,
+          ),
         ),
         _SessionLogRow(
           AppCopy.t(language, ko: '최대 종G', en: 'MAX LONG G', fr: 'G LONG MAX'),
-          session.maxLonG > 0 ? session.maxLonG.toStringAsFixed(2) : '—',
+          _formatG(
+            _analyticsDouble(analytics, 'maxLongitudinalG') ?? session.maxLonG,
+          ),
         ),
         _SessionLogRow(
           AppCopy.t(
@@ -1188,7 +1551,8 @@ List<_SessionLogGroup> _sessionLogGroups({
             en: 'AVG / P95 LAT',
             fr: 'LAT MOY / P95',
           ),
-          '${_avg(absLatG).toStringAsFixed(2)} / ${_percentile(absLatG, 0.95).toStringAsFixed(2)}',
+          '${_formatG(_analyticsDouble(analytics, 'avgAbsLateralG'))} / '
+          '${_formatG(_analyticsDouble(analytics, 'p95AbsLateralG'))}',
         ),
         _SessionLogRow(
           AppCopy.t(
@@ -1197,7 +1561,8 @@ List<_SessionLogGroup> _sessionLogGroups({
             en: 'AVG / P95 LONG',
             fr: 'LONG MOY / P95',
           ),
-          '${_avg(absLonG).toStringAsFixed(2)} / ${_percentile(absLonG, 0.95).toStringAsFixed(2)}',
+          '${_formatG(_analyticsDouble(analytics, 'avgAbsLongitudinalG'))} / '
+          '${_formatG(_analyticsDouble(analytics, 'p95AbsLongitudinalG'))}',
         ),
         _SessionLogRow(
           AppCopy.t(
@@ -1206,16 +1571,7 @@ List<_SessionLogGroup> _sessionLogGroups({
             en: 'WINDING SAMPLES',
             fr: 'ÉCHANT. VIRAGE',
           ),
-          '$windingSamples / ${samples.length} · $windingPct%',
-        ),
-        _SessionLogRow(
-          AppCopy.t(
-            language,
-            ko: '제동/가속 이벤트',
-            en: 'BRAKE / ACCEL',
-            fr: 'FREIN / ACCEL',
-          ),
-          '$brakingEvents / $accelerationEvents',
+          '$windingSampleCount / $sampleCount · ${windingPct.round()}%',
         ),
       ],
     ),
@@ -1263,8 +1619,8 @@ List<_SessionLogGroup> _sessionLogGroups({
       icon: Icons.route_rounded,
       title: AppCopy.t(
         language,
-        ko: '루트/위치',
-        en: 'Route & position',
+        ko: '루트 컨텍스트',
+        en: 'Route context',
         fr: 'Route',
       ),
       summary: route?.name ?? session.routeName,
@@ -1287,7 +1643,7 @@ List<_SessionLogGroup> _sessionLogGroups({
           ),
           route == null
               ? '—'
-              : '${route.distanceKm.toStringAsFixed(1)} km · ${completionPct == null ? '—' : '$completionPct%'}',
+              : '${route.distanceKm.toStringAsFixed(1)} km · ${routeCompletionPct?.round() ?? 0}%',
         ),
         _SessionLogRow(
           AppCopy.t(language, ko: '커브 스타일', en: 'CURVE STYLE', fr: 'STYLE'),
@@ -1296,39 +1652,88 @@ List<_SessionLogGroup> _sessionLogGroups({
               : '${route.curveStyle} · ${route.sharpCurveCount} curves',
         ),
         _SessionLogRow(
-          AppCopy.t(language, ko: '시작 좌표', en: 'START GPS', fr: 'GPS DÉPART'),
-          startPoint == null ? '—' : _formatCoordinate(startPoint),
+          AppCopy.t(
+            language,
+            ko: '타이트/미디엄',
+            en: 'TIGHT / MEDIUM',
+            fr: 'SERRÉ / MOY.',
+          ),
+          route == null
+              ? '—'
+              : '${route.tightCurveKm.toStringAsFixed(1)} / ${route.mediumCurveKm.toStringAsFixed(1)} km',
         ),
         _SessionLogRow(
-          AppCopy.t(language, ko: '종료 좌표', en: 'END GPS', fr: 'GPS FIN'),
-          endPoint == null ? '—' : _formatCoordinate(endPoint),
+          AppCopy.t(language, ko: '고도', en: 'ELEVATION', fr: 'ALTITUDE'),
+          route == null || route.elevationDelta == 0
+              ? '—'
+              : '${route.elevationDelta.toStringAsFixed(0)} m',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '연속 와인딩', en: 'CONTINUOUS', fr: 'CONTINU'),
+          route == null
+              ? '—'
+              : '${route.maxContinuousKm.toStringAsFixed(1)} km',
         ),
       ],
     ),
     _SessionLogGroup(
-      key: 'storage',
-      icon: Icons.cloud_done_rounded,
+      key: 'weather',
+      icon: Icons.cloud_rounded,
       title: AppCopy.t(
         language,
-        ko: '날씨/저장',
-        en: 'Weather & storage',
-        fr: 'Météo / stockage',
+        ko: '날씨/컨텍스트',
+        en: 'Weather & context',
+        fr: 'Météo / contexte',
       ),
-      summary: waiting
-          ? AppCopy.t(language, ko: '저장 중', en: 'Saving', fr: 'Sauvegarde')
-          : summary == null
-          ? AppCopy.t(
-              language,
-              ko: '로컬 세션',
-              en: 'Local session',
-              fr: 'Session locale',
-            )
-          : 'ID ${summary.id}',
-      accent: waiting ? AppColors.warning : AppColors.success,
+      summary: '${session.weatherEmoji} ${session.tempDisplay}'.trim(),
+      accent: AppColors.gold,
       rows: [
         _SessionLogRow(
           AppCopy.t(language, ko: '날씨', en: 'WEATHER', fr: 'MÉTÉO'),
           '${session.weatherEmoji} ${session.tempDisplay} · ${session.weatherDesc}',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '노면', en: 'SURFACE', fr: 'SURFACE'),
+          route?.surfaceSummary.isEmpty ?? true ? '—' : route!.surfaceSummary,
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '도로 클래스', en: 'ROAD CLASS', fr: 'CLASSE'),
+          route?.roadClassBucket.isEmpty ?? true ? '—' : route!.roadClassBucket,
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '루트 품질', en: 'ROUTE QUALITY', fr: 'QUALITÉ'),
+          route?.qualityLabel.isEmpty ?? true ? '—' : route!.qualityLabel,
+        ),
+      ],
+    ),
+    _SessionLogGroup(
+      key: 'quality',
+      icon: Icons.sensors_rounded,
+      title: AppCopy.t(
+        language,
+        ko: '수집 품질',
+        en: 'Collection quality',
+        fr: 'Qualité collecte',
+      ),
+      summary: '$sampleCount samples · $gpsPointCount GPS',
+      accent: AppColors.primaryContainer,
+      rows: [
+        _SessionLogRow(
+          AppCopy.t(language, ko: '샘플', en: 'SAMPLES', fr: 'ÉCHANT.'),
+          '$sampleCount',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: 'GPS 포인트',
+            en: 'GPS POINTS',
+            fr: 'POINTS GPS',
+          ),
+          '$gpsPointCount',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '상세 데이터', en: 'DETAIL DATA', fr: 'DÉTAIL'),
+          detail == null ? 'Summary only' : 'Loaded',
         ),
         _SessionLogRow(
           AppCopy.t(language, ko: '저장 상태', en: 'SAVE STATE', fr: 'ÉTAT'),
@@ -1343,63 +1748,62 @@ List<_SessionLogGroup> _sessionLogGroups({
                 )
               : AppCopy.t(language, ko: '저장 완료', en: 'Saved', fr: 'Sauvegardé'),
         ),
+      ],
+    ),
+    _SessionLogGroup(
+      key: 'privacy',
+      icon: Icons.lock_outline_rounded,
+      title: AppCopy.t(
+        language,
+        ko: '프라이버시/공유',
+        en: 'Privacy & share',
+        fr: 'Confidentialité',
+      ),
+      summary: waiting
+          ? AppCopy.t(language, ko: '저장 중', en: 'Saving', fr: 'Sauvegarde')
+          : summary == null
+          ? AppCopy.t(
+              language,
+              ko: '로컬 세션',
+              en: 'Local session',
+              fr: 'Session locale',
+            )
+          : 'ID ${summary.id}',
+      accent: AppColors.success,
+      rows: [
         _SessionLogRow(
-          AppCopy.t(language, ko: '런 ID', en: 'RUN ID', fr: 'ID RUN'),
-          summary?.id ?? '—',
+          AppCopy.t(language, ko: '공개 기본값', en: 'PUBLIC DEFAULT', fr: 'PUBLIC'),
+          'Private speed data hidden',
         ),
         _SessionLogRow(
-          AppCopy.t(language, ko: '샘플 저장', en: 'DETAIL SAMPLES', fr: 'ÉCHANT.'),
-          '${samples.length}',
+          AppCopy.t(language, ko: '좌표', en: 'COORDINATES', fr: 'COORD.'),
+          'Raw coordinates hidden',
+        ),
+        _SessionLogRow(
+          AppCopy.t(language, ko: '루트 노드', en: 'ROUTE NODES', fr: 'NOEUDS'),
+          'Route nodes hidden',
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '루트 피드백',
+            en: 'ROUTE FEEDBACK',
+            fr: 'RETOUR ROUTE',
+          ),
+          feedbackType == null ? '—' : _feedbackLabel(feedbackType, language),
+        ),
+        _SessionLogRow(
+          AppCopy.t(
+            language,
+            ko: '공유 지표',
+            en: 'SHARE METRICS',
+            fr: 'MÉTRIQUES',
+          ),
+          '${metrics.defaultShareMetrics.length}',
         ),
       ],
     ),
   ];
-}
-
-class _ReviewChip extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _ReviewChip({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 134,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-      decoration: BoxDecoration(
-        color: AppColors.creamMuted,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppText.mono(
-              size: 8,
-              letterSpacing: 0.8,
-              color: AppColors.stone,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            value,
-            style: AppText.label(
-              size: 16,
-              weight: FontWeight.w800,
-              color: AppColors.ink,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _StatItem {
@@ -1441,9 +1845,7 @@ class _StatTile extends StatelessWidget {
             style: AppText.mono(
               size: 9,
               letterSpacing: 1.2,
-              color: item.accent
-                  ? AppColors.primaryContainer
-                  : AppColors.stone,
+              color: item.accent ? AppColors.primaryContainer : AppColors.stone,
             ),
           ),
           Text(
@@ -1451,9 +1853,7 @@ class _StatTile extends StatelessWidget {
             style: AppText.label(
               size: 20,
               weight: FontWeight.w800,
-              color: item.accent
-                  ? AppColors.primaryContainer
-                  : AppColors.ink,
+              color: item.accent ? AppColors.primaryContainer : AppColors.ink,
             ),
           ),
         ],
@@ -1487,24 +1887,34 @@ String _formatClock(DateTime value) {
   return '$hour:$minute:$second';
 }
 
-String _formatCoordinate(LatLng point) {
-  return '${point.lat.toStringAsFixed(5)}, ${point.lng.toStringAsFixed(5)}';
+String historySummaryLine(RunSummary? summary) {
+  if (summary == null) return 'Session ended before it was created.';
+  final date =
+      '${summary.date.year}-${summary.date.month.toString().padLeft(2, '0')}-${summary.date.day.toString().padLeft(2, '0')}';
+  return '$date · ${summary.distanceKm.toStringAsFixed(1)} km · ${summary.durationDisplay}';
 }
 
-double _avg(Iterable<double> values) {
-  var sum = 0.0;
-  var count = 0;
-  for (final value in values) {
-    sum += value;
-    count++;
-  }
-  return count == 0 ? 0 : sum / count;
+int? _analyticsInt(Map<String, dynamic> analytics, String key) {
+  final value = analytics[key];
+  if (value is! num || !value.isFinite) return null;
+  return value.round();
 }
 
-double _percentile(List<double> sortedValues, double percentile) {
-  if (sortedValues.isEmpty) return 0;
-  final index = ((sortedValues.length - 1) * percentile).round();
-  return sortedValues[index.clamp(0, sortedValues.length - 1)];
+double? _analyticsDouble(Map<String, dynamic> analytics, String key) {
+  final value = analytics[key];
+  if (value is! num || !value.isFinite) return null;
+  return value.toDouble();
+}
+
+String _formatG(double? value) {
+  if (value == null || value == 0) return '—';
+  return value.abs().toStringAsFixed(2);
+}
+
+String _formatAnalyticsDuration(Map<String, dynamic> analytics, String key) {
+  final seconds = _analyticsInt(analytics, key);
+  if (seconds == null) return '—';
+  return _formatCompactDuration(seconds);
 }
 
 // ── 드라이브 모드 바 ──────────────────────────────────────
@@ -1537,9 +1947,7 @@ class _DriveModeBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1661,9 +2069,7 @@ class _CopilotNextCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1732,9 +2138,7 @@ class _RouteFeedbackCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1805,9 +2209,7 @@ class _RouteFeedbackCard extends StatelessWidget {
                   style: AppText.body(
                     size: 12,
                     weight: FontWeight.w900,
-                    color: active
-                        ? AppColors.onPrimary
-                        : AppColors.stone,
+                    color: active ? AppColors.onPrimary : AppColors.stone,
                   ),
                 ),
               );
@@ -1891,9 +2293,7 @@ class _SaveStateCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Row(
         children: [
@@ -1907,10 +2307,7 @@ class _SaveStateCard extends StatelessWidget {
               ),
             )
           else
-            const Icon(
-              Icons.check_circle_rounded,
-              color: AppColors.success,
-            ),
+            const Icon(Icons.check_circle_rounded, color: AppColors.success),
           const SizedBox(width: 12),
           Expanded(
             child: Column(

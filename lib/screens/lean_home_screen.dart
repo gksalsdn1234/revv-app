@@ -8,6 +8,7 @@ import '../core/app_language.dart';
 import '../core/app_links.dart';
 import '../models/revv_route.dart';
 import '../models/run_summary.dart';
+import '../models/run_telemetry_detail.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/run_history_service.dart';
@@ -19,6 +20,7 @@ import '../ui/app_copy.dart';
 import '../widgets/copilot_start_sheet.dart';
 import 'lean_drive_screen.dart';
 import 'lean_route_finder_screen.dart';
+import 'lean_run_summary_screen.dart';
 
 class LeanHomeScreen extends StatefulWidget {
   const LeanHomeScreen({super.key});
@@ -212,34 +214,44 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     BuildContext ctx,
     RevvRoute route,
   ) async {
-    ctx.read<RouteService>().beginGuideToStart(route);
-    final start = route.nodes.isNotEmpty
-        ? route.nodes.first
-        : route.centerPoint;
-    final appUri = Uri.parse(
-      'comgooglemaps://?daddr=${start.lat},${start.lng}&directionsmode=driving',
+    await _openRouteNavigation(
+      ctx,
+      route,
+      appUri: (start) => Uri.parse(
+        'comgooglemaps://?daddr=${start.lat},${start.lng}&directionsmode=driving',
+      ),
+      webUri: (start) => Uri.https('www.google.com', '/maps/dir/', {
+        'api': '1',
+        'destination': '${start.lat},${start.lng}',
+        'travelmode': 'driving',
+      }),
     );
-    final webUri = Uri.https('www.google.com', '/maps/dir/', {
-      'api': '1',
-      'destination': '${start.lat},${start.lng}',
-      'travelmode': 'driving',
-    });
-    await _launchExternalNavigation(appUri, webUri);
   }
 
   Future<void> _openWazeForRoute(BuildContext ctx, RevvRoute route) async {
+    await _openRouteNavigation(
+      ctx,
+      route,
+      appUri: (start) =>
+          Uri.parse('waze://?ll=${start.lat},${start.lng}&navigate=yes'),
+      webUri: (start) => Uri.https('waze.com', '/ul', {
+        'll': '${start.lat},${start.lng}',
+        'navigate': 'yes',
+      }),
+    );
+  }
+
+  Future<void> _openRouteNavigation(
+    BuildContext ctx,
+    RevvRoute route, {
+    required Uri Function(LatLng start) appUri,
+    required Uri Function(LatLng start) webUri,
+  }) async {
     ctx.read<RouteService>().beginGuideToStart(route);
     final start = route.nodes.isNotEmpty
         ? route.nodes.first
         : route.centerPoint;
-    final appUri = Uri.parse(
-      'waze://?ll=${start.lat},${start.lng}&navigate=yes',
-    );
-    final webUri = Uri.https('waze.com', '/ul', {
-      'll': '${start.lat},${start.lng}',
-      'navigate': 'yes',
-    });
-    await _launchExternalNavigation(appUri, webUri);
+    await _launchExternalNavigation(appUri(start), webUri(start));
   }
 
   Future<void> _launchExternalNavigation(Uri appUri, Uri webUri) async {
@@ -277,7 +289,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
       context: ctx,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => const _HistorySheet(),
+      builder: (_) => const HistorySheet(),
     );
   }
 
@@ -290,7 +302,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     final supabase = context.watch<SupabaseService>();
     final language = settings.appLanguage;
     final lastRun = history.history.isNotEmpty ? history.history.first : null;
-    final readyCount = routes.routes.isNotEmpty ? routes.routes.length : 16;
+    final readyCount = routes.routes.length;
 
     return Scaffold(
       backgroundColor: AppColors.cream,
@@ -313,7 +325,11 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                     ),
                   ),
                   const SizedBox(width: 6),
-                  Container(width: 5, height: 18, color: AppColors.primaryContainer),
+                  Container(
+                    width: 5,
+                    height: 18,
+                    color: AppColors.primaryContainer,
+                  ),
                   const Spacer(),
                   _LeanLanguageToggle(
                     language: language,
@@ -366,9 +382,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                     // Checkered stripe header
                     Container(
                       height: 10,
-                      decoration: const BoxDecoration(
-                        color: AppColors.ink,
-                      ),
+                      decoration: const BoxDecoration(color: AppColors.ink),
                       child: CustomPaint(
                         painter: _CheckeredPainter(
                           tileSize: 7,
@@ -435,11 +449,15 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) => const LeanRouteFinderScreen(),
+                                    builder: (_) =>
+                                        const LeanRouteFinderScreen(),
                                   ),
                                 );
                               },
-                              icon: const Icon(Icons.arrow_forward_rounded, size: 20),
+                              icon: const Icon(
+                                Icons.arrow_forward_rounded,
+                                size: 20,
+                              ),
                               label: Text(
                                 AppCopy.routeFinder(language).toUpperCase(),
                                 style: AppText.label(
@@ -470,9 +488,8 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                   ),
                   onWaze: () =>
                       _openWazeForRoute(context, routes.pendingGuideRoute!),
-                  onStart: () => unawaited(
-                    _startFromGuideCard(routes.pendingGuideRoute!),
-                  ),
+                  onStart: () =>
+                      unawaited(_startFromGuideCard(routes.pendingGuideRoute!)),
                   onCancel: () {
                     _guidePromptShown = false;
                     routes.clearGuideToStart();
@@ -540,9 +557,7 @@ class _LastRunCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -667,58 +682,6 @@ class _RunPill extends StatelessWidget {
           size: 11,
           weight: FontWeight.w700,
           color: accent ? AppColors.primaryContainer : AppColors.ink,
-        ),
-      ),
-    );
-  }
-}
-
-class _RaceStatusTile extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool active;
-
-  const _RaceStatusTile({
-    required this.label,
-    required this.value,
-    required this.active,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = active ? AppColors.primaryContainer : AppColors.stone;
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppColors.cream.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.cream.withValues(alpha: 0.14)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppText.technicalLabel(
-                size: 9,
-                letterSpacing: 1.2,
-                color: AppColors.textHint,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              style: AppText.display(
-                size: 28,
-                height: 0.9,
-                color: color,
-                weight: FontWeight.w900,
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -883,26 +846,35 @@ class _StatsLine extends StatelessWidget {
       parts.join(' · '),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: AppText.mono(
-        size: 10,
-        letterSpacing: 1.4,
-        color: AppColors.stone,
-      ),
+      style: AppText.mono(size: 10, letterSpacing: 1.4, color: AppColors.stone),
     );
   }
 }
 
-class _HistorySheet extends StatelessWidget {
-  const _HistorySheet();
+typedef HistoryReportOpener =
+    Future<void> Function(
+      BuildContext context,
+      RunSummary summary,
+      RunTelemetryDetail? detail,
+    );
+
+class HistorySheet extends StatelessWidget {
+  final HistoryReportOpener? onOpenReport;
+
+  const HistorySheet({super.key, this.onOpenReport});
 
   @override
   Widget build(BuildContext context) {
     final history = context.watch<RunHistoryService>();
     final runs = history.history;
     final bestG = history.bestMaxG;
-    final topSpeed = runs.fold<double>(
-      0,
-      (best, run) => run.maxSpeedKmh > best ? run.maxSpeedKmh : best,
+    final bestRevv = runs.fold<int?>(
+      null,
+      (best, run) => run.revvScore == null
+          ? best
+          : best == null || run.revvScore! > best
+          ? run.revvScore
+          : best,
     );
 
     return SafeArea(
@@ -980,8 +952,8 @@ class _HistorySheet extends StatelessWidget {
                       ),
                     ),
                     _HistoryMetric(
-                      label: 'TOP',
-                      value: '${topSpeed.toStringAsFixed(0)} KM/H',
+                      label: 'BEST REVV',
+                      value: bestRevv == null ? '--' : '$bestRevv',
                     ),
                   ],
                 ),
@@ -1008,7 +980,11 @@ class _HistorySheet extends StatelessWidget {
                   )
                 else
                   for (var i = 0; i < runs.length && i < 12; i++)
-                    _HistoryRunRow(rank: i + 1, run: runs[i]),
+                    _HistoryRunRow(
+                      rank: i + 1,
+                      run: runs[i],
+                      onTap: () => _openRunReport(context, runs[i]),
+                    ),
               ],
             ),
           );
@@ -1022,6 +998,26 @@ class _HistorySheet extends StatelessWidget {
     final minutes = (seconds % 3600) ~/ 60;
     if (hours > 0) return '${hours}H ${minutes}M';
     return '${minutes}M';
+  }
+
+  Future<void> _openRunReport(BuildContext context, RunSummary run) async {
+    final history = context.read<RunHistoryService>();
+    final navigator = Navigator.of(context);
+    navigator.pop();
+    final detail = await history.loadDetail(run.id);
+    if (!navigator.mounted) return;
+    if (onOpenReport != null) {
+      await onOpenReport!(navigator.context, run, detail);
+      return;
+    }
+    unawaited(
+      navigator.push(
+        MaterialPageRoute(
+          builder: (_) =>
+              LeanRunSummaryScreen.history(summary: run, detail: detail),
+        ),
+      ),
+    );
   }
 }
 
@@ -1136,70 +1132,41 @@ class _MiniDistanceChart extends StatelessWidget {
 class _HistoryRunRow extends StatelessWidget {
   final int rank;
   final RunSummary run;
+  final VoidCallback onTap;
 
-  const _HistoryRunRow({required this.rank, required this.run});
+  const _HistoryRunRow({
+    required this.rank,
+    required this.run,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final peak = run.peakG;
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: AppColors.ink.withValues(alpha: 0.10)),
+    final metrics = [
+      '${run.distanceKm.toStringAsFixed(1)}KM',
+      run.durationDisplay.toUpperCase(),
+      if (run.revvScore != null) 'REVV ${run.revvScore}',
+      if (run.windingSamplePct != null)
+        'WINDING ${run.windingSamplePct!.round()}%',
+      if (run.sharpCornersCount > 0) '${run.sharpCornersCount} CURVES',
+    ];
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: AppColors.ink.withValues(alpha: 0.10)),
+          ),
         ),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 22,
-            child: Text(
-              '$rank',
-              style: AppText.display(
-                size: 24,
-                height: 1,
-                weight: FontWeight.w900,
-                color: AppColors.ink,
-              ),
-            ),
-          ),
-          const SizedBox(width: 10),
-          const _RouteGlyph(),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  run.routeName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.body(
-                    size: 15,
-                    weight: FontWeight.w800,
-                    color: AppColors.ink,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '${run.distanceKm.toStringAsFixed(1)}KM · ${run.durationDisplay.toUpperCase()} · ${run.maxSpeedKmh.toStringAsFixed(0)}KM/H · ${run.sharpCornersCount} CURVES',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.technicalLabel(
-                    size: 9,
-                    letterSpacing: 0.3,
-                    color: AppColors.stone,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                peak == null ? '--' : peak.toStringAsFixed(2),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 22,
+              child: Text(
+                '$rank',
                 style: AppText.display(
                   size: 24,
                   height: 1,
@@ -1207,17 +1174,63 @@ class _HistoryRunRow extends StatelessWidget {
                   color: AppColors.ink,
                 ),
               ),
-              Text(
-                _shortDate(run.date).toUpperCase(),
-                style: AppText.technicalLabel(
-                  size: 9,
-                  letterSpacing: 0.5,
-                  color: AppColors.stoneMuted,
-                ),
+            ),
+            const SizedBox(width: 10),
+            const _RouteGlyph(),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    run.routeName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(
+                      size: 15,
+                      weight: FontWeight.w800,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    metrics.join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.technicalLabel(
+                      size: 9,
+                      letterSpacing: 0.3,
+                      color: AppColors.stone,
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  peak == null ? '--' : peak.toStringAsFixed(2),
+                  style: AppText.display(
+                    size: 24,
+                    height: 1,
+                    weight: FontWeight.w900,
+                    color: AppColors.ink,
+                  ),
+                ),
+                Text(
+                  _shortDate(run.date).toUpperCase(),
+                  style: AppText.technicalLabel(
+                    size: 9,
+                    letterSpacing: 0.5,
+                    color: AppColors.stoneMuted,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1424,6 +1437,15 @@ class _SettingsSheet extends StatelessWidget {
                   Navigator.pop(context);
                   onToggleCloud();
                 },
+              ),
+              _SettingsInfoTile(
+                label: 'Cloud sync',
+                value: AppCopy.t(
+                  language,
+                  ko: '로컬 리포트는 유지돼요 · 기기 간 클라우드 동기화는 나중에 로그인 필요',
+                  en: 'Local reports stay available · cross-device cloud sync will require sign-in later',
+                  fr: 'Les rapports locaux restent disponibles · la synchro cloud multi-appareil demandera une connexion',
+                ),
               ),
               _SettingsToggleRow(
                 label: 'Voice guidance',
@@ -2044,43 +2066,4 @@ class _CheckeredPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _CheckeredPainter oldDelegate) =>
       tileSize != oldDelegate.tileSize || color != oldDelegate.color;
-}
-
-class _LeanPrimaryButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _LeanPrimaryButton({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 66,
-      child: FilledButton.icon(
-        style: FilledButton.styleFrom(
-          backgroundColor: AppColors.primaryContainer,
-          foregroundColor: AppColors.onPrimary,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-        ),
-        onPressed: onTap,
-        icon: Icon(icon),
-        label: Text(
-          label,
-          style: AppText.body(
-            size: 18,
-            weight: FontWeight.w900,
-            color: AppColors.onPrimary,
-          ),
-        ),
-      ),
-    );
-  }
 }

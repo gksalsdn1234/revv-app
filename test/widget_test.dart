@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -6,9 +8,12 @@ import 'package:revv_app/core/storage_keys.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
+import 'package:revv_app/screens/lean_home_screen.dart';
 import 'package:revv_app/screens/lean_run_summary_screen.dart';
 import 'package:revv_app/services/run_history_service.dart';
+import 'package:revv_app/services/run_pending_upload_store.dart';
 import 'package:revv_app/services/run_session_service.dart';
+import 'package:revv_app/services/secure_session_store.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/models/run_summary.dart';
 
@@ -96,7 +101,7 @@ void main() {
     expect(restored.sharpEvents, hasLength(1));
     expect(restored.sharpEvents.first['speedKmh'], 40);
     expect(restored.analytics['sampleCount'], 1);
-    expect(restored.analytics['sharpEventCount'], 1);
+    expect(restored.analytics['sharpEventCount'], 0);
     expect(restored.analytics['peakG'], 0.5);
     expect(restored.weather['tempDisplay'], '18°C');
     expect(restored.routeSnapshot?['id'], 'route-1');
@@ -142,7 +147,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       StorageKeys.cloudRunStorageEnabled: false,
     });
-    await tester.binding.setSurfaceSize(const Size(800, 2600));
+    await tester.binding.setSurfaceSize(const Size(800, 4200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final startedAt = DateTime.parse('2026-04-01T10:00:00Z');
@@ -198,6 +203,134 @@ void main() {
           longitudinalG: -0.34,
           driveMode: 'winding',
         ),
+        TelemetrySample(
+          tMs: 3000,
+          lat: 37.02,
+          lng: 127.02,
+          speedKmh: 49,
+          lateralG: 0.50,
+          longitudinalG: -0.33,
+          driveMode: 'winding',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+        ],
+        child: MaterialApp(home: LeanRunSummaryScreen(session: session)),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('SESSION LOG'), findsOneWidget);
+    expect(find.text('Pace log'), findsOneWidget);
+    expect(find.text('Flow'), findsWidgets);
+    expect(find.text('Smoothness'), findsWidgets);
+    expect(find.text('Route context'), findsOneWidget);
+    expect(find.text('Collection quality'), findsOneWidget);
+    expect(find.text('Privacy & share'), findsOneWidget);
+    expect(find.text('G-Force analysis'), findsOneWidget);
+    expect(find.text('GPS POINTS'), findsWidgets);
+
+    await tester.tap(find.text('Flow').last);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('FLOW SCORE'), findsOneWidget);
+    expect(find.text('MOVING SAMPLES'), findsOneWidget);
+
+    await tester.tap(find.text('Smoothness').last);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('SMOOTHNESS'), findsOneWidget);
+    expect(find.text('BRAKE / ACCEL'), findsOneWidget);
+
+    await tester.tap(find.text('G-Force analysis'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('MAX LAT G'), findsOneWidget);
+    expect(find.text('0.54'), findsWidgets);
+
+    await tester.tap(find.text('Route context'));
+    await tester.pumpAndSettle();
+    expect(find.text('ROUTE / DONE'), findsOneWidget);
+    expect(find.text('ELEVATION'), findsOneWidget);
+
+    await tester.tap(find.text('Weather & context'));
+    await tester.pumpAndSettle();
+    expect(find.text('WEATHER'), findsOneWidget);
+
+    await tester.tap(find.text('Collection quality'));
+    await tester.pumpAndSettle();
+    expect(find.text('SAMPLES'), findsOneWidget);
+    expect(find.text('GPS POINTS'), findsWidgets);
+
+    await tester.tap(find.text('Privacy & share'));
+    await tester.pumpAndSettle();
+    expect(find.text('PUBLIC DEFAULT'), findsOneWidget);
+    expect(find.text('Private speed data hidden'), findsOneWidget);
+    expect(find.text('Raw coordinates hidden'), findsOneWidget);
+    expect(find.textContaining('37.01000'), findsNothing);
+    expect(find.textContaining('MAX SPEED'), findsNothing);
+  });
+
+  testWidgets('run summary recap shows share-ready ride metrics', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: false,
+    });
+    await tester.binding.setSurfaceSize(const Size(800, 1800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final startedAt = DateTime.parse('2026-04-01T10:00:00Z');
+    final session = RunSession(
+      startTime: startedAt,
+      endTime: startedAt.add(const Duration(minutes: 8)),
+      maxSpeedKmh: 118,
+      avgSpeedKmh: 46,
+      distanceKm: 6.4,
+      gpsPath: const [LatLng(37.0, 127.0)],
+      route: const RevvRoute(
+        id: 'route-1',
+        name: '테스트 와인딩',
+        nodes: [LatLng(37.0, 127.0), LatLng(37.1, 127.1)],
+        distanceKm: 7.0,
+        windingScore: 5.2,
+        starRating: 4,
+        sharpCurveCount: 5,
+        centerPoint: LatLng(37.05, 127.05),
+        distanceFromUser: 1.2,
+        tightCurveKm: 1.2,
+        mediumCurveKm: 2.4,
+        maxContinuousKm: 3.2,
+      ),
+      weatherEmoji: 'Clear',
+      tempDisplay: '18C',
+      weatherDesc: 'Clear',
+      maxLateralG: 0.54,
+      maxLonG: 0.31,
+      driveModeSeconds: const {'cruise': 250, 'winding': 120},
+      telemetrySamples: const [
+        TelemetrySample(
+          tMs: 1000,
+          lat: 37.0,
+          lng: 127.0,
+          speedKmh: 42,
+          lateralG: 0.22,
+          longitudinalG: -0.12,
+          driveMode: 'cruise',
+        ),
+        TelemetrySample(
+          tMs: 2000,
+          lat: 37.01,
+          lng: 127.01,
+          speedKmh: 48,
+          lateralG: 0.54,
+          longitudinalG: -0.34,
+          driveMode: 'winding',
+        ),
       ],
     );
 
@@ -212,16 +345,473 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('SESSION LOG'), findsOneWidget);
-    expect(find.text('Pace log'), findsOneWidget);
-    expect(find.text('G-Force analysis'), findsOneWidget);
-    expect(find.text('GPS POINTS'), findsOneWidget);
+    expect(find.text('REVV Recap'), findsOneWidget);
+    expect(find.text('REVV Score'), findsOneWidget);
+    expect(find.text('Winding'), findsOneWidget);
+    expect(find.text('Flow'), findsWidgets);
+    expect(find.text('Smoothness'), findsWidgets);
+    expect(find.text('Distance'), findsOneWidget);
+    expect(find.text('6.4 km'), findsWidgets);
+    expect(find.textContaining('MAX SPEED'), findsNothing);
+    expect(find.textContaining('118'), findsNothing);
+  });
 
-    await tester.tap(find.text('G-Force analysis'));
+  testWidgets('run summary uses shared share metrics', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: false,
+    });
+
+    final startedAt = DateTime.parse('2026-04-01T10:00:00Z');
+    final session = RunSession(
+      startTime: startedAt,
+      endTime: startedAt.add(const Duration(minutes: 3)),
+      maxSpeedKmh: 99,
+      avgSpeedKmh: 35,
+      distanceKm: 1.8,
+      gpsPath: const [LatLng(37.0, 127.0)],
+      route: const RevvRoute(
+        id: 'route-2',
+        name: 'Shared Metrics Route',
+        nodes: [LatLng(37.0, 127.0), LatLng(37.02, 127.02)],
+        distanceKm: 2.0,
+        windingScore: 4,
+        starRating: 3,
+        sharpCurveCount: 2,
+        centerPoint: LatLng(37.01, 127.01),
+        distanceFromUser: 1,
+      ),
+      weatherEmoji: 'Clear',
+      tempDisplay: '20C',
+      weatherDesc: 'Clear',
+      maxLateralG: 0.4,
+      maxLonG: 0.2,
+      telemetrySamples: const [
+        TelemetrySample(
+          tMs: 1000,
+          lat: 37.0,
+          lng: 127.0,
+          speedKmh: 30,
+          lateralG: 0.25,
+          longitudinalG: 0.05,
+          driveMode: 'winding',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+        ],
+        child: MaterialApp(home: LeanRunSummaryScreen(session: session)),
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(find.text('MAX LAT G'), findsOneWidget);
-    expect(find.text('0.54'), findsWidgets);
-    expect(find.text('BRAKE / ACCEL'), findsOneWidget);
+    expect(find.text('Route'), findsOneWidget);
+    expect(find.text('90% done'), findsOneWidget);
+    expect(find.text('Peak G'), findsOneWidget);
+    expect(find.text('0.40g'), findsOneWidget);
   });
+
+  testWidgets('run summary saves route feedback', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: false,
+    });
+    await tester.binding.setSurfaceSize(const Size(800, 4200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final startedAt = DateTime.parse('2026-04-01T10:00:00Z');
+    final session = RunSession(
+      startTime: startedAt,
+      endTime: startedAt.add(const Duration(minutes: 4)),
+      maxSpeedKmh: 88,
+      avgSpeedKmh: 36,
+      distanceKm: 2.4,
+      gpsPath: const [LatLng(37.0, 127.0)],
+      route: const RevvRoute(
+        id: 'route-feedback',
+        name: 'Feedback Route',
+        nodes: [LatLng(37.0, 127.0), LatLng(37.02, 127.02)],
+        distanceKm: 3.0,
+        windingScore: 4,
+        starRating: 3,
+        sharpCurveCount: 2,
+        centerPoint: LatLng(37.01, 127.01),
+        distanceFromUser: 1,
+      ),
+      weatherEmoji: 'Clear',
+      tempDisplay: '20C',
+      weatherDesc: 'Clear',
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+        ],
+        child: MaterialApp(home: LeanRunSummaryScreen(session: session)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Flow broke'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Flow broke'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Privacy & share'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Privacy & share'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('ROUTE FEEDBACK'), findsOneWidget);
+    expect(find.text('Flow broke'), findsNWidgets(2));
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        StorageKeys.routeFeedback,
+      ),
+      contains('flow_broken'),
+    );
+  });
+
+  testWidgets('run history opens rich run report', (tester) async {
+    final detailRun = RunSummary(
+      id: 'detail-run',
+      date: DateTime.parse('2026-04-01T10:00:00Z'),
+      distanceKm: 7.4,
+      durationSeconds: 540,
+      avgSpeedKmh: 49,
+      routeName: 'Detail Loaded Pass',
+      weatherEmoji: 'Clear',
+      tempDisplay: '18C',
+      maxLateralG: 0.41,
+      revvScore: 61,
+      windingSamplePct: 44,
+      p95LateralG: 0.37,
+      brakingEventCount: 1,
+      accelerationEventCount: 2,
+      smoothnessScore: 78,
+      routeCompletionPct: 93,
+    );
+    final summaryOnlyRun = RunSummary(
+      id: 'summary-run',
+      date: DateTime.parse('2026-04-02T10:00:00Z'),
+      distanceKm: 5.2,
+      durationSeconds: 420,
+      avgSpeedKmh: 42,
+      routeName: 'Summary Only Pass',
+      weatherEmoji: 'Cloudy',
+      tempDisplay: '16C',
+      maxLateralG: 0.34,
+      revvScore: 58,
+      windingSamplePct: 39,
+      p95LateralG: 0.31,
+      brakingEventCount: 2,
+      accelerationEventCount: 1,
+      smoothnessScore: 74,
+      routeCompletionPct: 88,
+    );
+    final detail = RunTelemetryDetail(
+      runId: 'detail-run',
+      version: RunTelemetryDetail.currentVersion,
+      routeSnapshot: const {'id': 'route-detail', 'name': 'Detail Loaded Pass'},
+      samples: const [],
+      sharpEvents: const [],
+      analytics: const {
+        'revvScore': 73,
+        'flowScoreDisplay': 82,
+        'technicalScore': 66,
+        'smoothnessScore': 79,
+        'windingSamplePct': 47,
+        'peakG': 0.43,
+        'p95AbsLateralG': 0.38,
+        'routeCompletionPct': 94,
+        'sampleCount': 12,
+        'gpsPointCount': 8,
+      },
+      driveModeSeconds: const {'winding': 180},
+      weather: const {'tempDisplay': '18C'},
+      createdAt: DateTime.parse('2026-04-01T10:09:00Z'),
+    );
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: false,
+      StorageKeys.runs: RunSummary.listToJson([summaryOnlyRun, detailRun]),
+    });
+    await tester.binding.setSurfaceSize(const Size(800, 2600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final history = RunHistoryService(
+      pendingStore: RunPendingUploadStore(
+        detailStore: MemorySecureStringStore(),
+      ),
+    );
+    await history.load();
+    await history.saveDetail(detail);
+    expect(await history.loadDetail('detail-run'), isNotNull);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: history),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+        ],
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: FilledButton(
+                  onPressed: () => showModalBottomSheet<void>(
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    isScrollControlled: true,
+                    builder: (_) => const HistorySheet(),
+                  ),
+                  child: const Text('Open history'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('Open history'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.ensureVisible(find.text('Summary Only Pass'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(
+      find
+          .ancestor(
+            of: find.text('Summary Only Pass'),
+            matching: find.byType(GestureDetector),
+          )
+          .first,
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+
+    expect(find.text('RUN REPORT'), findsOneWidget);
+    expect(find.text('Summary Only Pass'), findsOneWidget);
+    expect(find.text('REVV Score'), findsOneWidget);
+    expect(find.text('58'), findsOneWidget);
+    expect(find.text('Winding'), findsOneWidget);
+    expect(find.text('39%'), findsOneWidget);
+    expect(find.text('Summary only'), findsOneWidget);
+    expect(find.textContaining('MAX SPEED'), findsNothing);
+
+    Navigator.of(tester.element(find.text('RUN REPORT'))).pop();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    await tester.tap(find.text('Open history'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.ensureVisible(find.text('Detail Loaded Pass'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(
+      find
+          .ancestor(
+            of: find.text('Detail Loaded Pass'),
+            matching: find.byType(GestureDetector),
+          )
+          .first,
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpAndSettle();
+
+    expect(find.text('RUN REPORT'), findsOneWidget);
+    expect(find.text('Detail Loaded Pass'), findsOneWidget);
+    expect(find.text('Detail loaded'), findsOneWidget);
+  });
+
+  testWidgets('run summary exposes share ride card action', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final file = File('${Directory.systemTemp.path}/revv-widget-share.png');
+    var exportCalled = false;
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+        ],
+        child: MaterialApp(
+          home: LeanRunSummaryScreen.history(
+            summary: _shareActionSummary(),
+            detail: _shareActionDetail(),
+            shareExporter: () {
+              exportCalled = true;
+              file.writeAsBytesSync([1, 2, 3], flush: true);
+              return Future.value(file);
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Share ride card'), findsOneWidget);
+    await tester.tap(find.text('Share ride card'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Share preview'), findsOneWidget);
+    await tester.ensureVisible(find.text('Export card'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('Export card'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(exportCalled, isTrue);
+    expect(file.existsSync(), isTrue);
+  });
+
+  testWidgets('share export failure is handled', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+        ],
+        child: MaterialApp(
+          home: LeanRunSummaryScreen.history(
+            summary: _shareActionSummary(),
+            detail: _shareActionDetail(),
+            shareExporter: () => throw StateError('export failed'),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('Share ride card'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.ensureVisible(find.text('Export card'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('Export card'));
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.text('Could not prepare share card'), findsOneWidget);
+    expect(find.textContaining('export failed'), findsNothing);
+  });
+
+  testWidgets('run summary previews share card presets', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    var exportCalled = false;
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+        ],
+        child: MaterialApp(
+          home: LeanRunSummaryScreen.history(
+            summary: _shareActionSummary(),
+            detail: _shareActionDetail(),
+            shareExporter: () {
+              exportCalled = true;
+              return Future.value(
+                File('${Directory.systemTemp.path}/revv-preview-share.png'),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.text('Share ride card'));
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Share preview'), findsOneWidget);
+    expect(find.text('Story'), findsOneWidget);
+    expect(find.text('Square'), findsOneWidget);
+    expect(find.text('Sticker'), findsOneWidget);
+    expect(find.textContaining('Max speed'), findsNothing);
+    expect(find.textContaining('MAX SPEED'), findsNothing);
+
+    await tester.ensureVisible(find.text('Story'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('Story'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.ensureVisible(find.text('Sticker'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('Sticker'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.ensureVisible(find.text('Export card'));
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('Export card'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(exportCalled, isTrue);
+    expect(find.textContaining('Max speed'), findsNothing);
+    expect(find.textContaining('MAX SPEED'), findsNothing);
+  });
+}
+
+RunSummary _shareActionSummary() {
+  return RunSummary(
+    id: 'share-action-run',
+    date: DateTime.parse('2026-04-01T10:00:00Z'),
+    distanceKm: 8.8,
+    durationSeconds: 742,
+    maxSpeedKmh: 88,
+    avgSpeedKmh: 43,
+    routeName: 'Share Action Pass',
+    routeId: 'share-route',
+    weatherEmoji: 'Clear',
+    tempDisplay: '18C',
+    revvScore: 71,
+    smoothnessScore: 77,
+    windingSamplePct: 42,
+    routeCompletionPct: 91,
+  );
+}
+
+RunTelemetryDetail _shareActionDetail() {
+  return RunTelemetryDetail(
+    runId: 'share-action-run',
+    version: RunTelemetryDetail.currentVersion,
+    routeSnapshot: const {'id': 'share-route', 'name': 'Share Action Pass'},
+    samples: const [
+      TelemetrySample(
+        tMs: 0,
+        lat: 37.0,
+        lng: 127.0,
+        speedKmh: 42,
+        lateralG: 0.18,
+        longitudinalG: 0.04,
+        driveMode: 'cruise',
+      ),
+      TelemetrySample(
+        tMs: 1000,
+        lat: 37.01,
+        lng: 127.01,
+        speedKmh: 48,
+        lateralG: 0.34,
+        longitudinalG: -0.12,
+        driveMode: 'winding',
+      ),
+    ],
+    analytics: const {
+      'revvScore': 71,
+      'flowScoreDisplay': 64,
+      'technicalScore': 68,
+      'smoothnessScore': 77,
+      'windingSamplePct': 42,
+      'routeCompletionPct': 91,
+    },
+    sharpEvents: const [],
+    driveModeSeconds: const {'cruise': 1, 'winding': 1},
+    weather: const {'tempDisplay': '18C'},
+    createdAt: DateTime.parse('2026-04-01T10:12:00Z'),
+  );
 }
