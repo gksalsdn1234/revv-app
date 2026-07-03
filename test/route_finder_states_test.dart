@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/app_language.dart';
+import 'package:provider/provider.dart';
+import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_route_finder_screen.dart';
+import 'package:revv_app/services/route_loading_policy.dart';
+import 'package:revv_app/services/settings_service.dart';
 
 void main() {
   const forbiddenWords = ['MAX', 'BEST', 'PEAK', '어택', '스릴', '경쟁'];
@@ -42,6 +46,15 @@ void main() {
             onBrowseMontreal: onBrowseMontreal ?? () {},
           ),
         ),
+      ),
+    );
+  }
+
+  Future<void> pumpWithSettings(WidgetTester tester, Widget child) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => SettingsService(),
+        child: MaterialApp(home: Scaffold(body: child)),
       ),
     );
   }
@@ -154,5 +167,75 @@ void main() {
 
     expect(find.text('알림 신청됨'), findsOneWidget);
     expect(find.text('우리 지역 알림 받기'), findsNothing);
+  });
+
+  testWidgets(
+    'drive budget strip renders duration chips and changes selection',
+    (tester) async {
+      DriveBudget selected = DriveBudget.any;
+
+      await pumpWithSettings(
+        tester,
+        StatefulBuilder(
+          builder: (context, setState) => DriveBudgetChoiceStrip(
+            budget: selected,
+            routes: const [],
+            onChanged: (value) => setState(() => selected = value),
+          ),
+        ),
+      );
+
+      expect(find.text('Any'), findsOneWidget);
+      expect(find.text('~30 min'), findsOneWidget);
+      expect(find.text('~1 hour'), findsOneWidget);
+      expect(find.text('2h+'), findsOneWidget);
+
+      await tester.tap(find.text('~30 min'));
+      await tester.pump();
+
+      expect(selected, DriveBudget.short);
+    },
+  );
+
+  testWidgets('route duration meta renders estimate and chain segment count', (
+    tester,
+  ) async {
+    final route = RevvRoute(
+      id: 'combo:a:b',
+      name: 'North + Valley',
+      nodes: const [LatLng(45.0, -73.0), LatLng(45.02, -73.02)],
+      distanceKm: 36,
+      windingScore: 6.2,
+      starRating: 4,
+      sharpCurveCount: 10,
+      centerPoint: const LatLng(45.01, -73.01),
+      distanceFromUser: 8,
+      tightCurveKm: 2,
+      mediumCurveKm: 2,
+      maxContinuousKm: 1.4,
+    );
+
+    await pumpWithSettings(
+      tester,
+      RouteDurationMeta(route: route, language: AppLanguage.korean),
+    );
+
+    expect(find.text('~46분 · 2개 코스 연결'), findsOneWidget);
+  });
+
+  testWidgets('drive budget empty card nudges other duration or radius', (
+    tester,
+  ) async {
+    await pumpWithSettings(
+      tester,
+      DriveBudgetEmptyCard(language: AppLanguage.korean, onAction: () {}),
+    );
+
+    const expected = ['이 분량에 맞는 루트가 아직 없어요', '전체 분량'];
+    expect(find.text(expected[0]), findsOneWidget);
+    expect(find.text(expected[1]), findsOneWidget);
+    expect(find.textContaining('다른 분량'), findsOneWidget);
+    expect(find.textContaining('반경/지역'), findsOneWidget);
+    expectSafeCopy(expected);
   });
 }

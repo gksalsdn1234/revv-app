@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../models/revv_route.dart';
 import '../core/app_language.dart';
+import '../services/route_loading_policy.dart';
 import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
@@ -120,6 +121,13 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 14),
                         _QuickStatRow(route: route, language: language),
+                        if (_routeChainSegmentNames(route).isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          _ChainSegmentsSection(
+                            route: route,
+                            language: language,
+                          ),
+                        ],
                         const SizedBox(height: 14),
                         _RouteConfidenceSection(profile: profile),
                         const SizedBox(height: 12),
@@ -220,7 +228,7 @@ class _QuickStatRow extends StatelessWidget {
           const SizedBox(width: 8),
           _QuickStatPill(
             icon: Icons.timer_outlined,
-            label: route.durationDisplay,
+            label: _driveMinutesLabel(route, language),
           ),
           if (stopCount > 0) ...[
             const SizedBox(width: 8),
@@ -280,6 +288,77 @@ class _QuickStatPill extends StatelessWidget {
   }
 }
 
+class _ChainSegmentsSection extends StatelessWidget {
+  final RevvRoute route;
+  final AppLanguage language;
+
+  const _ChainSegmentsSection({required this.route, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final names = _routeChainSegmentNames(route);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            AppCopy.t(
+              language,
+              ko: '${names.length}개 코스 연결',
+              en: '${names.length} linked routes',
+              fr: '${names.length} routes reliées',
+            ),
+            style: AppText.mono(
+              size: 10,
+              color: AppColors.primaryContainer,
+              letterSpacing: 1.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (var index = 0; index < names.length; index++)
+            Padding(
+              padding: EdgeInsets.only(
+                bottom: index == names.length - 1 ? 0 : 6,
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    '${index + 1}.',
+                    style: AppText.mono(
+                      size: 11,
+                      weight: FontWeight.w800,
+                      color: AppColors.stone,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      names[index],
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body(
+                        size: 13,
+                        weight: FontWeight.w900,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CopilotJudgementCard extends StatelessWidget {
   final CopilotRouteBriefing briefing;
   final AppLanguage language;
@@ -293,9 +372,7 @@ class _CopilotJudgementCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -571,9 +648,7 @@ class _ConfidenceChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.cream.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: AppColors.cream.withValues(alpha: 0.20),
-        ),
+        border: Border.all(color: AppColors.cream.withValues(alpha: 0.20)),
       ),
       child: Text(
         '$label $value',
@@ -605,10 +680,7 @@ class _HeroBadge extends StatelessWidget {
           ? CrossAxisAlignment.end
           : CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: AppText.mono(size: 9, color: AppColors.stone),
-        ),
+        Text(label, style: AppText.mono(size: 9, color: AppColors.stone)),
         const SizedBox(height: 3),
         Text(
           value,
@@ -691,18 +763,13 @@ class _MetricTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Text(
-            label,
-            style: AppText.mono(size: 9, color: AppColors.stone),
-          ),
+          Text(label, style: AppText.mono(size: 9, color: AppColors.stone)),
           const SizedBox(height: 7),
           Text(
             value,
@@ -733,9 +800,7 @@ class _TurnPlanPreview extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -770,10 +835,7 @@ class _TurnPlanPreview extends StatelessWidget {
                   en: '${plan.length} cues',
                   fr: '${plan.length} repères',
                 ),
-                style: AppText.mono(
-                  size: 9,
-                  color: AppColors.stone,
-                ),
+                style: AppText.mono(size: 9, color: AppColors.stone),
               ),
             ],
           ),
@@ -882,9 +944,7 @@ class _DecisionBulletsSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -970,9 +1030,7 @@ class _DetailSection extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1023,9 +1081,7 @@ class _StickyStartBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
         borderRadius: BorderRadius.circular(26),
-        border: Border.all(
-          color: AppColors.ink.withValues(alpha: 0.12),
-        ),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.12)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.14),
@@ -1204,6 +1260,27 @@ String _bestFor(RevvRoute route, AppLanguage language) {
 
 String _curveKm(RevvRoute route) {
   return (route.tightCurveKm + route.mediumCurveKm).toStringAsFixed(1);
+}
+
+String _driveMinutesLabel(RevvRoute route, AppLanguage language) {
+  final minutes = estimatedDriveMinutes(route);
+  return AppCopy.t(
+    language,
+    ko: '~$minutes분',
+    en: '~$minutes min',
+    fr: '~$minutes min',
+  );
+}
+
+List<String> _routeChainSegmentNames(RevvRoute route) {
+  if (!route.id.startsWith('combo:')) return const [];
+  final names = route.name
+      .split(' + ')
+      .map((name) => name.trim())
+      .where((name) => name.isNotEmpty)
+      .toList(growable: false);
+  if (names.length < 2) return const [];
+  return names.take(3).toList(growable: false);
 }
 
 String _cautionBody(RouteDetailCopy copy, RouteQualityProfile profile) {

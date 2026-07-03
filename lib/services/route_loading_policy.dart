@@ -29,6 +29,8 @@ enum RouteSearchStage { strict, balanced, expanded }
 
 enum RouteFilterStrength { precise, balanced, broad }
 
+enum DriveBudget { any, short, medium, long }
+
 const routeCoverageRadiusKm = 150.0;
 const routeCoverageCenters = <LatLng>[LatLng(45.5017, -73.5673)];
 
@@ -92,6 +94,39 @@ String routeFilterStrengthDescription(RouteFilterStrength strength) {
     RouteFilterStrength.precise => '품질 높은 와인딩 후보만 봅니다.',
     RouteFilterStrength.balanced => '품질과 후보 수를 균형 있게 봅니다.',
     RouteFilterStrength.broad => '안전 최저선은 유지하고 더 다양한 후보를 봅니다.',
+  };
+}
+
+int estimatedDriveMinutes(RevvRoute route) {
+  // Touring estimate for route planning only: base minutes come from distance,
+  // then denser bends and stop controls add conservative buffer time. No
+  // target pace is shown to the user; UI surfaces minutes only.
+  const minutesPerKm = 1.25;
+  const maxWindingBuffer = 0.28;
+  const stopSignBufferMin = 0.75;
+  const signalBufferMin = 1.10;
+  final curvyKm = route.tightCurveKm + route.mediumCurveKm;
+  final windingDensity = route.distanceKm <= 0
+      ? 0.0
+      : (curvyKm / route.distanceKm).clamp(0.0, 1.0);
+  final baseMinutes = route.distanceKm * minutesPerKm;
+  final windingBuffer = baseMinutes * windingDensity * maxWindingBuffer;
+  final stopBuffer =
+      route.stopSignCount * stopSignBufferMin +
+      route.trafficSignalCount * signalBufferMin;
+  return math.max(1, (baseMinutes + windingBuffer + stopBuffer).round());
+}
+
+bool driveBudgetMatches(RevvRoute route, DriveBudget budget) {
+  return driveBudgetMatchesMinutes(estimatedDriveMinutes(route), budget);
+}
+
+bool driveBudgetMatchesMinutes(int minutes, DriveBudget budget) {
+  return switch (budget) {
+    DriveBudget.any => true,
+    DriveBudget.short => minutes >= 15 && minutes <= 45,
+    DriveBudget.medium => minutes >= 45 && minutes <= 90,
+    DriveBudget.long => minutes >= 90,
   };
 }
 
@@ -1107,108 +1142,264 @@ List<RevvRoute> buildCompositeFallbackRoutes(
   if (routes.length >= targetCount) return routes;
 
   final pool = List<RevvRoute>.from(routes);
-  final combos = <RevvRoute>[];
-
-  for (int i = 0; i < routes.length; i++) {
-    for (int j = i + 1; j < routes.length; j++) {
-      final a = routes[i];
-      final b = routes[j];
-      if (a.nodes.length < 2 || b.nodes.length < 2) continue;
-
-      final pairings = <({double gapKm, bool reverseA, bool reverseB})>[
-        (
-          gapKm: RevvRoute.haversineKm(a.nodes.last, b.nodes.first),
-          reverseA: false,
-          reverseB: false,
-        ),
-        (
-          gapKm: RevvRoute.haversineKm(a.nodes.last, b.nodes.last),
-          reverseA: false,
-          reverseB: true,
-        ),
-        (
-          gapKm: RevvRoute.haversineKm(a.nodes.first, b.nodes.first),
-          reverseA: true,
-          reverseB: false,
-        ),
-        (
-          gapKm: RevvRoute.haversineKm(a.nodes.first, b.nodes.last),
-          reverseA: true,
-          reverseB: true,
-        ),
-      ]..sort((x, y) => x.gapKm.compareTo(y.gapKm));
-
-      final best = pairings.first;
-      final gapKm = best.gapKm;
-      if (gapKm > maxGapKm) continue;
-      if (shouldRejectLowQualityRoute(a) || shouldRejectLowQualityRoute(b)) {
-        continue;
-      }
-      if (!hasCompellingRouteReason(a) || !hasCompellingRouteReason(b)) {
-        continue;
-      }
-      if (a.windingScore < 4.9 || b.windingScore < 4.9) continue;
-      if (a.windingDensityPct < 0.18 || b.windingDensityPct < 0.18) continue;
-      if (gapKm > (math.min(a.distanceKm, b.distanceKm) * 0.45)) continue;
-
-      final aNodes = best.reverseA ? a.nodes.reversed.toList() : a.nodes;
-      final bNodes = best.reverseB ? b.nodes.reversed.toList() : b.nodes;
-      final combinedDistanceKm = a.distanceKm + b.distanceKm + gapKm;
-      final combinedCurvyKm =
-          a.tightCurveKm + a.mediumCurveKm + b.tightCurveKm + b.mediumCurveKm;
-      final combinedCurvyFraction = combinedDistanceKm > 0
-          ? combinedCurvyKm / combinedDistanceKm
-          : 0.0;
-      if (combinedCurvyFraction < 0.22) continue;
-
-      final mergedNodes = <LatLng>[
-        ...aNodes,
-        if (gapKm > 0.15) aNodes.last,
-        ...bNodes,
-      ];
-      final center = LatLng(
-        (a.centerPoint.lat + b.centerPoint.lat) / 2,
-        (a.centerPoint.lng + b.centerPoint.lng) / 2,
-      );
-      final baseScore =
-          ((a.windingScore + b.windingScore) / 2) *
-          (1.08 - (gapKm / maxGapKm) * 0.18);
-      if (baseScore < 5.0) continue;
-      final combo = RevvRoute(
-        id: 'combo:${a.id}:${b.id}',
-        name: '${a.name} + ${b.name}',
-        nodes: mergedNodes,
-        distanceKm: combinedDistanceKm,
-        windingScore: baseScore,
-        starRating: RevvRoute.toStarRating(baseScore),
-        sharpCurveCount: a.sharpCurveCount + b.sharpCurveCount,
-        centerPoint: center,
-        distanceFromUser: a.distanceFromUser < b.distanceFromUser
-            ? a.distanceFromUser
-            : b.distanceFromUser,
-        tightCurveKm: a.tightCurveKm + b.tightCurveKm,
-        mediumCurveKm: a.mediumCurveKm + b.mediumCurveKm,
-        maxContinuousKm: a.maxContinuousKm + b.maxContinuousKm,
-        isLoop: false,
-      );
-      if (shouldRejectLowQualityRoute(combo)) continue;
-
-      final duplicate = pool.any(
-        (route) =>
-            route.id == combo.id ||
-            RevvRoute.haversineKm(route.centerPoint, combo.centerPoint) < 2.6,
-      );
-      if (!duplicate) {
-        combos.add(combo);
-        pool.add(combo);
-        if (pool.length >= targetCount) {
-          return pool;
-        }
-      }
-    }
+  for (final chain in buildChainedRoutes(
+    routes,
+    budget: DriveBudget.any,
+    maxGapKm: maxGapKm,
+  )) {
+    final duplicate = pool.any(
+      (route) =>
+          route.id == chain.id ||
+          RevvRoute.haversineKm(route.centerPoint, chain.centerPoint) < 2.6,
+    );
+    if (duplicate) continue;
+    pool.add(chain);
+    if (pool.length >= targetCount) return pool;
   }
 
   return pool;
+}
+
+List<RevvRoute> buildChainedRoutes(
+  List<RevvRoute> routes, {
+  required DriveBudget budget,
+  double maxGapKm = 8.0,
+}) {
+  final chains = <RevvRoute>[];
+  for (final route in routes) {
+    _extendRouteChain(
+      routes: routes,
+      current: [route],
+      chains: chains,
+      budget: budget,
+      maxGapKm: maxGapKm,
+    );
+  }
+  chains.sort((a, b) {
+    final aInBudget = driveBudgetMatches(a, budget);
+    final bInBudget = driveBudgetMatches(b, budget);
+    if (aInBudget != bInBudget) return aInBudget ? -1 : 1;
+    final minutes = estimatedDriveMinutes(
+      a,
+    ).compareTo(estimatedDriveMinutes(b));
+    if (minutes != 0) return minutes;
+    return recommendationScore(b).compareTo(recommendationScore(a));
+  });
+  return chains;
+}
+
+List<RevvRoute> routesForDriveBudget(
+  List<RevvRoute> routes, {
+  required DriveBudget budget,
+}) {
+  if (budget == DriveBudget.any) return routes;
+  final singles = routes
+      .where((route) => driveBudgetMatches(route, budget))
+      .toList(growable: false);
+  final seen = singles.map((route) => route.id).toSet();
+  final chains = <RevvRoute>[];
+  for (final chain in buildChainedRoutes(routes, budget: budget)) {
+    if (seen.add(chain.id)) chains.add(chain);
+  }
+  return [...singles, ...chains];
+}
+
+void _extendRouteChain({
+  required List<RevvRoute> routes,
+  required List<RevvRoute> current,
+  required List<RevvRoute> chains,
+  required DriveBudget budget,
+  required double maxGapKm,
+}) {
+  if (current.length >= 3) return;
+  for (final candidate in routes) {
+    if (current.any((route) => route.id == candidate.id)) continue;
+    final next = [...current, candidate];
+    final combo = _combineRouteChain(next, maxGapKm: maxGapKm);
+    if (combo == null) continue;
+    final alreadyAdded = chains.any((route) => route.id == combo.id);
+    if (!alreadyAdded && driveBudgetMatches(combo, budget)) {
+      chains.add(combo);
+    }
+    _extendRouteChain(
+      routes: routes,
+      current: next,
+      chains: chains,
+      budget: budget,
+      maxGapKm: maxGapKm,
+    );
+  }
+}
+
+RevvRoute? _combineRouteChain(
+  List<RevvRoute> segments, {
+  required double maxGapKm,
+}) {
+  if (segments.length < 2 || segments.length > 3) return null;
+  for (final segment in segments) {
+    if (!_passesChainSegmentGate(segment)) return null;
+  }
+  for (var i = 0; i < segments.length; i++) {
+    for (var j = i + 1; j < segments.length; j++) {
+      final overlap = math.max(
+        routePolylineOverlapRatio(segments[i], segments[j]),
+        routePolylineOverlapRatio(segments[j], segments[i]),
+      );
+      if (overlap >= 0.42) return null;
+    }
+  }
+
+  ({List<LatLng> nodes, double gapKm})? bestPath;
+  for (final firstNodes in [
+    segments.first.nodes,
+    segments.first.nodes.reversed.toList(),
+  ]) {
+    var orderedNodes = firstNodes;
+    var totalGapKm = 0.0;
+    var valid = true;
+    for (var index = 1; index < segments.length; index++) {
+      final next = segments[index];
+      final join = _bestRouteJoin(orderedNodes, next.nodes);
+      if (join == null ||
+          !_passesChainJoinGate(
+            previous: segments[index - 1],
+            next: next,
+            gapKm: join.gapKm,
+            maxGapKm: maxGapKm,
+          )) {
+        valid = false;
+        break;
+      }
+      totalGapKm += join.gapKm;
+      final nextNodes = join.reverseNext
+          ? next.nodes.reversed.toList()
+          : next.nodes;
+      orderedNodes = [
+        ...orderedNodes,
+        if (join.gapKm > 0.15) orderedNodes.last,
+        ...nextNodes,
+      ];
+    }
+    if (!valid) continue;
+    if (bestPath == null || totalGapKm < bestPath.gapKm) {
+      bestPath = (nodes: orderedNodes, gapKm: totalGapKm);
+    }
+  }
+  if (bestPath == null) return null;
+
+  final combinedDistanceKm =
+      segments.fold<double>(0, (sum, route) => sum + route.distanceKm) +
+      bestPath.gapKm;
+  final combinedCurvyKm = segments.fold<double>(
+    0,
+    (sum, route) => sum + route.tightCurveKm + route.mediumCurveKm,
+  );
+  final combinedCurvyFraction = combinedDistanceKm > 0
+      ? combinedCurvyKm / combinedDistanceKm
+      : 0.0;
+  if (combinedCurvyFraction < 0.22) return null;
+
+  final avgScore =
+      segments.fold<double>(0, (sum, route) => sum + route.windingScore) /
+      segments.length;
+  final baseScore = avgScore * (1.08 - (bestPath.gapKm / maxGapKm) * 0.18);
+  if (baseScore < 5.0) return null;
+
+  final center = LatLng(
+    segments.fold<double>(0, (sum, route) => sum + route.centerPoint.lat) /
+        segments.length,
+    segments.fold<double>(0, (sum, route) => sum + route.centerPoint.lng) /
+        segments.length,
+  );
+  final combo = RevvRoute(
+    id: 'combo:${segments.map((route) => route.id).join(':')}',
+    name: segments.map((route) => route.name).join(' + '),
+    nodes: bestPath.nodes,
+    distanceKm: combinedDistanceKm,
+    windingScore: baseScore,
+    starRating: RevvRoute.toStarRating(baseScore),
+    sharpCurveCount: segments.fold<int>(
+      0,
+      (sum, route) => sum + route.sharpCurveCount,
+    ),
+    elevationDelta: segments.fold<double>(
+      0,
+      (sum, route) => sum + route.elevationDelta,
+    ),
+    centerPoint: center,
+    distanceFromUser: segments
+        .map((route) => route.distanceFromUser)
+        .reduce(math.min),
+    tightCurveKm: segments.fold<double>(
+      0,
+      (sum, route) => sum + route.tightCurveKm,
+    ),
+    mediumCurveKm: segments.fold<double>(
+      0,
+      (sum, route) => sum + route.mediumCurveKm,
+    ),
+    maxContinuousKm: segments.fold<double>(
+      0,
+      (sum, route) => sum + route.maxContinuousKm,
+    ),
+    stopSignCount: segments.fold<int>(
+      0,
+      (sum, route) => sum + route.stopSignCount,
+    ),
+    trafficSignalCount: segments.fold<int>(
+      0,
+      (sum, route) => sum + route.trafficSignalCount,
+    ),
+    stopControlDensity: combinedDistanceKm <= 0
+        ? 0
+        : segments.fold<int>(
+                0,
+                (sum, route) =>
+                    sum + route.stopSignCount + route.trafficSignalCount,
+              ) /
+              combinedDistanceKm,
+    routeCharacter: 'chain_${segments.length}',
+    isLoop: false,
+  );
+  if (shouldRejectLowQualityRoute(combo)) return null;
+  return combo;
+}
+
+bool _passesChainSegmentGate(RevvRoute route) {
+  if (route.nodes.length < 2) return false;
+  if (shouldRejectLowQualityRoute(route)) return false;
+  if (!hasCompellingRouteReason(route)) return false;
+  if (route.windingScore < 4.9) return false;
+  if (route.windingDensityPct < 0.18) return false;
+  return true;
+}
+
+bool _passesChainJoinGate({
+  required RevvRoute previous,
+  required RevvRoute next,
+  required double gapKm,
+  required double maxGapKm,
+}) {
+  if (gapKm > maxGapKm) return false;
+  return gapKm <= (math.min(previous.distanceKm, next.distanceKm) * 0.45);
+}
+
+({double gapKm, bool reverseNext})? _bestRouteJoin(
+  List<LatLng> currentNodes,
+  List<LatLng> nextNodes,
+) {
+  if (currentNodes.length < 2 || nextNodes.length < 2) return null;
+  final pairings = <({double gapKm, bool reverseNext})>[
+    (
+      gapKm: RevvRoute.haversineKm(currentNodes.last, nextNodes.first),
+      reverseNext: false,
+    ),
+    (
+      gapKm: RevvRoute.haversineKm(currentNodes.last, nextNodes.last),
+      reverseNext: true,
+    ),
+  ]..sort((x, y) => x.gapKm.compareTo(y.gapKm));
+  return pairings.first;
 }
 
 String routeStageLabel(RouteSearchStage stage) {

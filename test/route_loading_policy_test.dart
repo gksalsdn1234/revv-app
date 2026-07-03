@@ -19,6 +19,7 @@ RevvRoute _route({
   double flowScore = 0,
   double elevationDelta = 0,
   int stopSignCount = 0,
+  int trafficSignalCount = 0,
   double stopControlDensity = 0,
   bool isLoop = false,
   bool isFacilityLike = false,
@@ -46,6 +47,7 @@ RevvRoute _route({
     routeRankScore: routeRankScore,
     flowScore: flowScore,
     stopSignCount: stopSignCount,
+    trafficSignalCount: trafficSignalCount,
     stopControlDensity: stopControlDensity,
     isFacilityLike: isFacilityLike,
     isBridgeLike: isBridgeLike,
@@ -53,6 +55,24 @@ RevvRoute _route({
     isMajorRoadLike: isMajorRoadLike,
     isPrivateLike: isPrivateLike,
     qualityRejectReason: qualityRejectReason,
+  );
+}
+
+RevvRoute _chainRoute(String id, LatLng start, LatLng end) {
+  final center = LatLng((start.lat + end.lat) / 2, (start.lng + end.lng) / 2);
+  return RevvRoute(
+    id: id,
+    name: 'Route $id',
+    nodes: [start, end],
+    distanceKm: 18,
+    windingScore: 6.4,
+    starRating: 4,
+    sharpCurveCount: 8,
+    centerPoint: center,
+    distanceFromUser: 12,
+    tightCurveKm: 2.0,
+    mediumCurveKm: 2.5,
+    maxContinuousKm: 1.4,
   );
 }
 
@@ -640,6 +660,141 @@ void main() {
     final result = buildCompositeFallbackRoutes(routes, targetCount: 3);
 
     expect(result.length, 2);
+  });
+
+  test('drive budget boundaries include shared endpoints', () {
+    expect(driveBudgetMatchesMinutes(1, DriveBudget.any), isTrue);
+    expect(driveBudgetMatchesMinutes(14, DriveBudget.short), isFalse);
+    expect(driveBudgetMatchesMinutes(15, DriveBudget.short), isTrue);
+    expect(driveBudgetMatchesMinutes(45, DriveBudget.short), isTrue);
+    expect(driveBudgetMatchesMinutes(46, DriveBudget.short), isFalse);
+    expect(driveBudgetMatchesMinutes(44, DriveBudget.medium), isFalse);
+    expect(driveBudgetMatchesMinutes(45, DriveBudget.medium), isTrue);
+    expect(driveBudgetMatchesMinutes(90, DriveBudget.medium), isTrue);
+    expect(driveBudgetMatchesMinutes(91, DriveBudget.medium), isFalse);
+    expect(driveBudgetMatchesMinutes(89, DriveBudget.long), isFalse);
+    expect(driveBudgetMatchesMinutes(90, DriveBudget.long), isTrue);
+  });
+
+  test('estimated drive minutes add winding and stop control buffers', () {
+    final direct = _route(id: 'direct', distanceKm: 24, windingScore: 6);
+    final shaped = _route(
+      id: 'shaped',
+      distanceKm: 24,
+      windingScore: 6,
+      tightCurveKm: 3,
+      mediumCurveKm: 3,
+      stopSignCount: 2,
+      trafficSignalCount: 1,
+    );
+
+    expect(estimatedDriveMinutes(direct), 30);
+    expect(estimatedDriveMinutes(shaped), 35);
+  });
+
+  test('drive budget any preserves the original route list', () {
+    final routes = [
+      _route(id: 'a', distanceKm: 12, windingScore: 6),
+      _route(id: 'b', distanceKm: 24, windingScore: 6),
+    ];
+
+    final result = routesForDriveBudget(routes, budget: DriveBudget.any);
+
+    expect(identical(result, routes), isTrue);
+  });
+
+  test('chained routes reach the selected budget from nearby segments', () {
+    final routes = [
+      _chainRoute(
+        'a',
+        const LatLng(45.00, -73.00),
+        const LatLng(45.02, -73.02),
+      ),
+      _chainRoute(
+        'b',
+        const LatLng(45.02, -73.02),
+        const LatLng(45.04, -73.04),
+      ),
+      _chainRoute(
+        'c',
+        const LatLng(45.04, -73.04),
+        const LatLng(45.06, -73.06),
+      ),
+    ];
+
+    final chains = buildChainedRoutes(routes, budget: DriveBudget.medium);
+
+    expect(chains, isNotEmpty);
+    expect(chains.first.id, startsWith('combo:'));
+    expect(chains.first.id.split(':').length - 1, lessThanOrEqualTo(3));
+    expect(driveBudgetMatches(chains.first, DriveBudget.medium), isTrue);
+  });
+
+  test('chained routes reject distant gaps', () {
+    final routes = [
+      _chainRoute(
+        'a',
+        const LatLng(45.00, -73.00),
+        const LatLng(45.02, -73.02),
+      ),
+      _chainRoute(
+        'b',
+        const LatLng(45.50, -73.50),
+        const LatLng(45.52, -73.52),
+      ),
+    ];
+
+    final chains = buildChainedRoutes(routes, budget: DriveBudget.medium);
+
+    expect(chains, isEmpty);
+  });
+
+  test('chained routes keep the three segment ceiling', () {
+    final routes = [
+      _chainRoute(
+        'a',
+        const LatLng(45.00, -73.00),
+        const LatLng(45.02, -73.02),
+      ),
+      _chainRoute(
+        'b',
+        const LatLng(45.02, -73.02),
+        const LatLng(45.04, -73.04),
+      ),
+      _chainRoute(
+        'c',
+        const LatLng(45.04, -73.04),
+        const LatLng(45.06, -73.06),
+      ),
+      _chainRoute(
+        'd',
+        const LatLng(45.06, -73.06),
+        const LatLng(45.08, -73.08),
+      ),
+    ];
+
+    final chains = buildChainedRoutes(routes, budget: DriveBudget.long);
+
+    expect(chains, isEmpty);
+  });
+
+  test('chained routes reject overlapping return paths', () {
+    final routes = [
+      _chainRoute(
+        'a',
+        const LatLng(45.00, -73.00),
+        const LatLng(45.03, -73.03),
+      ),
+      _chainRoute(
+        'b',
+        const LatLng(45.03, -73.03),
+        const LatLng(45.00, -73.00),
+      ),
+    ];
+
+    final chains = buildChainedRoutes(routes, budget: DriveBudget.medium);
+
+    expect(chains, isEmpty);
   });
 
   test('routes need a compelling reason tag to be explainable', () {
