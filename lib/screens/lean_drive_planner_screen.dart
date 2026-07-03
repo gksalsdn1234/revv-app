@@ -19,7 +19,6 @@ import '../widgets/copilot_start_sheet.dart';
 import '../widgets/map_widget.dart';
 import '../widgets/revv_ui.dart';
 import 'lean_drive_screen.dart';
-import 'lean_route_finder_screen.dart';
 
 typedef DrivePlannerOriginResolver =
     Future<LatLng?> Function(BuildContext context);
@@ -60,7 +59,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   late final PlaceSearchService _placeSearch =
       widget.placeSearch ?? PlaceSearchService();
   LatLng _origin = _defaultOrigin;
-  LatLng _destination = _plannerRegions.first.point;
+  LatLng? _destination;
   String? _destinationName;
   LatLng _mapCenter = _plannerRegions.first.point;
   int _mapFocusSignal = 0;
@@ -71,6 +70,8 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   bool _loadingOrigin = true;
   bool _planning = false;
   String? _status;
+  Timer? _planDebounce;
+  int _planRequestId = 0;
 
   DrivePlan? get _plan {
     final options = _options;
@@ -118,6 +119,12 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     unawaited(_loadOrigin());
   }
 
+  @override
+  void dispose() {
+    _planDebounce?.cancel();
+    super.dispose();
+  }
+
   Future<void> _loadOrigin() async {
     final point =
         await (widget.originResolver?.call(context) ??
@@ -127,6 +134,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       _origin = point ?? _defaultOrigin;
       _loadingOrigin = false;
     });
+    _scheduleBuildPlan();
   }
 
   static Future<LatLng?> _defaultOriginResolver(BuildContext context) async {
@@ -137,7 +145,10 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   }
 
   Future<void> _buildPlan() async {
+    final destination = _destination;
+    if (destination == null || _loadingOrigin) return;
     final language = context.read<SettingsService>().appLanguage;
+    final requestId = ++_planRequestId;
     setState(() {
       _planning = true;
       _status = null;
@@ -148,12 +159,12 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
           .buildPlanOptions(
             DrivePlanRequest(
               origin: _origin,
-              destination: _destination,
+              destination: destination,
               windingBudgetMinutes: _budgetMinutes(_budget),
             ),
           )
           .timeout(_requestTimeout);
-      if (!mounted) return;
+      if (!mounted || requestId != _planRequestId) return;
       setState(() {
         _options = options.isEmpty ? null : options;
         _selectedKind = DrivePlanOptionKind.standard;
@@ -172,7 +183,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
         setState(() => _selectedKind = recommended.kind);
       }
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || requestId != _planRequestId) return;
       setState(() {
         _status = _copy(
           language,
@@ -182,8 +193,18 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
         );
       });
     } finally {
-      if (mounted) setState(() => _planning = false);
+      if (mounted && requestId == _planRequestId) {
+        setState(() => _planning = false);
+      }
     }
+  }
+
+  void _scheduleBuildPlan() {
+    _planDebounce?.cancel();
+    if (_destination == null || _loadingOrigin) return;
+    _planDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) unawaited(_buildPlan());
+    });
   }
 
   Future<void> _pickArriveBy() async {
@@ -197,10 +218,12 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       final recommended = _recommendedOption;
       if (recommended != null) _selectedKind = recommended.kind;
     });
+    _scheduleBuildPlan();
   }
 
   void _clearArriveBy() {
     setState(() => _arriveBy = null);
+    _scheduleBuildPlan();
   }
 
   Future<void> _startFirstWinding() async {
@@ -221,7 +244,8 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
 
   Future<void> _openExternalNavigation() async {
     final plan = _plan;
-    if (plan == null) return;
+    final destination = _destination;
+    if (plan == null || destination == null) return;
     final language = context.read<SettingsService>().appLanguage;
     final waypoints = plan.waypoints.length <= 2
         ? const <LatLng>[]
@@ -229,25 +253,28 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     final webUri = Uri.https('www.google.com', '/maps/dir/', {
       'api': '1',
       'origin': _coord(_origin),
-      'destination': _coord(_destination),
+      'destination': _coord(destination),
       if (waypoints.isNotEmpty) 'waypoints': waypoints.map(_coord).join('|'),
       'travelmode': 'driving',
     });
     final appUri = buildGoogleMapsAppUri(
       origin: _origin,
-      destination: _destination,
+      destination: destination,
       waypoints: waypoints,
     );
-    final launchedApp = await launchUrl(
-      appUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (launchedApp) return;
-    final launchedWeb = await launchUrl(
-      webUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (launchedWeb || !mounted) return;
+    var launched = false;
+    try {
+      launched = await launchUrl(appUri, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        launched = await launchUrl(
+          webUri,
+          mode: LaunchMode.externalApplication,
+        );
+      }
+    } catch (_) {
+      launched = false;
+    }
+    if (launched || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
     );
@@ -288,15 +315,30 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     ];
   }
 
-  void _selectRegion(_PlannerRegion region) {
+  Future<void> _openOriginPicker() async {
+    final choice = await showModalBottomSheet<_OriginChoice>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _OriginPickerSheet(
+        language: context.read<SettingsService>().appLanguage,
+      ),
+    );
+    if (!mounted || choice == null) return;
+    if (choice == _OriginChoice.currentLocation) {
+      setState(() {
+        _loadingOrigin = true;
+        _options = null;
+        _status = null;
+      });
+      unawaited(_loadOrigin());
+      return;
+    }
     setState(() {
-      _destination = region.point;
-      _destinationName = null;
-      _mapCenter = region.point;
-      _mapFocusSignal++;
+      _origin = _mapCenter;
       _options = null;
       _status = null;
     });
+    _scheduleBuildPlan();
   }
 
   Future<void> _openDestinationSearch() async {
@@ -309,6 +351,8 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
         language: language,
         service: _placeSearch,
         proximity: _origin,
+        pinPoint: _mapCenter,
+        selected: _destination,
       ),
     );
     if (!mounted || result == null) return;
@@ -320,6 +364,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       _options = null;
       _status = null;
     });
+    _scheduleBuildPlan();
   }
 
   @override
@@ -364,56 +409,27 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
               children: [
                 _PlannerInputCard(
                   language: language,
-                  origin: _origin,
                   destination: _destination,
                   destinationName: _destinationName,
                   loadingOrigin: _loadingOrigin,
                   budget: _budget,
-                  onUsePinAsOrigin: () => setState(() {
-                    _origin = _mapCenter;
-                    _options = null;
-                    _status = null;
-                  }),
-                  onUsePinAsDestination: () => setState(() {
-                    _destination = _mapCenter;
-                    _destinationName = null;
-                    _options = null;
-                    _status = null;
-                  }),
+                  onOrigin: _openOriginPicker,
                   onSearchDestination: _openDestinationSearch,
-                  onBudget: (value) => setState(() {
-                    _budget = value;
-                    _options = null;
-                    _status = null;
-                  }),
-                  onPlan: _planning || _loadingOrigin ? null : _buildPlan,
-                  planning: _planning,
+                  onBudget: (value) {
+                    setState(() {
+                      _budget = value;
+                      _options = null;
+                      _status = null;
+                    });
+                    _scheduleBuildPlan();
+                  },
                   arriveBy: _arriveBy,
                   onPickArriveBy: _pickArriveBy,
                   onClearArriveBy: _clearArriveBy,
                 ),
                 const SizedBox(height: 10),
-                _RegionStrip(
-                  language: language,
-                  selected: _destination,
-                  onSelected: _selectRegion,
-                ),
-                const SizedBox(height: 10),
                 if (_planning)
-                  _StateCard(
-                    title: _copy(
-                      language,
-                      ko: '여정 계산 중',
-                      en: 'Planning route',
-                      fr: 'Calcul du trajet',
-                    ),
-                    body: _copy(
-                      language,
-                      ko: '최대 20초 안에 결과를 보여드릴게요.',
-                      en: 'This stops after 20 seconds if no plan returns.',
-                      fr: 'Le calcul s’arrête après 20 secondes sans résultat.',
-                    ),
-                  )
+                  _PlanningCard(language: language)
                 else if (_status != null)
                   _StateCard(title: _status!, body: _retryCopy(language))
                 else if (_options != null && _plan != null) ...[
@@ -453,34 +469,26 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
 
 class _PlannerInputCard extends StatelessWidget {
   final AppLanguage language;
-  final LatLng origin;
-  final LatLng destination;
+  final LatLng? destination;
   final String? destinationName;
   final bool loadingOrigin;
   final DriveBudget budget;
-  final VoidCallback onUsePinAsOrigin;
-  final VoidCallback onUsePinAsDestination;
+  final VoidCallback onOrigin;
   final VoidCallback onSearchDestination;
   final ValueChanged<DriveBudget> onBudget;
-  final VoidCallback? onPlan;
-  final bool planning;
   final TimeOfDay? arriveBy;
   final VoidCallback onPickArriveBy;
   final VoidCallback onClearArriveBy;
 
   const _PlannerInputCard({
     required this.language,
-    required this.origin,
     required this.destination,
     required this.destinationName,
     required this.loadingOrigin,
     required this.budget,
-    required this.onUsePinAsOrigin,
-    required this.onUsePinAsDestination,
+    required this.onOrigin,
     required this.onSearchDestination,
     required this.onBudget,
-    required this.onPlan,
-    required this.planning,
     required this.arriveBy,
     required this.onPickArriveBy,
     required this.onClearArriveBy,
@@ -488,127 +496,92 @@ class _PlannerInputCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasDestination = destination != null;
     return RevvGlassCard(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _PointRow(
-            label: _copy(language, ko: '출발', en: 'Origin', fr: 'Départ'),
+          _CompactPointRow(
+            icon: Icons.my_location_rounded,
+            label: _copy(language, ko: '출발', en: 'From', fr: 'Départ'),
             value: loadingOrigin
-                ? _copy(
-                    language,
-                    ko: '현위치 확인 중',
-                    en: 'Reading current location',
-                    fr: 'Position en cours',
-                  )
-                : _coord(origin),
-            action: _copy(
-              language,
-              ko: '핀으로 변경',
-              en: 'Use pin',
-              fr: 'Utiliser le repère',
-            ),
-            onTap: onUsePinAsOrigin,
+                ? _copy(language, ko: '확인 중', en: 'Locating', fr: 'Position')
+                : _copy(language, ko: '현위치', en: 'Current', fr: 'Position'),
+            onTap: onOrigin,
           ),
-          const SizedBox(height: 10),
-          _PointRow(
-            label: _copy(
-              language,
-              ko: '목적지',
-              en: 'Destination',
-              fr: 'Destination',
-            ),
-            value: destinationName ?? _coord(destination),
-            action: _copy(
-              language,
-              ko: '중앙 핀 선택',
-              en: 'Set from pin',
-              fr: 'Depuis le repère',
-            ),
-            onTap: onUsePinAsDestination,
-            onValueTap: onSearchDestination,
+          Divider(
+            height: 14,
+            color: AppColors.outlineVariant.withValues(alpha: 0.18),
           ),
-          const SizedBox(height: 14),
-          Text(
-            _copy(
-              language,
-              ko: '와인딩 예산',
-              en: 'Winding budget',
-              fr: 'Temps sinueux',
-            ),
-            style: AppText.technicalLabel(
-              size: 10,
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: 8),
-          DriveBudgetChoiceStrip(
-            budget: budget,
-            routes: const [],
-            onChanged: onBudget,
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _copy(
-                        language,
-                        ko: '도착 희망 시각 (선택)',
-                        en: 'Arrive by (optional)',
-                        fr: 'Arrivée souhaitée (option)',
-                      ),
-                      style: AppText.technicalLabel(
-                        size: 10,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      arriveBy == null
-                          ? _copy(language, ko: '없음', en: 'None', fr: 'Aucune')
-                          : _formatTimeOfDay(arriveBy!),
-                      style: AppText.body(size: 13, weight: FontWeight.w800),
-                    ),
-                  ],
-                ),
-              ),
-              if (arriveBy != null)
-                IconButton(
-                  icon: const Icon(Icons.close_rounded, size: 18),
-                  color: AppColors.textHint,
-                  onPressed: onClearArriveBy,
-                ),
-              TextButton(
-                onPressed: onPickArriveBy,
-                child: Text(
-                  arriveBy == null
-                      ? _copy(
-                          language,
-                          ko: '시각 선택',
-                          en: 'Pick time',
-                          fr: 'Choisir',
-                        )
-                      : _copy(language, ko: '변경', en: 'Change', fr: 'Modifier'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          RevvPrimaryButton(
-            label: planning
-                ? _copy(language, ko: '계산 중', en: 'Planning', fr: 'Calcul')
+          _CompactPointRow(
+            icon: Icons.flag_rounded,
+            label: _copy(language, ko: '목적지', en: 'To', fr: 'Arrivée'),
+            value: hasDestination
+                ? destinationName ?? _mapPinLabel(language)
                 : _copy(
                     language,
-                    ko: '여정 만들기',
-                    en: 'Build plan',
-                    fr: 'Créer le trajet',
+                    ko: '어디로 갈까요?',
+                    en: 'Where to?',
+                    fr: 'Destination ?',
                   ),
-            icon: Icons.route_rounded,
-            onPressed: onPlan,
+            muted: !hasDestination,
+            onTap: onSearchDestination,
+          ),
+          Divider(
+            height: 14,
+            color: AppColors.outlineVariant.withValues(alpha: 0.18),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.timer_outlined,
+                  color: AppColors.textSecondary,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                for (final item in const [
+                  DriveBudget.short,
+                  DriveBudget.medium,
+                  DriveBudget.long,
+                ]) ...[
+                  _BudgetPill(
+                    label: _compactBudgetLabel(item, language),
+                    selected: budget == item,
+                    onTap: () => onBudget(item),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+                if (arriveBy == null)
+                  IconButton(
+                    tooltip: _copy(
+                      language,
+                      ko: '도착 시각',
+                      en: 'Arrive by',
+                      fr: 'Arrivée',
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.schedule_rounded, size: 20),
+                    color: AppColors.textPrimary,
+                    onPressed: onPickArriveBy,
+                  )
+                else
+                  InputChip(
+                    label: Text('~${_formatTimeOfDay(arriveBy!)}'),
+                    onPressed: onPickArriveBy,
+                    onDeleted: onClearArriveBy,
+                    deleteIcon: const Icon(Icons.close_rounded, size: 16),
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: AppColors.surface.withValues(alpha: 0.9),
+                    labelStyle: AppText.body(size: 12, weight: FontWeight.w900),
+                    side: BorderSide(
+                      color: AppColors.outlineVariant.withValues(alpha: 0.22),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -620,11 +593,15 @@ class _PlaceSearchSheet extends StatefulWidget {
   final AppLanguage language;
   final PlaceSearchService service;
   final LatLng proximity;
+  final LatLng pinPoint;
+  final LatLng? selected;
 
   const _PlaceSearchSheet({
     required this.language,
     required this.service,
     required this.proximity,
+    required this.pinPoint,
+    required this.selected,
   });
 
   @override
@@ -761,9 +738,52 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
                 ),
               ),
               const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.pop(
+                  context,
+                  PlaceResult(
+                    name: _mapPinLabel(widget.language),
+                    address: '',
+                    point: widget.pinPoint,
+                  ),
+                ),
+                icon: const Icon(Icons.location_pin, size: 18),
+                label: Text(
+                  _copy(
+                    widget.language,
+                    ko: '지도 핀으로 지정',
+                    en: 'Use map pin',
+                    fr: 'Utiliser le repère',
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.textPrimary,
+                  side: BorderSide(
+                    color: AppColors.outline.withValues(alpha: 0.28),
+                  ),
+                  minimumSize: const Size.fromHeight(42),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
               ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 340),
+                constraints: const BoxConstraints(maxHeight: 280),
                 child: _buildResults(),
+              ),
+              const SizedBox(height: 10),
+              _RegionStrip(
+                language: widget.language,
+                selected: widget.selected,
+                onSelected: (region) => Navigator.pop(
+                  context,
+                  PlaceResult(
+                    name: region.title,
+                    address: '',
+                    point: region.point,
+                  ),
+                ),
               ),
             ],
           ),
@@ -829,54 +849,144 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
   }
 }
 
-class _PointRow extends StatelessWidget {
+enum _OriginChoice { currentLocation, mapPin }
+
+class _OriginPickerSheet extends StatelessWidget {
+  final AppLanguage language;
+
+  const _OriginPickerSheet({required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    return RevvGlassCard(
+      margin: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 18),
+      radius: 18,
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.my_location_rounded),
+              title: Text(
+                _copy(language, ko: '현위치', en: 'Current', fr: 'Position'),
+                style: AppText.body(weight: FontWeight.w900),
+              ),
+              onTap: () =>
+                  Navigator.pop(context, _OriginChoice.currentLocation),
+            ),
+            ListTile(
+              leading: const Icon(Icons.location_pin),
+              title: Text(
+                _copy(language, ko: '지도 핀', en: 'Map pin', fr: 'Repère'),
+                style: AppText.body(weight: FontWeight.w900),
+              ),
+              onTap: () => Navigator.pop(context, _OriginChoice.mapPin),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CompactPointRow extends StatelessWidget {
+  final IconData icon;
   final String label;
   final String value;
-  final String action;
   final VoidCallback onTap;
-  final VoidCallback? onValueTap;
+  final bool muted;
 
-  const _PointRow({
+  const _CompactPointRow({
+    required this.icon,
     required this.label,
     required this.value,
-    required this.action,
     required this.onTap,
-    this.onValueTap,
+    this.muted = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: InkWell(
-            onTap: onValueTap,
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Column(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.textSecondary, size: 18),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: AppText.technicalLabel(size: 10)),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: AppText.body(size: 13, weight: FontWeight.w800),
+                  SizedBox(
+                    width: 48,
+                    child: Text(label, style: AppText.technicalLabel(size: 10)),
+                  ),
+                  Expanded(
+                    child: Text(
+                      value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.body(
+                        size: 14,
+                        weight: FontWeight.w900,
+                        color: muted
+                            ? AppColors.textSecondary
+                            : AppColors.textPrimary,
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
+            const Icon(
+              Icons.chevron_right_rounded,
+              color: AppColors.textHint,
+              size: 20,
+            ),
+          ],
         ),
-        TextButton(onPressed: onTap, child: Text(action)),
-      ],
+      ),
+    );
+  }
+}
+
+class _BudgetPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _BudgetPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onTap(),
+      visualDensity: VisualDensity.compact,
+      selectedColor: AppColors.primaryContainer,
+      backgroundColor: AppColors.surface.withValues(alpha: 0.88),
+      labelStyle: AppText.body(
+        size: 12,
+        weight: FontWeight.w900,
+        color: selected ? AppColors.onPrimary : AppColors.textPrimary,
+      ),
+      side: BorderSide(color: AppColors.outlineVariant.withValues(alpha: 0.2)),
     );
   }
 }
 
 class _RegionStrip extends StatelessWidget {
   final AppLanguage language;
-  final LatLng selected;
+  final LatLng? selected;
   final ValueChanged<_PlannerRegion> onSelected;
 
   const _RegionStrip({
@@ -895,9 +1005,11 @@ class _RegionStrip extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final region = _plannerRegions[index];
+          final selectedPoint = selected;
           final active =
-              region.point.lat == selected.lat &&
-              region.point.lng == selected.lng;
+              selectedPoint != null &&
+              region.point.lat == selectedPoint.lat &&
+              region.point.lng == selectedPoint.lng;
           return ChoiceChip(
             label: Text(region.title),
             selected: active,
@@ -946,16 +1058,6 @@ class _PlanResultCard extends StatelessWidget {
           Text(
             _copy(
               language,
-              ko: '여정 타임라인',
-              en: 'Plan timeline',
-              fr: 'Étapes du trajet',
-            ),
-            style: AppText.body(size: 18, weight: FontWeight.w900),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _copy(
-              language,
               ko: '총 ${plan.totalMinutes}분 · 와인딩 $windingRatio%',
               en: '${plan.totalMinutes} min total · $windingRatio% winding',
               fr: '${plan.totalMinutes} min au total · $windingRatio% sinueux',
@@ -966,9 +1068,9 @@ class _PlanResultCard extends StatelessWidget {
           Text(
             _copy(
               language,
-              ko: '지금 출발하면 ${_formatClock(eta)} 도착 예상',
-              en: 'Leave now to arrive around ${_formatClock(eta)}',
-              fr: 'En partant maintenant, arrivée vers ${_formatClock(eta)}',
+              ko: '도착 ~${_formatClock(eta)}',
+              en: 'Arrive ~${_formatClock(eta)}',
+              fr: 'Arrivée ~${_formatClock(eta)}',
             ),
             style: AppText.body(size: 12, color: AppColors.textSecondary),
           ),
@@ -1008,15 +1110,25 @@ class _PlanResultCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              Expanded(
-                child: RevvGhostButton(
-                  label: _copy(
-                    language,
-                    ko: '외부 내비',
-                    en: 'Open nav',
-                    fr: 'Navigation',
-                  ),
+              Tooltip(
+                message: _copy(
+                  language,
+                  ko: '외부 내비',
+                  en: 'Open nav',
+                  fr: 'Navigation',
+                ),
+                child: OutlinedButton(
                   onPressed: onNavigate,
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(
+                      color: AppColors.outline.withValues(alpha: 0.28),
+                    ),
+                    foregroundColor: AppColors.textPrimary,
+                    minimumSize: const Size(52, 52),
+                    shape: const CircleBorder(),
+                    padding: EdgeInsets.zero,
+                  ),
+                  child: const Icon(Icons.navigation_rounded, size: 20),
                 ),
               ),
             ],
@@ -1224,15 +1336,15 @@ class _PlanHonestyLine extends StatelessWidget {
         : plan.budgetShortfallMinutes > 0
         ? _copy(
             language,
-            ko: '와인딩 ${plan.windingMinutes}분을 채웠어요 (목표 $targetMinutes분)',
-            en: '${plan.windingMinutes} min of winding found (target $targetMinutes min)',
-            fr: '${plan.windingMinutes} min sinueuses trouvées (objectif $targetMinutes min)',
+            ko: '와인딩 ${plan.windingMinutes}/$targetMinutes분',
+            en: 'Winding ${plan.windingMinutes}/$targetMinutes min',
+            fr: 'Sinueux ${plan.windingMinutes}/$targetMinutes min',
           )
         : _copy(
             language,
-            ko: '목표 와인딩 시간을 채웠어요.',
-            en: 'Winding target reached.',
-            fr: 'Objectif sinueux atteint.',
+            ko: '와인딩 ${plan.windingMinutes}/$targetMinutes분',
+            en: 'Winding ${plan.windingMinutes}/$targetMinutes min',
+            fr: 'Sinueux ${plan.windingMinutes}/$targetMinutes min',
           );
     return RevvPill(label: text, color: AppColors.warning);
   }
@@ -1270,6 +1382,31 @@ class _StateCard extends StatelessWidget {
   }
 }
 
+class _PlanningCard extends StatelessWidget {
+  final AppLanguage language;
+
+  const _PlanningCard({required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    return RevvGlassCard(
+      child: Row(
+        children: [
+          const SizedBox.square(
+            dimension: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            _copy(language, ko: '계산 중', en: 'Planning', fr: 'Calcul'),
+            style: AppText.body(weight: FontWeight.w900),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _PlannerRegion {
   final String key;
   final String title;
@@ -1289,6 +1426,24 @@ int _budgetMinutes(DriveBudget budget) {
 
 String _coord(LatLng point) {
   return '${point.lat.toStringAsFixed(4)},${point.lng.toStringAsFixed(4)}';
+}
+
+String _mapPinLabel(AppLanguage language) {
+  return _copy(
+    language,
+    ko: '지도에서 선택한 지점',
+    en: 'Picked on map',
+    fr: 'Point sur la carte',
+  );
+}
+
+String _compactBudgetLabel(DriveBudget budget, AppLanguage language) {
+  return switch (budget) {
+    DriveBudget.short => _copy(language, ko: '30분', en: '30m', fr: '30 min'),
+    DriveBudget.medium => _copy(language, ko: '1시간', en: '1h', fr: '1 h'),
+    DriveBudget.long => _copy(language, ko: '2시간+', en: '2h+', fr: '2 h+'),
+    DriveBudget.any => _copy(language, ko: '전체', en: 'Any', fr: 'Tout'),
+  };
 }
 
 Uri buildGoogleMapsAppUri({

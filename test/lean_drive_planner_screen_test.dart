@@ -61,27 +61,35 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> selectMapPinDestination(WidgetTester tester) async {
+    await tester.tap(find.text('어디로 갈까요?'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('지도 핀으로 지정'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('planner moves from input to result state', (tester) async {
     await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 30));
 
-    expect(find.text('여정 만들기'), findsOneWidget);
+    expect(find.text('여정 만들기'), findsNothing);
+    expect(find.text('어디로 갈까요?'), findsOneWidget);
 
-    await tester.tap(find.text('여정 만들기'));
-    await tester.pumpAndSettle();
+    await selectMapPinDestination(tester);
 
-    expect(find.text('여정 타임라인'), findsOneWidget);
+    expect(find.text('여정 타임라인'), findsNothing);
     expect(find.text('이동 10분'), findsOneWidget);
     expect(find.text('Lakeside Road 30분'), findsOneWidget);
     expect(find.text('총 45분 · 와인딩 67%'), findsOneWidget);
+    expect(find.textContaining(RegExp(r'\d+\.\d{4}')), findsNothing);
   });
 
   testWidgets('planner explains budget shortfall honestly', (tester) async {
     await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 12));
 
-    await tester.tap(find.text('여정 만들기'));
-    await tester.pumpAndSettle();
+    await selectMapPinDestination(tester);
 
-    expect(find.text('와인딩 12분을 채웠어요 (목표 30분)'), findsOneWidget);
+    expect(find.text('와인딩 12/30분'), findsOneWidget);
   });
 
   testWidgets('planner explains zero winding result and direct navigation', (
@@ -89,8 +97,7 @@ void main() {
   ) async {
     await pumpPlanner(tester, plan: _planWithoutWinding());
 
-    await tester.tap(find.text('여정 만들기'));
-    await tester.pumpAndSettle();
+    await selectMapPinDestination(tester);
 
     expect(find.textContaining('이 경로엔 아직 발견된 와인딩이 없어요'), findsOneWidget);
     expect(find.text('드라이브 시작'), findsOneWidget);
@@ -109,8 +116,7 @@ void main() {
       plan: _planWithWinding(windingMinutes: 30, usesApproximateTransit: true),
     );
 
-    await tester.tap(find.text('여정 만들기'));
-    await tester.pumpAndSettle();
+    await selectMapPinDestination(tester);
 
     expect(find.textContaining('대략 경로'), findsOneWidget);
   });
@@ -141,8 +147,7 @@ void main() {
       lightPlan: _planWithWinding(windingMinutes: 10, routeName: 'Hill Loop'),
     );
 
-    await tester.tap(find.text('여정 만들기'));
-    await tester.pumpAndSettle();
+    await selectMapPinDestination(tester);
 
     // 기본 옵션이 먼저 표시된다
     expect(find.text('Lakeside Road 30분'), findsOneWidget);
@@ -157,8 +162,7 @@ void main() {
   testWidgets('rest legs render in the timeline', (tester) async {
     await pumpPlanner(tester, plan: _planWithRest());
 
-    await tester.tap(find.text('여정 만들기'));
-    await tester.pumpAndSettle();
+    await selectMapPinDestination(tester);
 
     expect(find.text('휴식 15분'), findsOneWidget);
   });
@@ -178,13 +182,12 @@ void main() {
       arriveBy: arriveBy,
     );
 
-    await tester.tap(find.text('여정 만들기'));
-    await tester.pumpAndSettle();
+    await selectMapPinDestination(tester);
 
     // 여유 충분 → 와인딩이 가장 긴 옵션이 추천되고 자동 선택된다
     expect(find.textContaining('추천'), findsOneWidget);
     expect(find.text('Ridge Sweep 45분'), findsOneWidget);
-    expect(find.text('변경'), findsOneWidget);
+    expect(find.text('~${_formatTestTime(arriveBy)}'), findsOneWidget);
   });
 
   testWidgets('destination search updates the planner destination', (
@@ -203,7 +206,7 @@ void main() {
       placeSearch: search,
     );
 
-    await tester.tap(find.text('45.5017,-73.5673'));
+    await tester.tap(find.text('어디로 갈까요?'));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('planner-place-search-field')),
@@ -217,17 +220,18 @@ void main() {
     expect(find.text('Circuit Gilles-Villeneuve'), findsOneWidget);
 
     await tester.tap(find.text('Circuit Gilles-Villeneuve'));
+    await tester.pump(const Duration(milliseconds: 350));
     await tester.pumpAndSettle();
 
     expect(find.text('Circuit Gilles-Villeneuve'), findsOneWidget);
     expect(find.text('45.5017,-73.5673'), findsNothing);
+    expect(find.textContaining(RegExp(r'\d+\.\d{4}')), findsNothing);
   });
 
   testWidgets('planner visible copy avoids forbidden terms', (tester) async {
     await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 12));
 
-    await tester.tap(find.text('여정 만들기'));
-    await tester.pumpAndSettle();
+    await selectMapPinDestination(tester);
 
     final copy = tester
         .widgetList<Text>(find.byType(Text))
@@ -239,6 +243,12 @@ void main() {
       }
     }
   });
+}
+
+String _formatTestTime(TimeOfDay time) {
+  final hour = time.hour.toString().padLeft(2, '0');
+  final minute = time.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
 }
 
 class _FakePlaceSearch extends PlaceSearchService {
