@@ -386,11 +386,13 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                     language: language,
                   ),
                   const Spacer(),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                  Wrap(
+                    alignment: WrapAlignment.end,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       _CompactSpeedPill(speedKmh: _speedKmh),
-                      const SizedBox(width: 8),
                       RepaintBoundary(
                         child: widget.simulated
                             ? _CompactGInstrument(
@@ -841,7 +843,6 @@ class _CompactSpeedPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _DriveGlass(
-      width: 104,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -909,33 +910,31 @@ class _CompactGInstrument extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _DriveGlass(
-      width: 158,
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           _GDot(lateralG: lateralG, longitudinalG: longitudinalG),
           const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'BALANCE',
-                  style: AppText.technicalLabel(
-                    size: 9,
-                    color: AppColors.textHint,
-                  ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'BALANCE',
+                style: AppText.technicalLabel(
+                  size: 9,
+                  color: AppColors.textHint,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  totalG.toStringAsFixed(2),
-                  style: AppText.display(
-                    size: 28,
-                    height: 0.9,
-                    color: AppColors.textPrimary,
-                  ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                totalG.toStringAsFixed(2),
+                style: AppText.display(
+                  size: 28,
+                  height: 0.9,
+                  color: AppColors.textPrimary,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
@@ -1037,24 +1036,34 @@ class _DriveControlStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _DriveGlass(
-      child: Row(
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          _StripMetric(
-            label: AppCopy.t(
-              language,
-              ko: '남은 거리',
-              en: 'Remaining',
-              fr: 'Restant',
+          SizedBox(
+            width: 82,
+            child: _StripMetric(
+              label: AppCopy.t(
+                language,
+                ko: '남은 거리',
+                en: 'Remain',
+                fr: 'Reste',
+              ),
+              value: _formatKm(remainingKm),
             ),
-            value: _formatKm(remainingKm),
           ),
-          const SizedBox(width: 14),
-          _StripMetric(
-            label: AppCopy.t(language, ko: '경과', en: 'Elapsed', fr: 'Temps'),
-            value: elapsed,
+          SizedBox(
+            width: 72,
+            child: _StripMetric(
+              label: AppCopy.t(language, ko: '경과', en: 'Time', fr: 'Temps'),
+              value: elapsed,
+            ),
           ),
-          const Spacer(),
           IconButton(
+            tooltip: muted
+                ? AppCopy.voiceOn(language)
+                : AppCopy.voiceOff(language),
             onPressed: onToggleMute,
             icon: Icon(
               muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
@@ -1067,7 +1076,6 @@ class _DriveControlStrip extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 8),
           SizedBox(
             height: 48,
             child: FilledButton.icon(
@@ -1128,19 +1136,16 @@ class _StripMetric extends StatelessWidget {
 
 class _DriveGlass extends StatelessWidget {
   final Widget child;
-  final double? width;
   final EdgeInsetsGeometry padding;
 
   const _DriveGlass({
     required this.child,
-    this.width,
     this.padding = const EdgeInsets.all(14),
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: width,
       padding: padding,
       decoration: BoxDecoration(
         color: AppColors.ink.withValues(alpha: 0.91),

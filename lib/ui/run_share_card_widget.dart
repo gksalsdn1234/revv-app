@@ -347,13 +347,20 @@ class _MetricChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: spacing,
-      runSpacing: spacing,
-      children: [
-        for (final metric in metrics)
-          _MetricChip(metric: metric, compact: compact),
-      ],
+    // 내보내기 캔버스는 높이가 고정 — 언어별 라벨 길이와 무관하게
+    // 칩을 한 줄로 유지하고 넘치면 통째로 축소한다 (줄바꿈 = 세로 overflow)
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < metrics.length; i++) ...[
+            if (i > 0) SizedBox(width: spacing),
+            _MetricChip(metric: metrics[i], compact: compact),
+          ],
+        ],
+      ),
     );
   }
 }

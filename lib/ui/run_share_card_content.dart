@@ -1,6 +1,8 @@
+import '../core/app_language.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
+import 'app_copy.dart';
 import 'run_share_metrics.dart';
 
 enum ShareCardPreset { story, square, sticker }
@@ -86,13 +88,18 @@ RunShareCardContent buildRunShareCardContent({
   required RunSummary summary,
   RunTelemetryDetail? detail,
   RunSession? session,
+  AppLanguage language = AppLanguage.english,
 }) {
-  final routeName = _safeText(summary.routeName, fallback: 'Private route');
-  final dateLabel = _dateLabel(summary.date);
+  final routeName = _safeText(
+    summary.routeName,
+    fallback: AppCopy.privateRoute(language),
+  );
+  final dateLabel = AppCopy.shareDateLabel(language, summary.date);
   final shareMetrics = buildRunShareMetrics(
     session: session,
     summary: summary,
     detail: detail,
+    language: language,
   ).defaultShareMetrics;
   final safeMetrics = [
     for (final metric in shareMetrics)
@@ -101,14 +108,14 @@ RunShareCardContent buildRunShareCardContent({
           _isSafeText(metric.value))
         RunShareCardMetric(label: metric.label, value: metric.value),
   ];
-  final presetInfo = _presetInfo(preset);
+  final presetInfo = _presetInfo(preset, language);
   final chipLimit = presetInfo.isCompact ? 4 : 5;
 
   return RunShareCardContent(
     preset: preset,
     presetInfo: presetInfo,
     title: routeName,
-    subtitle: '$dateLabel - ${_presetSubtitle(preset)}',
+    subtitle: '$dateLabel - ${_presetSubtitle(preset, language)}',
     routeName: routeName,
     dateLabel: dateLabel,
     metricChips: safeMetrics.take(chipLimit).toList(),
@@ -121,25 +128,25 @@ RunShareCardContent buildRunShareCardContent({
   );
 }
 
-ShareCardPresetInfo _presetInfo(ShareCardPreset preset) {
+ShareCardPresetInfo _presetInfo(ShareCardPreset preset, AppLanguage language) {
   return switch (preset) {
-    ShareCardPreset.story => const ShareCardPresetInfo(
+    ShareCardPreset.story => ShareCardPresetInfo(
       preset: ShareCardPreset.story,
-      label: 'Story',
+      label: AppCopy.sharePresetStory(language),
       aspectRatio: 9 / 16,
       isCompact: false,
       background: ShareCardBackground.solid,
     ),
-    ShareCardPreset.square => const ShareCardPresetInfo(
+    ShareCardPreset.square => ShareCardPresetInfo(
       preset: ShareCardPreset.square,
-      label: 'Square',
+      label: AppCopy.sharePresetSquare(language),
       aspectRatio: 1,
       isCompact: false,
       background: ShareCardBackground.solid,
     ),
-    ShareCardPreset.sticker => const ShareCardPresetInfo(
+    ShareCardPreset.sticker => ShareCardPresetInfo(
       preset: ShareCardPreset.sticker,
-      label: 'Sticker',
+      label: AppCopy.sharePresetSticker(language),
       aspectRatio: 1,
       isCompact: true,
       background: ShareCardBackground.solid,
@@ -147,13 +154,8 @@ ShareCardPresetInfo _presetInfo(ShareCardPreset preset) {
   };
 }
 
-String _presetSubtitle(ShareCardPreset preset) {
-  return switch (preset) {
-    ShareCardPreset.story => 'REVV story',
-    ShareCardPreset.square => 'REVV recap',
-    ShareCardPreset.sticker => 'REVV sticker',
-  };
-}
+String _presetSubtitle(ShareCardPreset preset, AppLanguage language) =>
+    AppCopy.sharePresetSubtitle(language, _presetInfo(preset, language).label);
 
 String _safeText(String value, {required String fallback}) {
   final trimmed = value.trim();
@@ -174,24 +176,6 @@ bool _hasObdTerm(String value) {
 
 bool _hasPreciseCoordinate(String value) {
   return RegExp(r'[-+]?\d{1,3}\.\d{4,}').hasMatch(value);
-}
-
-String _dateLabel(DateTime date) {
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  return '${months[date.month - 1]} ${date.day}, ${date.year}';
 }
 
 List<RunSharePathPoint>? _pathPreview({

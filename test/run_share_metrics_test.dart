@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/models/run_summary.dart';
@@ -110,6 +111,36 @@ void main() {
     expect(shareMetrics['Route'], '91% done');
     expect(shareMetrics['Corner events'], '4');
     expect(shareMetrics['Max speed'], isNull);
+  });
+
+  test('share metrics and card content localize labels', () {
+    // Given: the share layer is built for French.
+    final metrics = buildRunShareMetrics(
+      session: _session(),
+      summary: _summary(),
+      detail: _detail(),
+      language: AppLanguage.french,
+    );
+    final content = buildRunShareCardContent(
+      preset: ShareCardPreset.square,
+      summary: _summary(),
+      detail: _detail(),
+      session: _session(),
+      language: AppLanguage.french,
+    );
+
+    // When: public metric labels and card labels are rendered.
+    final shareMetrics = {
+      for (final metric in metrics.defaultShareMetrics)
+        metric.label: metric.value,
+    };
+
+    // Then: English fallback labels are not required for the public card.
+    expect(shareMetrics['Distance'], '12.3 km');
+    expect(shareMetrics['Durée'], '12m 34s');
+    expect(shareMetrics['Route'], '88 % fait');
+    expect(content.dateLabel, '30 juin 2026');
+    expect(content.presetInfo.label, 'Carré');
   });
 }
 

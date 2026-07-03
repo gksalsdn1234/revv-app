@@ -182,41 +182,69 @@ class _QuickStatRow extends StatelessWidget {
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: AppColors.creamRaised,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
-      child: Row(
-        children: [
-          _QuickStatTile(
-            icon: Icons.straighten_rounded,
-            label: AppCopy.t(language, ko: '거리', en: 'Dist.', fr: 'Dist.'),
-            value: route.distanceDisplay,
-          ),
-          _QuickStatDivider(),
-          _QuickStatTile(
-            icon: Icons.timer_outlined,
-            label: AppCopy.t(language, ko: '예상', en: 'ETA', fr: 'Temps'),
-            value: _driveMinutesLabel(route, language),
-          ),
-          _QuickStatDivider(),
-          _QuickStatTile(
-            icon: Icons.route_rounded,
-            label: AppCopy.t(language, ko: '커브', en: 'Curves', fr: 'Virages'),
-            value: AppCopy.t(
-              language,
-              ko: '${route.sharpCurveCount}개',
-              en: '${route.sharpCurveCount}',
-              fr: '${route.sharpCurveCount}',
-            ),
-          ),
-          _QuickStatDivider(),
-          _QuickStatTile(
-            icon: Icons.flag_rounded,
-            label: AppCopy.t(language, ko: '집', en: 'Home', fr: 'Maison'),
-            value: route.distanceFromUserDisplay,
-            accent: isFar ? AppColors.warning : AppColors.primaryContainer,
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tileWidth = (constraints.maxWidth - 8) / 2;
+          return Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              SizedBox(
+                width: tileWidth,
+                child: _QuickStatTile(
+                  icon: Icons.straighten_rounded,
+                  label: AppCopy.t(
+                    language,
+                    ko: '거리',
+                    en: 'Dist.',
+                    fr: 'Dist.',
+                  ),
+                  value: route.distanceDisplay,
+                ),
+              ),
+              SizedBox(
+                width: tileWidth,
+                child: _QuickStatTile(
+                  icon: Icons.timer_outlined,
+                  label: AppCopy.t(language, ko: '예상', en: 'ETA', fr: 'Temps'),
+                  value: _driveMinutesLabel(route, language),
+                ),
+              ),
+              SizedBox(
+                width: tileWidth,
+                child: _QuickStatTile(
+                  icon: Icons.route_rounded,
+                  label: AppCopy.t(
+                    language,
+                    ko: '커브',
+                    en: 'Curves',
+                    fr: 'Virages',
+                  ),
+                  value: AppCopy.t(
+                    language,
+                    ko: '${route.sharpCurveCount}개',
+                    en: '${route.sharpCurveCount}',
+                    fr: '${route.sharpCurveCount}',
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: tileWidth,
+                child: _QuickStatTile(
+                  icon: Icons.flag_rounded,
+                  label: AppCopy.t(language, ko: '집', en: 'Home', fr: 'Maison'),
+                  value: route.distanceFromUserDisplay,
+                  accent: isFar
+                      ? AppColors.warning
+                      : AppColors.primaryContainer,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -237,55 +265,56 @@ class _QuickStatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, size: 14, color: accent),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.mono(
-                    size: 9,
-                    weight: FontWeight.w800,
-                    color: AppColors.stone,
-                    letterSpacing: 0.7,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.cream,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.06)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 14, color: accent),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.mono(
+                      size: 9,
+                      weight: FontWeight.w800,
+                      color: AppColors.stone,
+                      letterSpacing: 0.7,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 5),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppText.label(
-              size: 18,
-              weight: FontWeight.w900,
-              color: AppColors.ink,
-              letterSpacing: 0,
+              ],
             ),
-          ),
-        ],
+            const SizedBox(height: 5),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.visible,
+                style: AppText.label(
+                  size: 18,
+                  weight: FontWeight.w900,
+                  color: AppColors.ink,
+                  letterSpacing: 0,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
-    );
-  }
-}
-
-class _QuickStatDivider extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 1,
-      height: 42,
-      margin: const EdgeInsets.symmetric(horizontal: 8),
-      color: AppColors.ink.withValues(alpha: 0.08),
     );
   }
 }

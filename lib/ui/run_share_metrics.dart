@@ -1,6 +1,8 @@
+import '../core/app_language.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
+import 'app_copy.dart';
 import 'run_report_metrics.dart';
 
 class RunShareMetrics {
@@ -21,11 +23,13 @@ class RunShareMetrics {
 }
 
 class RunShareDisplayMetric {
+  final String id;
   final String label;
   final String value;
   final bool internalOnly;
 
   const RunShareDisplayMetric({
+    required this.id,
     required this.label,
     required this.value,
     this.internalOnly = false,
@@ -36,6 +40,7 @@ RunShareMetrics buildRunShareMetrics({
   RunSession? session,
   RunSummary? summary,
   RunTelemetryDetail? detail,
+  AppLanguage language = AppLanguage.english,
 }) {
   final analytics = detail?.analytics ?? const <String, dynamic>{};
   final distanceKm = summary?.distanceKm ?? session?.distanceKm ?? 0;
@@ -66,44 +71,73 @@ RunShareMetrics buildRunShareMetrics({
   return RunShareMetrics(
     headlineStats: [
       RunShareDisplayMetric(
-        label: 'Distance',
+        id: 'distance',
+        label: AppCopy.shareMetricLabel(language, 'distance'),
         value: '${distanceKm.toStringAsFixed(1)} km',
       ),
-      RunShareDisplayMetric(label: 'Duration', value: durationDisplay),
+      RunShareDisplayMetric(
+        id: 'duration',
+        label: AppCopy.shareMetricLabel(language, 'duration'),
+        value: durationDisplay,
+      ),
       if (avgSpeedKmh != null && avgSpeedKmh > 0)
         RunShareDisplayMetric(
-          label: 'Avg speed',
+          id: 'avgSpeed',
+          label: AppCopy.shareMetricLabel(language, 'avgSpeed'),
           value: '${avgSpeedKmh.round()} km/h',
         ),
     ],
     rideMetrics: [
       if (_metricInt(analytics, 'revvScore') ?? summary?.revvScore
           case final value?)
-        RunShareDisplayMetric(label: 'REVV Score', value: '$value'),
+        RunShareDisplayMetric(
+          id: 'revvScore',
+          label: AppCopy.shareMetricLabel(language, 'revvScore'),
+          value: '$value',
+        ),
       if (_metricInt(analytics, 'flowScoreDisplay') case final value?)
-        RunShareDisplayMetric(label: 'Flow', value: '$value'),
+        RunShareDisplayMetric(
+          id: 'flow',
+          label: AppCopy.shareMetricLabel(language, 'flow'),
+          value: '$value',
+        ),
       if (_metricInt(analytics, 'technicalScore') case final value?)
-        RunShareDisplayMetric(label: 'Technical', value: '$value'),
+        RunShareDisplayMetric(
+          id: 'technical',
+          label: AppCopy.shareMetricLabel(language, 'technical'),
+          value: '$value',
+        ),
       if (_metricInt(analytics, 'smoothnessScore') ?? summary?.smoothnessScore
           case final value?)
-        RunShareDisplayMetric(label: 'Smoothness', value: '$value'),
+        RunShareDisplayMetric(
+          id: 'smoothness',
+          label: AppCopy.shareMetricLabel(language, 'smoothness'),
+          value: '$value',
+        ),
       if (_metricDouble(analytics, 'windingSamplePct') ??
               summary?.windingSamplePct
           case final value?)
-        RunShareDisplayMetric(label: 'Winding', value: '${value.round()}%'),
+        RunShareDisplayMetric(
+          id: 'winding',
+          label: AppCopy.shareMetricLabel(language, 'winding'),
+          value: '${value.round()}%',
+        ),
       if (cornerEventCount > 0)
         RunShareDisplayMetric(
-          label: 'Corner events',
+          id: 'cornerEvents',
+          label: AppCopy.shareMetricLabel(language, 'cornerEvents'),
           value: '$cornerEventCount',
         ),
       if (routeCompletionPct != null)
         RunShareDisplayMetric(
-          label: 'Route',
-          value: '$routeCompletionPct% done',
+          id: 'route',
+          label: AppCopy.shareMetricLabel(language, 'route'),
+          value: AppCopy.routeCompletion(language, routeCompletionPct),
         ),
     ],
     maxSpeedInternalOnly: RunShareDisplayMetric(
-      label: 'Max speed',
+      id: 'maxSpeed',
+      label: AppCopy.shareMetricLabel(language, 'maxSpeed'),
       value: '${maxSpeedKmh.round()} km/h',
       internalOnly: true,
     ),

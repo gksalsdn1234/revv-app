@@ -201,7 +201,7 @@ void main() {
     expect(find.text('Driver #042'), findsNothing);
     expect(find.text('7 RUNS · MEMBER SINCE APR 2026'), findsNothing);
     expect(find.text('Anonymous driver'), findsOneWidget);
-    expect(find.text('2 RUNS · SINCE MAR 2026'), findsOneWidget);
+    expect(find.text('2 runs · since MAR 2026'), findsOneWidget);
   });
 
   testWidgets('run summary session log expands detailed sections', (

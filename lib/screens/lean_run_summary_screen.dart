@@ -231,6 +231,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
               session: session,
               summary: summary,
               detail: detail,
+              language: language,
             );
             final storedFeedback = summary == null
                 ? null
@@ -537,8 +538,8 @@ class _SharePreviewSheetState extends State<_SharePreviewSheet> {
       summary: widget.summary,
       detail: widget.detail,
       session: widget.session,
+      language: widget.language,
     );
-    final previewHeight = _preset == ShareCardPreset.story ? 320.0 : 260.0;
 
     return SafeArea(
       child: ConstrainedBox(
@@ -563,7 +564,7 @@ class _SharePreviewSheetState extends State<_SharePreviewSheet> {
                   children: [
                     Expanded(
                       child: Text(
-                        'Share preview',
+                        AppCopy.sharePreview(widget.language),
                         style: AppText.label(
                           size: 18,
                           weight: FontWeight.w800,
@@ -573,7 +574,7 @@ class _SharePreviewSheetState extends State<_SharePreviewSheet> {
                       ),
                     ),
                     IconButton(
-                      tooltip: 'Close',
+                      tooltip: AppCopy.cancel(widget.language),
                       onPressed: () => Navigator.of(context).pop(),
                       icon: const Icon(Icons.close_rounded),
                       color: AppColors.cream,
@@ -586,7 +587,7 @@ class _SharePreviewSheetState extends State<_SharePreviewSheet> {
                     for (final preset in ShareCardPreset.values) ...[
                       Expanded(
                         child: _SharePresetButton(
-                          label: _sharePresetLabel(preset),
+                          label: _sharePresetLabel(preset, widget.language),
                           selected: preset == _preset,
                           onTap: () => setState(() => _preset = preset),
                         ),
@@ -618,18 +619,25 @@ class _SharePreviewSheetState extends State<_SharePreviewSheet> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.ios_share_rounded),
-                    label: const Text('Export card'),
+                    label: Text(AppCopy.exportCard(widget.language)),
                   ),
                 ),
                 const SizedBox(height: 14),
-                SizedBox(
-                  height: previewHeight,
-                  child: Center(
-                    child: RepaintBoundary(
-                      key: _repaintKey,
-                      child: RunShareCardWidget(content: content),
-                    ),
-                  ),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final previewWidth = constraints.maxWidth
+                        .clamp(0.0, 360.0)
+                        .toDouble();
+                    return Center(
+                      child: SizedBox(
+                        width: previewWidth,
+                        child: RepaintBoundary(
+                          key: _repaintKey,
+                          child: RunShareCardWidget(content: content),
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -671,11 +679,11 @@ class _SharePresetButton extends StatelessWidget {
   }
 }
 
-String _sharePresetLabel(ShareCardPreset preset) {
+String _sharePresetLabel(ShareCardPreset preset, AppLanguage language) {
   return switch (preset) {
-    ShareCardPreset.story => 'Story',
-    ShareCardPreset.square => 'Square',
-    ShareCardPreset.sticker => 'Sticker',
+    ShareCardPreset.story => AppCopy.sharePresetStory(language),
+    ShareCardPreset.square => AppCopy.sharePresetSquare(language),
+    ShareCardPreset.sticker => AppCopy.sharePresetSticker(language),
   };
 }
 
@@ -892,34 +900,61 @@ class _RevvRecapSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final displayed = {
-      for (final metric in metrics.defaultShareMetrics)
-        metric.label: metric.value,
+      for (final metric in metrics.defaultShareMetrics) metric.id: metric.value,
     };
     final stats = <_StatItem>[
-      if (displayed['REVV Score'] case final value?)
-        _StatItem(label: 'REVV Score', value: value, accent: true),
-      if (displayed['Winding'] case final value?)
-        _StatItem(label: 'Winding', value: value, accent: true),
-      if (displayed['Flow'] case final value?)
-        _StatItem(label: 'Flow', value: value, accent: false),
-      if (displayed['Technical'] case final value?)
-        _StatItem(label: 'Technical', value: value, accent: false),
-      if (displayed['Smoothness'] case final value?)
-        _StatItem(label: 'Smoothness', value: value, accent: false),
+      if (displayed['revvScore'] case final value?)
+        _StatItem(
+          label: AppCopy.shareMetricLabel(language, 'revvScore'),
+          value: value,
+          accent: true,
+        ),
+      if (displayed['winding'] case final value?)
+        _StatItem(
+          label: AppCopy.shareMetricLabel(language, 'winding'),
+          value: value,
+          accent: true,
+        ),
+      if (displayed['flow'] case final value?)
+        _StatItem(
+          label: AppCopy.shareMetricLabel(language, 'flow'),
+          value: value,
+          accent: false,
+        ),
+      if (displayed['technical'] case final value?)
+        _StatItem(
+          label: AppCopy.shareMetricLabel(language, 'technical'),
+          value: value,
+          accent: false,
+        ),
+      if (displayed['smoothness'] case final value?)
+        _StatItem(
+          label: AppCopy.shareMetricLabel(language, 'smoothness'),
+          value: value,
+          accent: false,
+        ),
       _StatItem(
-        label: 'Distance',
-        value: displayed['Distance'] ?? '0.0 km',
+        label: AppCopy.shareMetricLabel(language, 'distance'),
+        value: displayed['distance'] ?? '0.0 km',
         accent: false,
       ),
       _StatItem(
-        label: 'Duration',
-        value: displayed['Duration'] ?? '0s',
+        label: AppCopy.shareMetricLabel(language, 'duration'),
+        value: displayed['duration'] ?? '0s',
         accent: false,
       ),
-      if (displayed['Corner events'] case final value?)
-        _StatItem(label: 'Corner events', value: value, accent: true),
-      if (displayed['Route'] case final value?)
-        _StatItem(label: 'Route', value: value, accent: false),
+      if (displayed['cornerEvents'] case final value?)
+        _StatItem(
+          label: AppCopy.shareMetricLabel(language, 'cornerEvents'),
+          value: value,
+          accent: true,
+        ),
+      if (displayed['route'] case final value?)
+        _StatItem(
+          label: AppCopy.shareMetricLabel(language, 'route'),
+          value: value,
+          accent: false,
+        ),
     ];
 
     return Container(
@@ -1373,8 +1408,7 @@ List<_SessionLogGroup> _sessionLogGroups({
 }) {
   final analytics = detail?.analytics ?? const <String, dynamic>{};
   final displayed = {
-    for (final metric in metrics.defaultShareMetrics)
-      metric.label: metric.value,
+    for (final metric in metrics.defaultShareMetrics) metric.id: metric.value,
   };
   final sampleCount =
       _analyticsInt(analytics, 'sampleCount') ??
@@ -1436,7 +1470,7 @@ List<_SessionLogGroup> _sessionLogGroups({
         ),
         _SessionLogRow(
           AppCopy.t(language, ko: '평균 속도', en: 'AVG SPEED', fr: 'MOYENNE'),
-          displayed['Avg speed'] ?? '—',
+          displayed['avgSpeed'] ?? '—',
         ),
         _SessionLogRow(
           AppCopy.t(
@@ -1462,12 +1496,12 @@ List<_SessionLogGroup> _sessionLogGroups({
       key: 'flow',
       icon: Icons.timeline_rounded,
       title: AppCopy.t(language, ko: '흐름', en: 'Flow', fr: 'Flow'),
-      summary: displayed['Flow'] == null ? '—' : 'Score ${displayed['Flow']}',
+      summary: displayed['flow'] == null ? '—' : 'Score ${displayed['flow']}',
       accent: AppColors.primaryContainer,
       rows: [
         _SessionLogRow(
           AppCopy.t(language, ko: '흐름 점수', en: 'FLOW SCORE', fr: 'SCORE FLOW'),
-          displayed['Flow'] ?? '—',
+          displayed['flow'] ?? '—',
         ),
         _SessionLogRow(
           AppCopy.t(
@@ -1501,14 +1535,14 @@ List<_SessionLogGroup> _sessionLogGroups({
       key: 'smoothness',
       icon: Icons.waves_rounded,
       title: AppCopy.t(language, ko: '스무스니스', en: 'Smoothness', fr: 'Fluidité'),
-      summary: displayed['Smoothness'] == null
+      summary: displayed['smoothness'] == null
           ? '—'
-          : 'Score ${displayed['Smoothness']}',
+          : 'Score ${displayed['smoothness']}',
       accent: AppColors.success,
       rows: [
         _SessionLogRow(
           AppCopy.t(language, ko: '스무스니스', en: 'SMOOTHNESS', fr: 'FLUIDITÉ'),
-          displayed['Smoothness'] ?? '—',
+          displayed['smoothness'] ?? '—',
         ),
         _SessionLogRow(
           AppCopy.t(
@@ -1524,7 +1558,12 @@ List<_SessionLogGroup> _sessionLogGroups({
           '${_analyticsInt(analytics, 'sharpEventCount') ?? session.sharpCorners.length}',
         ),
         _SessionLogRow(
-          AppCopy.t(language, ko: '종G 흐름', en: 'LONG G RANGE', fr: 'PLAGE G LONG'),
+          AppCopy.t(
+            language,
+            ko: '종G 흐름',
+            en: 'LONG G RANGE',
+            fr: 'PLAGE G LONG',
+          ),
           _formatG(_analyticsDouble(analytics, 'p95AbsLongitudinalG')),
         ),
       ],
@@ -1554,13 +1593,23 @@ List<_SessionLogGroup> _sessionLogGroups({
       accent: peakG >= 0.4 ? AppColors.warning : AppColors.gold,
       rows: [
         _SessionLogRow(
-          AppCopy.t(language, ko: '횡G 범위', en: 'LAT G RANGE', fr: 'PLAGE G LAT'),
+          AppCopy.t(
+            language,
+            ko: '횡G 범위',
+            en: 'LAT G RANGE',
+            fr: 'PLAGE G LAT',
+          ),
           _formatG(
             _analyticsDouble(analytics, 'maxLateralG') ?? session.maxLateralG,
           ),
         ),
         _SessionLogRow(
-          AppCopy.t(language, ko: '종G 범위', en: 'LONG G RANGE', fr: 'PLAGE G LONG'),
+          AppCopy.t(
+            language,
+            ko: '종G 범위',
+            en: 'LONG G RANGE',
+            fr: 'PLAGE G LONG',
+          ),
           _formatG(
             _analyticsDouble(analytics, 'maxLongitudinalG') ?? session.maxLonG,
           ),
