@@ -47,6 +47,7 @@ app.*.map.json
 node_modules/
 functions/lib/
 .lazyweb/
+.omo/
 
 # Local/generated planning exports. Do not commit because they may contain
 # copied credentials or stale implementation notes.

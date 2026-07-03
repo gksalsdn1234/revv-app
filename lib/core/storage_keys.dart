@@ -62,7 +62,6 @@ class StorageKeys {
   static const ttsVoiceName = 'setting_ttsVoiceName';
   static const ttsVoiceLocale = 'setting_ttsVoiceLocale';
   static const googleTtsVoiceName = 'setting_googleTtsVoiceName';
-  static const trustedObdDeviceId = 'trusted_obd_device_id';
 
   // ── IMU 캘리브레이션 (ImuService) ───────────────────────────
   static const imuMount = 'imu_mount';

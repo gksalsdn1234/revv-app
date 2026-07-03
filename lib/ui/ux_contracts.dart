@@ -112,7 +112,7 @@ RunReviewSummary resolveRunReviewSummary(RunSession session) {
     topStats: [
       session.distanceKm.toStringAsFixed(1),
       session.durationDisplay,
-      session.maxSpeedKmh > 0 ? session.maxSpeedKmh.toStringAsFixed(0) : '—',
+      session.avgSpeedKmh > 0 ? session.avgSpeedKmh.toStringAsFixed(0) : '—',
     ],
     primaryActionLabel: session.route != null ? '같은 루트 다시 보기' : '기록 보기',
   );
