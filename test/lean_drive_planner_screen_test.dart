@@ -103,6 +103,37 @@ void main() {
     expect(startButton.onPressed, isNull);
   });
 
+  testWidgets('planner labels approximate transit geometry', (tester) async {
+    await pumpPlanner(
+      tester,
+      plan: _planWithWinding(windingMinutes: 30, usesApproximateTransit: true),
+    );
+
+    await tester.tap(find.text('여정 만들기'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('대략 경로'), findsOneWidget);
+  });
+
+  test('Google Maps app URL includes planner waypoints', () {
+    final uri = buildGoogleMapsAppUri(
+      origin: const LatLng(45.5, -73.6),
+      destination: const LatLng(45.7, -73.8),
+      waypoints: const [LatLng(45.55, -73.65), LatLng(45.6, -73.7)],
+    );
+
+    expect(uri.scheme, 'comgooglemapsurl');
+    expect(uri.host, 'www.google.com');
+    expect(uri.path, '/maps/dir/');
+    expect(uri.queryParameters['api'], '1');
+    expect(uri.queryParameters['saddr'], '45.5000,-73.6000');
+    expect(uri.queryParameters['daddr'], '45.7000,-73.8000');
+    expect(
+      uri.queryParameters['waypoints'],
+      '45.5500,-73.6500|45.6000,-73.7000',
+    );
+  });
+
   testWidgets('plan options switch the displayed timeline', (tester) async {
     await pumpPlanner(
       tester,
@@ -302,6 +333,7 @@ DrivePlan _planWithRest() {
 DrivePlan _planWithWinding({
   required int windingMinutes,
   String routeName = 'Lakeside Road',
+  bool usesApproximateTransit = false,
 }) {
   final route = RevvRoute(
     id: 'lakeside',
@@ -346,6 +378,7 @@ DrivePlan _planWithWinding({
       LatLng(45.7, -73.8),
     ],
     budgetShortfallMinutes: 30 - windingMinutes,
+    usesApproximateTransit: usesApproximateTransit,
   );
 }
 

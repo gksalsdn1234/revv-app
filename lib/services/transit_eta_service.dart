@@ -11,11 +11,13 @@ class TransitLegEta {
   final List<LatLng> nodes;
   final double distanceKm;
   final int estimatedMinutes;
+  final bool usesFallbackGeometry;
 
   const TransitLegEta({
     required this.nodes,
     required this.distanceKm,
     required this.estimatedMinutes,
+    this.usesFallbackGeometry = false,
   });
 }
 
@@ -85,6 +87,7 @@ List<TransitLegEta> fallbackLegs(List<LatLng> waypoints) {
         nodes: [start, end],
         distanceKm: roadKm,
         estimatedMinutes: math.max(1, roadKm.round()),
+        usesFallbackGeometry: true,
       ),
     );
   }

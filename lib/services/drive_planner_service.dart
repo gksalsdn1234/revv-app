@@ -96,6 +96,7 @@ DrivePlan insertRestLegs(DrivePlan plan) {
     restMinutes: plan.restMinutes + insertedRestMinutes,
     waypoints: plan.waypoints,
     budgetShortfallMinutes: plan.budgetShortfallMinutes,
+    usesApproximateTransit: plan.usesApproximateTransit,
   );
 }
 
@@ -268,9 +269,14 @@ class DrivePlannerService {
     DrivePlanRequest request,
     List<RevvRoute> windingRoutes,
   ) async {
-    final oriented = windingRoutes
-        .map((route) => _orientedRoute(route, request))
-        .toList();
+    final oriented =
+        windingRoutes.map((route) => _orientedRoute(route, request)).toList()
+          ..sort(
+            (a, b) => _projection(
+              a.nodes.first,
+              request,
+            ).compareTo(_projection(b.nodes.first, request)),
+          );
     final transitWaypoints = <LatLng>[request.origin];
     for (final route in oriented) {
       transitWaypoints.add(route.nodes.first);
@@ -312,6 +318,9 @@ class DrivePlannerService {
       budgetShortfallMinutes: math.max(
         0,
         request.windingBudgetMinutes - windingMinutes,
+      ),
+      usesApproximateTransit: transitLegs.any(
+        (leg) => leg.usesFallbackGeometry,
       ),
     );
   }
@@ -359,11 +368,14 @@ class DrivePlannerService {
   }
 
   double _projection(LatLng point, DrivePlanRequest request) {
-    final dx = request.destination.lng - request.origin.lng;
+    final longitudeScale = math.cos(
+      ((request.origin.lat + request.destination.lat) / 2) * math.pi / 180,
+    );
+    final dx = (request.destination.lng - request.origin.lng) * longitudeScale;
     final dy = request.destination.lat - request.origin.lat;
     final lengthSquared = dx * dx + dy * dy;
     if (lengthSquared == 0) return 0;
-    return ((point.lng - request.origin.lng) * dx +
+    return (((point.lng - request.origin.lng) * longitudeScale) * dx +
             (point.lat - request.origin.lat) * dy) /
         lengthSquared;
   }

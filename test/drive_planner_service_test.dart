@@ -63,6 +63,89 @@ void main() {
   });
 
   test(
+    'planner uses latitude-scaled projection for diagonal corridors',
+    () async {
+      final routes = [
+        _routeAt(
+          id: 'southeast',
+          center: const LatLng(43.5, -78.5),
+          windingScore: 7.0,
+        ),
+        _routeAt(
+          id: 'northwest',
+          center: const LatLng(45.9, -79.5),
+          windingScore: 7.0,
+        ),
+      ];
+      final service = _service(routes);
+
+      final plan = await service.buildPlan(
+        const DrivePlanRequest(
+          origin: LatLng(45.5, -73.6),
+          destination: LatLng(44.0, -79.0),
+          windingBudgetMinutes: 60,
+        ),
+      );
+
+      expect(_windingIds(plan), ['northwest', 'southeast']);
+    },
+  );
+
+  test(
+    'planner orders winding visits by entry point instead of center point',
+    () async {
+      final routes = [
+        _routeWithNodes(
+          id: 'center-early-entry-late',
+          center: const LatLng(0, 3),
+          nodes: const [LatLng(0, 6), LatLng(0, 6.2)],
+          windingScore: 7.0,
+        ),
+        _routeWithNodes(
+          id: 'center-late-entry-early',
+          center: const LatLng(0, 4),
+          nodes: const [LatLng(0, 2), LatLng(0, 2.2)],
+          windingScore: 7.0,
+        ),
+      ];
+      final service = _service(routes);
+
+      final plan = await service.buildPlan(_request(60));
+
+      expect(_windingIds(plan), [
+        'center-late-entry-early',
+        'center-early-entry-late',
+      ]);
+    },
+  );
+
+  test('planner does not select a chained route with its segments', () async {
+    final routes = [
+      _routeWithNodes(
+        id: 'segment-a',
+        center: const LatLng(0, 0.25),
+        nodes: const [LatLng(0, 0.20), LatLng(0, 0.30)],
+        windingScore: 7.0,
+      ),
+      _routeWithNodes(
+        id: 'segment-b',
+        center: const LatLng(0, 0.34),
+        nodes: const [LatLng(0, 0.32), LatLng(0, 0.42)],
+        windingScore: 7.0,
+      ),
+    ];
+    final service = _service(routes);
+
+    final plan = await service.buildPlan(_request(80));
+    final ids = _windingIds(plan);
+
+    if (ids.any((id) => id.startsWith('combo:'))) {
+      expect(ids, isNot(contains('segment-a')));
+      expect(ids, isNot(contains('segment-b')));
+    }
+  });
+
+  test(
     'planner returns direct transit plan when no corridor candidates exist',
     () async {
       final service = _service(const []);
@@ -87,6 +170,7 @@ void main() {
     expect(plan, isNotNull);
     expect(plan!.legs.single.kind, DrivePlanLegKind.transit);
     expect(plan.legs.single.estimatedMinutes, greaterThan(1));
+    expect(plan.usesApproximateTransit, isTrue);
   });
 }
 
@@ -128,6 +212,46 @@ RevvRoute _route({
     starRating: 4,
     sharpCurveCount: 10,
     centerPoint: LatLng(0, (startLng + endLng) / 2),
+    distanceFromUser: 10,
+    tightCurveKm: 2.0,
+    mediumCurveKm: 2.5,
+    maxContinuousKm: 1.5,
+    routeRankScore: 10,
+    flowScore: 1,
+  );
+}
+
+RevvRoute _routeAt({
+  required String id,
+  required LatLng center,
+  required double windingScore,
+}) {
+  return _routeWithNodes(
+    id: id,
+    center: center,
+    nodes: [
+      LatLng(center.lat - 0.02, center.lng - 0.02),
+      LatLng(center.lat + 0.02, center.lng + 0.02),
+    ],
+    windingScore: windingScore,
+  );
+}
+
+RevvRoute _routeWithNodes({
+  required String id,
+  required LatLng center,
+  required List<LatLng> nodes,
+  required double windingScore,
+}) {
+  return RevvRoute(
+    id: id,
+    name: 'Route $id',
+    nodes: nodes,
+    distanceKm: 16,
+    windingScore: windingScore,
+    starRating: 4,
+    sharpCurveCount: 10,
+    centerPoint: center,
     distanceFromUser: 10,
     tightCurveKm: 2.0,
     mediumCurveKm: 2.5,

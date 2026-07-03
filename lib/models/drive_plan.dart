@@ -73,6 +73,7 @@ class DrivePlan {
   final int restMinutes;
   final List<LatLng> waypoints;
   final int budgetShortfallMinutes;
+  final bool usesApproximateTransit;
 
   const DrivePlan({
     required this.legs,
@@ -82,6 +83,7 @@ class DrivePlan {
     this.restMinutes = 0,
     required this.waypoints,
     this.budgetShortfallMinutes = 0,
+    this.usesApproximateTransit = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -92,6 +94,7 @@ class DrivePlan {
     'restMinutes': restMinutes,
     'waypoints': waypoints.map(_latLngToJson).toList(),
     'budgetShortfallMinutes': budgetShortfallMinutes,
+    'usesApproximateTransit': usesApproximateTransit,
   };
 
   factory DrivePlan.fromJson(Map<String, dynamic> json) {
@@ -107,6 +110,7 @@ class DrivePlan {
       waypoints: _latLngListFromJson(json['waypoints']),
       budgetShortfallMinutes:
           (json['budgetShortfallMinutes'] as num?)?.toInt() ?? 0,
+      usesApproximateTransit: json['usesApproximateTransit'] == true,
     );
   }
 }

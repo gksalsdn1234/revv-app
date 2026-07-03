@@ -26,6 +26,7 @@ void main() {
       transitMinutes: 17,
       waypoints: const [LatLng(45.0, -73.0), LatLng(45.2, -73.2)],
       budgetShortfallMinutes: 5,
+      usesApproximateTransit: true,
     );
 
     final decoded = DrivePlan.fromJson(plan.toJson());
@@ -34,6 +35,7 @@ void main() {
     expect(decoded.windingMinutes, 20);
     expect(decoded.transitMinutes, 17);
     expect(decoded.budgetShortfallMinutes, 5);
+    expect(decoded.usesApproximateTransit, isTrue);
     expect(decoded.legs.first.kind, DrivePlanLegKind.transit);
     expect(decoded.legs.last.route?.id, 'ridge');
     expect(decoded.waypoints.last.lng, -73.2);

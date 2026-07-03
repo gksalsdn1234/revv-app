@@ -13,6 +13,7 @@ void main() {
     expect(legs, hasLength(1));
     expect(legs.first.distanceKm, closeTo(144.6, 0.8));
     expect(legs.first.estimatedMinutes, 145);
+    expect(legs.first.usesFallbackGeometry, isTrue);
   });
 
   test(
@@ -31,6 +32,7 @@ void main() {
       expect(legs, hasLength(2));
       expect(legs!.first.distanceKm, 12.4);
       expect(legs.first.estimatedMinutes, 15);
+      expect(legs.first.usesFallbackGeometry, isFalse);
       expect(legs.first.nodes.length, 3);
       expect(legs.last.distanceKm, 8.1);
       expect(legs.last.estimatedMinutes, 10);

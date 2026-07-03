@@ -233,8 +233,10 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       if (waypoints.isNotEmpty) 'waypoints': waypoints.map(_coord).join('|'),
       'travelmode': 'driving',
     });
-    final appUri = Uri.parse(
-      'comgooglemaps://?saddr=${_coord(_origin)}&daddr=${_coord(_destination)}&directionsmode=driving',
+    final appUri = buildGoogleMapsAppUri(
+      origin: _origin,
+      destination: _destination,
+      waypoints: waypoints,
     );
     final launchedApp = await launchUrl(
       appUri,
@@ -420,12 +422,10 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
                     selected: _selectedKind,
                     recommended: _recommendedOption?.kind,
                     language: language,
-                    onSelected: (kind) =>
-                        setState(() => _selectedKind = kind),
+                    onSelected: (kind) => setState(() => _selectedKind = kind),
                   ),
                   const SizedBox(height: 10),
-                  if (_arriveByDateTime != null &&
-                      _recommendedOption == null)
+                  if (_arriveByDateTime != null && _recommendedOption == null)
                     _ArrivalInfeasibleCard(
                       options: _options!,
                       arriveBy: _arriveByDateTime!,
@@ -586,7 +586,12 @@ class _PlannerInputCard extends StatelessWidget {
                 onPressed: onPickArriveBy,
                 child: Text(
                   arriveBy == null
-                      ? _copy(language, ko: '시각 선택', en: 'Pick time', fr: 'Choisir')
+                      ? _copy(
+                          language,
+                          ko: '시각 선택',
+                          en: 'Pick time',
+                          fr: 'Choisir',
+                        )
                       : _copy(language, ko: '변경', en: 'Change', fr: 'Modifier'),
                 ),
               ),
@@ -967,6 +972,18 @@ class _PlanResultCard extends StatelessWidget {
             ),
             style: AppText.body(size: 12, color: AppColors.textSecondary),
           ),
+          if (plan.usesApproximateTransit) ...[
+            const SizedBox(height: 4),
+            Text(
+              _copy(
+                language,
+                ko: '대략 경로 · 실제 내비에서 도로 경로를 확인하세요',
+                en: 'Approximate route · confirm roads in navigation',
+                fr: 'Trajet approximatif · vérifiez dans la navigation',
+              ),
+              style: AppText.body(size: 12, color: AppColors.warning),
+            ),
+          ],
           const SizedBox(height: 12),
           ...plan.legs.map((leg) => _TimelineLeg(leg: leg, language: language)),
           const SizedBox(height: 10),
@@ -1175,12 +1192,9 @@ class _ArrivalInfeasibleCard extends StatelessWidget {
         ),
         body: _copy(
           language,
-          ko:
-              '남은 시간 $availableMinutes분, 가장 가벼운 여정도 ${lightest.plan.totalMinutes}분이 필요해요. 도착 시각을 늦추거나 목적지를 조정해 보세요.',
-          en:
-              '$availableMinutes min left, but the lightest plan needs ${lightest.plan.totalMinutes} min. Push the arrival time or adjust the destination.',
-          fr:
-              '$availableMinutes min restantes, mais le trajet le plus court demande ${lightest.plan.totalMinutes} min. Décalez l’arrivée ou ajustez la destination.',
+          ko: '남은 시간 $availableMinutes분, 가장 가벼운 여정도 ${lightest.plan.totalMinutes}분이 필요해요. 도착 시각을 늦추거나 목적지를 조정해 보세요.',
+          en: '$availableMinutes min left, but the lightest plan needs ${lightest.plan.totalMinutes} min. Push the arrival time or adjust the destination.',
+          fr: '$availableMinutes min restantes, mais le trajet le plus court demande ${lightest.plan.totalMinutes} min. Décalez l’arrivée ou ajustez la destination.',
         ),
       ),
     );
@@ -1275,6 +1289,25 @@ int _budgetMinutes(DriveBudget budget) {
 
 String _coord(LatLng point) {
   return '${point.lat.toStringAsFixed(4)},${point.lng.toStringAsFixed(4)}';
+}
+
+Uri buildGoogleMapsAppUri({
+  required LatLng origin,
+  required LatLng destination,
+  required List<LatLng> waypoints,
+}) {
+  return Uri(
+    scheme: 'comgooglemapsurl',
+    host: 'www.google.com',
+    path: '/maps/dir/',
+    queryParameters: {
+      'api': '1',
+      'saddr': _coord(origin),
+      'daddr': _coord(destination),
+      if (waypoints.isNotEmpty) 'waypoints': waypoints.map(_coord).join('|'),
+      'directionsmode': 'driving',
+    },
+  );
 }
 
 String _formatTimeOfDay(TimeOfDay time) {
