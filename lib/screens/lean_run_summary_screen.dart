@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../core/app_language.dart';
 import '../models/revv_route.dart';
@@ -27,17 +28,20 @@ class LeanRunSummaryScreen extends StatefulWidget {
   final RunSummary? historySummary;
   final RunTelemetryDetail? historyDetail;
   final Future<File> Function()? shareExporter;
+  final Future<void> Function(File file)? sharePresenter;
 
   const LeanRunSummaryScreen({super.key, required this.session})
     : historySummary = null,
       historyDetail = null,
-      shareExporter = null;
+      shareExporter = null,
+      sharePresenter = null;
 
   const LeanRunSummaryScreen.history({
     super.key,
     required RunSummary summary,
     RunTelemetryDetail? detail,
     this.shareExporter,
+    this.sharePresenter,
   }) : session = null,
        historySummary = summary,
        historyDetail = detail;
@@ -111,10 +115,9 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
               fileName: 'revv-share-card.png',
             )
           : await exporter();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Share card exported: ${file.path}')),
-      );
+      // 시스템 공유 시트가 성공 피드백 그 자체 — 경로 스낵바는 띄우지 않는다
+      final presenter = widget.sharePresenter ?? _presentSystemShareSheet;
+      await presenter(file);
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -132,6 +135,12 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
     } finally {
       if (mounted) setState(() => _shareExporting = false);
     }
+  }
+
+  static Future<void> _presentSystemShareSheet(File file) {
+    return SharePlus.instance.share(
+      ShareParams(files: [XFile(file.path, mimeType: 'image/png')]),
+    );
   }
 
   void _showSharePreview({

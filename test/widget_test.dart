@@ -638,6 +638,7 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final file = File('${Directory.systemTemp.path}/revv-widget-share.png');
     var exportCalled = false;
+    String? sharedPath;
 
     await tester.pumpWidget(
       MultiProvider(
@@ -654,6 +655,7 @@ void main() {
               file.writeAsBytesSync([1, 2, 3], flush: true);
               return Future.value(file);
             },
+            sharePresenter: (shared) async => sharedPath = shared.path,
           ),
         ),
       ),
@@ -673,6 +675,8 @@ void main() {
 
     expect(exportCalled, isTrue);
     expect(file.existsSync(), isTrue);
+    // 내보내기 후 시스템 공유 시트로 파일이 전달돼야 한다
+    expect(sharedPath, file.path);
   });
 
   testWidgets('share export failure is handled', (tester) async {
@@ -690,6 +694,7 @@ void main() {
             summary: _shareActionSummary(),
             detail: _shareActionDetail(),
             shareExporter: () => throw StateError('export failed'),
+            sharePresenter: (_) async {},
           ),
         ),
       ),
@@ -728,6 +733,7 @@ void main() {
                 File('${Directory.systemTemp.path}/revv-preview-share.png'),
               );
             },
+            sharePresenter: (_) async {},
           ),
         ),
       ),
