@@ -106,9 +106,9 @@ void main() {
 
     expect(plan, hasLength(4));
     expect(plan.first.sequence, 1);
-    expect(plan.first.action, TurnAction.sharpRight);
     expect(plan.first.distanceFromStartM, inInclusiveRange(100, 140));
     expect(plan.first.headline, '110m 우측 헤어핀');
+    expect(plan.first.command, contains('우측'));
     expect(plan.last.finish, isTrue);
   });
 

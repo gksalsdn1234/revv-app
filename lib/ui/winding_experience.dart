@@ -1,11 +1,6 @@
 import '../models/revv_route.dart';
 
-class WindingExperienceMetric {
-  final String label;
-  final String value;
-
-  const WindingExperienceMetric(this.label, this.value);
-}
+typedef WindingExperienceMetric = ({String label, String value});
 
 class WindingExperienceProfile {
   final int score;
@@ -70,12 +65,9 @@ class WindingExperienceProfile {
       caution: _caution(route, controls),
       badges: _badges(route, density),
       metrics: [
-        WindingExperienceMetric('Fun', '$score'),
-        WindingExperienceMetric('Curves', '${curvyKm.toStringAsFixed(1)}km'),
-        WindingExperienceMetric(
-          'Flow',
-          '${route.maxContinuousKm.toStringAsFixed(1)}km',
-        ),
+        (label: 'Fun', value: '$score'),
+        (label: 'Curves', value: '${curvyKm.toStringAsFixed(1)}km'),
+        (label: 'Flow', value: '${route.maxContinuousKm.toStringAsFixed(1)}km'),
       ],
     );
   }

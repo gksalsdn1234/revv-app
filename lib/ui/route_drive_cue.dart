@@ -8,16 +8,6 @@ import 'app_copy.dart';
 
 enum DriveRouteStatus { approachingStart, onRoute, offRoute, completed }
 
-enum TurnAction {
-  slightLeft,
-  left,
-  sharpLeft,
-  slightRight,
-  right,
-  sharpRight,
-  finish,
-}
-
 class DriveCurveCue {
   final String label;
   final String detail;
@@ -84,7 +74,6 @@ class DriveRouteState {
 
 class TurnInstruction {
   final int sequence;
-  final TurnAction action;
   final String directionLabel;
   final String intensityLabel;
   final String headline;
@@ -97,7 +86,6 @@ class TurnInstruction {
 
   const TurnInstruction({
     required this.sequence,
-    required this.action,
     required this.directionLabel,
     required this.intensityLabel,
     required this.headline,
@@ -108,26 +96,6 @@ class TurnInstruction {
     required this.severity,
     this.finish = false,
   });
-
-  TurnInstruction copyWith({
-    double? aheadM,
-    String? headline,
-    String? command,
-  }) {
-    return TurnInstruction(
-      sequence: sequence,
-      action: action,
-      directionLabel: directionLabel,
-      intensityLabel: intensityLabel,
-      headline: headline ?? this.headline,
-      command: command ?? this.command,
-      icon: icon,
-      distanceFromStartM: distanceFromStartM,
-      aheadM: aheadM ?? this.aheadM,
-      severity: severity,
-      finish: finish,
-    );
-  }
 }
 
 class TurnByTurnState {
@@ -172,7 +140,6 @@ List<TurnInstruction> buildTurnByTurnPlan(
   instructions.add(
     TurnInstruction(
       sequence: instructions.length + 1,
-      action: TurnAction.finish,
       directionLabel: _driveText(language, '피니시', 'Finish', 'Arrivée'),
       intensityLabel: _driveText(language, '완료', 'Done', 'Terminé'),
       headline:
@@ -229,10 +196,11 @@ TurnByTurnState readTurnByTurnState(
   final next = plan[nextIndex];
   final aheadM = math.max(0.0, next.distanceFromStartM - nearest.alongM);
   return TurnByTurnState(
-    instruction: next.copyWith(
+    instruction: _turnWithLiveTiming(
+      next,
       aheadM: aheadM,
-      headline: _turnHeadline(next, aheadM, language),
-      command: _turnCommand(next, aheadM, status, language),
+      status: status,
+      language: language,
     ),
     completedInstructions: completed,
     totalInstructions: plan.length,
@@ -483,52 +451,87 @@ TurnInstruction _turnInstruction({
       ? _driveText(language, '우측', 'Right', 'Droite')
       : _driveText(language, '좌측', 'Left', 'Gauche');
   final intensity = _curveIntensity(absTurn, language);
-  final action = _turnAction(turn, absTurn);
   final severity = _curveSeverity(absTurn);
-  final shell = TurnInstruction(
+  return TurnInstruction(
     sequence: sequence,
-    action: action,
     directionLabel: direction,
     intensityLabel: intensity,
-    headline: '',
-    command: '',
+    headline: _turnHeadline(
+      finish: false,
+      directionLabel: direction,
+      intensityLabel: intensity,
+      aheadM: aheadM,
+      language: language,
+    ),
+    command: _turnCommand(
+      finish: false,
+      directionLabel: direction,
+      intensityLabel: intensity,
+      aheadM: aheadM,
+      status: DriveRouteStatus.onRoute,
+      language: language,
+    ),
     icon: _curveIcon(turn, absTurn),
     distanceFromStartM: distanceFromStartM,
     aheadM: aheadM,
     severity: severity,
   );
-  return shell.copyWith(
-    headline: _turnHeadline(shell, aheadM, language),
-    command: _turnCommand(shell, aheadM, DriveRouteStatus.onRoute, language),
+}
+
+TurnInstruction _turnWithLiveTiming(
+  TurnInstruction instruction, {
+  required double aheadM,
+  required DriveRouteStatus status,
+  required AppLanguage? language,
+}) {
+  return TurnInstruction(
+    sequence: instruction.sequence,
+    directionLabel: instruction.directionLabel,
+    intensityLabel: instruction.intensityLabel,
+    headline: _turnHeadline(
+      finish: instruction.finish,
+      directionLabel: instruction.directionLabel,
+      intensityLabel: instruction.intensityLabel,
+      aheadM: aheadM,
+      language: language,
+    ),
+    command: _turnCommand(
+      finish: instruction.finish,
+      directionLabel: instruction.directionLabel,
+      intensityLabel: instruction.intensityLabel,
+      aheadM: aheadM,
+      status: status,
+      language: language,
+    ),
+    icon: instruction.icon,
+    distanceFromStartM: instruction.distanceFromStartM,
+    aheadM: aheadM,
+    severity: instruction.severity,
+    finish: instruction.finish,
   );
 }
 
-TurnAction _turnAction(double turn, double absTurn) {
-  if (turn < 0 && absTurn >= 68) return TurnAction.sharpLeft;
-  if (turn < 0 && absTurn >= 42) return TurnAction.left;
-  if (turn < 0) return TurnAction.slightLeft;
-  if (absTurn >= 68) return TurnAction.sharpRight;
-  if (absTurn >= 42) return TurnAction.right;
-  return TurnAction.slightRight;
-}
-
-String _turnHeadline(
-  TurnInstruction instruction,
-  double aheadM,
-  AppLanguage? language,
-) {
-  if (instruction.finish) {
+String _turnHeadline({
+  required bool finish,
+  required String directionLabel,
+  required String intensityLabel,
+  required double aheadM,
+  required AppLanguage? language,
+}) {
+  if (finish) {
     return '${formatTurnMeters(aheadM)} ${_driveText(language, '피니시', 'Finish', 'Arrivée')}';
   }
-  return '${formatTurnMeters(aheadM)} ${instruction.directionLabel} ${instruction.intensityLabel}';
+  return '${formatTurnMeters(aheadM)} $directionLabel $intensityLabel';
 }
 
-String _turnCommand(
-  TurnInstruction instruction,
-  double aheadM,
-  DriveRouteStatus status,
-  AppLanguage? language,
-) {
+String _turnCommand({
+  required bool finish,
+  required String directionLabel,
+  required String intensityLabel,
+  required double aheadM,
+  required DriveRouteStatus status,
+  required AppLanguage? language,
+}) {
   if (status == DriveRouteStatus.offRoute) {
     return _driveText(
       language,
@@ -537,7 +540,7 @@ String _turnCommand(
       'Rejoignez la route, puis reprenez le prochain virage',
     );
   }
-  if (instruction.finish) {
+  if (finish) {
     return _driveText(
       language,
       '피니시까지 흐름 유지',
@@ -546,9 +549,9 @@ String _turnCommand(
     );
   }
   if (aheadM <= 80) {
-    return '${instruction.directionLabel} ${instruction.intensityLabel} ${_driveText(language, '진입', 'now', 'maintenant')}';
+    return '$directionLabel $intensityLabel ${_driveText(language, '진입', 'now', 'maintenant')}';
   }
-  return '${instruction.directionLabel} ${instruction.intensityLabel} ${_driveText(language, '준비', 'coming up', 'à venir')}';
+  return '$directionLabel $intensityLabel ${_driveText(language, '준비', 'coming up', 'à venir')}';
 }
 
 String formatTurnMeters(double meters) {

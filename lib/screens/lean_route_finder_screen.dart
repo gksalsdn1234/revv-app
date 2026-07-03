@@ -14,7 +14,6 @@ import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
 import '../ui/copilot_briefing.dart';
 import '../ui/route_difficulty_profile.dart';
-import '../ui/route_map_display_policy.dart';
 import '../ui/route_quality_profile.dart';
 import '../ui/winding_experience.dart';
 import '../widgets/copilot_start_sheet.dart';
@@ -25,6 +24,33 @@ import 'lean_route_detail_screen.dart';
 enum _RouteLens { all, nearby, sweeper, tight, flow, loop }
 
 enum _RouteMapMode { wide, balanced, close }
+
+const _routeRegionPresets = [
+  _RouteRegion(
+    'montreal',
+    'Montreal',
+    '45.5017, -73.5673',
+    LatLng(45.5017, -73.5673),
+  ),
+  _RouteRegion(
+    'toronto',
+    'Toronto',
+    '43.6532, -79.3832',
+    LatLng(43.6532, -79.3832),
+  ),
+  _RouteRegion(
+    'vancouver',
+    'Vancouver',
+    '49.2827, -123.1207',
+    LatLng(49.2827, -123.1207),
+  ),
+  _RouteRegion(
+    'calgary',
+    'Calgary',
+    '51.0447, -114.0719',
+    LatLng(51.0447, -114.0719),
+  ),
+];
 
 class LeanRouteFinderScreen extends StatefulWidget {
   const LeanRouteFinderScreen({super.key});
@@ -43,6 +69,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   bool _curveRoadView = false;
   bool _hasUserSelectedRoute = false;
   RevvRoute? _selectedRouteOverride;
+  String? _selectedRegionKey;
 
   @override
   void initState() {
@@ -53,13 +80,13 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   Future<void> _searchHere() async {
     final point = _mapCenterPoint ?? await _resolveSearchPoint();
     if (!mounted || point == null) return;
-    await _fetchAtPoint(point, forceRefresh: true);
+    await _fetchAtPoint(point, forceRefresh: true, regionKey: null);
   }
 
   Future<void> _searchCurrentLocation() async {
     final point = await _resolveSearchPoint();
     if (!mounted || point == null) return;
-    await _fetchAtPoint(point);
+    await _fetchAtPoint(point, regionKey: null);
   }
 
   Future<LatLng?> _resolveSearchPoint() async {
@@ -87,7 +114,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     return point;
   }
 
-  Future<void> _fetchAtPoint(LatLng point, {bool forceRefresh = false}) async {
+  Future<void> _fetchAtPoint(
+    LatLng point, {
+    bool forceRefresh = false,
+    String? regionKey,
+  }) async {
     final settings = context.read<SettingsService>();
     final routes = context.read<RouteService>();
     routes.filterStrength = settings.routeFilterStrength;
@@ -106,7 +137,47 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _hasUserSelectedRoute = false;
       _selectedRouteOverride = null;
       _localStatusMessage = null;
+      _selectedRegionKey = regionKey;
+      if (regionKey != null) {
+        _mapCenterPoint = point;
+        _mapZoom = 11.0;
+      }
     });
+  }
+
+  Future<void> _selectRegionPreset() async {
+    final language = context.read<SettingsService>().appLanguage;
+    final current = _routeRegionPresets.indexWhere(
+      (region) => region.key == _selectedRegionKey,
+    );
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RouteOptionSheet(
+        title: AppCopy.t(
+          language,
+          ko: '지역 프리셋',
+          en: 'Region presets',
+          fr: 'Régions',
+        ),
+        selectedValue: current,
+        options: [
+          for (var i = 0; i < _routeRegionPresets.length; i++)
+            _RouteOption(
+              i,
+              _routeRegionPresets[i].title,
+              _routeRegionPresets[i].subtitle,
+            ),
+        ],
+      ),
+    );
+    if (!mounted || selected == null) return;
+    final region = _routeRegionPresets[selected];
+    await _fetchAtPoint(
+      region.point,
+      forceRefresh: true,
+      regionKey: region.key,
+    );
   }
 
   Future<void> _selectVisibleLimit() async {
@@ -293,10 +364,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final routes = service.routes;
     final visibleRoutes = _rankRoutes(_filterRoutes(routes, _lens));
     final mapDisplayRoutes = _routesForViewport(
-      routeFinderMapDisplayRoutes(
-        mapVisualRoutes: service.mapVisualRoutes,
-        visibleRoutes: visibleRoutes,
-      ),
+      service.mapVisualRoutes.isNotEmpty
+          ? service.mapVisualRoutes
+          : visibleRoutes,
       _mapCenterPoint,
       _mapZoom,
     );
@@ -391,6 +461,12 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       filterStrength: service.filterStrength,
                       onBack: () => Navigator.pop(context),
                       onSearch: _searchHere,
+                      onRegion: _selectRegionPreset,
+                      regionLabel: _regionButtonLabel(
+                        _selectedRegionKey,
+                        language,
+                      ),
+                      regionSelected: _selectedRegionKey != null,
                       onLimit: _selectVisibleLimit,
                       onStrength: _selectFilterStrength,
                       curveRoadView: _curveRoadView,
@@ -516,8 +592,11 @@ class _LeanRouteTopBar extends StatelessWidget {
   final bool busy;
   final int visibleLimit;
   final RouteFilterStrength filterStrength;
+  final String regionLabel;
+  final bool regionSelected;
   final VoidCallback onBack;
   final VoidCallback onSearch;
+  final VoidCallback onRegion;
   final VoidCallback onLimit;
   final VoidCallback onStrength;
   final bool curveRoadView;
@@ -529,8 +608,11 @@ class _LeanRouteTopBar extends StatelessWidget {
     required this.busy,
     required this.visibleLimit,
     required this.filterStrength,
+    required this.regionLabel,
+    required this.regionSelected,
     required this.onBack,
     required this.onSearch,
+    required this.onRegion,
     required this.onLimit,
     required this.onStrength,
     required this.curveRoadView,
@@ -576,6 +658,13 @@ class _LeanRouteTopBar extends StatelessWidget {
                     label: '$visibleLimit',
                     icon: Icons.view_week_rounded,
                     onTap: busy ? null : onLimit,
+                  ),
+                  const SizedBox(width: 6),
+                  _LeanMiniButton(
+                    label: regionLabel,
+                    icon: Icons.public_rounded,
+                    onTap: busy ? null : onRegion,
+                    selected: regionSelected,
                   ),
                   const SizedBox(width: 6),
                   _LeanMiniButton(
@@ -625,6 +714,15 @@ class _RouteOption {
   final String subtitle;
 
   const _RouteOption(this.value, this.title, this.subtitle);
+}
+
+class _RouteRegion {
+  final String key;
+  final String title;
+  final String subtitle;
+  final LatLng point;
+
+  const _RouteRegion(this.key, this.title, this.subtitle, this.point);
 }
 
 class _RouteOptionSheet extends StatelessWidget {
@@ -1727,6 +1825,15 @@ String _lensLabel(_RouteLens lens, AppLanguage language) {
     _RouteLens.flow => AppCopy.t(language, ko: '흐름', en: 'Flow', fr: 'Rythme'),
     _RouteLens.loop => AppCopy.t(language, ko: '루프', en: 'Loop', fr: 'Boucle'),
   };
+}
+
+String _regionButtonLabel(String? regionKey, AppLanguage language) {
+  if (regionKey == null) {
+    return AppCopy.t(language, ko: '지역', en: 'Region', fr: 'Région');
+  }
+  return _routeRegionPresets
+      .firstWhere((region) => region.key == regionKey)
+      .title;
 }
 
 List<RevvRoute> _filterRoutes(List<RevvRoute> routes, _RouteLens lens) {
