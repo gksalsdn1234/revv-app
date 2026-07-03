@@ -28,7 +28,7 @@ Deno.serve(async (req) => {
   try {
     const apiKey = Deno.env.get("GOOGLE_TTS_API_KEY");
     if (!apiKey) {
-      return json({ audioContent: "", error: "GOOGLE_TTS_API_KEY missing" });
+      return json({ audioContent: "", error: "tts_config_missing" });
     }
 
     const { text, voiceName } = await req.json();
@@ -63,8 +63,8 @@ Deno.serve(async (req) => {
     }
     const data = await upstream.json();
     return json({ audioContent: data.audioContent ?? "" });
-  } catch (error) {
-    return json({ audioContent: "", error: String(error) });
+  } catch {
+    return json({ audioContent: "", error: "tts_request_failed" });
   }
 });
 

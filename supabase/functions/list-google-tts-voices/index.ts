@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
   if (!apiKey) {
     return json({
       voices: fallbackVoices,
-      error: "GOOGLE_TTS_API_KEY missing",
+      error: "tts_config_missing",
     });
   }
 
@@ -61,8 +61,8 @@ Deno.serve(async (req) => {
       }))
       .filter((voice: { name: string }) => voice.name.length > 0);
     return json({ voices: voices.length > 0 ? voices : fallbackVoices });
-  } catch (error) {
-    return json({ voices: fallbackVoices, error: String(error) });
+  } catch {
+    return json({ voices: fallbackVoices, error: "tts_request_failed" });
   }
 });
 

@@ -17,11 +17,14 @@ This document tracks the security and privacy work needed before a wider beta. T
 - Added static migration security tests and a Supabase verification runbook for staging/production checks.
 - Added Supabase Security Advisor cleanup migration for app-owned function `search_path` and public execute grants.
 - Applied linked Supabase remote migrations through `20260501005000_revoke_anon_user_data.sql`; `anon` can still discover routes but cannot read user run/history tables.
+- Audited existing Edge Functions (`call-ai`, `get-weather`, `list-google-tts-voices`, `synthesize-tts`): each now explicitly requires Supabase JWT verification, uses the shared edge rate limiter, and returns stable app-facing error codes instead of raw upstream/exception strings.
+- Completed scoped hardcoded-secret and release-log scans for `lib/`, `supabase/`, and `scripts/`; no committed secret literals or unguarded `print`/`debugPrint` calls were found in the scanned scope.
+- Expanded static Supabase migration security tests so every active migration file is inventoried and every newly created public table is checked for RLS coverage.
 
 ## Next Required Block
 
-- If long-session telemetry payloads grow beyond comfortable Keychain/secure-storage limits, move pending detail payloads to encrypted files with a Keychain-stored key and `NSFileProtectionCompleteUntilFirstUserAuthentication`.
-- Keep cloud storage opt-out behavior strict: no new detail upload, no permanent local detail retention, and legacy pending payloads purged on opt-out.
+- 실기기/콘솔 필요: If long-session telemetry payloads grow beyond comfortable Keychain/secure-storage limits, move pending detail payloads to encrypted files with a Keychain-stored key and `NSFileProtectionCompleteUntilFirstUserAuthentication`.
+- 실기기/콘솔 필요: Keep cloud storage opt-out behavior strict: no new detail upload, no permanent local detail retention, and legacy pending payloads purged on opt-out.
 
 ## Supabase Required Block
 
@@ -33,17 +36,12 @@ This document tracks the security and privacy work needed before a wider beta. T
   - `saved_routes`
   - `discovered_routes`
   - read-only route tables/RPCs such as `curvy_roads` and `find_curvy_roads`
-- Keep RLS owner policies on user data tables.
-- Verify new Supabase project bootstrap with `supabase db reset` or a staging project before external beta.
-- Follow `docs/supabase_security_verification.md` before opening a wider TestFlight group.
-- Current linked project has been migrated and privilege-checked. Re-run the verification runbook before every new external beta build.
-- Current known non-blocking advisor warnings: PostGIS public extension objects, anonymous beta auth posture, password/MFA warnings for login flows not exposed in MVP.
-
-## Edge Function Required Block
-
-- Require a verified Supabase JWT for paid/proxy functions.
-- Keep IP fallback only for non-costly public functions, if any.
-- Return stable error codes to the app and avoid raw upstream error strings.
+- 실기기/콘솔 필요: Keep RLS owner policies on user data tables.
+- 실기기/콘솔 필요: Verify new Supabase project bootstrap with `supabase db reset` or a staging project before external beta.
+- 실기기/콘솔 필요: Follow `docs/supabase_security_verification.md` before opening a wider TestFlight group.
+- 실기기/콘솔 필요: Current linked project has been migrated and privilege-checked. Re-run the verification runbook before every new external beta build.
+- 실기기/콘솔 필요: Current known non-blocking advisor warnings: PostGIS public extension objects, anonymous beta auth posture, password/MFA warnings for login flows not exposed in MVP.
+- 실기기/콘솔 필요: Track remaining dashboard-only checks in `docs/security_console_todo.md`.
 
 ## Release Checklist Reminder
 

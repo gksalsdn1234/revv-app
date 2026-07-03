@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
     const apiKey = Deno.env.get("AI_API_KEY") ??
       Deno.env.get("ANTHROPIC_API_KEY");
     if (!apiKey) {
-      return json({ text: "", error: "AI_API_KEY missing" }, 200);
+      return json({ text: "", error: "ai_config_missing" }, 200);
     }
 
     const body = await req.json();
@@ -68,8 +68,8 @@ Deno.serve(async (req) => {
       .join("")
       .trim();
     return json({ text });
-  } catch (error) {
-    return json({ text: "", error: String(error) }, 200);
+  } catch {
+    return json({ text: "", error: "ai_request_failed" }, 200);
   }
 });
 
