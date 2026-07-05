@@ -43,6 +43,8 @@ dependencies:
   sensors_plus: ^7.0.0
   share_plus: ^12.0.0
   flutter_tts: ^4.2.0
+  record: ^6.2.1
+  flutter_sound: ^9.30.0
   sentry_flutter: ^9.23.0
   supabase: ^2.10.6
   url_launcher: ^6.3.2
