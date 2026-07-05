@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_language.dart';
+import '../labs/walkie/walkie_lab_screen.dart';
 import '../services/route_loading_policy.dart';
 import '../core/app_links.dart';
 import '../models/revv_route.dart';
@@ -24,8 +25,17 @@ import 'lean_drive_planner_screen.dart';
 import 'lean_route_finder_screen.dart';
 import 'lean_run_summary_screen.dart';
 
+const bool _revvWalkieLabEnabled = bool.fromEnvironment('REVV_WALKIE_LAB');
+
 class LeanHomeScreen extends StatefulWidget {
-  const LeanHomeScreen({super.key});
+  const LeanHomeScreen({
+    super.key,
+    this.walkieLabEntryEnabled = _revvWalkieLabEnabled,
+    this.walkieLabBuilder,
+  });
+
+  final bool walkieLabEntryEnabled;
+  final WidgetBuilder? walkieLabBuilder;
 
   @override
   State<LeanHomeScreen> createState() => _LeanHomeScreenState();
@@ -282,8 +292,19 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
         onToggleCloud: () => unawaited(_toggleCloudRunStorage(ctx)),
         onDeleteHistory: () => _confirmDeleteRunData(ctx),
         onPrivacy: _openPrivacyPolicy,
+        showWalkieLabEntry: widget.walkieLabEntryEnabled,
+        onOpenWalkieLab: () => _openWalkieLab(ctx),
       ),
     );
+  }
+
+  void _openWalkieLab(BuildContext ctx) {
+    final builder =
+        widget.walkieLabBuilder ??
+        (_) => WalkieLabScreen.production(
+          language: ctx.read<SettingsService>().appLanguage,
+        );
+    Navigator.of(ctx).push(MaterialPageRoute(builder: builder));
   }
 
   void _showHistorySheet(BuildContext ctx) {
@@ -1397,11 +1418,15 @@ class _SettingsSheet extends StatelessWidget {
   final VoidCallback onToggleCloud;
   final VoidCallback onDeleteHistory;
   final VoidCallback onPrivacy;
+  final bool showWalkieLabEntry;
+  final VoidCallback onOpenWalkieLab;
 
   const _SettingsSheet({
     required this.onToggleCloud,
     required this.onDeleteHistory,
     required this.onPrivacy,
+    required this.showWalkieLabEntry,
+    required this.onOpenWalkieLab,
   });
 
   @override
@@ -1564,6 +1589,30 @@ class _SettingsSheet extends StatelessWidget {
                   active: true,
                   onTap: () {},
                 ),
+                if (showWalkieLabEntry) ...[
+                  const SizedBox(height: 10),
+                  _SettingsGroupLabel(
+                    label: AppCopy.t(
+                      language,
+                      ko: '실험',
+                      en: 'Lab',
+                      fr: 'Lab',
+                    ).toUpperCase(),
+                  ),
+                  _SettingsTile(
+                    icon: Icons.mic_none_rounded,
+                    label: AppCopy.t(
+                      language,
+                      ko: '크루 보이스 랩',
+                      en: 'Crew voice lab',
+                      fr: 'Lab voix groupe',
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      onOpenWalkieLab();
+                    },
+                  ),
+                ],
                 const SizedBox(height: 10),
                 _SettingsGroupLabel(
                   label: AppCopy.settingsData(language).toUpperCase(),
