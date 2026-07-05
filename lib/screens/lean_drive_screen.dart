@@ -13,6 +13,8 @@ import '../services/route_loading_policy.dart';
 import '../services/run_session_service.dart';
 import '../services/settings_service.dart';
 import '../services/voice_briefing_service.dart';
+import '../services/crew_channel_service.dart';
+import '../labs/walkie/walkie_ptt_controller.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
@@ -20,14 +22,27 @@ import '../ui/route_drive_cue.dart';
 import '../widgets/map_widget.dart';
 import 'lean_run_summary_screen.dart';
 
+/// 크루 워키토키는 이 dev 플래그가 켜진 빌드에서만 주행화면에 노출된다.
+/// 플래그 off(프로덕션 기본)면 아래 PTT 오버레이는 생성되지 않는다.
+const bool _revvWalkieLabEnabled = bool.fromEnvironment('REVV_WALKIE_LAB');
+
 class LeanDriveScreen extends StatefulWidget {
   final RevvRoute route;
   final bool simulated;
+
+  /// 테스트 주입용 — 참여 상태 크루 서비스/컨트롤러를 넣어 PTT를 노출시킨다.
+  /// 프로덕션에서는 null → Provider에서 읽고, 플래그 off면 무시된다.
+  final CrewChannelService? crewChannelOverride;
+  final WalkiePttController? pttControllerOverride;
+  final bool walkieEnabledOverride;
 
   const LeanDriveScreen({
     super.key,
     required this.route,
     this.simulated = false,
+    this.crewChannelOverride,
+    this.pttControllerOverride,
+    this.walkieEnabledOverride = _revvWalkieLabEnabled,
   });
 
   @override
@@ -437,7 +452,117 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
               ),
             ),
           ),
+          if (_walkiePttButton(context, language) case final button?)
+            Positioned(
+              right: 18,
+              bottom: MediaQuery.paddingOf(context).bottom + 96,
+              child: button,
+            ),
         ],
+      ),
+    );
+  }
+
+  /// 워키토키 플래그가 켜져 있고 채널에 참여 중일 때만 PTT 버튼을 만든다.
+  /// 그 외에는 null → 주행화면은 기존과 완전히 동일하다(회귀 0).
+  Widget? _walkiePttButton(BuildContext context, AppLanguage language) {
+    if (!widget.walkieEnabledOverride) return null;
+    final crew =
+        widget.crewChannelOverride ?? context.watch<CrewChannelService>();
+    final channelId = crew.channelId;
+    if (!crew.isJoined || channelId == null) return null;
+    final controller =
+        widget.pttControllerOverride ?? context.read<WalkiePttController>();
+    return _DrivePttButton(
+      language: language,
+      onStart: () => controller.startTalking(channelId),
+      onStop: () => controller.stopTalking(),
+    );
+  }
+}
+
+class _DrivePttButton extends StatefulWidget {
+  final AppLanguage language;
+  final Future<void> Function() onStart;
+  final Future<void> Function() onStop;
+
+  const _DrivePttButton({
+    required this.language,
+    required this.onStart,
+    required this.onStop,
+  });
+
+  @override
+  State<_DrivePttButton> createState() => _DrivePttButtonState();
+}
+
+class _DrivePttButtonState extends State<_DrivePttButton> {
+  bool _talking = false;
+
+  void _begin() {
+    if (_talking) return;
+    setState(() => _talking = true);
+    unawaited(widget.onStart());
+  }
+
+  void _finish() {
+    if (!_talking) return;
+    setState(() => _talking = false);
+    unawaited(widget.onStop());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _talking
+        ? AppCopy.t(widget.language, ko: '말하는 중', en: 'Talking', fr: 'En cours')
+        : AppCopy.t(widget.language, ko: '눌러서 무전', en: 'Hold to talk', fr: 'Maintenir');
+    return GestureDetector(
+      onTapDown: (_) => _begin(),
+      onTapUp: (_) => _finish(),
+      onTapCancel: _finish,
+      child: Semantics(
+        button: true,
+        label: label,
+        child: Container(
+          width: 96,
+          height: 96,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: _talking ? AppColors.red : AppColors.panel2,
+            border: Border.all(
+              color: _talking ? AppColors.red : AppColors.outlineVariant,
+              width: 2,
+            ),
+            boxShadow: _talking
+                ? [
+                    BoxShadow(
+                      color: AppColors.red.withValues(alpha: 0.45),
+                      blurRadius: 22,
+                      spreadRadius: 2,
+                    ),
+                  ]
+                : null,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.mic_rounded,
+                size: 30,
+                color: _talking ? AppColors.onPrimary : AppColors.textPrimary,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: AppText.technicalLabel(
+                  size: 9,
+                  color: _talking ? AppColors.onPrimary : AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

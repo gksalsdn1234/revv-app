@@ -14,6 +14,8 @@ import 'services/imu_service.dart';
 import 'services/settings_service.dart';
 import 'services/supabase_service.dart';
 import 'services/crash_reporting.dart';
+import 'services/crew_channel_service.dart';
+import 'labs/walkie/walkie_ptt_controller.dart';
 
 Future<void> main() => runWithCrashReporting(_startApp);
 
@@ -54,6 +56,13 @@ class RevvApp extends StatelessWidget {
         ChangeNotifierProvider<SettingsService>.value(value: settings),
         ChangeNotifierProvider.value(value: SupabaseService()),
         ChangeNotifierProvider(create: (_) => ImuService()),
+        // 크루 워키토키: 랩과 주행화면이 같은 참여 상태·전송 파이프라인을 공유한다.
+        // 참여 전엔 네트워크를 열지 않아 프로덕션에서도 무해하게 대기한다.
+        ChangeNotifierProvider(create: (_) => CrewChannelService()),
+        Provider<WalkiePttController>(
+          create: (_) => PttServiceWalkieController.production(),
+          dispose: (_, controller) => controller.dispose(),
+        ),
       ],
       child: Consumer<SettingsService>(
         builder: (_, settings, _) => MaterialApp(

@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_language.dart';
 import '../labs/walkie/walkie_lab_screen.dart';
+import '../services/crew_channel_service.dart';
 import '../services/route_loading_policy.dart';
 import '../core/app_links.dart';
 import '../models/revv_route.dart';
@@ -299,9 +300,12 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
   }
 
   void _openWalkieLab(BuildContext ctx) {
+    // 랩과 주행화면이 같은 인스턴스를 공유하도록 Provider에서 꺼내 넘긴다.
     final builder =
         widget.walkieLabBuilder ??
-        (_) => WalkieLabScreen.production(
+        (_) => WalkieLabScreen(
+          crewChannelService: ctx.read<CrewChannelService>(),
+          pttController: ctx.read<WalkiePttController>(),
           language: ctx.read<SettingsService>().appLanguage,
         );
     Navigator.of(ctx).push(MaterialPageRoute(builder: builder));

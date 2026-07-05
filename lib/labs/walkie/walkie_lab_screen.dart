@@ -4,58 +4,12 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_language.dart';
 import '../../services/crew_channel_service.dart';
-import '../../services/ptt_service.dart';
-import '../../services/ptt_transport.dart';
 import '../../theme/colors.dart';
 import '../../theme/text_styles.dart';
 import '../../ui/app_copy.dart';
+import 'walkie_ptt_controller.dart';
 
-abstract class WalkiePttController {
-  Future<void> startTalking(String channelId);
-  Future<void> stopTalking();
-  Future<void> dispose();
-}
-
-class PttServiceWalkieController implements WalkiePttController {
-  PttServiceWalkieController(this._service);
-
-  factory PttServiceWalkieController.production() {
-    return PttServiceWalkieController(
-      PttService(
-        transport: RealtimePttTransport(),
-        recorder: RecordOpusPttRecorder(),
-        codec: const PassthroughPttAudioCodec(),
-        playback: FlutterSoundPttPlayback(),
-        briefingState: const _IdleBriefingState(),
-      ),
-    );
-  }
-
-  final PttService _service;
-  String? _subscribedChannelId;
-  bool _talking = false;
-
-  @override
-  Future<void> startTalking(String channelId) async {
-    if (_talking) return;
-    _talking = true;
-    try {
-      if (_subscribedChannelId != channelId) {
-        await _service.subscribe(channelId);
-        _subscribedChannelId = channelId;
-      }
-      await _service.startHold();
-    } finally {
-      _talking = false;
-    }
-  }
-
-  @override
-  Future<void> stopTalking() => _service.stopHold();
-
-  @override
-  Future<void> dispose() => _service.dispose();
-}
+export 'walkie_ptt_controller.dart' show WalkiePttController;
 
 class WalkieLabScreen extends StatefulWidget {
   const WalkieLabScreen({
@@ -104,7 +58,7 @@ class _WalkieLabScreenState extends State<WalkieLabScreen> {
     _codeController.dispose();
     _roomController.dispose();
     _nameController.dispose();
-    unawaited(widget.pttController.dispose());
+    // pttController/crew는 공유 인스턴스 — 소유자(Provider)가 정리한다.
     super.dispose();
   }
 
@@ -648,16 +602,6 @@ class _MicButton extends StatelessWidget {
       ),
     );
   }
-}
-
-class _IdleBriefingState implements BriefingState {
-  const _IdleBriefingState();
-
-  @override
-  bool get isBriefingActive => false;
-
-  @override
-  Stream<bool> get onBriefingActiveChanged => const Stream<bool>.empty();
 }
 
 String _t(
