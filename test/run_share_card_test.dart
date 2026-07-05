@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/run_summary.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
@@ -24,7 +25,9 @@ void main() {
     expect(content.routeName, 'Forest Sweep');
     expect(content.dateLabel, 'Jun 30, 2026');
     expect(content.title, 'Forest Sweep');
-    expect(content.subtitle, contains('Jun 30, 2026'));
+    expect(content.subtitle, 'Forest hairpins');
+    expect(content.subtitle, isNot(contains('Jun 30, 2026')));
+    expect(content.subtitle, isNot(contains('Square')));
     expect(chipLabels, containsAll(['Distance', 'Duration', 'REVV Score']));
     expect(listLabels, containsAll(['Flow', 'Smoothness', 'Winding']));
     expect(content.pathPreview, isNotNull);
@@ -80,6 +83,32 @@ void main() {
     expect(content.presetInfo.aspectRatio, 1);
     expect(content.metricChips.length, lessThanOrEqualTo(4));
   });
+
+  test('share card hides subtitle when no safe journey context exists', () {
+    // Given: only the date and preset are available as metadata.
+    final content = buildRunShareCardContent(
+      preset: ShareCardPreset.square,
+      summary: _summary(),
+      language: AppLanguage.korean,
+    );
+
+    // When/Then: the subtitle is omitted instead of repeating date or preset.
+    expect(content.subtitle, isEmpty);
+    expect(content.subtitle, isNot(contains('2026년 6월 30일')));
+    expect(content.visibleText.join(' | '), isNot(contains('스퀘어')));
+  });
+
+  test('share card hides weather when temperature is empty', () {
+    // Given: the session still has the default weather icon, but no temperature.
+    final content = buildRunShareCardContent(
+      preset: ShareCardPreset.square,
+      summary: _summary(tempDisplay: '—'),
+    );
+
+    // When/Then: no partial weather footer is exposed.
+    expect(content.footer, isEmpty);
+    expect(content.visibleText.join(' | '), isNot(contains('sunny —')));
+  });
 }
 
 const _unsafeValues = [
@@ -103,7 +132,10 @@ const _unsafeValues = [
   'boost',
 ];
 
-RunSummary _summary({String routeName = 'Forest Sweep'}) {
+RunSummary _summary({
+  String routeName = 'Forest Sweep',
+  String tempDisplay = '22 C',
+}) {
   return RunSummary(
     id: 'run-safe',
     date: DateTime.parse('2026-06-30T12:12:34Z'),
@@ -114,7 +146,7 @@ RunSummary _summary({String routeName = 'Forest Sweep'}) {
     routeName: routeName,
     routeId: 'route-safe',
     weatherEmoji: 'sunny',
-    tempDisplay: '22 C',
+    tempDisplay: tempDisplay,
     maxLateralG: 0.64,
     maxLongitudinalG: -0.52,
     routeDistanceKm: 13.5,
@@ -143,6 +175,7 @@ RunTelemetryDetail _detailWithSamples({required int sampleCount}) {
     version: RunTelemetryDetail.currentVersion,
     routeSnapshot: const {
       'name': 'RPM Valley',
+      'routeCharacter': 'Forest hairpins',
       'nodes': [
         {'lat': 46.111111, 'lng': -74.111111},
         {'lat': 47.222222, 'lng': -75.222222},

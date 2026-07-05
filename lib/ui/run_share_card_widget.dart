@@ -169,7 +169,7 @@ class _ShareCardLayout extends StatelessWidget {
             color: AppColors.textPrimary,
           ),
         ),
-        if (!compact && !dense) ...[
+        if (!compact && !dense && content.subtitle.trim().isNotEmpty) ...[
           const SizedBox(height: 8),
           Text(
             content.subtitle,
@@ -266,14 +266,6 @@ class _CardKicker extends StatelessWidget {
               color: AppColors.textHint,
               letterSpacing: 0.8,
             ),
-          ),
-        ),
-        Text(
-          content.presetInfo.label.toUpperCase(),
-          style: AppText.technicalLabel(
-            size: compact ? 9 : 10,
-            color: AppColors.gold,
-            letterSpacing: 0.8,
           ),
         ),
       ],
@@ -468,7 +460,7 @@ class _PathPreviewPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
 
-    final inset = size.shortestSide * 0.12;
+    final inset = size.shortestSide * 0.14;
     final rect = Rect.fromLTWH(
       inset,
       inset,
@@ -476,18 +468,19 @@ class _PathPreviewPainter extends CustomPainter {
       size.height - inset * 2,
     );
 
-    final shadowPath = _pathFor(rect);
+    final offsets = _offsetsFor(rect);
+    final path = _pathFor(offsets);
     canvas.drawPath(
-      shadowPath,
+      path,
       Paint()
         ..color = AppColors.red.withValues(alpha: 0.18)
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 11
+        ..strokeWidth = 12
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round,
     );
     canvas.drawPath(
-      shadowPath,
+      path,
       Paint()
         ..color = AppColors.cream
         ..style = PaintingStyle.stroke
@@ -495,27 +488,39 @@ class _PathPreviewPainter extends CustomPainter {
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round,
     );
-    canvas.drawCircle(
-      _pointFor(rect, points.first),
-      4.5,
-      Paint()..color = AppColors.success,
-    );
-    canvas.drawCircle(
-      _pointFor(rect, points.last),
-      4.5,
-      Paint()..color = AppColors.red,
-    );
+    canvas.drawCircle(offsets.first, 4.5, Paint()..color = AppColors.success);
+    canvas.drawCircle(offsets.last, 4.5, Paint()..color = AppColors.red);
   }
 
-  Path _pathFor(Rect rect) {
-    final path = Path()
-      ..moveTo(
-        _pointFor(rect, points.first).dx,
-        _pointFor(rect, points.first).dy,
-      );
-    for (final point in points.skip(1)) {
-      final offset = _pointFor(rect, point);
-      path.lineTo(offset.dx, offset.dy);
+  List<Offset> _offsetsFor(Rect rect) {
+    final offsets = [for (final point in points) _pointFor(rect, point)];
+    final first = offsets.first;
+    final last = offsets.last;
+    if ((last - first).distance >= 1) return offsets;
+
+    final center = rect.center;
+    final half = rect.shortestSide * 0.12;
+    return [
+      Offset(center.dx - half, center.dy),
+      Offset(center.dx + half, center.dy),
+    ];
+  }
+
+  Path _pathFor(List<Offset> offsets) {
+    final path = Path()..moveTo(offsets.first.dx, offsets.first.dy);
+    if (offsets.length == 2) {
+      path.lineTo(offsets.last.dx, offsets.last.dy);
+      return path;
+    }
+
+    for (var i = 0; i < offsets.length - 1; i++) {
+      final p0 = offsets[i == 0 ? 0 : i - 1];
+      final p1 = offsets[i];
+      final p2 = offsets[i + 1];
+      final p3 = offsets[i + 2 < offsets.length ? i + 2 : offsets.length - 1];
+      final c1 = p1 + (p2 - p0) / 6;
+      final c2 = p2 - (p3 - p1) / 6;
+      path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p2.dx, p2.dy);
     }
     return path;
   }

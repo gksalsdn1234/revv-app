@@ -115,16 +115,17 @@ RunShareCardContent buildRunShareCardContent({
     preset: preset,
     presetInfo: presetInfo,
     title: routeName,
-    subtitle: '$dateLabel - ${_presetSubtitle(preset, language)}',
+    subtitle: _subtitle(
+      detail: detail,
+      routeName: routeName,
+      dateLabel: dateLabel,
+    ),
     routeName: routeName,
     dateLabel: dateLabel,
     metricChips: safeMetrics.take(chipLimit).toList(),
     metricList: safeMetrics,
     pathPreview: _pathPreview(detail: detail, session: session),
-    footer: _safeText(
-      '${summary.weatherEmoji} ${summary.tempDisplay}'.trim(),
-      fallback: '',
-    ),
+    footer: _weatherFooter(summary),
   );
 }
 
@@ -154,8 +155,36 @@ ShareCardPresetInfo _presetInfo(ShareCardPreset preset, AppLanguage language) {
   };
 }
 
-String _presetSubtitle(ShareCardPreset preset, AppLanguage language) =>
-    AppCopy.sharePresetSubtitle(language, _presetInfo(preset, language).label);
+String _subtitle({
+  required RunTelemetryDetail? detail,
+  required String routeName,
+  required String dateLabel,
+}) {
+  final snapshot = detail?.routeSnapshot ?? const <String, dynamic>{};
+  for (final key in const [
+    'regionName',
+    'areaName',
+    'locality',
+    'routeCharacter',
+    'curveStyle',
+    'qualityLabel',
+    'surfaceSummary',
+    'roadClassBucket',
+  ]) {
+    final value = snapshot[key];
+    if (value is! String) continue;
+    final text = _safeText(value, fallback: '');
+    if (text.isEmpty || text == routeName || text == dateLabel) continue;
+    return text;
+  }
+  return '';
+}
+
+String _weatherFooter(RunSummary summary) {
+  final temp = summary.tempDisplay.trim();
+  if (temp.isEmpty || temp == '-' || temp == '—') return '';
+  return _safeText('${summary.weatherEmoji.trim()} $temp'.trim(), fallback: '');
+}
 
 String _safeText(String value, {required String fallback}) {
   final trimmed = value.trim();

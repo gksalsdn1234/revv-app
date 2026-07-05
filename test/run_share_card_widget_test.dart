@@ -35,7 +35,7 @@ void main() {
     expect(find.text('12.3 km'), findsOneWidget);
     expect(find.text('DURATION'), findsOneWidget);
     expect(find.text('12m 34s'), findsOneWidget);
-    expect(find.text('SQUARE'), findsOneWidget);
+    expect(find.text('SQUARE'), findsNothing);
     expect(
       tester.getSize(find.byType(RunShareCardWidget)),
       const Size(320, 320),
@@ -67,6 +67,43 @@ void main() {
     final titleText = tester.widget<Text>(find.text(longRouteName));
     expect(titleText.overflow, TextOverflow.ellipsis);
     expect(titleText.maxLines, 3);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ride share card hides empty weather footer', (tester) async {
+    await tester.pumpWidget(
+      _TestHost(
+        child: SizedBox.square(
+          dimension: 380,
+          child: RunShareCardWidget(content: _content(footer: '')),
+        ),
+      ),
+    );
+
+    expect(find.text('sunny 22 C'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('ride share card renders short two point path preview', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _TestHost(
+        child: SizedBox.square(
+          dimension: 320,
+          child: RunShareCardWidget(
+            content: _content(
+              pathPreview: const [
+                RunSharePathPoint(x: 0.5, y: 0.5),
+                RunSharePathPoint(x: 0.5, y: 0.5),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(CustomPaint), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 
@@ -141,7 +178,17 @@ class _TestHost extends StatelessWidget {
 
 RunShareCardContent _content({
   String title = 'Forest Sweep',
-  String subtitle = 'Jun 30, 2026 - REVV recap',
+  String subtitle = 'Forest hairpins',
+  String footer = 'sunny 22 C',
+  List<RunSharePathPoint> pathPreview = const [
+    RunSharePathPoint(x: 0.06, y: 0.78),
+    RunSharePathPoint(x: 0.18, y: 0.62),
+    RunSharePathPoint(x: 0.34, y: 0.68),
+    RunSharePathPoint(x: 0.46, y: 0.38),
+    RunSharePathPoint(x: 0.62, y: 0.44),
+    RunSharePathPoint(x: 0.74, y: 0.22),
+    RunSharePathPoint(x: 0.90, y: 0.30),
+  ],
 }) {
   return RunShareCardContent(
     preset: ShareCardPreset.square,
@@ -170,15 +217,7 @@ RunShareCardContent _content({
       RunShareCardMetric(label: 'Winding', value: '43%'),
       RunShareCardMetric(label: 'Smoothness', value: '80'),
     ],
-    pathPreview: const [
-      RunSharePathPoint(x: 0.06, y: 0.78),
-      RunSharePathPoint(x: 0.18, y: 0.62),
-      RunSharePathPoint(x: 0.34, y: 0.68),
-      RunSharePathPoint(x: 0.46, y: 0.38),
-      RunSharePathPoint(x: 0.62, y: 0.44),
-      RunSharePathPoint(x: 0.74, y: 0.22),
-      RunSharePathPoint(x: 0.90, y: 0.30),
-    ],
-    footer: 'sunny 22 C',
+    pathPreview: pathPreview,
+    footer: footer,
   );
 }
