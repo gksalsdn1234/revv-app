@@ -9,4 +9,6 @@ class SupabaseTables {
   static const String routeFeedback = 'route_feedback';
   static const String savedRoutes = 'saved_routes';
   static const String regionRequests = 'region_requests';
+  static const String crewChannels = 'crew_channels';
+  static const String crewChannelMembers = 'crew_channel_members';
 }

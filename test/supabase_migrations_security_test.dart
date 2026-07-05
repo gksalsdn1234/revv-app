@@ -16,6 +16,8 @@ void main() {
       'supabase/migrations/20260501005000_revoke_anon_user_data.sql';
   const regionRequestsMigration =
       'supabase/migrations/20260703070628_region_requests.sql';
+  const crewWalkieMigration =
+      'supabase/migrations/20260705063752_crew_walkie.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -24,6 +26,7 @@ void main() {
     advisorCleanupMigration,
     revokeAnonMigration,
     regionRequestsMigration,
+    crewWalkieMigration,
   ];
 
   const userTables = [
@@ -230,6 +233,143 @@ void main() {
       expect(sql, contains('grant insert on public.region_requests to anon'));
     },
   );
+
+  test('crew walkie tables are minimal and protected by RLS', () {
+    final sql = _readLower(crewWalkieMigration);
+
+    for (final table in ['crew_channels', 'crew_channel_members']) {
+      expect(
+        sql,
+        contains('create table if not exists public.$table'),
+        reason: '$table must be created by the walkie migration.',
+      );
+      expect(
+        sql,
+        contains('alter table public.$table enable row level security'),
+        reason: '$table must have RLS enabled.',
+      );
+    }
+
+    expect(sql, contains('id uuid primary key default gen_random_uuid()'));
+    expect(sql, contains('code text not null unique'));
+    expect(sql, contains('owner_id uuid not null'));
+    expect(
+      sql,
+      contains(
+        "expires_at timestamptz not null default (now() + interval '24 hours')",
+      ),
+    );
+    expect(sql, contains('primary key (channel_id, member_id)'));
+    expect(sql, isNot(contains('audio')));
+    expect(sql, isNot(contains('location')));
+    expect(sql, isNot(contains('speed')));
+    expect(sql, isNot(contains('heading')));
+  });
+
+  test('crew walkie grants exclude anon and allow authenticated access', () {
+    final sql = _readLower(crewWalkieMigration);
+
+    expect(
+      sql,
+      contains(
+        'revoke all on public.crew_channels, public.crew_channel_members',
+      ),
+    );
+    expect(sql, contains('from public, anon'));
+    expect(sql, contains('grant select, insert on public.crew_channels'));
+    expect(sql, contains('to authenticated'));
+    expect(
+      sql,
+      contains('grant select, delete on public.crew_channel_members'),
+    );
+    expect(
+      sql,
+      isNot(
+        matches(
+          RegExp(
+            r'grant\s+[^;]*\bon\s+public\.crew_(?:channels|channel_members)\b[^;]*\bto\s+anon\b',
+            multiLine: true,
+          ),
+        ),
+      ),
+    );
+    expect(
+      sql,
+      isNot(contains('grant insert on public.crew_channel_members')),
+      reason: 'member inserts must only be possible through join_crew_channel.',
+    );
+  });
+
+  test('crew walkie policies scope reads and writes to membership', () {
+    final sql = _readLower(crewWalkieMigration);
+
+    expect(sql, contains('create policy crew_channels_member_select'));
+    expect(sql, contains('using (public.is_current_crew_channel_member(id))'));
+    expect(sql, contains('create policy crew_channels_owner_insert'));
+    expect(sql, contains('owner_id = (select auth.uid())'));
+    expect(sql, contains('create policy crew_channel_members_channel_select'));
+    expect(
+      sql,
+      contains('using (public.is_current_crew_channel_member(channel_id))'),
+    );
+    expect(sql, contains('create policy crew_channel_members_self_delete'));
+    expect(sql, contains('using (member_id = (select auth.uid()))'));
+    expect(
+      sql,
+      isNot(contains('create policy crew_channel_members_insert')),
+      reason: 'member insert policy would bypass the RPC-only join path.',
+    );
+  });
+
+  test('crew walkie join RPC is security definer and rate limited', () {
+    final sql = _readLower(crewWalkieMigration);
+
+    expect(
+      sql,
+      contains('create or replace function public.join_crew_channel('),
+    );
+    expect(sql, contains('security definer'));
+    expect(sql, contains('set search_path = public, pg_temp'));
+    expect(sql, contains(r"normalized_code !~ '^[a-hj-np-z2-9]{8}$'"));
+    expect(sql, contains('expires_at > now()'));
+    expect(sql, contains('public.consume_edge_rate_limit('));
+    expect(sql, contains("'join_crew_channel'"));
+    expect(sql, contains('current_user_id::text'));
+    expect(sql, contains('10'));
+    expect(sql, contains('60'));
+    expect(sql, contains('member_id,'));
+    expect(sql, contains('current_user_id,'));
+    expect(
+      sql,
+      contains('revoke all on function public.join_crew_channel(text, text)'),
+    );
+    expect(
+      sql,
+      contains(
+        'grant execute on function public.join_crew_channel(text, text)',
+      ),
+    );
+    expect(sql, contains('to authenticated, service_role'));
+  });
+
+  test('crew walkie channel codes are server generated', () {
+    final sql = _readLower(crewWalkieMigration);
+
+    expect(
+      sql,
+      contains(
+        'create or replace function public.generate_crew_channel_code()',
+      ),
+    );
+    expect(
+      sql,
+      contains("alphabet constant text := 'abcdefghjklmnpqrstuvwxyz23456789'"),
+    );
+    expect(sql, contains('get_byte(gen_random_bytes(1), 0)'));
+    expect(sql, contains('create trigger crew_channels_prepare_insert'));
+    expect(sql, contains('new.code := generated_code'));
+    expect(sql, contains("new.expires_at := now() + interval '24 hours'"));
+  });
 }
 
 String _readLower(String path) => File(path).readAsStringSync().toLowerCase();
