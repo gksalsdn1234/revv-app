@@ -18,6 +18,8 @@ void main() {
       'supabase/migrations/20260703070628_region_requests.sql';
   const crewWalkieMigration =
       'supabase/migrations/20260705063752_crew_walkie.sql';
+  const crewWalkieRealtimeMigration =
+      'supabase/migrations/20260705070001_crew_walkie_realtime.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -27,6 +29,7 @@ void main() {
     revokeAnonMigration,
     regionRequestsMigration,
     crewWalkieMigration,
+    crewWalkieRealtimeMigration,
   ];
 
   const userTables = [
@@ -369,6 +372,29 @@ void main() {
     expect(sql, contains('create trigger crew_channels_prepare_insert'));
     expect(sql, contains('new.code := generated_code'));
     expect(sql, contains("new.expires_at := now() + interval '24 hours'"));
+  });
+
+  test('crew walkie realtime policies authorize member broadcasts only', () {
+    final sql = _readLower(crewWalkieRealtimeMigration);
+
+    expect(sql, contains('on realtime.messages'));
+    expect(sql, contains('create policy crew_walkie_realtime_receive'));
+    expect(sql, contains('for select'));
+    expect(sql, contains('create policy crew_walkie_realtime_send'));
+    expect(sql, contains('for insert'));
+    expect(sql, contains('to authenticated'));
+    expect(sql, contains("realtime.messages.extension = 'broadcast'"));
+    expect(sql, contains('from public.crew_channel_members'));
+    expect(sql, contains('member_id = (select auth.uid())'));
+    expect(
+      sql,
+      contains("(select realtime.topic()) = ('crew:' || channel_id::text)"),
+    );
+    // Non-members intentionally fail closed: no membership row means no policy
+    // passes for the private crew:{channelId} topic.
+    expect(sql, isNot(contains('to anon')));
+    expect(sql, isNot(contains('using (true)')));
+    expect(sql, isNot(contains('with check (true)')));
   });
 }
 
