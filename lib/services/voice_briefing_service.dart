@@ -2,6 +2,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 
 import '../core/app_language.dart';
 import '../ui/route_drive_cue.dart';
+import 'audio_session.dart';
 
 /// TTS 발화 시임 — 테스트에서 fake 주입.
 typedef VoiceSpeak = Future<void> Function(String text, AppLanguage language);
@@ -134,14 +135,8 @@ class VoiceBriefingService {
       var tts = _tts;
       if (tts == null) {
         tts = FlutterTts();
-        // 음악 위에 얹기: 정지 대신 덕킹 (크루 무전과 공유할 오디오 레이어의 원형)
-        await tts.setIosAudioCategory(
-          IosTextToSpeechAudioCategory.playback,
-          [
-            IosTextToSpeechAudioCategoryOptions.duckOthers,
-            IosTextToSpeechAudioCategoryOptions.mixWithOthers,
-          ],
-          IosTextToSpeechAudioMode.voicePrompt,
+        await configureMusicDuckingAudioSession(
+          setIosAudioCategory: tts.setIosAudioCategory,
         );
         await tts.setSpeechRate(0.5);
         _tts = tts;
