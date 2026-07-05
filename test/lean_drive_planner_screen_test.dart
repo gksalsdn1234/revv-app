@@ -84,6 +84,21 @@ void main() {
     expect(find.textContaining(RegExp(r'\d+\.\d{4}')), findsNothing);
   });
 
+  testWidgets('planner map is not covered by a full-screen scroll overlay', (
+    tester,
+  ) async {
+    await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 30));
+
+    final fullScreenScrollOverlays = tester
+        .widgetList<SafeArea>(find.byType(SafeArea))
+        .where((safeArea) => safeArea.child is ListView);
+    expect(fullScreenScrollOverlays, isEmpty);
+
+    await selectMapPinDestination(tester);
+
+    expect(find.byKey(const Key('planner-results-sheet')), findsOneWidget);
+  });
+
   testWidgets('planner explains budget shortfall honestly', (tester) async {
     await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 12));
 

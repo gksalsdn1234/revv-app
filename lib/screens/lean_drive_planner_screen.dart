@@ -370,6 +370,11 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   @override
   Widget build(BuildContext context) {
     final language = context.watch<SettingsService>().appLanguage;
+    final options = _options;
+    final plan = _plan;
+    final status = _status;
+    final recommended = _recommendedOption;
+    final arriveBy = _arriveByDateTime;
     return Scaffold(
       backgroundColor: AppColors.bg,
       appBar: RevvTopBar(
@@ -404,10 +409,11 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
             ),
           ),
           SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(14, 14, 14, 18),
-              children: [
-                _PlannerInputCard(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+                child: _PlannerInputCard(
                   language: language,
                   destination: _destination,
                   destinationName: _destinationName,
@@ -427,40 +433,58 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
                   onPickArriveBy: _pickArriveBy,
                   onClearArriveBy: _clearArriveBy,
                 ),
-                const SizedBox(height: 10),
-                if (_planning)
-                  _PlanningCard(language: language)
-                else if (_status != null)
-                  _StateCard(title: _status!, body: _retryCopy(language))
-                else if (_options != null && _plan != null) ...[
-                  _PlanOptionStrip(
-                    options: _options!,
-                    selected: _selectedKind,
-                    recommended: _recommendedOption?.kind,
-                    language: language,
-                    onSelected: (kind) => setState(() => _selectedKind = kind),
-                  ),
-                  const SizedBox(height: 10),
-                  if (_arriveByDateTime != null && _recommendedOption == null)
-                    _ArrivalInfeasibleCard(
-                      options: _options!,
-                      arriveBy: _arriveByDateTime!,
-                      language: language,
-                    ),
-                  _PlanResultCard(
-                    plan: _plan!,
-                    language: language,
-                    targetMinutes: _selectedOptionBudget,
-                    arriveBy: _arriveByDateTime,
-                    onStart: _firstWindingRoute == null
-                        ? null
-                        : _startFirstWinding,
-                    onNavigate: _openExternalNavigation,
-                  ),
-                ],
-              ],
+              ),
             ),
           ),
+          if (_planning || status != null || (options != null && plan != null))
+            Positioned(
+              left: 14,
+              right: 14,
+              bottom: MediaQuery.paddingOf(context).bottom + 14,
+              child: ConstrainedBox(
+                key: const Key('planner-results-sheet'),
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.52,
+                ),
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  shrinkWrap: true,
+                  children: [
+                    if (_planning)
+                      _PlanningCard(language: language)
+                    else if (status != null)
+                      _StateCard(title: status, body: _retryCopy(language))
+                    else if (options != null && plan != null) ...[
+                      _PlanOptionStrip(
+                        options: options,
+                        selected: _selectedKind,
+                        recommended: recommended?.kind,
+                        language: language,
+                        onSelected: (kind) =>
+                            setState(() => _selectedKind = kind),
+                      ),
+                      const SizedBox(height: 10),
+                      if (arriveBy != null && recommended == null)
+                        _ArrivalInfeasibleCard(
+                          options: options,
+                          arriveBy: arriveBy,
+                          language: language,
+                        ),
+                      _PlanResultCard(
+                        plan: plan,
+                        language: language,
+                        targetMinutes: _selectedOptionBudget,
+                        arriveBy: arriveBy,
+                        onStart: _firstWindingRoute == null
+                            ? null
+                            : _startFirstWinding,
+                        onNavigate: _openExternalNavigation,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
