@@ -35,8 +35,9 @@ declare
   char_index integer;
 begin
   for char_index in 1..8 loop
+    -- pgcrypto(gen_random_bytes)는 함수 search_path에 없어 못 잡는다. 코어 random() 사용.
     generated_code := generated_code ||
-      substr(alphabet, (get_byte(gen_random_bytes(1), 0) % length(alphabet)) + 1, 1);
+      substr(alphabet, floor(random() * length(alphabet))::int + 1, 1);
   end loop;
 
   return generated_code;

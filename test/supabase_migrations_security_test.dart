@@ -368,7 +368,7 @@ void main() {
       sql,
       contains("alphabet constant text := 'abcdefghjklmnpqrstuvwxyz23456789'"),
     );
-    expect(sql, contains('get_byte(gen_random_bytes(1), 0)'));
+    expect(sql, contains('floor(random() * length(alphabet))'));
     expect(sql, contains('create trigger crew_channels_prepare_insert'));
     expect(sql, contains('new.code := generated_code'));
     expect(sql, contains("new.expires_at := now() + interval '24 hours'"));
