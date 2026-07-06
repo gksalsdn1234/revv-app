@@ -50,6 +50,7 @@ class BeepWalkieChirp implements WalkieChirp {
         _configured = true;
       }
       await _player.stop();
+      await _player.setVolume(0.66); // 2/3 볼륨
       await _player.play(AssetSource('sounds/beep.mp3'));
     } catch (_) {
       // 효과음 실패는 무전 동작을 막지 않는다.

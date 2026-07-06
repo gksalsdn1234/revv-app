@@ -109,7 +109,13 @@ class RecordOpusPttRecorder implements PttRecorder {
   final AudioRecorder _recorder;
 
   @override
-  Future<Stream<Uint8List>> start() {
+  Future<Stream<Uint8List>> start() async {
+    // record.hasPermission()은 확인 겸 OS 마이크 권한 요청을 띄운다.
+    // 이게 없으면 첫 녹음이 조용히 실패한다.
+    final granted = await _recorder.hasPermission();
+    if (!granted) {
+      throw StateError('microphone permission denied');
+    }
     return _recorder.startStream(
       const RecordConfig(
         encoder: AudioEncoder.opus,
