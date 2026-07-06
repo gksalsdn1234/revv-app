@@ -11,6 +11,7 @@ import 'package:revv_app/services/place_search_service.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/services/weather_service.dart';
 import 'package:revv_app/theme/text_styles.dart';
+import 'package:revv_app/widgets/map_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -99,6 +100,37 @@ void main() {
     );
     expect(find.text('드라이브 시작'), findsOneWidget);
     expect(find.textContaining(RegExp(r'\d+\.\d{4}')), findsNothing);
+  });
+
+  testWidgets('planner passes legible map mode and plan markers to MapWidget', (
+    tester,
+  ) async {
+    await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 30));
+
+    await selectMapPinDestination(tester);
+
+    final map = tester.widget<MapWidget>(find.byType(MapWidget));
+    expect(map.curveHeatmap, isFalse);
+    final markers = map.planMarkers ?? const <PlanMapMarker>[];
+    expect(
+      markers.map((marker) => marker.kind),
+      containsAll([
+        PlanMapMarkerKind.origin,
+        PlanMapMarkerKind.destination,
+        PlanMapMarkerKind.windingStart,
+      ]),
+    );
+  });
+
+  testWidgets('timeline renders map color dots for transit and winding legs', (
+    tester,
+  ) async {
+    await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 30));
+
+    await selectMapPinDestination(tester);
+
+    expect(find.byKey(const Key('timeline-dot-transit')), findsNWidgets(2));
+    expect(find.byKey(const Key('timeline-dot-winding')), findsOneWidget);
   });
 
   testWidgets('planner map is not covered by a full-screen scroll overlay', (
@@ -200,6 +232,52 @@ void main() {
       uri.queryParameters['waypoints'],
       '45.5500,-73.6500|45.6000,-73.7000',
     );
+  });
+
+  test('buildPlanMapMarkers creates start and end markers for each winding leg', () {
+    const firstStart = LatLng(45.1, -73.1);
+    const firstEnd = LatLng(45.2, -73.2);
+    const secondStart = LatLng(45.3, -73.3);
+    const secondEnd = LatLng(45.4, -73.4);
+    const plan = DrivePlan(
+      legs: [
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.winding,
+          nodes: [firstStart, firstEnd],
+          distanceKm: 8,
+          estimatedMinutes: 12,
+        ),
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.winding,
+          nodes: [secondStart, secondEnd],
+          distanceKm: 7,
+          estimatedMinutes: 10,
+        ),
+      ],
+      totalMinutes: 22,
+      windingMinutes: 22,
+      transitMinutes: 0,
+      waypoints: [firstStart, firstEnd, secondStart, secondEnd],
+    );
+
+    final markers = buildPlanMapMarkers(
+      origin: const LatLng(45.0, -73.0),
+      destination: const LatLng(45.5, -73.5),
+      plan: plan,
+    );
+
+    expect(markers.map((marker) => marker.kind), [
+      PlanMapMarkerKind.origin,
+      PlanMapMarkerKind.destination,
+      PlanMapMarkerKind.windingStart,
+      PlanMapMarkerKind.windingEnd,
+      PlanMapMarkerKind.windingStart,
+      PlanMapMarkerKind.windingEnd,
+    ]);
+    expect(markers[2].point, firstStart);
+    expect(markers[3].point, firstEnd);
+    expect(markers[4].point, secondStart);
+    expect(markers[5].point, secondEnd);
   });
 
   testWidgets('plan options switch the displayed timeline', (tester) async {

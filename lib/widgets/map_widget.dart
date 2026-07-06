@@ -52,6 +52,15 @@ class RouteDifficultyLine {
   });
 }
 
+enum PlanMapMarkerKind { origin, destination, windingStart, windingEnd }
+
+class PlanMapMarker {
+  final LatLng point;
+  final PlanMapMarkerKind kind;
+
+  const PlanMapMarker({required this.point, required this.kind});
+}
+
 class MapWidget extends StatefulWidget {
   final bool isSprintMode;
 
@@ -60,6 +69,8 @@ class MapWidget extends StatefulWidget {
 
   /// 선택한 드라이빙 루트 (빨간 선)
   final List<LatLng>? routePolyline;
+  final bool curveHeatmap;
+  final List<PlanMapMarker>? planMarkers;
 
   /// 루트파인더에서 선택되지 않은 보조 후보 루트들.
   /// 선택 루트보다 얇고 muted 톤으로 그려서 지도에서 선택지를 읽을 수 있게 한다.
@@ -87,6 +98,8 @@ class MapWidget extends StatefulWidget {
     this.isSprintMode = false,
     this.navPolyline,
     this.routePolyline,
+    this.curveHeatmap = true,
+    this.planMarkers,
     this.candidatePolylines = const [],
     this.curveHeatmapPolylines = const [],
     this.difficultyLines = const [],
@@ -140,6 +153,12 @@ class _MapWidgetState extends State<MapWidget> {
   Uint8List? _puckBearingImage;
   Uint8List? _puckShadowImage;
 
+  bool get _shouldDrawCurveHeatmap =>
+      widget.curveHeatmap && widget.showCurveHeatmap;
+
+  double get _routeLineWidth =>
+      widget.curveHeatmap ? (widget.routeFocusMode ? 5.5 : 2.8) : 6.5;
+
   List<_LineLayerSpec> _buildLineLayers(
     String id,
     String sourceId,
@@ -151,6 +170,24 @@ class _MapWidgetState extends State<MapWidget> {
     final isCandidate = id.startsWith('candidate-');
 
     if (isRoute) {
+      if (!widget.curveHeatmap) {
+        return [
+          _LineLayerSpec(
+            id: '$id-shadow-layer',
+            sourceId: sourceId,
+            color: 0xD912161C,
+            width: 9.0,
+            opacity: 0.85,
+          ),
+          _LineLayerSpec(
+            id: '$id-core-layer',
+            sourceId: sourceId,
+            color: colorArgb,
+            width: width,
+            opacity: 1.0,
+          ),
+        ];
+      }
       final casingExtra = widget.routeFocusMode ? 7.0 : 3.4;
       final trackExtra = widget.routeFocusMode ? 2.4 : 1.1;
       final ribbonWidth = widget.routeFocusMode
@@ -215,6 +252,24 @@ class _MapWidgetState extends State<MapWidget> {
     }
 
     if (isNav) {
+      if (!widget.curveHeatmap) {
+        return [
+          _LineLayerSpec(
+            id: '$id-shadow-layer',
+            sourceId: sourceId,
+            color: 0x99060A10,
+            width: width + 2.0,
+            opacity: 0.54,
+          ),
+          _LineLayerSpec(
+            id: '$id-core-layer',
+            sourceId: sourceId,
+            color: 0xFF6DA3FF,
+            width: width,
+            opacity: 0.75,
+          ),
+        ];
+      }
       return [
         _LineLayerSpec(
           id: '$id-shadow-layer',
@@ -347,16 +402,17 @@ class _MapWidgetState extends State<MapWidget> {
           );
         }
         if (widget.routePolyline?.isNotEmpty == true &&
-            !widget.showCurveHeatmap) {
+            !_shouldDrawCurveHeatmap) {
           _drawPolyline(
             'route',
             widget.routePolyline!,
             AppColors.red.toARGB32(),
-            widget.routeFocusMode ? 5.5 : 2.8,
+            _routeLineWidth,
           );
         }
       }
-      if (oldWidget.navPolyline != widget.navPolyline) {
+      if (oldWidget.navPolyline != widget.navPolyline ||
+          oldWidget.curveHeatmap != widget.curveHeatmap) {
         _drawPolyline(
           'nav',
           widget.routeFocusMode ? const [] : widget.navPolyline ?? [],
@@ -378,7 +434,7 @@ class _MapWidgetState extends State<MapWidget> {
         _drawCandidatePolylines(widget.candidatePolylines).then((_) {
           if (!mounted ||
               !_styleLoaded ||
-              widget.showCurveHeatmap ||
+              _shouldDrawCurveHeatmap ||
               widget.routePolyline?.isNotEmpty != true) {
             return;
           }
@@ -387,7 +443,7 @@ class _MapWidgetState extends State<MapWidget> {
             'route',
             widget.routePolyline!,
             AppColors.red.toARGB32(),
-            widget.routeFocusMode ? 5.5 : 2.8,
+            _routeLineWidth,
           );
         });
       }
@@ -398,8 +454,9 @@ class _MapWidgetState extends State<MapWidget> {
         _drawDifficultyLines(widget.difficultyLines);
       }
       if (oldWidget.routePolyline != widget.routePolyline ||
-          oldWidget.showCurveHeatmap != widget.showCurveHeatmap) {
-        if (widget.showCurveHeatmap &&
+          oldWidget.showCurveHeatmap != widget.showCurveHeatmap ||
+          oldWidget.curveHeatmap != widget.curveHeatmap) {
+        if (_shouldDrawCurveHeatmap &&
             widget.routePolyline?.isNotEmpty == true) {
           _drawCurveHeatmap(widget.routePolyline!);
         } else {
@@ -408,12 +465,15 @@ class _MapWidgetState extends State<MapWidget> {
             'route',
             widget.routePolyline ?? [],
             AppColors.red.toARGB32(),
-            widget.routeFocusMode ? 5.5 : 2.8,
+            _routeLineWidth,
           );
         }
         if (!widget.isSprintMode && widget.routePolyline?.isNotEmpty == true) {
           _focusRoutePolyline(widget.routePolyline!);
         }
+      }
+      if (!_samePlanMarkers(oldWidget.planMarkers, widget.planMarkers)) {
+        _drawPlanMarkers(widget.planMarkers ?? const []);
       }
     }
     // 스타일 재로드 중(_styleLoaded=false)에 polyline 변경이 오면
@@ -720,14 +780,14 @@ class _MapWidgetState extends State<MapWidget> {
     await _drawDifficultyLines(widget.difficultyLines);
     await _drawCandidatePolylines(widget.candidatePolylines);
     if (widget.routePolyline?.isNotEmpty == true) {
-      if (widget.showCurveHeatmap) {
+      if (_shouldDrawCurveHeatmap) {
         await _drawCurveHeatmap(widget.routePolyline!);
       } else {
         await _drawPolyline(
           'route',
           widget.routePolyline!,
           AppColors.red.toARGB32(),
-          widget.routeFocusMode ? 5.5 : 2.8,
+          _routeLineWidth,
         );
       }
       if (!widget.isSprintMode) {
@@ -735,6 +795,7 @@ class _MapWidgetState extends State<MapWidget> {
       }
     }
     await _drawSimulationMarker(widget.simulatedPosition);
+    await _drawPlanMarkers(widget.planMarkers ?? const []);
     if (widget.cameraTarget != null && widget.cameraTargetSignal > 0) {
       await _moveCameraToPoint(
         widget.cameraTarget!,
@@ -781,6 +842,24 @@ class _MapWidgetState extends State<MapWidget> {
             left.points[j].lng != right.points[j].lng) {
           return false;
         }
+      }
+    }
+    return true;
+  }
+
+  static bool _samePlanMarkers(
+    List<PlanMapMarker>? a,
+    List<PlanMapMarker>? b,
+  ) {
+    if (identical(a, b)) return true;
+    final left = a ?? const <PlanMapMarker>[];
+    final right = b ?? const <PlanMapMarker>[];
+    if (left.length != right.length) return false;
+    for (var i = 0; i < left.length; i++) {
+      if (left[i].kind != right[i].kind ||
+          left[i].point.lat != right[i].point.lat ||
+          left[i].point.lng != right[i].point.lng) {
+        return false;
       }
     }
     return true;
@@ -1084,6 +1163,109 @@ class _MapWidgetState extends State<MapWidget> {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[MapWidget] simulation marker: ${e.runtimeType}');
+      }
+    }
+  }
+
+  Future<void> _drawPlanMarkers(List<PlanMapMarker> markers) async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded) return;
+
+    const sourceId = 'plan-markers';
+    const layerIds = [
+      'plan-marker-origin-layer',
+      'plan-marker-destination-layer',
+      'plan-marker-winding-start-layer',
+      'plan-marker-winding-end-underlay-layer',
+      'plan-marker-winding-end-layer',
+    ];
+    for (final layerId in layerIds) {
+      try {
+        await map.style.removeStyleLayer(layerId);
+      } catch (_) {}
+    }
+    try {
+      await map.style.removeStyleSource(sourceId);
+    } catch (_) {}
+
+    if (markers.isEmpty) return;
+
+    final geoJson = jsonEncode({
+      'type': 'FeatureCollection',
+      'features': markers
+          .map(
+            (marker) => {
+              'type': 'Feature',
+              'geometry': {
+                'type': 'Point',
+                'coordinates': [marker.point.lng, marker.point.lat],
+              },
+              'properties': {'kind': marker.kind.name},
+            },
+          )
+          .toList(),
+    });
+
+    try {
+      await map.style.addSource(mbx.GeoJsonSource(id: sourceId, data: geoJson));
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'plan-marker-origin-layer',
+          sourceId: sourceId,
+          filter: const ['==', ['get', 'kind'], 'origin'],
+          circleColor: 0xFF3B82F6,
+          circleRadius: 6.2,
+          circleStrokeColor: 0xFFFFFFFF,
+          circleStrokeWidth: 2.4,
+        ),
+      );
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'plan-marker-destination-layer',
+          sourceId: sourceId,
+          filter: const ['==', ['get', 'kind'], 'destination'],
+          circleColor: AppColors.red.toARGB32(),
+          circleRadius: 7.8,
+          circleStrokeColor: 0xFFFFFFFF,
+          circleStrokeWidth: 2.8,
+        ),
+      );
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'plan-marker-winding-start-layer',
+          sourceId: sourceId,
+          filter: const ['==', ['get', 'kind'], 'windingStart'],
+          circleColor: AppColors.red.toARGB32(),
+          circleRadius: 5.6,
+          circleStrokeColor: 0xFFFFFFFF,
+          circleStrokeWidth: 2.2,
+        ),
+      );
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'plan-marker-winding-end-underlay-layer',
+          sourceId: sourceId,
+          filter: const ['==', ['get', 'kind'], 'windingEnd'],
+          circleColor: 0x00E2231A,
+          circleRadius: 5.8,
+          circleStrokeColor: 0xFFFFFFFF,
+          circleStrokeWidth: 3.8,
+        ),
+      );
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'plan-marker-winding-end-layer',
+          sourceId: sourceId,
+          filter: const ['==', ['get', 'kind'], 'windingEnd'],
+          circleColor: 0x00E2231A,
+          circleRadius: 5.8,
+          circleStrokeColor: AppColors.red.toARGB32(),
+          circleStrokeWidth: 2.0,
+        ),
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[MapWidget] plan markers: ${e.runtimeType}');
       }
     }
   }

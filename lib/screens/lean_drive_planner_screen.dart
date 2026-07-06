@@ -23,6 +23,25 @@ import 'lean_drive_screen.dart';
 typedef DrivePlannerOriginResolver =
     Future<LatLng?> Function(BuildContext context);
 
+List<PlanMapMarker> buildPlanMapMarkers({
+  required LatLng origin,
+  required LatLng destination,
+  required DrivePlan plan,
+}) {
+  return [
+    PlanMapMarker(point: origin, kind: PlanMapMarkerKind.origin),
+    PlanMapMarker(point: destination, kind: PlanMapMarkerKind.destination),
+    for (final leg in plan.legs)
+      if (leg.kind == DrivePlanLegKind.winding && leg.nodes.isNotEmpty) ...[
+        PlanMapMarker(
+          point: leg.nodes.first,
+          kind: PlanMapMarkerKind.windingStart,
+        ),
+        PlanMapMarker(point: leg.nodes.last, kind: PlanMapMarkerKind.windingEnd),
+      ],
+  ];
+}
+
 const _plannerRegions = [
   _PlannerRegion('montreal', 'Montreal', LatLng(45.5017, -73.5673)),
   _PlannerRegion('laurentians', 'Laurentians', LatLng(45.9000, -74.1600)),
@@ -311,6 +330,17 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
 
   List<LatLng> get _windingPolyline => _planPolyline(DrivePlanLegKind.winding);
 
+  List<PlanMapMarker> get _planMarkers {
+    final plan = _plan;
+    final destination = _destination;
+    if (plan == null || destination == null) return const [];
+    return buildPlanMapMarkers(
+      origin: _origin,
+      destination: destination,
+      plan: plan,
+    );
+  }
+
   List<LatLng> _planPolyline(DrivePlanLegKind kind) {
     final plan = _plan;
     if (plan == null) return const [];
@@ -439,6 +469,8 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
             child: MapWidget(
               navPolyline: _transitPolyline,
               routePolyline: _windingPolyline,
+              curveHeatmap: false,
+              planMarkers: _planMarkers,
               cameraTarget: _mapCenter,
               cameraTargetSignal: _mapFocusSignal,
               onCameraCenterChanged: (point) => _mapCenter = point,
@@ -1416,10 +1448,32 @@ class _TimelineLeg extends StatelessWidget {
       DrivePlanLegKind.rest => AppColors.warning,
       DrivePlanLegKind.transit => AppColors.cyan,
     };
+    final dotColor = switch (leg.kind) {
+      DrivePlanLegKind.winding => AppColors.red,
+      DrivePlanLegKind.transit => const Color(0xFF6DA3FF),
+      DrivePlanLegKind.rest => null,
+    };
+    final dotKey = switch (leg.kind) {
+      DrivePlanLegKind.winding => const Key('timeline-dot-winding'),
+      DrivePlanLegKind.transit => const Key('timeline-dot-transit'),
+      DrivePlanLegKind.rest => null,
+    };
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
+          if (dotColor != null) ...[
+            Container(
+              key: dotKey,
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: dotColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           Icon(icon, size: 17, color: color),
           const SizedBox(width: 8),
           Expanded(
