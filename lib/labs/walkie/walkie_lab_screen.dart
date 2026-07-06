@@ -135,14 +135,11 @@ class _WalkieLabScreenState extends State<WalkieLabScreen> {
     unawaited(
       widget.pttController
           .startTalking(channelId)
-          .catchError((_) {
+          .catchError((Object error) {
             if (!mounted) return;
             setState(() {
-              _status = _copy(
-                ko: '마이크 연결을 시작하지 못했어요.',
-                en: 'Could not start the microphone.',
-                fr: 'Micro non démarré.',
-              );
+              // 랩 진단: 실제 예외를 노출해 마이크/채널 원인을 구분한다.
+              _status = '${_copy(ko: '무전 시작 실패', en: 'PTT start failed', fr: 'Échec PTT')}: $error';
             });
           })
           .whenComplete(() {

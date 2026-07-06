@@ -44,6 +44,13 @@ class RealtimePttTransport implements PttTransport {
       throw const PttTransportException('Supabase is not ready');
     }
 
+    // private 채널은 realtime 소켓에 세션 토큰이 실려야 RLS 인가를 통과한다.
+    // 익명 세션 토큰이 안 실리면 channelError로 구독이 거부된다.
+    final token = client.auth.currentSession?.accessToken;
+    if (token != null) {
+      await client.realtime.setAuth(token);
+    }
+
     final completer = Completer<void>();
     final channel = client.channel(
       'crew:$channelId',
