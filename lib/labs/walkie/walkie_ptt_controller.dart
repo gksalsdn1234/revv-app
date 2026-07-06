@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../services/ptt_service.dart';
 import '../../services/ptt_transport.dart';
@@ -8,6 +9,8 @@ import '../../services/ptt_transport.dart';
 /// 랩 화면·주행 화면이 공유하는 PTT 조작 인터페이스.
 /// 전송/녹음 파이프라인은 [PttService] 뒤에 숨는다.
 abstract class WalkiePttController {
+  ValueListenable<bool> get channelBusy;
+
   /// 채널에 참여하는 즉시 호출 — broadcast 수신을 연다(듣기 전용 포함).
   /// 같은 channelId로 중복 호출해도 안전(멱등).
   Future<void> connect(String channelId);
@@ -101,17 +104,37 @@ class PttServiceWalkieController implements WalkiePttController {
   final PttService _service;
   final WalkieChirp? _chirp;
   String? _subscribedChannelId;
+  Future<void>? _connecting;
+  String? _connectingChannelId;
   bool _talking = false;
 
   @override
-  Future<void> connect(String channelId) async {
-    if (_subscribedChannelId == channelId) return;
-    await _service.subscribe(channelId);
-    _subscribedChannelId = channelId;
+  ValueListenable<bool> get channelBusy => _service.channelBusy;
+
+  @override
+  Future<void> connect(String channelId) {
+    if (_subscribedChannelId == channelId) return Future<void>.value();
+    final pending = _connecting;
+    if (pending != null && _connectingChannelId == channelId) return pending;
+    _connectingChannelId = channelId;
+    final future = _service
+        .subscribe(channelId)
+        .then((_) {
+          _subscribedChannelId = channelId;
+        })
+        .whenComplete(() {
+          _connecting = null;
+          _connectingChannelId = null;
+        });
+    _connecting = future;
+    return future;
   }
 
   @override
   Future<void> disconnect() async {
+    try {
+      await _connecting;
+    } catch (_) {}
     if (_subscribedChannelId == null) return;
     await _service.unsubscribe();
     _subscribedChannelId = null;
@@ -119,6 +142,7 @@ class PttServiceWalkieController implements WalkiePttController {
 
   @override
   Future<void> startTalking(String channelId) async {
+    if (_service.channelBusy.value) return;
     if (_talking) return;
     _talking = true;
     // 누르는 즉시 삐릭 — 전송 준비와 병렬로(대기하지 않음).

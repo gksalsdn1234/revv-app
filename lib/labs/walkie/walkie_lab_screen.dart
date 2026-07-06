@@ -246,12 +246,18 @@ class _WalkieLabScreenState extends State<WalkieLabScreen> {
                     ),
                     const SizedBox(height: 18),
                     Center(
-                      child: _MicButton(
-                        enabled: joined && !_busy,
-                        talking: _talking,
-                        language: _language,
-                        onDown: _startTalking,
-                        onUpOrCancel: _stopTalking,
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: widget.pttController.channelBusy,
+                        builder: (context, channelBusy, _) {
+                          return _MicButton(
+                            enabled: joined && !_busy && !channelBusy,
+                            talking: _talking,
+                            channelBusy: channelBusy,
+                            language: _language,
+                            onDown: _startTalking,
+                            onUpOrCancel: _stopTalking,
+                          );
+                        },
                       ),
                     ),
                     if (_status != null) ...[
@@ -557,6 +563,7 @@ class _MicButton extends StatelessWidget {
   const _MicButton({
     required this.enabled,
     required this.talking,
+    required this.channelBusy,
     required this.language,
     required this.onDown,
     required this.onUpOrCancel,
@@ -564,6 +571,7 @@ class _MicButton extends StatelessWidget {
 
   final bool enabled;
   final bool talking;
+  final bool channelBusy;
   final AppLanguage language;
   final VoidCallback onDown;
   final Future<void> Function() onUpOrCancel;
@@ -611,7 +619,9 @@ class _MicButton extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                enabled
+                channelBusy
+                    ? _t(language, ko: '수신 중', en: 'RX', fr: 'Réception')
+                    : enabled
                     ? _t(language, ko: '누르기', en: 'Hold', fr: 'Tenir')
                     : _t(language, ko: '대기', en: 'Locked', fr: 'Bloqué'),
                 style: AppText.technicalLabel(

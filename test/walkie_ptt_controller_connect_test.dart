@@ -17,6 +17,38 @@ void main() {
     expect(transport.subscribedChannels, ['channel-1']);
   });
 
+  test('connect shares the in-flight subscribe for the same channel', () async {
+    final transport = _BlockingTransport();
+    final controller = PttServiceWalkieController(_service(transport));
+
+    final first = controller.connect('channel-1');
+    final second = controller.connect('channel-1');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(transport.subscribedChannels, ['channel-1']);
+
+    transport.completeSubscribe();
+    await Future.wait([first, second]);
+  });
+
+  test('startTalking reuses an auto-connect already in progress', () async {
+    final transport = _BlockingTransport();
+    final recorder = _FakeRecorder(const []);
+    final controller = PttServiceWalkieController(
+      _service(transport, recorder: recorder),
+    );
+
+    final connecting = controller.connect('channel-1');
+    final talking = controller.startTalking('channel-1');
+    await Future<void>.delayed(Duration.zero);
+
+    expect(transport.subscribedChannels, ['channel-1']);
+
+    transport.completeSubscribe();
+    await Future.wait([connecting, talking]);
+    expect(recorder.startCount, 1);
+  });
+
   test('startTalking connects before starting hold', () async {
     final transport = _FakeTransport();
     final recorder = _FakeRecorder([
@@ -78,6 +110,22 @@ class _FakeTransport implements PttTransport {
 
   @override
   Future<void> dispose() => _chunks.close();
+}
+
+class _BlockingTransport extends _FakeTransport {
+  final _subscribeReady = Completer<void>();
+
+  @override
+  Future<void> subscribe(String channelId) async {
+    subscribedChannels.add(channelId);
+    await _subscribeReady.future;
+  }
+
+  void completeSubscribe() {
+    if (!_subscribeReady.isCompleted) {
+      _subscribeReady.complete();
+    }
+  }
 }
 
 class _FakeRecorder implements PttRecorder {

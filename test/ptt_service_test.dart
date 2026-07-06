@@ -68,6 +68,59 @@ void main() {
     ]);
   });
 
+  test('marks the channel busy briefly after an incoming chunk', () async {
+    // Given: a subscribed service listening for remote walkie audio.
+    final transport = _FakeTransport();
+    final service = PttService(
+      transport: transport,
+      recorder: _FakeRecorder(const []),
+      codec: _OffsetCodec(),
+      playback: _FakePlayback(),
+      briefingState: _FakeBriefingState(),
+    );
+    await service.subscribe('channel-1');
+
+    // When: a remote chunk arrives.
+    transport.receive(Uint8List.fromList([8]));
+    await Future<void>.delayed(Duration.zero);
+
+    // Then: the half-duplex guard is active, then expires.
+    expect(service.channelBusy.value, isTrue);
+
+    await Future<void>.delayed(
+      PttService.channelBusyWindow + const Duration(milliseconds: 10),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(service.channelBusy.value, isFalse);
+  });
+
+  test('stopHold waits for recorder start before stopping', () async {
+    // Given: recorder.start has been called but has not completed yet.
+    final recorder = _DelayedStartRecorder();
+    final service = PttService(
+      transport: _FakeTransport(),
+      recorder: recorder,
+      codec: _OffsetCodec(),
+      playback: _FakePlayback(),
+      briefingState: _FakeBriefingState(),
+    );
+
+    final hold = service.startHold();
+    await Future<void>.delayed(Duration.zero);
+
+    // When: release arrives before the microphone stream is ready.
+    final stop = service.stopHold();
+    await Future<void>.delayed(Duration.zero);
+    expect(recorder.stopAfterStart, isNull);
+
+    recorder.completeStart();
+    await stop;
+    await hold;
+
+    // Then: recorder.stop ran after start completed.
+    expect(recorder.stopAfterStart, isTrue);
+  });
+
   test('surfaces transport rejection for non-member sends', () async {
     // Given: transport rejects broadcasts through the same seam as RLS.
     final service = PttService(
@@ -162,6 +215,28 @@ class _FakeRecorder implements PttRecorder {
   @override
   Future<void> stop() async {
     stopped = true;
+  }
+}
+
+class _DelayedStartRecorder implements PttRecorder {
+  final _start = Completer<Stream<Uint8List>>();
+  var started = false;
+  bool? stopAfterStart;
+
+  @override
+  Future<Stream<Uint8List>> start() async {
+    final stream = await _start.future;
+    started = true;
+    return stream;
+  }
+
+  void completeStart() {
+    _start.complete(const Stream<Uint8List>.empty());
+  }
+
+  @override
+  Future<void> stop() async {
+    stopAfterStart = started;
   }
 }
 

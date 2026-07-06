@@ -79,6 +79,19 @@ void main() {
     expect(ptt.stopCount, 1);
   });
 
+  testWidgets('busy channel disables microphone start', (tester) async {
+    final ptt = _FakeWalkiePttController();
+    await tester.pumpWalkie(ptt: ptt);
+    await tester.joinRoom();
+    ptt.channelBusy.value = true;
+    await tester.pump();
+
+    await tester.pressMic();
+
+    expect(find.text('RX'), findsOneWidget);
+    expect(ptt.startedChannels, isEmpty);
+  });
+
   testWidgets('layout has no overflow at 320px width', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 760));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -130,6 +143,9 @@ extension on WidgetTester {
 }
 
 class _FakeWalkiePttController implements WalkiePttController {
+  @override
+  final ValueNotifier<bool> channelBusy = ValueNotifier(false);
+
   final connectedChannels = <String>[];
   final startedChannels = <String>[];
   var disconnectCount = 0;

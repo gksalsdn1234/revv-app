@@ -22,6 +22,9 @@ class _FakeCrew extends CrewChannelService {
 }
 
 class _RecordingController implements WalkiePttController {
+  @override
+  final ValueNotifier<bool> channelBusy = ValueNotifier(false);
+
   int connectCount = 0;
   int disconnectCount = 0;
   int startCount = 0;
@@ -142,5 +145,23 @@ void main() {
     await gesture.cancel();
     await tester.pump();
     expect(controller.stopCount, 1);
+  });
+
+  testWidgets('busy channel disables PTT start', (tester) async {
+    final controller = _RecordingController();
+    controller.channelBusy.value = true;
+    await _pump(tester, enabled: true, joined: true, controller: controller);
+
+    expect(find.text('RX'), findsOneWidget);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byIcon(Icons.mic_rounded)),
+    );
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(controller.startCount, 0);
+    expect(controller.stopCount, 0);
   });
 }

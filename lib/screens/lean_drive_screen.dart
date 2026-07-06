@@ -485,10 +485,14 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     if (!crew.isJoined || channelId == null) return null;
     final controller =
         widget.pttControllerOverride ?? context.read<WalkiePttController>();
-    return _DrivePttButton(
-      language: language,
-      onStart: () => controller.startTalking(channelId),
-      onStop: () => controller.stopTalking(),
+    return ValueListenableBuilder<bool>(
+      valueListenable: controller.channelBusy,
+      builder: (context, channelBusy, _) => _DrivePttButton(
+        language: language,
+        channelBusy: channelBusy,
+        onStart: () => controller.startTalking(channelId),
+        onStop: () => controller.stopTalking(),
+      ),
     );
   }
 }
@@ -544,11 +548,13 @@ class _WalkieAutoConnectState extends State<_WalkieAutoConnect> {
 
 class _DrivePttButton extends StatefulWidget {
   final AppLanguage language;
+  final bool channelBusy;
   final Future<void> Function() onStart;
   final Future<void> Function() onStop;
 
   const _DrivePttButton({
     required this.language,
+    required this.channelBusy,
     required this.onStart,
     required this.onStop,
   });
@@ -561,6 +567,7 @@ class _DrivePttButtonState extends State<_DrivePttButton> {
   bool _talking = false;
 
   void _begin() {
+    if (widget.channelBusy) return;
     if (_talking) return;
     setState(() => _talking = true);
     unawaited(widget.onStart());
@@ -574,15 +581,18 @@ class _DrivePttButtonState extends State<_DrivePttButton> {
 
   @override
   Widget build(BuildContext context) {
-    final label = _talking
+    final label = widget.channelBusy
+        ? AppCopy.t(widget.language, ko: '수신 중', en: 'RX', fr: 'Réception')
+        : _talking
         ? AppCopy.t(widget.language, ko: '말하는 중', en: 'Talking', fr: 'En cours')
         : AppCopy.t(widget.language, ko: '눌러서 무전', en: 'Hold to talk', fr: 'Maintenir');
     return GestureDetector(
-      onTapDown: (_) => _begin(),
-      onTapUp: (_) => _finish(),
-      onTapCancel: _finish,
+      onTapDown: widget.channelBusy ? null : (_) => _begin(),
+      onTapUp: widget.channelBusy ? null : (_) => _finish(),
+      onTapCancel: widget.channelBusy ? null : _finish,
       child: Semantics(
         button: true,
+        enabled: !widget.channelBusy,
         label: label,
         child: Container(
           width: 96,

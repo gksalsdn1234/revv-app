@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:record/record.dart';
 
@@ -28,6 +29,8 @@ abstract class BriefingState {
 }
 
 class PttService {
+  static const channelBusyWindow = Duration(milliseconds: 350);
+
   PttService({
     required PttTransport transport,
     required PttRecorder recorder,
@@ -52,15 +55,19 @@ class PttService {
   final PttPlayback _playback;
   final BriefingState _briefingState;
   final Queue<Uint8List> _playbackQueue = Queue<Uint8List>();
+  final ValueNotifier<bool> channelBusy = ValueNotifier(false);
 
   StreamSubscription<Uint8List>? _incomingSubscription;
   StreamSubscription<bool>? _briefingSubscription;
   Future<void> _playbackDrain = Future<void>.value();
+  Future<void>? _holdStarting;
+  Timer? _busyTimer;
 
   Future<void> subscribe(String channelId) async {
     await _transport.subscribe(channelId);
     await _incomingSubscription?.cancel();
     _incomingSubscription = _transport.onChunk.listen((chunk) async {
+      _markChannelBusy();
       final decoded = await _codec.decode(chunk);
       _playbackQueue.add(decoded);
       if (!_briefingState.isBriefingActive) {
@@ -72,17 +79,23 @@ class PttService {
   Future<void> unsubscribe() async {
     await _incomingSubscription?.cancel();
     _incomingSubscription = null;
+    _clearChannelBusy();
     await _transport.disposeChannelOnly();
   }
 
   Future<void> startHold() async {
-    final stream = await _recorder.start();
+    final starting = _recorder.start();
+    _holdStarting = starting.then<void>((_) {}, onError: (_) {});
+    final stream = await starting;
     await for (final chunk in stream) {
       await _sendRecordedChunk(chunk);
     }
   }
 
   Future<void> stopHold() async {
+    try {
+      await _holdStarting;
+    } catch (_) {}
     await _recorder.stop();
   }
 
@@ -100,11 +113,27 @@ class PttService {
     return _playbackDrain;
   }
 
+  void _markChannelBusy() {
+    channelBusy.value = true;
+    _busyTimer?.cancel();
+    _busyTimer = Timer(channelBusyWindow, () {
+      channelBusy.value = false;
+    });
+  }
+
+  void _clearChannelBusy() {
+    _busyTimer?.cancel();
+    _busyTimer = null;
+    channelBusy.value = false;
+  }
+
   Future<void> dispose() async {
     await _incomingSubscription?.cancel();
     await _briefingSubscription?.cancel();
+    _clearChannelBusy();
     await _recorder.stop();
     await _transport.dispose();
+    channelBusy.dispose();
   }
 }
 
@@ -128,6 +157,8 @@ class RecordPcmPttRecorder implements PttRecorder {
         sampleRate: PttChunkSpec.sampleRate,
         numChannels: PttChunkSpec.channels,
         streamBufferSize: PttChunkSpec.frameBytes,
+        echoCancel: true,
+        autoGain: true,
       ),
     );
   }
