@@ -65,9 +65,22 @@ void main() {
     await tester.tap(find.text('어디로 갈까요?'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('지도 핀으로 지정'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('이 지점으로'));
     await tester.pump(const Duration(milliseconds: 350));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('planner starts as one input sheet without a center pin', (
+    tester,
+  ) async {
+    await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 30));
+
+    expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+    expect(find.text('어디로 갈까요?'), findsOneWidget);
+    expect(find.text('출발: 현위치 ▾'), findsOneWidget);
+    expect(find.byIcon(Icons.location_pin), findsNothing);
+  });
 
   testWidgets('planner moves from input to result state', (tester) async {
     await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 30));
@@ -80,7 +93,11 @@ void main() {
     expect(find.text('여정 타임라인'), findsNothing);
     expect(find.text('이동 10분'), findsOneWidget);
     expect(find.text('Lakeside Road 30분'), findsOneWidget);
-    expect(find.text('총 45분 · 와인딩 67%'), findsOneWidget);
+    expect(
+      find.textContaining(RegExp(r'도착 ~\d{2}:\d{2} · 45분 · 와인딩 30분')),
+      findsOneWidget,
+    );
+    expect(find.text('드라이브 시작'), findsOneWidget);
     expect(find.textContaining(RegExp(r'\d+\.\d{4}')), findsNothing);
   });
 
@@ -97,6 +114,36 @@ void main() {
     await selectMapPinDestination(tester);
 
     expect(find.byKey(const Key('planner-results-sheet')), findsOneWidget);
+    final sheet = tester.widget<DraggableScrollableSheet>(
+      find.byType(DraggableScrollableSheet),
+    );
+    expect(sheet.snap, isTrue);
+    expect(sheet.snapSizes, const [0.18, 0.42, 0.85]);
+    expect(sheet.minChildSize, 0.18);
+    expect(sheet.initialChildSize, 0.42);
+    expect(sheet.maxChildSize, 0.85);
+  });
+
+  testWidgets('planner shows the center pin only while picking a map point', (
+    tester,
+  ) async {
+    await pumpPlanner(tester, plan: _planWithWinding(windingMinutes: 30));
+
+    expect(find.byIcon(Icons.location_pin), findsNothing);
+
+    await tester.tap(find.text('어디로 갈까요?'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('지도 핀으로 지정'));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.location_pin), findsOneWidget);
+    expect(find.text('이 지점으로'), findsOneWidget);
+
+    await tester.tap(find.text('이 지점으로'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.location_pin), findsNothing);
   });
 
   testWidgets('planner explains budget shortfall honestly', (tester) async {
@@ -202,7 +249,10 @@ void main() {
     // 여유 충분 → 와인딩이 가장 긴 옵션이 추천되고 자동 선택된다
     expect(find.textContaining('추천'), findsOneWidget);
     expect(find.text('Ridge Sweep 45분'), findsOneWidget);
-    expect(find.text('~${_formatTestTime(arriveBy)}'), findsOneWidget);
+    expect(
+      find.textContaining(RegExp(r'도착 ~\d{2}:\d{2} · 60분 · 와인딩 45분')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('destination search updates the planner destination', (
@@ -258,12 +308,6 @@ void main() {
       }
     }
   });
-}
-
-String _formatTestTime(TimeOfDay time) {
-  final hour = time.hour.toString().padLeft(2, '0');
-  final minute = time.minute.toString().padLeft(2, '0');
-  return '$hour:$minute';
 }
 
 class _FakePlaceSearch extends PlaceSearchService {
