@@ -51,11 +51,16 @@ class BeepWalkieChirp implements WalkieChirp {
             ),
           ),
         );
+        // 저지연 모드 + 소스 사전 로드 — 누를 때마다 로드하는 지연 제거.
+        await _player.setPlayerMode(PlayerMode.lowLatency);
+        await _player.setReleaseMode(ReleaseMode.stop);
+        await _player.setVolume(0.3); // 무전 톤은 배경 신호 — 작게
+        await _player.setSource(AssetSource('sounds/beep.mp3'));
         _configured = true;
       }
-      await _player.stop();
-      await _player.setVolume(0.3); // 무전 톤은 배경 신호 — 작게
-      await _player.play(AssetSource('sounds/beep.mp3'));
+      // 이미 로드된 소스를 처음부터 즉시 재생.
+      await _player.seek(Duration.zero);
+      await _player.resume();
     } catch (_) {
       // 효과음 실패는 무전 동작을 막지 않는다.
     }
@@ -77,7 +82,7 @@ class PttServiceWalkieController implements WalkiePttController {
     return PttServiceWalkieController(
       PttService(
         transport: RealtimePttTransport(),
-        recorder: RecordOpusPttRecorder(),
+        recorder: RecordPcmPttRecorder(),
         codec: const PassthroughPttAudioCodec(),
         playback: FlutterSoundPttPlayback(),
         briefingState: const IdleBriefingState(),
