@@ -31,14 +31,18 @@ class BeepWalkieChirp implements WalkieChirp {
   Future<void> play() async {
     try {
       if (!_configured) {
-        // 음악 위에 얹기: 무전 톤도 브리핑처럼 덕킹 세션을 공유한다.
+        // playAndRecord: 비프 재생 직후 곧바로 녹음이 시작되므로 세션을
+        // 재생 전용(playback)으로 잡으면 마이크가 못 켜진다. 둘 다 되는
+        // 카테고리로 통일하고, 음악 위 덕킹 + 스피커 출력을 유지한다.
         await _player.setAudioContext(
           AudioContext(
             iOS: AudioContextIOS(
-              category: AVAudioSessionCategory.playback,
+              category: AVAudioSessionCategory.playAndRecord,
               options: const {
                 AVAudioSessionOptions.duckOthers,
                 AVAudioSessionOptions.mixWithOthers,
+                AVAudioSessionOptions.defaultToSpeaker,
+                AVAudioSessionOptions.allowBluetooth,
               },
             ),
             android: const AudioContextAndroid(
@@ -50,7 +54,7 @@ class BeepWalkieChirp implements WalkieChirp {
         _configured = true;
       }
       await _player.stop();
-      await _player.setVolume(0.66); // 2/3 볼륨
+      await _player.setVolume(0.3); // 무전 톤은 배경 신호 — 작게
       await _player.play(AssetSource('sounds/beep.mp3'));
     } catch (_) {
       // 효과음 실패는 무전 동작을 막지 않는다.
