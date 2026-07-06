@@ -1545,6 +1545,30 @@ class _SettingsSheet extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 18),
+                if (showWalkieLabEntry) ...[
+                  _SettingsGroupLabel(
+                    label: AppCopy.t(
+                      language,
+                      ko: '실험',
+                      en: 'Lab',
+                      fr: 'Lab',
+                    ).toUpperCase(),
+                  ),
+                  _SettingsTile(
+                    icon: Icons.mic_none_rounded,
+                    label: AppCopy.t(
+                      language,
+                      ko: '크루 보이스 랩',
+                      en: 'Crew voice lab',
+                      fr: 'Lab voix groupe',
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      onOpenWalkieLab();
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                ],
                 _SettingsGroupLabel(
                   label: AppCopy.settingsUnitsDisplay(language).toUpperCase(),
                 ),
@@ -1593,30 +1617,6 @@ class _SettingsSheet extends StatelessWidget {
                   active: true,
                   onTap: () {},
                 ),
-                if (showWalkieLabEntry) ...[
-                  const SizedBox(height: 10),
-                  _SettingsGroupLabel(
-                    label: AppCopy.t(
-                      language,
-                      ko: '실험',
-                      en: 'Lab',
-                      fr: 'Lab',
-                    ).toUpperCase(),
-                  ),
-                  _SettingsTile(
-                    icon: Icons.mic_none_rounded,
-                    label: AppCopy.t(
-                      language,
-                      ko: '크루 보이스 랩',
-                      en: 'Crew voice lab',
-                      fr: 'Lab voix groupe',
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      onOpenWalkieLab();
-                    },
-                  ),
-                ],
                 const SizedBox(height: 10),
                 _SettingsGroupLabel(
                   label: AppCopy.settingsData(language).toUpperCase(),
