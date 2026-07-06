@@ -46,6 +46,7 @@ $$;
 create or replace function public.prepare_crew_channel_insert()
 returns trigger
 language plpgsql
+security definer
 set search_path = public, pg_temp
 as $$
 declare

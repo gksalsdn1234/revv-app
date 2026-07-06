@@ -372,6 +372,17 @@ void main() {
     expect(sql, contains('create trigger crew_channels_prepare_insert'));
     expect(sql, contains('new.code := generated_code'));
     expect(sql, contains("new.expires_at := now() + interval '24 hours'"));
+    // 트리거는 owner 권한으로 실행돼야 revoke된 generate 함수를 호출할 수 있다.
+    // (없으면 authenticated 유저의 방 생성이 permission denied로 실패)
+    expect(
+      sql,
+      contains(
+        'create or replace function public.prepare_crew_channel_insert()\n'
+        'returns trigger\n'
+        'language plpgsql\n'
+        'security definer',
+      ),
+    );
   });
 
   test('crew walkie realtime policies authorize member broadcasts only', () {
