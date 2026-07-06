@@ -269,12 +269,13 @@ class SupabaseCrewChannelSupabase implements CrewChannelSupabase {
 
   @override
   Future<Map<String, dynamic>> createChannelRow(String name) async {
-    final row = await _client
-        .from(SupabaseTables.crewChannels)
-        .insert({'name': name, 'owner_id': uid})
-        .select('id, code, expires_at')
-        .single();
-    return Map<String, dynamic>.from(row);
+    // owner_id는 서버(create_crew_channel RPC)가 auth.uid()로 채운다 —
+    // 클라이언트 uid나 RLS insert WITH CHECK에 의존하지 않는다.
+    final row = await _client.rpc(
+      'create_crew_channel',
+      params: {'name_input': name},
+    );
+    return Map<String, dynamic>.from(row as Map);
   }
 
   @override
