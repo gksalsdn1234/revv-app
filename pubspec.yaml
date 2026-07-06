@@ -45,6 +45,7 @@ dependencies:
   flutter_tts: ^4.2.0
   record: ^6.2.1
   flutter_sound: ^9.30.0
+  audioplayers: ^6.1.0
   sentry_flutter: ^9.23.0
   supabase: ^2.10.6
   url_launcher: ^6.3.2
@@ -70,6 +71,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/sounds/beep.mp3
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

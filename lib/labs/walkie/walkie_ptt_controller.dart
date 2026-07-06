@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
+
 import '../../services/ptt_service.dart';
 import '../../services/ptt_transport.dart';
 
@@ -11,8 +13,56 @@ abstract class WalkiePttController {
   Future<void> dispose();
 }
 
+/// PTT 시작 시 무전기 "삐릭" 피드백. 실패는 조용히 무시(보조 신호).
+abstract class WalkieChirp {
+  Future<void> play();
+  Future<void> dispose();
+}
+
+class BeepWalkieChirp implements WalkieChirp {
+  final AudioPlayer _player = AudioPlayer(playerId: 'walkie-chirp');
+  bool _configured = false;
+
+  @override
+  Future<void> play() async {
+    try {
+      if (!_configured) {
+        // 음악 위에 얹기: 무전 톤도 브리핑처럼 덕킹 세션을 공유한다.
+        await _player.setAudioContext(
+          AudioContext(
+            iOS: AudioContextIOS(
+              category: AVAudioSessionCategory.playback,
+              options: const {
+                AVAudioSessionOptions.duckOthers,
+                AVAudioSessionOptions.mixWithOthers,
+              },
+            ),
+            android: const AudioContextAndroid(
+              usageType: AndroidUsageType.assistanceSonification,
+              audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+            ),
+          ),
+        );
+        _configured = true;
+      }
+      await _player.stop();
+      await _player.play(AssetSource('sounds/beep.mp3'));
+    } catch (_) {
+      // 효과음 실패는 무전 동작을 막지 않는다.
+    }
+  }
+
+  @override
+  Future<void> dispose() async {
+    try {
+      await _player.dispose();
+    } catch (_) {}
+  }
+}
+
 class PttServiceWalkieController implements WalkiePttController {
-  PttServiceWalkieController(this._service);
+  PttServiceWalkieController(this._service, {WalkieChirp? chirp})
+    : _chirp = chirp;
 
   factory PttServiceWalkieController.production() {
     return PttServiceWalkieController(
@@ -23,10 +73,12 @@ class PttServiceWalkieController implements WalkiePttController {
         playback: FlutterSoundPttPlayback(),
         briefingState: const IdleBriefingState(),
       ),
+      chirp: BeepWalkieChirp(),
     );
   }
 
   final PttService _service;
+  final WalkieChirp? _chirp;
   String? _subscribedChannelId;
   bool _talking = false;
 
@@ -34,6 +86,8 @@ class PttServiceWalkieController implements WalkiePttController {
   Future<void> startTalking(String channelId) async {
     if (_talking) return;
     _talking = true;
+    // 누르는 즉시 삐릭 — 전송 준비와 병렬로(대기하지 않음).
+    unawaited(_chirp?.play());
     try {
       if (_subscribedChannelId != channelId) {
         await _service.subscribe(channelId);
@@ -49,7 +103,10 @@ class PttServiceWalkieController implements WalkiePttController {
   Future<void> stopTalking() => _service.stopHold();
 
   @override
-  Future<void> dispose() => _service.dispose();
+  Future<void> dispose() async {
+    await _chirp?.dispose();
+    await _service.dispose();
+  }
 }
 
 /// 코너 브리핑 연동이 없는 기본 브리핑 상태 (랩/독립 사용).
