@@ -4,12 +4,14 @@ import '../models/drive_plan.dart';
 import '../models/revv_route.dart';
 import 'route_loading_policy.dart';
 import 'route_service.dart';
+import 'supabase_service.dart';
 import 'transit_eta_service.dart';
 
 typedef RouteCandidateLoader =
     Future<List<RevvRoute>> Function(LatLng center, int radiusKm);
 typedef TransitLegLoader =
     Future<List<TransitLegEta>> Function(List<LatLng> waypoints);
+typedef RouteNodesLoader = Future<List<LatLng>> Function(String routeId);
 
 /// 연속 주행이 이 분을 넘기면 휴식을 삽입한다.
 const int restIntervalMinutes = 120;
@@ -142,17 +144,22 @@ DrivePlanOption? recommendOptionForArrival(
 class DrivePlannerService {
   final RouteCandidateLoader _candidateLoader;
   final TransitLegLoader _transitLegLoader;
+  final RouteNodesLoader _nodesLoader;
 
   DrivePlannerService({
     RouteCandidateLoader? candidateLoader,
     TransitLegLoader? transitLegLoader,
+    RouteNodesLoader? nodesLoader,
     RouteService? routeService,
     TransitEtaService? etaService,
   }) : _candidateLoader =
            candidateLoader ??
            _routeServiceLoader(routeService ?? RouteService()),
        _transitLegLoader =
-           transitLegLoader ?? (etaService ?? TransitEtaService()).routeLegs;
+           transitLegLoader ?? (etaService ?? TransitEtaService()).routeLegs,
+       _nodesLoader =
+           nodesLoader ??
+           ((routeId) => SupabaseService().fetchRouteNodes(routeId));
 
   Future<DrivePlan?> buildPlan(DrivePlanRequest request) async {
     final candidates = await _corridorCandidates(request);
@@ -216,11 +223,16 @@ class DrivePlannerService {
       }
     }
 
-    final quality = unique.values
+    final base = unique.values
         .where((route) => route.nodes.length >= 2)
-        .where((route) => recommendationTier(route) == 'keep')
         .where((route) => !shouldRejectLowQualityRoute(route))
         .toList();
+    final keep = base
+        .where((route) => recommendationTier(route) == 'keep')
+        .toList();
+    final quality = keep.isNotEmpty
+        ? keep
+        : base.where((route) => recommendationTier(route) != 'reject').toList();
     return [
       ...quality,
       ...buildChainedRoutes(quality, budget: DriveBudget.any),
@@ -234,10 +246,22 @@ class DrivePlannerService {
     final budget = request.windingBudgetMinutes;
     if (budget <= 0 || routes.isEmpty) return const [];
     final maxMinutes = math.max(1, (budget * 1.2).floor());
-    final ranked = List<RevvRoute>.from(routes)
-      ..sort(
-        (a, b) => _routeValue(b, request).compareTo(_routeValue(a, request)),
-      );
+    final corridorKm = RevvRoute.haversineKm(
+      request.origin,
+      request.destination,
+    );
+    final maxOffsetKm = math.max(10.0, corridorKm * 0.22);
+    final ranked =
+        routes
+            .where(
+              (route) =>
+                  _corridorOffsetKm(route.centerPoint, request) <= maxOffsetKm,
+            )
+            .toList()
+          ..sort(
+            (a, b) =>
+                _routeValue(b, request).compareTo(_routeValue(a, request)),
+          );
 
     final selected = <RevvRoute>[];
     var minutes = 0;
@@ -269,14 +293,14 @@ class DrivePlannerService {
     DrivePlanRequest request,
     List<RevvRoute> windingRoutes,
   ) async {
+    final hydrated = await _hydrateSelectedRoutes(windingRoutes);
     final oriented =
-        windingRoutes.map((route) => _orientedRoute(route, request)).toList()
-          ..sort(
-            (a, b) => _projection(
-              a.nodes.first,
-              request,
-            ).compareTo(_projection(b.nodes.first, request)),
-          );
+        hydrated.map((route) => _orientedRoute(route, request)).toList()..sort(
+          (a, b) => _projection(
+            a.nodes.first,
+            request,
+          ).compareTo(_projection(b.nodes.first, request)),
+        );
     final transitWaypoints = <LatLng>[request.origin];
     for (final route in oriented) {
       transitWaypoints.add(route.nodes.first);
@@ -325,6 +349,25 @@ class DrivePlannerService {
     );
   }
 
+  Future<List<RevvRoute>> _hydrateSelectedRoutes(List<RevvRoute> routes) async {
+    if (routes.isEmpty) return const [];
+    return Future.wait(
+      routes.map((route) async {
+        try {
+          final nodes = await _nodesLoader(
+            route.id,
+          ).timeout(const Duration(seconds: 5));
+          if (nodes.length > route.nodes.length) {
+            return route.copyWith(nodes: nodes);
+          }
+        } catch (_) {
+          return route;
+        }
+        return route;
+      }),
+    );
+  }
+
   Future<List<TransitLegEta>> _safeTransitLegs(List<LatLng> waypoints) async {
     try {
       final legs = await _transitLegLoader(waypoints);
@@ -353,7 +396,8 @@ class DrivePlannerService {
 
   double _routeValue(RevvRoute route, DrivePlanRequest request) {
     final minutes = estimatedDriveMinutes(route);
-    final detourCost = 1 + _corridorOffsetKm(route.centerPoint, request);
+    final offset = _corridorOffsetKm(route.centerPoint, request);
+    final detourCost = 1 + offset + math.pow(offset / 8.0, 2);
     return route.windingScore * minutes / detourCost;
   }
 

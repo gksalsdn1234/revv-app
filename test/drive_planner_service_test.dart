@@ -68,12 +68,12 @@ void main() {
       final routes = [
         _routeAt(
           id: 'southeast',
-          center: const LatLng(43.5, -78.5),
+          center: const LatLng(44.45, -77.38),
           windingScore: 7.0,
         ),
         _routeAt(
           id: 'northwest',
-          center: const LatLng(45.9, -79.5),
+          center: const LatLng(44.98, -75.49),
           windingScore: 7.0,
         ),
       ];
@@ -97,14 +97,14 @@ void main() {
       final routes = [
         _routeWithNodes(
           id: 'center-early-entry-late',
-          center: const LatLng(0, 3),
-          nodes: const [LatLng(0, 6), LatLng(0, 6.2)],
+          center: const LatLng(0, 0.30),
+          nodes: const [LatLng(0, 0.60), LatLng(0, 0.62)],
           windingScore: 7.0,
         ),
         _routeWithNodes(
           id: 'center-late-entry-early',
-          center: const LatLng(0, 4),
-          nodes: const [LatLng(0, 2), LatLng(0, 2.2)],
+          center: const LatLng(0, 0.40),
+          nodes: const [LatLng(0, 0.20), LatLng(0, 0.22)],
           windingScore: 7.0,
         ),
       ];
@@ -172,12 +172,94 @@ void main() {
     expect(plan.legs.single.estimatedMinutes, greaterThan(1));
     expect(plan.usesApproximateTransit, isTrue);
   });
+
+  test('planner hydrates selected winding route nodes', () async {
+    final fullNodes = [
+      const LatLng(0, 0.20),
+      const LatLng(0, 0.23),
+      const LatLng(0, 0.25),
+    ];
+    final service = _service([
+      _route(id: 'short', startLng: 0.20, windingScore: 8.0),
+    ], nodesLoader: (_) async => fullNodes);
+
+    final plan = await service.buildPlan(_request(20));
+
+    final winding = _windingLegs(plan).single;
+    expect(winding.nodes, fullNodes);
+    expect(winding.route!.nodes, fullNodes);
+  });
+
+  test('planner keeps compact nodes when hydration fails', () async {
+    final route = _route(id: 'short', startLng: 0.20, windingScore: 8.0);
+    final service = _service([
+      route,
+    ], nodesLoader: (_) async => throw StateError('offline'));
+
+    final plan = await service.buildPlan(_request(20));
+
+    final winding = _windingLegs(plan).single;
+    expect(winding.nodes, route.nodes);
+  });
+
+  test('planner orients routes after hydration', () async {
+    final service = _service(
+      [_route(id: 'reverse', startLng: 0.45, windingScore: 8.0)],
+      nodesLoader: (_) async => const [
+        LatLng(0, 0.55),
+        LatLng(0, 0.50),
+        LatLng(0, 0.45),
+      ],
+    );
+
+    final plan = await service.buildPlan(_request(20));
+
+    final nodes = _windingLegs(plan).single.nodes;
+    expect(nodes.first.lng, closeTo(0.45, 0.001));
+    expect(nodes.last.lng, closeTo(0.55, 0.001));
+  });
+
+  test('planner excludes routes beyond corridor offset cap', () async {
+    final service = _service([
+      _routeAt(
+        id: 'far-high-score',
+        center: const LatLng(1.0, 0.50),
+        windingScore: 10.0,
+      ),
+    ]);
+
+    final plan = await service.buildPlan(_request(30));
+
+    expect(_windingIds(plan), isEmpty);
+    expect(plan!.windingMinutes, 0);
+  });
+
+  test(
+    'planner falls back to maybe routes when no keep route exists',
+    () async {
+      final service = _service([
+        _route(
+          id: 'maybe-flow',
+          startLng: 0.20,
+          windingScore: 8.0,
+        ).copyWith(routeRankScore: 0, flowScore: 0.4),
+      ]);
+
+      final plan = await service.buildPlan(_request(30));
+
+      expect(_windingIds(plan), ['maybe-flow']);
+    },
+  );
 }
 
-DrivePlannerService _service(List<RevvRoute> routes) {
+DrivePlannerService _service(
+  List<RevvRoute> routes, {
+  RouteNodesLoader? nodesLoader,
+}) {
   return DrivePlannerService(
     candidateLoader: (_, _) async => routes,
     transitLegLoader: (waypoints) async => fallbackLegs(waypoints),
+    nodesLoader: nodesLoader ?? (_) async => const [],
   );
 }
 
@@ -190,9 +272,12 @@ DrivePlanRequest _request(int budget) {
 }
 
 List<String> _windingIds(DrivePlan? plan) {
+  return _windingLegs(plan).map((leg) => leg.route!.id).toList();
+}
+
+List<DrivePlanLeg> _windingLegs(DrivePlan? plan) {
   return plan!.legs
       .where((leg) => leg.kind == DrivePlanLegKind.winding)
-      .map((leg) => leg.route!.id)
       .toList();
 }
 
