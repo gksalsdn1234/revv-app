@@ -19,6 +19,10 @@ abstract class WalkieChirp {
   Future<void> dispose();
 }
 
+// ⚠️ 출시 전 삭제 필수 (RELEASE BLOCKER): 현재 assets/sounds/beep.mp3 는
+// myinstants F1 라디오 클립(F1 방송 원본 오디오)이라 상업 배포 라이선스가 없다.
+// 개인 테스트 용도로만 사용 중. App Store 제출 전에 반드시 오리지널 합성음으로
+// 교체하거나 이 chirp 자체를 제거할 것. (Codex/민우 릴리즈 체크리스트 항목)
 class BeepWalkieChirp implements WalkieChirp {
   final AudioPlayer _player = AudioPlayer(playerId: 'walkie-chirp');
   bool _configured = false;
