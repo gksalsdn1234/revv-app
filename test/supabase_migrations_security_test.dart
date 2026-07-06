@@ -20,6 +20,8 @@ void main() {
       'supabase/migrations/20260705063752_crew_walkie.sql';
   const crewWalkieRealtimeMigration =
       'supabase/migrations/20260705070001_crew_walkie_realtime.sql';
+  const crewWalkiePresenceMigration =
+      'supabase/migrations/20260706090000_crew_walkie_presence.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -30,6 +32,7 @@ void main() {
     regionRequestsMigration,
     crewWalkieMigration,
     crewWalkieRealtimeMigration,
+    crewWalkiePresenceMigration,
   ];
 
   const userTables = [
@@ -403,6 +406,30 @@ void main() {
     );
     // Non-members intentionally fail closed: no membership row means no policy
     // passes for the private crew:{channelId} topic.
+    expect(sql, isNot(contains('to anon')));
+    expect(sql, isNot(contains('using (true)')));
+    expect(sql, isNot(contains('with check (true)')));
+  });
+
+  test('crew walkie presence policies authorize members for both topics', () {
+    final sql = _readLower(crewWalkiePresenceMigration);
+
+    // 20260705070001을 대체: presence extension 허용 + 오디오 토픽 분리.
+    expect(sql, contains('on realtime.messages'));
+    expect(sql, contains('create policy crew_walkie_realtime_receive'));
+    expect(sql, contains('for select'));
+    expect(sql, contains('create policy crew_walkie_realtime_send'));
+    expect(sql, contains('for insert'));
+    expect(sql, contains('to authenticated'));
+    expect(
+      sql,
+      contains("realtime.messages.extension in ('broadcast', 'presence')"),
+    );
+    expect(sql, contains('from public.crew_channel_members'));
+    expect(sql, contains('member_id = (select auth.uid())'));
+    expect(sql, contains("'crew:' || channel_id::text,"));
+    expect(sql, contains("'crew:' || channel_id::text || ':audio'"));
+    // Non-members stay fail-closed on both topics.
     expect(sql, isNot(contains('to anon')));
     expect(sql, isNot(contains('using (true)')));
     expect(sql, isNot(contains('with check (true)')));

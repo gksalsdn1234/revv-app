@@ -54,7 +54,9 @@ class RealtimePttTransport implements PttTransport {
 
     final completer = Completer<void>();
     final channel = client.channel(
-      'crew:$channelId',
+      // presence(crew:<id>)와 소켓 토픽 분리 — 같은 토픽 이중 join이
+      // 먼저 붙은 presence 채널을 밀어내는 것을 방지한다.
+      'crew:$channelId:audio',
       opts: const RealtimeChannelConfig(ack: true, private: true),
     );
     _channel = channel;
