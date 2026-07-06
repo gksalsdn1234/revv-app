@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter_sound/flutter_sound.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/services/ptt_service.dart';
 import 'package:revv_app/services/ptt_transport.dart';
@@ -71,7 +72,9 @@ void main() {
     // Given: transport rejects broadcasts through the same seam as RLS.
     final service = PttService(
       transport: _RejectingTransport(),
-      recorder: _FakeRecorder([Uint8List.fromList([1])]),
+      recorder: _FakeRecorder([
+        Uint8List.fromList([1]),
+      ]),
       codec: _OffsetCodec(),
       playback: _FakePlayback(),
       briefingState: _FakeBriefingState(),
@@ -79,7 +82,37 @@ void main() {
     await service.subscribe('channel-1');
 
     // When / Then: hold start fails closed instead of swallowing the denial.
-    await expectLater(service.startHold(), throwsA(isA<PttTransportException>()));
+    await expectLater(
+      service.startHold(),
+      throwsA(isA<PttTransportException>()),
+    );
+  });
+
+  test('feeds PCM chunks into one flutter sound stream', () async {
+    // Given: a playback adapter backed by a fake FlutterSound player.
+    final player = _FakeFlutterSoundPlayer();
+    final playback = FlutterSoundPttPlayback(player: player);
+
+    // When: two received chunks are played.
+    await playback.play(Uint8List.fromList([1, 0]));
+    await playback.play(Uint8List.fromList([2, 0]));
+
+    // Then: the stream player is opened once and chunks are fed continuously.
+    expect(player.openCalls, 1);
+    expect(player.startStreamCalls, 1);
+    expect(player.startPlayerCalls, 0);
+    expect(player.streamCodec, Codec.pcm16);
+    expect(player.streamInterleaved, isTrue);
+    expect(player.streamChannels, PttChunkSpec.channels);
+    expect(player.streamSampleRate, PttChunkSpec.sampleRate);
+    expect(player.streamBufferSize, PttChunkSpec.frameBytes);
+    expect(player.fedChunks, [
+      Uint8List.fromList([1, 0]),
+      Uint8List.fromList([2, 0]),
+    ]);
+
+    await playback.dispose();
+    expect(player.closeCalls, 1);
   });
 }
 
@@ -120,9 +153,8 @@ class _FakeRecorder implements PttRecorder {
   bool stopped = false;
 
   @override
-  Future<Stream<Uint8List>> start() async => Stream<Uint8List>.fromIterable(
-    _chunks.map(Uint8List.fromList),
-  );
+  Future<Stream<Uint8List>> start() async =>
+      Stream<Uint8List>.fromIterable(_chunks.map(Uint8List.fromList));
 
   @override
   Future<void> stop() async {
@@ -136,8 +168,8 @@ class _OffsetCodec implements PttAudioCodec {
       Uint8List.fromList(pcmOrEncodedBytes.map((byte) => byte + 1).toList());
 
   @override
-  Future<Uint8List> decode(Uint8List opusBytes) async =>
-      Uint8List.fromList(opusBytes.map((byte) => byte - 1).toList());
+  Future<Uint8List> decode(Uint8List pcmOrEncodedBytes) async =>
+      Uint8List.fromList(pcmOrEncodedBytes.map((byte) => byte - 1).toList());
 }
 
 class _FakePlayback implements PttPlayback {
@@ -146,6 +178,66 @@ class _FakePlayback implements PttPlayback {
   @override
   Future<void> play(Uint8List pcmOrEncodedBytes) async {
     playedChunks.add(Uint8List.fromList(pcmOrEncodedBytes));
+  }
+}
+
+class _FakeFlutterSoundPlayer extends FlutterSoundPlayer {
+  int openCalls = 0;
+  int closeCalls = 0;
+  int startStreamCalls = 0;
+  int startPlayerCalls = 0;
+  Codec? streamCodec;
+  bool? streamInterleaved;
+  int? streamChannels;
+  int? streamSampleRate;
+  int? streamBufferSize;
+  final fedChunks = <Uint8List>[];
+
+  @override
+  Future<FlutterSoundPlayer?> openPlayer({bool isBGService = false}) async {
+    openCalls += 1;
+    return this;
+  }
+
+  @override
+  Future<void> startPlayerFromStream({
+    required Codec codec,
+    required bool interleaved,
+    required int numChannels,
+    required int sampleRate,
+    required int bufferSize,
+    TWhenFinished? onBufferUnderflow,
+  }) async {
+    startStreamCalls += 1;
+    streamCodec = codec;
+    streamInterleaved = interleaved;
+    streamChannels = numChannels;
+    streamSampleRate = sampleRate;
+    streamBufferSize = bufferSize;
+  }
+
+  @override
+  Future<int> feedUint8FromStream(Uint8List buffer) async {
+    fedChunks.add(Uint8List.fromList(buffer));
+    return buffer.length;
+  }
+
+  @override
+  Future<Duration?> startPlayer({
+    Codec codec = Codec.aacADTS,
+    String? fromURI,
+    Uint8List? fromDataBuffer,
+    int sampleRate = 16000,
+    int numChannels = 1,
+    TWhenFinished? whenFinished,
+  }) async {
+    startPlayerCalls += 1;
+    return Duration.zero;
+  }
+
+  @override
+  Future<void> closePlayer() async {
+    closeCalls += 1;
   }
 }
 

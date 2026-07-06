@@ -15,7 +15,7 @@ abstract class PttRecorder {
 
 abstract class PttAudioCodec {
   Future<Uint8List> encode(Uint8List pcmOrEncodedBytes);
-  Future<Uint8List> decode(Uint8List opusBytes);
+  Future<Uint8List> decode(Uint8List pcmOrEncodedBytes);
 }
 
 abstract class PttPlayback {
@@ -102,8 +102,8 @@ class PttService {
   }
 }
 
-class RecordOpusPttRecorder implements PttRecorder {
-  RecordOpusPttRecorder({AudioRecorder? recorder})
+class RecordPcmPttRecorder implements PttRecorder {
+  RecordPcmPttRecorder({AudioRecorder? recorder})
     : _recorder = recorder ?? AudioRecorder();
 
   final AudioRecorder _recorder;
@@ -118,11 +118,10 @@ class RecordOpusPttRecorder implements PttRecorder {
     }
     return _recorder.startStream(
       const RecordConfig(
-        encoder: AudioEncoder.opus,
+        encoder: AudioEncoder.pcm16bits,
         sampleRate: PttChunkSpec.sampleRate,
-        bitRate: PttChunkSpec.bitRate,
         numChannels: PttChunkSpec.channels,
-        streamBufferSize: PttChunkSpec.pcmFrameBytes,
+        streamBufferSize: PttChunkSpec.frameBytes,
       ),
     );
   }
@@ -141,8 +140,8 @@ class PassthroughPttAudioCodec implements PttAudioCodec {
       Uint8List.fromList(pcmOrEncodedBytes);
 
   @override
-  Future<Uint8List> decode(Uint8List opusBytes) async =>
-      Uint8List.fromList(opusBytes);
+  Future<Uint8List> decode(Uint8List pcmOrEncodedBytes) async =>
+      Uint8List.fromList(pcmOrEncodedBytes);
 }
 
 class FlutterSoundPttPlayback implements PttPlayback {
@@ -155,14 +154,25 @@ class FlutterSoundPttPlayback implements PttPlayback {
   final FlutterSoundPlayer _player;
   final SetIosAudioCategory? _setIosAudioCategory;
   var _opened = false;
+  var _streaming = false;
 
   @override
   Future<void> play(Uint8List pcmOrEncodedBytes) async {
+    await _ensureStreamStarted();
+    await _player.feedUint8FromStream(pcmOrEncodedBytes);
+  }
+
+  Future<void> _ensureStreamStarted() async {
+    if (_streaming) return;
     await _ensureOpen();
-    await _player.startPlayer(
-      codec: Codec.opusOGG,
-      fromDataBuffer: pcmOrEncodedBytes,
+    await _player.startPlayerFromStream(
+      codec: Codec.pcm16,
+      interleaved: true,
+      numChannels: PttChunkSpec.channels,
+      sampleRate: PttChunkSpec.sampleRate,
+      bufferSize: PttChunkSpec.frameBytes,
     );
+    _streaming = true;
   }
 
   Future<void> _ensureOpen() async {
@@ -181,5 +191,6 @@ class FlutterSoundPttPlayback implements PttPlayback {
     if (!_opened) return;
     await _player.closePlayer();
     _opened = false;
+    _streaming = false;
   }
 }

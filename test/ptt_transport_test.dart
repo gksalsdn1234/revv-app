@@ -13,7 +13,7 @@ void main() {
     await sender.subscribe('channel-1');
     await receiver.subscribe('channel-1');
 
-    // When: one member broadcasts an Opus chunk.
+    // When: one member broadcasts a PCM chunk.
     final received = expectLater(
       receiver.onChunk,
       emits(Uint8List.fromList([1, 2, 3, 4])),
@@ -44,10 +44,9 @@ class _FakeRealtimeBus {
   final _controllers = <String, StreamController<Uint8List>>{};
   final storedChunks = <Uint8List>[];
 
-  Stream<Uint8List> stream(String channelId) =>
-      _controllers
-          .putIfAbsent(channelId, () => StreamController<Uint8List>.broadcast())
-          .stream;
+  Stream<Uint8List> stream(String channelId) => _controllers
+      .putIfAbsent(channelId, () => StreamController<Uint8List>.broadcast())
+      .stream;
 
   void send(String channelId, Uint8List chunk) {
     _controllers[channelId]?.add(Uint8List.fromList(chunk));

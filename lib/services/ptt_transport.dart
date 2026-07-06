@@ -27,7 +27,7 @@ class RealtimePttTransport implements PttTransport {
   RealtimePttTransport({SupabaseService? supabase})
     : _supabase = supabase ?? SupabaseService();
 
-  static const eventName = 'opus_chunk';
+  static const eventName = 'pcm16_chunk';
 
   final SupabaseService _supabase;
   final _chunks = StreamController<Uint8List>.broadcast();
@@ -58,42 +58,43 @@ class RealtimePttTransport implements PttTransport {
     );
     _channel = channel;
 
-    channel.onBroadcast(
-      event: eventName,
-      callback: (payload) {
-        final chunk = payload['chunk'];
-        if (chunk is! String) return;
-        try {
-          _chunks.add(base64Decode(chunk));
-        } catch (_) {
-          // Malformed broadcast payloads are ignored; transport remains live.
-        }
-      },
-    ).subscribe((status, error) {
-      if (completer.isCompleted) return;
-      switch (status) {
-        case RealtimeSubscribeStatus.subscribed:
-          completer.complete();
-        case RealtimeSubscribeStatus.channelError:
-          completer.completeError(
-            PttTransportException('Realtime authorization failed: $error'),
-          );
-        case RealtimeSubscribeStatus.closed:
-          completer.completeError(
-            const PttTransportException('Realtime channel closed'),
-          );
-        case RealtimeSubscribeStatus.timedOut:
-          completer.completeError(
-            const PttTransportException('Realtime subscription timed out'),
-          );
-      }
-    });
+    channel
+        .onBroadcast(
+          event: eventName,
+          callback: (payload) {
+            final chunk = payload['chunk'];
+            if (chunk is! String) return;
+            try {
+              _chunks.add(base64Decode(chunk));
+            } catch (_) {
+              // Malformed broadcast payloads are ignored; transport remains live.
+            }
+          },
+        )
+        .subscribe((status, error) {
+          if (completer.isCompleted) return;
+          switch (status) {
+            case RealtimeSubscribeStatus.subscribed:
+              completer.complete();
+            case RealtimeSubscribeStatus.channelError:
+              completer.completeError(
+                PttTransportException('Realtime authorization failed: $error'),
+              );
+            case RealtimeSubscribeStatus.closed:
+              completer.completeError(
+                const PttTransportException('Realtime channel closed'),
+              );
+            case RealtimeSubscribeStatus.timedOut:
+              completer.completeError(
+                const PttTransportException('Realtime subscription timed out'),
+              );
+          }
+        });
 
     await completer.future.timeout(
       const Duration(seconds: 10),
-      onTimeout: () => throw const PttTransportException(
-        'Realtime subscription timed out',
-      ),
+      onTimeout: () =>
+          throw const PttTransportException('Realtime subscription timed out'),
     );
   }
 
@@ -107,7 +108,7 @@ class RealtimePttTransport implements PttTransport {
     final response = await channel.sendBroadcastMessage(
       event: eventName,
       payload: {
-        'codec': 'opus',
+        'codec': PttChunkSpec.codec,
         'sampleRate': PttChunkSpec.sampleRate,
         'channels': PttChunkSpec.channels,
         'frameMs': PttChunkSpec.frameDuration.inMilliseconds,
@@ -137,10 +138,11 @@ class RealtimePttTransport implements PttTransport {
 class PttChunkSpec {
   PttChunkSpec._();
 
-  static const codec = 'opus';
+  static const codec = 'pcm16';
   static const sampleRate = 16000;
-  static const bitRate = 24000;
   static const channels = 1;
-  static const frameDuration = Duration(milliseconds: 20);
-  static const pcmFrameBytes = sampleRate * channels * 2 ~/ 50;
+  static const frameMilliseconds = 20;
+  static const frameDuration = Duration(milliseconds: frameMilliseconds);
+  static const bytesPerSecond = sampleRate * channels * 2;
+  static const frameBytes = bytesPerSecond * frameMilliseconds ~/ 1000;
 }
