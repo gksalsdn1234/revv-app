@@ -22,9 +22,20 @@ class _FakeCrew extends CrewChannelService {
 }
 
 class _RecordingController implements WalkiePttController {
+  int connectCount = 0;
+  int disconnectCount = 0;
   int startCount = 0;
   int stopCount = 0;
   String? lastChannel;
+
+  @override
+  Future<void> connect(String channelId) async {
+    connectCount++;
+    lastChannel = channelId;
+  }
+
+  @override
+  Future<void> disconnect() async => disconnectCount++;
 
   @override
   Future<void> startTalking(String channelId) async {
@@ -69,6 +80,9 @@ Future<void> _pump(
         ChangeNotifierProvider<RunSessionService>(create: (_) => RunSessionService()),
         ChangeNotifierProvider<SettingsService>(create: (_) => SettingsService()),
         ChangeNotifierProvider<ImuService>(create: (_) => ImuService()),
+        Provider<WalkiePttController>.value(
+          value: controller ?? _RecordingController(),
+        ),
       ],
       child: MaterialApp(
         home: LeanDriveScreen(

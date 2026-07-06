@@ -69,6 +69,12 @@ class PttService {
     });
   }
 
+  Future<void> unsubscribe() async {
+    await _incomingSubscription?.cancel();
+    _incomingSubscription = null;
+    await _transport.disposeChannelOnly();
+  }
+
   Future<void> startHold() async {
     final stream = await _recorder.start();
     await for (final chunk in stream) {

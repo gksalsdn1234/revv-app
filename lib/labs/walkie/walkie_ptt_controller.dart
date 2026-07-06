@@ -8,6 +8,13 @@ import '../../services/ptt_transport.dart';
 /// 랩 화면·주행 화면이 공유하는 PTT 조작 인터페이스.
 /// 전송/녹음 파이프라인은 [PttService] 뒤에 숨는다.
 abstract class WalkiePttController {
+  /// 채널에 참여하는 즉시 호출 — broadcast 수신을 연다(듣기 전용 포함).
+  /// 같은 channelId로 중복 호출해도 안전(멱등).
+  Future<void> connect(String channelId);
+
+  /// 방을 떠날 때 호출 — 수신 구독을 닫는다.
+  Future<void> disconnect();
+
   Future<void> startTalking(String channelId);
   Future<void> stopTalking();
   Future<void> dispose();
@@ -97,16 +104,27 @@ class PttServiceWalkieController implements WalkiePttController {
   bool _talking = false;
 
   @override
+  Future<void> connect(String channelId) async {
+    if (_subscribedChannelId == channelId) return;
+    await _service.subscribe(channelId);
+    _subscribedChannelId = channelId;
+  }
+
+  @override
+  Future<void> disconnect() async {
+    if (_subscribedChannelId == null) return;
+    await _service.unsubscribe();
+    _subscribedChannelId = null;
+  }
+
+  @override
   Future<void> startTalking(String channelId) async {
     if (_talking) return;
     _talking = true;
     // 누르는 즉시 삐릭 — 전송 준비와 병렬로(대기하지 않음).
     unawaited(_chirp?.play());
     try {
-      if (_subscribedChannelId != channelId) {
-        await _service.subscribe(channelId);
-        _subscribedChannelId = channelId;
-      }
+      await connect(channelId);
       await _service.startHold();
     } finally {
       _talking = false;

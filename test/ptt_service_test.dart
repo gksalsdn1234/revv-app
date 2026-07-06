@@ -131,6 +131,9 @@ class _FakeTransport implements PttTransport {
     sentChunks.add(Uint8List.fromList(bytes));
   }
 
+  @override
+  Future<void> disposeChannelOnly() async {}
+
   void receive(Uint8List bytes) {
     _chunks.add(bytes);
   }

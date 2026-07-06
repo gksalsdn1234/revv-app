@@ -452,6 +452,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
               ),
             ),
           ),
+          if (widget.walkieEnabledOverride) _walkieAutoConnect(context),
           if (_walkiePttButton(context, language) case final button?)
             Positioned(
               right: 18,
@@ -460,6 +461,17 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _walkieAutoConnect(BuildContext context) {
+    final crew =
+        widget.crewChannelOverride ?? context.watch<CrewChannelService>();
+    final controller =
+        widget.pttControllerOverride ?? context.read<WalkiePttController>();
+    return _WalkieAutoConnect(
+      controller: controller,
+      channelId: crew.isJoined ? crew.channelId : null,
     );
   }
 
@@ -479,6 +491,55 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       onStop: () => controller.stopTalking(),
     );
   }
+}
+
+class _WalkieAutoConnect extends StatefulWidget {
+  final WalkiePttController controller;
+  final String? channelId;
+
+  const _WalkieAutoConnect({required this.controller, required this.channelId});
+
+  @override
+  State<_WalkieAutoConnect> createState() => _WalkieAutoConnectState();
+}
+
+class _WalkieAutoConnectState extends State<_WalkieAutoConnect> {
+  String? _connectedChannelId;
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(covariant _WalkieAutoConnect oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.channelId != widget.channelId) {
+      _sync();
+    }
+  }
+
+  void _sync() {
+    final channelId = widget.channelId;
+    if (channelId != null) {
+      if (_connectedChannelId == channelId) return;
+      _connectedChannelId = channelId;
+      unawaited(
+        widget.controller.connect(channelId).catchError((_) {
+          if (mounted && _connectedChannelId == channelId) {
+            _connectedChannelId = null;
+          }
+        }),
+      );
+    } else if (_connectedChannelId != null) {
+      _connectedChannelId = null;
+      unawaited(widget.controller.disconnect().catchError((_) {}));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _DrivePttButton extends StatefulWidget {

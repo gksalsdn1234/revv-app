@@ -11,6 +11,7 @@ abstract class PttTransport {
 
   Future<void> subscribe(String channelId);
   Future<void> sendChunk(Uint8List bytes);
+  Future<void> disposeChannelOnly();
   Future<void> dispose();
 }
 
@@ -120,6 +121,7 @@ class RealtimePttTransport implements PttTransport {
     }
   }
 
+  @override
   Future<void> disposeChannelOnly() async {
     final channel = _channel;
     _channel = null;

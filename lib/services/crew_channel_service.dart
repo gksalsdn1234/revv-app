@@ -304,18 +304,23 @@ class SupabaseCrewChannelSupabase implements CrewChannelSupabase {
     String channelId, {
     required String presenceKey,
   }) {
-    final channel = _client.channel(
+    final client = _client;
+    final channel = client.channel(
       'crew:$channelId',
       opts: RealtimeChannelConfig(key: presenceKey, private: true),
     );
-    return SupabaseCrewPresenceSubscription(channel);
+    return SupabaseCrewPresenceSubscription(channel, client: client);
   }
 }
 
 class SupabaseCrewPresenceSubscription implements CrewPresenceSubscription {
-  SupabaseCrewPresenceSubscription(this._channel);
+  SupabaseCrewPresenceSubscription(
+    this._channel, {
+    required SupabaseClient client,
+  }) : _client = client;
 
   final RealtimeChannel _channel;
+  final SupabaseClient _client;
 
   @override
   void onSync(VoidCallback callback) {
@@ -325,7 +330,12 @@ class SupabaseCrewPresenceSubscription implements CrewPresenceSubscription {
   }
 
   @override
-  Future<void> subscribe() {
+  Future<void> subscribe() async {
+    final token = _client.auth.currentSession?.accessToken;
+    if (token != null) {
+      await _client.realtime.setAuth(token);
+    }
+
     final completer = Completer<void>();
     _channel.subscribe((status, error) {
       if (completer.isCompleted) return;
@@ -343,7 +353,7 @@ class SupabaseCrewPresenceSubscription implements CrewPresenceSubscription {
           );
       }
     });
-    return completer.future;
+    await completer.future;
   }
 
   @override

@@ -43,6 +43,26 @@ void main() {
     expect(ptt.stopCount, 1);
   });
 
+  testWidgets('joining connects receive audio before pressing the microphone', (
+    tester,
+  ) async {
+    final ptt = _FakeWalkiePttController();
+    await tester.pumpWalkie(ptt: ptt);
+    await tester.joinRoom();
+
+    expect(ptt.connectedChannels, ['channel-1']);
+    expect(ptt.startedChannels, isEmpty);
+  });
+
+  testWidgets('leaving disconnects receive audio', (tester) async {
+    final ptt = _FakeWalkiePttController();
+    await tester.pumpWalkie(ptt: ptt);
+    await tester.joinRoom();
+    await tester.leaveRoom();
+
+    expect(ptt.disconnectCount, 1);
+  });
+
   testWidgets('cancel stops talking', (tester) async {
     final ptt = _FakeWalkiePttController();
     await tester.pumpWalkie(ptt: ptt);
@@ -93,6 +113,12 @@ extension on WidgetTester {
     expect(find.text('Connected'), findsOneWidget);
   }
 
+  Future<void> leaveRoom() async {
+    await tap(find.text('Leave'));
+    await pumpAndSettle();
+    expect(find.text('Not joined'), findsOneWidget);
+  }
+
   Future<void> pressMic() async {
     await ensureVisible(_micFinder);
     await pump();
@@ -104,8 +130,20 @@ extension on WidgetTester {
 }
 
 class _FakeWalkiePttController implements WalkiePttController {
+  final connectedChannels = <String>[];
   final startedChannels = <String>[];
+  var disconnectCount = 0;
   var stopCount = 0;
+
+  @override
+  Future<void> connect(String channelId) async {
+    connectedChannels.add(channelId);
+  }
+
+  @override
+  Future<void> disconnect() async {
+    disconnectCount += 1;
+  }
 
   @override
   Future<void> startTalking(String channelId) async {

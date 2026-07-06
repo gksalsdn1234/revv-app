@@ -42,6 +42,7 @@ class _WalkieLabScreenState extends State<WalkieLabScreen> {
   bool _busy = false;
   bool _talking = false;
   String? _status;
+  String? _connectedChannelId;
 
   CrewChannelService get _crew => widget.crewChannelService;
   AppLanguage get _language => widget.language;
@@ -50,6 +51,9 @@ class _WalkieLabScreenState extends State<WalkieLabScreen> {
   void initState() {
     super.initState();
     _crew.addListener(_onCrewChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _syncWalkieConnection();
+    });
   }
 
   @override
@@ -63,7 +67,30 @@ class _WalkieLabScreenState extends State<WalkieLabScreen> {
   }
 
   void _onCrewChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    setState(() {});
+    _syncWalkieConnection();
+  }
+
+  void _syncWalkieConnection() {
+    final channelId = _crew.channelId;
+    if (_crew.isJoined && channelId != null) {
+      if (_connectedChannelId == channelId) return;
+      _connectedChannelId = channelId;
+      unawaited(
+        widget.pttController.connect(channelId).catchError((Object error) {
+          if (!mounted) return;
+          _connectedChannelId = null;
+          setState(() {
+            _status =
+                '${_copy(ko: '무전 수신 연결 실패', en: 'Voice receive failed', fr: 'Réception échouée')}: $error';
+          });
+        }),
+      );
+    } else if (_connectedChannelId != null) {
+      _connectedChannelId = null;
+      unawaited(widget.pttController.disconnect().catchError((_) {}));
+    }
   }
 
   Future<void> _createRoom() async {

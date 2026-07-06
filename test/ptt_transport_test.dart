@@ -86,8 +86,15 @@ class _FakePttTransport implements PttTransport {
   }
 
   @override
-  Future<void> dispose() async {
+  Future<void> disposeChannelOnly() async {
     await _subscription?.cancel();
+    _subscription = null;
+    _channelId = null;
+  }
+
+  @override
+  Future<void> dispose() async {
+    await disposeChannelOnly();
     await _chunks.close();
   }
 }
