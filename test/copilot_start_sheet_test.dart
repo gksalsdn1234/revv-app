@@ -9,7 +9,7 @@ import 'package:revv_app/widgets/copilot_start_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('Google Maps handoff includes route end and sampled waypoints', (
+  testWidgets('Google Maps handoff includes route end and reduced waypoints', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -37,7 +37,7 @@ void main() {
     expect(uri.queryParameters['saddr'], '45.0000,-73.0000');
     expect(uri.queryParameters['daddr'], '45.1300,-73.1300');
     final waypoints = uri.queryParameters['waypoints']!.split('|');
-    expect(waypoints, hasLength(9));
+    expect(waypoints, hasLength(lessThanOrEqualTo(2)));
     expect(waypoints.first, isNot('45.0000,-73.0000'));
     expect(waypoints.last, isNot('45.1300,-73.1300'));
   });

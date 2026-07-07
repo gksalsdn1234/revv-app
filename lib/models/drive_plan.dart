@@ -74,6 +74,7 @@ class DrivePlan {
   final List<LatLng> waypoints;
   final int budgetShortfallMinutes;
   final bool usesApproximateTransit;
+  final int? baselineDirectMinutes;
 
   const DrivePlan({
     required this.legs,
@@ -84,6 +85,7 @@ class DrivePlan {
     required this.waypoints,
     this.budgetShortfallMinutes = 0,
     this.usesApproximateTransit = false,
+    this.baselineDirectMinutes,
   });
 
   Map<String, dynamic> toJson() => {
@@ -95,6 +97,8 @@ class DrivePlan {
     'waypoints': waypoints.map(_latLngToJson).toList(),
     'budgetShortfallMinutes': budgetShortfallMinutes,
     'usesApproximateTransit': usesApproximateTransit,
+    if (baselineDirectMinutes != null)
+      'baselineDirectMinutes': baselineDirectMinutes,
   };
 
   factory DrivePlan.fromJson(Map<String, dynamic> json) {
@@ -111,6 +115,34 @@ class DrivePlan {
       budgetShortfallMinutes:
           (json['budgetShortfallMinutes'] as num?)?.toInt() ?? 0,
       usesApproximateTransit: json['usesApproximateTransit'] == true,
+      baselineDirectMinutes: (json['baselineDirectMinutes'] as num?)?.toInt(),
+    );
+  }
+
+  DrivePlan copyWith({
+    List<DrivePlanLeg>? legs,
+    int? totalMinutes,
+    int? windingMinutes,
+    int? transitMinutes,
+    int? restMinutes,
+    List<LatLng>? waypoints,
+    int? budgetShortfallMinutes,
+    bool? usesApproximateTransit,
+    int? baselineDirectMinutes,
+  }) {
+    return DrivePlan(
+      legs: legs ?? this.legs,
+      totalMinutes: totalMinutes ?? this.totalMinutes,
+      windingMinutes: windingMinutes ?? this.windingMinutes,
+      transitMinutes: transitMinutes ?? this.transitMinutes,
+      restMinutes: restMinutes ?? this.restMinutes,
+      waypoints: waypoints ?? this.waypoints,
+      budgetShortfallMinutes:
+          budgetShortfallMinutes ?? this.budgetShortfallMinutes,
+      usesApproximateTransit:
+          usesApproximateTransit ?? this.usesApproximateTransit,
+      baselineDirectMinutes:
+          baselineDirectMinutes ?? this.baselineDirectMinutes,
     );
   }
 }

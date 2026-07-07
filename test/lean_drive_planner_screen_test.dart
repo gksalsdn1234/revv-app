@@ -103,6 +103,35 @@ void main() {
     expect(find.textContaining(RegExp(r'\d+\.\d{4}')), findsNothing);
   });
 
+  testWidgets('planner shows direct versus REVV comparison and curves', (
+    tester,
+  ) async {
+    await pumpPlanner(
+      tester,
+      plan: _planWithWinding(windingMinutes: 51, baselineDirectMinutes: 30),
+    );
+
+    await selectMapPinDestination(tester);
+
+    expect(find.byKey(const Key('plan-compare-line')), findsOneWidget);
+    expect(find.text('기본 30m · REVV 1h 06m (+36분)'), findsOneWidget);
+    expect(find.text('커브 8개'), findsOneWidget);
+  });
+
+  testWidgets('planner omits comparison without baseline and zero curves', (
+    tester,
+  ) async {
+    await pumpPlanner(
+      tester,
+      plan: _planWithWinding(windingMinutes: 30, sharpCurveCount: 0),
+    );
+
+    await selectMapPinDestination(tester);
+
+    expect(find.byKey(const Key('plan-compare-line')), findsNothing);
+    expect(find.text('커브 0개'), findsNothing);
+  });
+
   testWidgets('planner passes legible map mode and plan markers to MapWidget', (
     tester,
   ) async {
@@ -482,6 +511,8 @@ DrivePlan _planWithWinding({
   required int windingMinutes,
   String routeName = 'Lakeside Road',
   bool usesApproximateTransit = false,
+  int? baselineDirectMinutes,
+  int sharpCurveCount = 8,
 }) {
   final route = RevvRoute(
     id: 'lakeside',
@@ -490,7 +521,7 @@ DrivePlan _planWithWinding({
     distanceKm: 12,
     windingScore: 5,
     starRating: 4,
-    sharpCurveCount: 8,
+    sharpCurveCount: sharpCurveCount,
     centerPoint: const LatLng(45.57, -73.67),
     distanceFromUser: 3,
   );
@@ -527,6 +558,7 @@ DrivePlan _planWithWinding({
     ],
     budgetShortfallMinutes: 30 - windingMinutes,
     usesApproximateTransit: usesApproximateTransit,
+    baselineDirectMinutes: baselineDirectMinutes,
   );
 }
 

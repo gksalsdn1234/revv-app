@@ -322,9 +322,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     final destination = _destination;
     if (plan == null || destination == null) return;
     final language = context.read<SettingsService>().appLanguage;
-    final waypoints = plan.waypoints.length <= 2
-        ? const <LatLng>[]
-        : plan.waypoints.sublist(1, plan.waypoints.length - 1);
+    final waypoints = selectHandoffWaypoints(legs: plan.legs);
     final webUri = Uri.https('www.google.com', '/maps/dir/', {
       'api': '1',
       'origin': googleMapsCoord(_origin),
@@ -1011,6 +1009,10 @@ class _ResultSheetBody extends StatelessWidget {
           _planHeader(plan, language),
           style: AppText.body(size: 19, weight: FontWeight.w900, height: 1.1),
         ),
+        if (plan.baselineDirectMinutes != null) ...[
+          const SizedBox(height: 10),
+          _PlanCompareLine(plan: plan, language: language),
+        ],
         const SizedBox(height: 12),
         _PlanOptionStrip(
           options: options,
@@ -1054,6 +1056,69 @@ class _ResultSheetBody extends StatelessWidget {
           targetMinutes: selectedOptionBudget,
         ),
       ],
+    );
+  }
+}
+
+class _PlanCompareLine extends StatelessWidget {
+  final DrivePlan plan;
+  final AppLanguage language;
+
+  const _PlanCompareLine({required this.plan, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final baseline = plan.baselineDirectMinutes;
+    if (baseline == null) return const SizedBox.shrink();
+    final extraMinutes = plan.totalMinutes - baseline;
+    final curves = plan.legs
+        .where((leg) => leg.kind == DrivePlanLegKind.winding)
+        .fold<int>(0, (sum, leg) => sum + (leg.route?.sharpCurveCount ?? 0));
+
+    return Wrap(
+      key: const Key('plan-compare-line'),
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        _ComparePill(
+          text: _planCompareCopy(
+            language,
+            baseline,
+            plan.totalMinutes,
+            extraMinutes,
+          ),
+        ),
+        if (curves > 0) _ComparePill(text: _curveCountCopy(language, curves)),
+      ],
+    );
+  }
+}
+
+class _ComparePill extends StatelessWidget {
+  final String text;
+
+  const _ComparePill({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.84),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: AppColors.outlineVariant.withValues(alpha: 0.22),
+        ),
+      ),
+      child: Text(
+        text,
+        style: AppText.body(
+          size: 12,
+          weight: FontWeight.w900,
+          color: AppColors.textSecondary,
+        ),
+      ),
     );
   }
 }
@@ -1812,6 +1877,36 @@ String _planHeader(DrivePlan plan, AppLanguage language) {
     en: 'Arrive ~${_formatClock(eta)} · ${plan.totalMinutes} min · Winding ${plan.windingMinutes} min',
     fr: 'Arrivée ~${_formatClock(eta)} · ${plan.totalMinutes} min · Sinueux ${plan.windingMinutes} min',
   );
+}
+
+String _planCompareCopy(
+  AppLanguage language,
+  int baselineMinutes,
+  int revvMinutes,
+  int extraMinutes,
+) {
+  final directLabel = _copy(language, ko: '기본', en: 'Direct', fr: 'Direct');
+  final extra = extraMinutes > 0
+      ? ' ${_copy(language, ko: '(+$extraMinutes분)', en: '(+$extraMinutes min)', fr: '(+$extraMinutes min)')}'
+      : '';
+  return '$directLabel ${_formatCompactDuration(baselineMinutes)} · REVV ${_formatCompactDuration(revvMinutes)}$extra';
+}
+
+String _curveCountCopy(AppLanguage language, int curves) {
+  return _copy(
+    language,
+    ko: '커브 $curves개',
+    en: '$curves curves',
+    fr: '$curves virages',
+  );
+}
+
+String _formatCompactDuration(int minutes) {
+  final hours = minutes ~/ 60;
+  final remainder = minutes % 60;
+  if (hours == 0) return '${remainder}m';
+  if (remainder == 0) return '${hours}h';
+  return '${hours}h ${remainder.toString().padLeft(2, '0')}m';
 }
 
 String _minutes(AppLanguage language, int value) {

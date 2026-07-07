@@ -381,9 +381,14 @@ Future<void> _openGoogleMaps(
   NavigationUrlLauncher launchNavigationUrl,
 ) async {
   context.read<RouteService>().beginGuideToStart(route);
-  final start = _routeStart(route);
-  final end = _routeEnd(route);
-  final waypoints = _sampleIntermediateWaypoints(route.nodes);
+  final handoffPoints = selectRouteHandoffPoints(route.nodes);
+  final start = handoffPoints.isEmpty
+      ? _routeStart(route)
+      : handoffPoints.first;
+  final end = handoffPoints.isEmpty ? _routeEnd(route) : handoffPoints.last;
+  final waypoints = handoffPoints.length <= 2
+      ? const <LatLng>[]
+      : handoffPoints.sublist(1, handoffPoints.length - 1);
   final appUri = buildGoogleMapsAppUri(
     origin: start,
     destination: end,
@@ -467,16 +472,6 @@ LatLng _routeStart(RevvRoute route) {
 LatLng _routeEnd(RevvRoute route) {
   if (route.nodes.isNotEmpty) return route.nodes.last;
   return route.centerPoint;
-}
-
-List<LatLng> _sampleIntermediateWaypoints(List<LatLng> nodes) {
-  if (nodes.length <= 2) return const [];
-  final middle = nodes.sublist(1, nodes.length - 1);
-  if (middle.length <= 9) return middle;
-  return List.generate(9, (index) {
-    final sampleIndex = ((index + 1) * (middle.length + 1) / 10).round() - 1;
-    return middle[sampleIndex.clamp(0, middle.length - 1)];
-  });
 }
 
 class _NavAppButton extends StatelessWidget {

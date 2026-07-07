@@ -361,15 +361,45 @@ void main() {
 
     expect(_windingIds(plan), ['rejected']);
   });
+
+  test('buildPlanFromRoutes adds direct baseline', () async {
+    final service = _service(
+      const [],
+      transitLegLoader: (waypoints) async {
+        if (waypoints.length == 2 &&
+            waypoints.first.lng == 0 &&
+            waypoints.last.lng == 0.50) {
+          return [
+            TransitLegEta(
+              nodes: waypoints,
+              distanceKm: 12,
+              estimatedMinutes: 12,
+            ),
+          ];
+        }
+        return fallbackLegs(waypoints);
+      },
+    );
+
+    final plan = await service.buildPlanFromRoutes(
+      origin: const LatLng(0, 0),
+      routes: [_route(id: 'a', startLng: 0.10, windingScore: 7)],
+      destination: const LatLng(0, 0.50),
+    );
+
+    expect(plan.baselineDirectMinutes, 12);
+  });
 }
 
 DrivePlannerService _service(
   List<RevvRoute> routes, {
   RouteNodesLoader? nodesLoader,
+  TransitLegLoader? transitLegLoader,
 }) {
   return DrivePlannerService(
     candidateLoader: (_, _) async => routes,
-    transitLegLoader: (waypoints) async => fallbackLegs(waypoints),
+    transitLegLoader:
+        transitLegLoader ?? ((waypoints) async => fallbackLegs(waypoints)),
     nodesLoader: nodesLoader ?? (_) async => const [],
   );
 }

@@ -197,5 +197,74 @@ void main() {
       // 회랑 샘플 수(3~5)만큼만 — 옵션마다 재수집하지 않는다
       expect(loaderCalls, lessThanOrEqualTo(5));
     });
+
+    test('adds one direct baseline to every option', () async {
+      var directCalls = 0;
+      final planner = DrivePlannerService(
+        candidateLoader: (center, radius) async {
+          return [route('a', 45.55)];
+        },
+        transitLegLoader: (waypoints) async {
+          if (_isDirectBaseline(waypoints)) {
+            directCalls += 1;
+            return [
+              TransitLegEta(
+                nodes: waypoints,
+                distanceKm: 30,
+                estimatedMinutes: 30,
+              ),
+            ];
+          }
+          return fallbackLegs(waypoints);
+        },
+      );
+
+      final options = await planner.buildPlanOptions(
+        const DrivePlanRequest(
+          origin: LatLng(45.5, -73.6),
+          destination: LatLng(46.1, -73.9),
+          windingBudgetMinutes: 60,
+        ),
+      );
+
+      expect(directCalls, 1);
+      expect(
+        options.map((option) => option.plan.baselineDirectMinutes),
+        everyElement(30),
+      );
+    });
+
+    test('keeps plans without a baseline when direct loader throws', () async {
+      final planner = DrivePlannerService(
+        candidateLoader: (center, radius) async => const [],
+        transitLegLoader: (_) async => throw StateError('offline'),
+      );
+
+      final options = await planner.buildPlanOptions(
+        const DrivePlanRequest(
+          origin: LatLng(45.5, -73.6),
+          destination: LatLng(46.1, -73.9),
+          windingBudgetMinutes: 60,
+        ),
+      );
+
+      expect(options, hasLength(3));
+      expect(
+        options.map((option) => option.plan.baselineDirectMinutes),
+        everyElement(isNull),
+      );
+      expect(
+        options.map((option) => option.plan.totalMinutes),
+        everyElement(greaterThan(0)),
+      );
+    });
   });
+}
+
+bool _isDirectBaseline(List<LatLng> waypoints) {
+  return waypoints.length == 2 &&
+      waypoints.first.lat == 45.5 &&
+      waypoints.first.lng == -73.6 &&
+      waypoints.last.lat == 46.1 &&
+      waypoints.last.lng == -73.9;
 }

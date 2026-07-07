@@ -99,6 +99,7 @@ DrivePlan insertRestLegs(DrivePlan plan) {
     waypoints: plan.waypoints,
     budgetShortfallMinutes: plan.budgetShortfallMinutes,
     usesApproximateTransit: plan.usesApproximateTransit,
+    baselineDirectMinutes: plan.baselineDirectMinutes,
   );
 }
 
@@ -176,21 +177,32 @@ class DrivePlannerService {
   }) async {
     final hydrated = await _hydrateSelectedRoutes(routes);
     final ordered = _greedyOrderedRoutes(origin, hydrated);
+    final resolvedDestination =
+        destination ?? (ordered.isEmpty ? origin : ordered.last.nodes.last);
+    final baselineDirectMinutes = await _directBaselineMinutes(
+      origin,
+      resolvedDestination,
+    );
     if (ordered.isEmpty) {
-      return _assembleOrientedPlan(
+      final plan = await _assembleOrientedPlan(
         origin: origin,
-        destination: destination ?? origin,
+        destination: resolvedDestination,
         windingRoutes: const [],
         budgetShortfallMinutes: 0,
+      );
+      return insertRestLegs(
+        plan.copyWith(baselineDirectMinutes: baselineDirectMinutes),
       );
     }
     final plan = await _assembleOrientedPlan(
       origin: origin,
-      destination: destination ?? ordered.last.nodes.last,
+      destination: resolvedDestination,
       windingRoutes: ordered,
       budgetShortfallMinutes: 0,
     );
-    return insertRestLegs(plan);
+    return insertRestLegs(
+      plan.copyWith(baselineDirectMinutes: baselineDirectMinutes),
+    );
   }
 
   /// 같은 목적지의 예산 3옵션(가볍게 ×0.6 / 기본 ×1.0 / 길게 ×1.5)을 만든다.
@@ -200,6 +212,10 @@ class DrivePlannerService {
     DrivePlanRequest request,
   ) async {
     final candidates = await _corridorCandidates(request);
+    final baselineDirectMinutes = await _directBaselineMinutes(
+      request.origin,
+      request.destination,
+    );
     final options = <DrivePlanOption>[];
     for (final kind in DrivePlanOptionKind.values) {
       final budgetMinutes = math.max(
@@ -212,7 +228,12 @@ class DrivePlannerService {
         windingBudgetMinutes: budgetMinutes,
       );
       final selected = _selectWindingRoutes(candidates, scaled);
-      final plan = insertRestLegs(await _assemblePlan(scaled, selected));
+      final plan = insertRestLegs(
+        (await _assemblePlan(
+          scaled,
+          selected,
+        )).copyWith(baselineDirectMinutes: baselineDirectMinutes),
+      );
       options.add(
         DrivePlanOption(kind: kind, budgetMinutes: budgetMinutes, plan: plan),
       );
@@ -420,6 +441,21 @@ class DrivePlannerService {
       return fallbackLegs(waypoints);
     }
     return fallbackLegs(waypoints);
+  }
+
+  Future<int?> _directBaselineMinutes(LatLng origin, LatLng destination) async {
+    final waypoints = [origin, destination];
+    try {
+      final legs = await _transitLegLoader(waypoints);
+      if (legs.length == waypoints.length - 1) {
+        return legs.fold<int>(0, (sum, leg) => sum + leg.estimatedMinutes);
+      }
+    } catch (_) {
+      return null;
+    }
+    return fallbackLegs(
+      waypoints,
+    ).fold<int>(0, (sum, leg) => sum + leg.estimatedMinutes);
   }
 
   DrivePlanLeg _transitPlanLeg(TransitLegEta eta) {
