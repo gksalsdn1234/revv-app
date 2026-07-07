@@ -23,6 +23,33 @@ void main() {
   );
 
   test(
+    'planner ranks high recommendation routes over long raw winding routes',
+    () async {
+      final routes = [
+        _route(
+          id: 'good-short',
+          startLng: 0.20,
+          windingScore: 5.0,
+          distanceKm: 16,
+          routeRankScore: 9.0,
+        ),
+        _route(
+          id: 'raw-long',
+          startLng: 0.45,
+          windingScore: 10.0,
+          distanceKm: 32,
+          routeRankScore: 3.0,
+        ),
+      ];
+      final service = _service(routes);
+
+      final plan = await service.buildPlan(_request(40));
+
+      expect(_windingIds(plan), ['good-short']);
+    },
+  );
+
+  test(
     'greedy planner excludes overlapping routes and keeps budget tolerance',
     () async {
       final routes = [
@@ -286,6 +313,7 @@ RevvRoute _route({
   required double startLng,
   required double windingScore,
   double distanceKm = 16,
+  double? routeRankScore,
 }) {
   final endLng = startLng + 0.05;
   return RevvRoute(
@@ -301,7 +329,7 @@ RevvRoute _route({
     tightCurveKm: 2.0,
     mediumCurveKm: 2.5,
     maxContinuousKm: 1.5,
-    routeRankScore: 10,
+    routeRankScore: routeRankScore ?? windingScore,
     flowScore: 1,
   );
 }

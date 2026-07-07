@@ -183,7 +183,7 @@ void main() {
 
     await selectMapPinDestination(tester);
 
-    expect(find.text('와인딩 12/30분'), findsOneWidget);
+    expect(find.text('와인딩 12/60분'), findsOneWidget);
   });
 
   testWidgets('planner explains zero winding result and direct navigation', (

@@ -398,7 +398,7 @@ class DrivePlannerService {
     final minutes = estimatedDriveMinutes(route);
     final offset = _corridorOffsetKm(route.centerPoint, request);
     final detourCost = 1 + offset + math.pow(offset / 8.0, 2);
-    return route.windingScore * minutes / detourCost;
+    return recommendationScore(route) * math.sqrt(minutes) / detourCost;
   }
 
   double _corridorOffsetKm(LatLng point, DrivePlanRequest request) {

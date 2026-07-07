@@ -82,7 +82,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   String? _destinationName;
   LatLng _mapCenter = _plannerRegions.first.point;
   int _mapFocusSignal = 0;
-  DriveBudget _budget = DriveBudget.short;
+  DriveBudget _budget = DriveBudget.medium;
   List<DrivePlanOption>? _options;
   DrivePlanOptionKind _selectedKind = DrivePlanOptionKind.standard;
   late TimeOfDay? _arriveBy = widget.initialArriveBy;
