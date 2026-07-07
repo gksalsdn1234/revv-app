@@ -1266,7 +1266,6 @@ class _HistoryRunRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final peak = run.peakG;
     final metrics = [
       '${run.distanceKm.toStringAsFixed(1)}KM',
       run.durationDisplay.toUpperCase(),
@@ -1335,7 +1334,7 @@ class _HistoryRunRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  peak == null ? '--' : peak.toStringAsFixed(2),
+                  '${run.sharpCornersCount}',
                   style: AppText.display(
                     size: 24,
                     height: 1,
@@ -1344,7 +1343,7 @@ class _HistoryRunRow extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  _shortDate(run.date).toUpperCase(),
+                  'CURVES',
                   style: AppText.technicalLabel(
                     size: 9,
                     letterSpacing: 0.5,
@@ -1359,13 +1358,6 @@ class _HistoryRunRow extends StatelessWidget {
     );
   }
 
-  String _shortDate(DateTime date) {
-    final now = DateTime.now();
-    final days = now.difference(date).inDays;
-    if (days == 0) return 'today';
-    if (days == 1) return 'yday';
-    return '${date.month}/${date.day}';
-  }
 }
 
 class _RouteGlyph extends StatelessWidget {

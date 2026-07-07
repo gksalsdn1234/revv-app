@@ -416,10 +416,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                                 lateralG: _lateralG,
                                 longitudinalG: _longitudinalG,
                                 totalG: totalG,
-                                peakG: math.max(
-                                  _simMaxLateralG,
-                                  _simMaxLongitudinalG,
-                                ),
+                                language: language,
                               )
                             : Consumer<ImuService>(
                                 builder: (context, imu, _) {
@@ -430,10 +427,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                                     lateralG: lG,
                                     longitudinalG: nG,
                                     totalG: tG,
-                                    peakG: math.max(
-                                      imu.maxLateralG,
-                                      imu.maxLonG,
-                                    ),
+                                    language: language,
                                   );
                                 },
                               ),
@@ -1155,13 +1149,13 @@ class _CompactGInstrument extends StatelessWidget {
   final double lateralG;
   final double longitudinalG;
   final double totalG;
-  final double peakG;
+  final AppLanguage language;
 
   const _CompactGInstrument({
     required this.lateralG,
     required this.longitudinalG,
     required this.totalG,
-    required this.peakG,
+    required this.language,
   });
 
   @override
@@ -1176,7 +1170,7 @@ class _CompactGInstrument extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'BALANCE',
+                AppCopy.t(language, ko: '밸런스', en: 'BALANCE', fr: 'ÉQUILIBRE'),
                 style: AppText.technicalLabel(
                   size: 9,
                   color: AppColors.textHint,
