@@ -14,21 +14,41 @@ import '../ui/route_quality_profile.dart';
 
 enum CopilotStartChoice { start, simulate }
 
+typedef NavigationUrlLauncher = Future<bool> Function(
+  Uri url, {
+  required LaunchMode mode,
+});
+
+Future<bool> _defaultLaunchNavigationUrl(
+  Uri url, {
+  required LaunchMode mode,
+}) {
+  return launchUrl(url, mode: mode);
+}
+
 Future<CopilotStartChoice?> showCopilotStartSheet(
   BuildContext context, {
   required RevvRoute route,
+  NavigationUrlLauncher launchNavigationUrl = _defaultLaunchNavigationUrl,
 }) {
   return showModalBottomSheet<CopilotStartChoice>(
     context: context,
     backgroundColor: Colors.transparent,
-    builder: (_) => _CopilotStartSheet(route: route),
+    builder: (_) => _CopilotStartSheet(
+      route: route,
+      launchNavigationUrl: launchNavigationUrl,
+    ),
   );
 }
 
 class _CopilotStartSheet extends StatelessWidget {
   final RevvRoute route;
+  final NavigationUrlLauncher launchNavigationUrl;
 
-  const _CopilotStartSheet({required this.route});
+  const _CopilotStartSheet({
+    required this.route,
+    required this.launchNavigationUrl,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -171,7 +191,11 @@ class _CopilotStartSheet extends StatelessWidget {
                             child: _NavAppButton(
                               label: 'Google Maps',
                               icon: Icons.map_rounded,
-                              onTap: () => _openGoogleMaps(context, route),
+                              onTap: () => _openGoogleMaps(
+                                context,
+                                route,
+                                launchNavigationUrl,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -179,7 +203,8 @@ class _CopilotStartSheet extends StatelessWidget {
                             child: _NavAppButton(
                               label: 'Waze',
                               icon: Icons.navigation_rounded,
-                              onTap: () => _openWaze(context, route),
+                              onTap: () =>
+                                  _openWaze(context, route, launchNavigationUrl),
                             ),
                           ),
                         ],
@@ -345,7 +370,11 @@ class _CopilotStartSheet extends StatelessWidget {
   }
 }
 
-Future<void> _openGoogleMaps(BuildContext context, RevvRoute route) async {
+Future<void> _openGoogleMaps(
+  BuildContext context,
+  RevvRoute route,
+  NavigationUrlLauncher launchNavigationUrl,
+) async {
   context.read<RouteService>().beginGuideToStart(route);
   final start = _routeStart(route);
   final appUri = Uri.parse(
@@ -356,10 +385,19 @@ Future<void> _openGoogleMaps(BuildContext context, RevvRoute route) async {
     'destination': '${start.lat},${start.lng}',
     'travelmode': 'driving',
   });
-  await _launchNavigationUri(context, appUri: appUri, fallbackUri: webUri);
+  await _launchNavigationUri(
+    context,
+    appUri: appUri,
+    fallbackUri: webUri,
+    launchNavigationUrl: launchNavigationUrl,
+  );
 }
 
-Future<void> _openWaze(BuildContext context, RevvRoute route) async {
+Future<void> _openWaze(
+  BuildContext context,
+  RevvRoute route,
+  NavigationUrlLauncher launchNavigationUrl,
+) async {
   context.read<RouteService>().beginGuideToStart(route);
   final start = _routeStart(route);
   final appUri = Uri.parse('waze://?ll=${start.lat},${start.lng}&navigate=yes');
@@ -367,45 +405,46 @@ Future<void> _openWaze(BuildContext context, RevvRoute route) async {
     'll': '${start.lat},${start.lng}',
     'navigate': 'yes',
   });
-  await _launchNavigationUri(context, appUri: appUri, fallbackUri: webUri);
+  await _launchNavigationUri(
+    context,
+    appUri: appUri,
+    fallbackUri: webUri,
+    launchNavigationUrl: launchNavigationUrl,
+  );
 }
 
 Future<void> _launchNavigationUri(
   BuildContext context, {
   required Uri appUri,
   required Uri fallbackUri,
+  required NavigationUrlLauncher launchNavigationUrl,
 }) async {
   final messenger = ScaffoldMessenger.maybeOf(context);
-  final navigator = Navigator.of(context, rootNavigator: true);
+  final navigator = Navigator.of(context);
   final language = context.read<SettingsService>().appLanguage;
-  final launchedApp = await launchUrl(
-    appUri,
-    mode: LaunchMode.externalApplication,
-  );
-  if (launchedApp) {
-    _returnToHomeAfterNavigationLaunch(navigator);
-    return;
+
+  var launched = false;
+  try {
+    launched = await launchNavigationUrl(
+      appUri,
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched) {
+      launched = await launchNavigationUrl(
+        fallbackUri,
+        mode: LaunchMode.externalApplication,
+      );
+    }
+  } catch (_) {
+    launched = false;
   }
 
-  final launchedWeb = await launchUrl(
-    fallbackUri,
-    mode: LaunchMode.externalApplication,
-  );
-  if (launchedWeb) {
-    _returnToHomeAfterNavigationLaunch(navigator);
-    return;
-  }
+  if (launched) return navigator.pop();
   if (messenger == null) return;
 
   messenger.showSnackBar(
     SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
   );
-}
-
-void _returnToHomeAfterNavigationLaunch(NavigatorState navigator) {
-  if (navigator.canPop()) {
-    navigator.popUntil((route) => route.isFirst);
-  }
 }
 
 LatLng _routeStart(RevvRoute route) {

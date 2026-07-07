@@ -7,11 +7,13 @@ import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_drive_screen.dart';
 import 'package:revv_app/services/imu_service.dart';
 import 'package:revv_app/services/location_service.dart';
+import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/run_session_service.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/theme/text_styles.dart';
 import 'package:revv_app/widgets/copilot_start_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -47,6 +49,50 @@ void main() {
 
     expect(find.text('1280740167'), findsNothing);
     expect(find.text('Route 329'), findsOneWidget);
+  });
+
+  testWidgets('external navigation closes only the copilot sheet', (
+    tester,
+  ) async {
+    final launchedUris = <Uri>[];
+
+    await _pumpCopilotDetail(
+      tester,
+      launchNavigationUrl: (uri, {required LaunchMode mode}) async {
+        launchedUris.add(uri);
+        return true;
+      },
+    );
+
+    await tester.tap(find.text('Go detail'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open sheet'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Google Maps'));
+    await tester.pumpAndSettle();
+
+    expect(launchedUris.single.scheme, 'comgooglemaps');
+    expect(find.text('Detail screen'), findsOneWidget);
+    expect(find.text('Google Maps'), findsNothing);
+  });
+
+  testWidgets('external navigation exception shows a snackbar', (tester) async {
+    await _pumpCopilotDetail(
+      tester,
+      launchNavigationUrl: (uri, {required LaunchMode mode}) async {
+        throw Exception('launcher failed');
+      },
+    );
+
+    await tester.tap(find.text('Go detail'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open sheet'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Google Maps'));
+    await tester.pump();
+
+    expect(find.text('Could not open a navigation app.'), findsOneWidget);
+    expect(find.text('Google Maps'), findsOneWidget);
   });
 
   testWidgets('drive HUD hides numeric route names', (tester) async {
@@ -112,6 +158,60 @@ void main() {
 
     expect(session.isRecording, isFalse);
   });
+}
+
+Future<void> _pumpCopilotDetail(
+  WidgetTester tester, {
+  required NavigationUrlLauncher launchNavigationUrl,
+}) async {
+  final settings = SettingsService();
+  final route = _numericRoute();
+
+  await tester.pumpWidget(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<SettingsService>.value(value: settings),
+        ChangeNotifierProvider<RouteService>.value(value: RouteService()),
+      ],
+      child: MaterialApp(
+        home: Builder(
+          builder: (homeContext) => Scaffold(
+            body: Column(
+              children: [
+                const Text('Home screen'),
+                FilledButton(
+                  onPressed: () => Navigator.of(homeContext).push(
+                    MaterialPageRoute(
+                      builder: (_) => Scaffold(
+                        body: Builder(
+                          builder: (detailContext) => Column(
+                            children: [
+                              const Text('Detail screen'),
+                              FilledButton(
+                                onPressed: () => unawaited(
+                                  showCopilotStartSheet(
+                                    detailContext,
+                                    route: route,
+                                    launchNavigationUrl: launchNavigationUrl,
+                                  ),
+                                ),
+                                child: const Text('Open sheet'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  child: const Text('Go detail'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 RevvRoute _numericRoute({List<String> roadNames = const []}) {

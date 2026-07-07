@@ -270,16 +270,19 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
   Future<void> _launchExternalNavigation(Uri appUri, Uri webUri) async {
     final messenger = ScaffoldMessenger.of(context);
     final language = context.read<SettingsService>().appLanguage;
-    final launchedApp = await launchUrl(
-      appUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (launchedApp) return;
-    final launchedWeb = await launchUrl(
-      webUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (launchedWeb) return;
+    var launched = false;
+    try {
+      launched = await launchUrl(appUri, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        launched = await launchUrl(
+          webUri,
+          mode: LaunchMode.externalApplication,
+        );
+      }
+    } catch (_) {
+      launched = false;
+    }
+    if (launched) return;
     messenger.showSnackBar(
       SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
     );
