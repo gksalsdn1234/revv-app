@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -493,6 +494,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
         builder: (context, channelBusy, _) => _DrivePttButton(
           language: language,
           channelBusy: channelBusy,
+          micLevel: controller.micLevel,
           connectionState: connectionState,
           onStart: () => controller.startTalking(channelId),
           onStop: () => controller.stopTalking(),
@@ -554,6 +556,7 @@ class _WalkieAutoConnectState extends State<_WalkieAutoConnect> {
 class _DrivePttButton extends StatefulWidget {
   final AppLanguage language;
   final bool channelBusy;
+  final ValueListenable<double> micLevel;
   final PttConnectionState connectionState;
   final Future<void> Function() onStart;
   final Future<void> Function() onStop;
@@ -561,6 +564,7 @@ class _DrivePttButton extends StatefulWidget {
   const _DrivePttButton({
     required this.language,
     required this.channelBusy,
+    required this.micLevel,
     required this.connectionState,
     required this.onStart,
     required this.onStop,
@@ -620,64 +624,76 @@ class _DrivePttButtonState extends State<_DrivePttButton> {
         button: true,
         enabled: !disabled,
         label: label,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: 96,
-              height: 96,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _talking ? AppColors.red : AppColors.panel2,
-                border: Border.all(
-                  color: _talking ? AppColors.red : AppColors.outlineVariant,
-                  width: 2,
-                ),
-                boxShadow: _talking
-                    ? [
-                        BoxShadow(
-                          color: AppColors.red.withValues(alpha: 0.45),
-                          blurRadius: 22,
-                          spreadRadius: 2,
-                        ),
-                      ]
-                    : null,
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.mic_rounded,
-                    size: 30,
-                    color: _talking
-                        ? AppColors.onPrimary
-                        : AppColors.textPrimary,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    style: AppText.technicalLabel(
-                      size: 9,
+        child: ValueListenableBuilder<double>(
+          valueListenable: widget.micLevel,
+          builder: (context, level, _) {
+            final activeLevel = _talking ? level.clamp(0.0, 1.0) : 0.0;
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: 96,
+                  height: 96,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _talking ? AppColors.red : AppColors.panel2,
+                    border: Border.all(
                       color: _talking
-                          ? AppColors.onPrimary
-                          : AppColors.textSecondary,
+                          ? AppColors.red.withValues(
+                              alpha: 0.8 + activeLevel * 0.2,
+                            )
+                          : AppColors.outlineVariant,
+                      width: 2 + activeLevel * 4,
+                    ),
+                    boxShadow: _talking
+                        ? [
+                            BoxShadow(
+                              color: AppColors.red.withValues(
+                                alpha: 0.38 + activeLevel * 0.28,
+                              ),
+                              blurRadius: 20 + activeLevel * 24,
+                              spreadRadius: 1 + activeLevel * 5,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.mic_rounded,
+                        size: 30,
+                        color: _talking
+                            ? AppColors.onPrimary
+                            : AppColors.textPrimary,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: AppText.technicalLabel(
+                          size: 9,
+                          color: _talking
+                              ? AppColors.onPrimary
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (reconnecting)
+                  const Positioned(
+                    top: 14,
+                    right: 14,
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   ),
-                ],
-              ),
-            ),
-            if (reconnecting)
-              const Positioned(
-                top: 14,
-                right: 14,
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );

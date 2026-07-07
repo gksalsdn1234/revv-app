@@ -10,6 +10,7 @@ import '../../services/ptt_transport.dart';
 /// 전송/녹음 파이프라인은 [PttService] 뒤에 숨는다.
 abstract class WalkiePttController {
   ValueListenable<bool> get channelBusy;
+  ValueListenable<double> get micLevel;
   ValueListenable<PttConnectionState> get connectionState;
 
   /// 채널에 참여하는 즉시 호출 — broadcast 수신을 연다(듣기 전용 포함).
@@ -111,6 +112,9 @@ class PttServiceWalkieController implements WalkiePttController {
 
   @override
   ValueListenable<bool> get channelBusy => _service.channelBusy;
+
+  @override
+  ValueListenable<double> get micLevel => _service.micLevel;
 
   @override
   ValueListenable<PttConnectionState> get connectionState =>

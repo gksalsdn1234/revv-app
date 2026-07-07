@@ -27,6 +27,9 @@ class _RecordingController implements WalkiePttController {
   final ValueNotifier<bool> channelBusy = ValueNotifier(false);
 
   @override
+  final ValueNotifier<double> micLevel = ValueNotifier(0);
+
+  @override
   final ValueNotifier<PttConnectionState> connectionState = ValueNotifier(
     PttConnectionState.connected,
   );

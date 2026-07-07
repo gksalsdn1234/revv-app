@@ -37,6 +37,27 @@ void main() {
     },
   );
 
+  test('updates micLevel from PCM frames and resets after stopHold', () async {
+    // Given: silence followed by a loud PCM16 frame.
+    final recorder = _FakeRecorder([_pcm16Frame(0), _pcm16Frame(32767)]);
+    final service = PttService(
+      transport: _FakeTransport(),
+      recorder: recorder,
+      codec: const PassthroughPttAudioCodec(),
+      playback: _FakePlayback(),
+      briefingState: _FakeBriefingState(),
+    );
+
+    // When: the driver holds and releases PTT.
+    await service.startHold();
+
+    // Then: the transmitted PCM drove a visible microphone level.
+    expect(service.micLevel.value, greaterThan(0.8));
+
+    await service.stopHold();
+    expect(service.micLevel.value, 0);
+  });
+
   test('queues incoming walkie audio until briefing finishes', () async {
     // Given: a briefing is currently active.
     final transport = _FakeTransport();
@@ -257,6 +278,15 @@ void main() {
 Uint8List _frame(int seed) {
   return Uint8List(PttChunkSpec.frameBytes)
     ..fillRange(0, PttChunkSpec.frameBytes, seed);
+}
+
+Uint8List _pcm16Frame(int sample) {
+  final bytes = Uint8List(PttChunkSpec.frameBytes);
+  final data = ByteData.sublistView(bytes);
+  for (var offset = 0; offset < bytes.length; offset += 2) {
+    data.setInt16(offset, sample, Endian.little);
+  }
+  return bytes;
 }
 
 Uint8List _batch(int seed) {

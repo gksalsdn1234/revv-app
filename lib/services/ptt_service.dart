@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show ValueNotifier;
@@ -65,6 +66,7 @@ class PttService {
   final BriefingState _briefingState;
   final Queue<Uint8List> _playbackQueue = Queue<Uint8List>();
   final ValueNotifier<bool> channelBusy = ValueNotifier(false);
+  final ValueNotifier<double> micLevel = ValueNotifier(0);
   final ValueNotifier<PttConnectionState> connectionState = ValueNotifier(
     PttConnectionState.offline,
   );
@@ -118,6 +120,7 @@ class PttService {
     final pending = <int>[];
     try {
       await for (final chunk in stream) {
+        _updateMicLevel(chunk);
         pending.addAll(chunk);
         while (pending.length >= PttChunkSpec.batchBytes) {
           final batch = Uint8List.fromList(
@@ -139,6 +142,7 @@ class PttService {
       await _holdStarting;
     } catch (_) {}
     await _recorder.stop();
+    micLevel.value = 0;
   }
 
   Future<void> _sendRecordedChunk(Uint8List chunk) async {
@@ -149,7 +153,30 @@ class PttService {
   Future<void> _sendRecordedChunkSafely(Uint8List chunk) async {
     try {
       await _sendRecordedChunk(chunk);
-    } catch (_) {}
+    } catch (_) {
+      micLevel.value = 0;
+    }
+  }
+
+  void _updateMicLevel(Uint8List pcm16) {
+    if (pcm16.length < 2) {
+      micLevel.value = 0;
+      return;
+    }
+    final data = ByteData.sublistView(pcm16);
+    var sumSquares = 0.0;
+    var samples = 0;
+    for (var offset = 0; offset + 1 < pcm16.length; offset += 2) {
+      final sample = data.getInt16(offset, Endian.little);
+      sumSquares += sample * sample;
+      samples += 1;
+    }
+    final rms = math.sqrt(sumSquares / samples) / 32768;
+    final perceived = math.pow(rms.clamp(0, 1), 0.6).toDouble();
+    micLevel.value = math
+        .max(perceived, micLevel.value * 0.8)
+        .clamp(0, 1)
+        .toDouble();
   }
 
   void _maybeDrainPlaybackQueue() {
@@ -276,6 +303,7 @@ class PttService {
     await _recorder.stop();
     await _transport.dispose();
     channelBusy.dispose();
+    micLevel.dispose();
     connectionState.dispose();
   }
 }

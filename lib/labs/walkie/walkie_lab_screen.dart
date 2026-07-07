@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import '../../core/app_language.dart';
@@ -252,6 +253,7 @@ class _WalkieLabScreenState extends State<WalkieLabScreen> {
                             enabled: joined && !_busy && !channelBusy,
                             talking: _talking,
                             channelBusy: channelBusy,
+                            micLevel: widget.pttController.micLevel,
                             language: _language,
                             onDown: _startTalking,
                             onUpOrCancel: _stopTalking,
@@ -587,6 +589,7 @@ class _MicButton extends StatelessWidget {
     required this.enabled,
     required this.talking,
     required this.channelBusy,
+    required this.micLevel,
     required this.language,
     required this.onDown,
     required this.onUpOrCancel,
@@ -595,6 +598,7 @@ class _MicButton extends StatelessWidget {
   final bool enabled;
   final bool talking;
   final bool channelBusy;
+  final ValueListenable<double> micLevel;
   final AppLanguage language;
   final VoidCallback onDown;
   final Future<void> Function() onUpOrCancel;
@@ -615,47 +619,137 @@ class _MicButton extends StatelessWidget {
         button: true,
         enabled: enabled,
         label: _t(language, ko: '마이크', en: 'Microphone', fr: 'Micro'),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          width: 104,
-          height: 104,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            boxShadow: enabled
-                ? [
-                    BoxShadow(
-                      color: color.withValues(alpha: 0.36),
-                      blurRadius: 24,
-                      spreadRadius: 2,
+        child: SizedBox(
+          width: 142,
+          height: 142,
+          child: ValueListenableBuilder<double>(
+            valueListenable: micLevel,
+            builder: (context, level, _) {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  if (talking)
+                    _VoiceWaveRings(
+                      key: const ValueKey('walkie-voice-wave'),
+                      level: level,
+                      color: AppColors.danger,
+                      baseSize: 104,
                     ),
-                  ]
-                : null,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.mic_rounded,
-                color: AppColors.onPrimary,
-                size: 34,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                channelBusy
-                    ? _t(language, ko: '수신 중', en: 'RX', fr: 'Réception')
-                    : enabled
-                    ? _t(language, ko: '누르기', en: 'Hold', fr: 'Tenir')
-                    : _t(language, ko: '대기', en: 'Locked', fr: 'Bloqué'),
-                style: AppText.technicalLabel(
-                  size: 10,
-                  color: AppColors.onPrimary,
-                  letterSpacing: 0.4,
-                ),
-              ),
-            ],
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    width: 104,
+                    height: 104,
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                      boxShadow: enabled
+                          ? [
+                              BoxShadow(
+                                color: color.withValues(alpha: 0.36),
+                                blurRadius: 24,
+                                spreadRadius: 2,
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.mic_rounded,
+                          color: AppColors.onPrimary,
+                          size: 34,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          channelBusy
+                              ? _t(
+                                  language,
+                                  ko: '수신 중',
+                                  en: 'RX',
+                                  fr: 'Réception',
+                                )
+                              : enabled
+                              ? _t(language, ko: '누르기', en: 'Hold', fr: 'Tenir')
+                              : _t(
+                                  language,
+                                  ko: '대기',
+                                  en: 'Locked',
+                                  fr: 'Bloqué',
+                                ),
+                          style: AppText.technicalLabel(
+                            size: 10,
+                            color: AppColors.onPrimary,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _VoiceWaveRings extends StatelessWidget {
+  const _VoiceWaveRings({
+    super.key,
+    required this.level,
+    required this.color,
+    required this.baseSize,
+  });
+
+  final double level;
+  final Color color;
+  final double baseSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final clamped = level.clamp(0.0, 1.0);
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        _VoiceWaveRing(
+          size: baseSize + 18 + clamped * 22,
+          color: color.withValues(alpha: 0.08 + clamped * 0.24),
+          width: 2 + clamped * 3,
+        ),
+        _VoiceWaveRing(
+          size: baseSize + 34 + clamped * 32,
+          color: color.withValues(alpha: 0.04 + clamped * 0.16),
+          width: 1 + clamped * 2,
+        ),
+      ],
+    );
+  }
+}
+
+class _VoiceWaveRing extends StatelessWidget {
+  const _VoiceWaveRing({
+    required this.size,
+    required this.color,
+    required this.width,
+  });
+
+  final double size;
+  final Color color;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 80),
+      curve: Curves.easeOut,
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: color, width: width),
       ),
     );
   }

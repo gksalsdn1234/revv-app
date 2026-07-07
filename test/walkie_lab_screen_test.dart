@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/app_language.dart';
@@ -78,6 +80,25 @@ void main() {
 
     expect(ptt.startedChannels, ['channel-1']);
     expect(ptt.stopCount, 1);
+  });
+
+  testWidgets('talking state shows the voice wave', (tester) async {
+    final ptt = _FakeWalkiePttController();
+    ptt.startHold = Completer<void>();
+    await tester.pumpWalkie(ptt: ptt);
+    await tester.joinRoom();
+    await tester.ensureVisible(_micFinder);
+    await tester.pump();
+
+    final gesture = await tester.startGesture(tester.getCenter(_micFinder));
+    ptt.micLevel.value = 0.72;
+    await tester.pump(const Duration(milliseconds: 150));
+
+    expect(find.byKey(const ValueKey('walkie-voice-wave')), findsOneWidget);
+
+    ptt.startHold!.complete();
+    await gesture.up();
+    await tester.pump();
   });
 
   testWidgets('busy channel disables microphone start', (tester) async {
@@ -164,12 +185,16 @@ class _FakeWalkiePttController implements WalkiePttController {
   final ValueNotifier<bool> channelBusy = ValueNotifier(false);
 
   @override
+  final ValueNotifier<double> micLevel = ValueNotifier(0);
+
+  @override
   final ValueNotifier<PttConnectionState> connectionState = ValueNotifier(
     PttConnectionState.connected,
   );
 
   final connectedChannels = <String>[];
   final startedChannels = <String>[];
+  Completer<void>? startHold;
   var disconnectCount = 0;
   var stopCount = 0;
 
@@ -186,6 +211,7 @@ class _FakeWalkiePttController implements WalkiePttController {
   @override
   Future<void> startTalking(String channelId) async {
     startedChannels.add(channelId);
+    await startHold?.future;
   }
 
   @override

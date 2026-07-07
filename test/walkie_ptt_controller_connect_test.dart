@@ -75,6 +75,15 @@ void main() {
     expect(transport.subscribedChannels, ['channel-1', 'channel-2']);
     expect(transport.channelDisposeCount, 1);
   });
+
+  test('micLevel delegates to the PttService notifier', () async {
+    final service = _service(_FakeTransport());
+    final controller = PttServiceWalkieController(service);
+
+    service.micLevel.value = 0.4;
+
+    expect(controller.micLevel.value, 0.4);
+  });
 }
 
 PttService _service(_FakeTransport transport, {_FakeRecorder? recorder}) {
