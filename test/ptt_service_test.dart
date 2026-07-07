@@ -7,35 +7,35 @@ import 'package:revv_app/services/ptt_service.dart';
 import 'package:revv_app/services/ptt_transport.dart';
 
 void main() {
-  test('sends encoded microphone chunks while PTT is held', () async {
-    // Given: fake audio seams and a subscribed transport.
-    final recorder = _FakeRecorder([
-      Uint8List.fromList([1]),
-      Uint8List.fromList([2]),
-    ]);
-    final codec = _OffsetCodec();
-    final transport = _FakeTransport();
-    final service = PttService(
-      transport: transport,
-      recorder: recorder,
-      codec: codec,
-      playback: _FakePlayback(),
-      briefingState: _FakeBriefingState(),
-    );
-    await service.subscribe('channel-1');
+  test(
+    'batches microphone frames and flushes the final partial batch',
+    () async {
+      // Given: seven 20ms PCM frames and a subscribed transport.
+      final recorder = _FakeRecorder([
+        for (var i = 0; i < 7; i += 1) _frame(i),
+      ]);
+      final transport = _FakeTransport();
+      final service = PttService(
+        transport: transport,
+        recorder: recorder,
+        codec: const PassthroughPttAudioCodec(),
+        playback: _FakePlayback(),
+        briefingState: _FakeBriefingState(),
+      );
+      await service.subscribe('channel-1');
 
-    // When: the driver holds and releases PTT.
-    await service.startHold();
-    await service.stopHold();
-    await Future<void>.delayed(Duration.zero);
+      // When: the driver holds and releases PTT.
+      await service.startHold();
+      await service.stopHold();
+      await Future<void>.delayed(Duration.zero);
 
-    // Then: chunks are encoded before transport send.
-    expect(transport.sentChunks, [
-      Uint8List.fromList([2]),
-      Uint8List.fromList([3]),
-    ]);
-    expect(recorder.stopped, isTrue);
-  });
+      // Then: transport sees one 100ms batch and one flushed 40ms tail.
+      expect(transport.sentChunks.length, 2);
+      expect(transport.sentChunks[0].length, PttChunkSpec.batchBytes);
+      expect(transport.sentChunks[1].length, PttChunkSpec.frameBytes * 2);
+      expect(recorder.stopped, isTrue);
+    },
+  );
 
   test('queues incoming walkie audio until briefing finishes', () async {
     // Given: a briefing is currently active.
@@ -52,7 +52,7 @@ void main() {
     await service.subscribe('channel-1');
 
     // When: a chunk arrives during the briefing.
-    transport.receive(Uint8List.fromList([8]));
+    transport.receive(_batch(8));
     await Future<void>.delayed(Duration.zero);
 
     // Then: playback waits.
@@ -62,10 +62,47 @@ void main() {
     briefing.active = false;
     await Future<void>.delayed(Duration.zero);
 
+    // Then: queued walkie audio still waits for the jitter prebuffer.
+    expect(playback.playedChunks, isEmpty);
+
+    // When: the prebuffer fills.
+    transport.receive(_batch(9));
+    transport.receive(_batch(10));
+    await Future<void>.delayed(Duration.zero);
+
     // Then: queued walkie audio plays after decode.
-    expect(playback.playedChunks, [
-      Uint8List.fromList([7]),
-    ]);
+    expect(playback.playedChunks.length, 3);
+    expect(playback.playedChunks.first.first, 7);
+  });
+
+  test('prebuffers playback until three batches arrive', () async {
+    // Given: a subscribed service listening for walkie audio.
+    final transport = _FakeTransport();
+    final playback = _FakePlayback();
+    final service = PttService(
+      transport: transport,
+      recorder: _FakeRecorder(const []),
+      codec: const PassthroughPttAudioCodec(),
+      playback: playback,
+      briefingState: _FakeBriefingState(),
+    );
+    await service.subscribe('channel-1');
+
+    // When: the first batch arrives.
+    transport.receive(_batch(1));
+    await Future<void>.delayed(Duration.zero);
+
+    // Then: playback waits for jitter protection.
+    expect(playback.playedChunks, isEmpty);
+
+    // When: three batches are buffered.
+    transport.receive(_batch(2));
+    transport.receive(_batch(3));
+    await Future<void>.delayed(Duration.zero);
+
+    // Then: playback starts.
+    expect(playback.playedChunks.length, 3);
+    await service.dispose();
   });
 
   test('marks the channel busy briefly after an incoming chunk', () async {
@@ -81,7 +118,7 @@ void main() {
     await service.subscribe('channel-1');
 
     // When: a remote chunk arrives.
-    transport.receive(Uint8List.fromList([8]));
+    transport.receive(_batch(8));
     await Future<void>.delayed(Duration.zero);
 
     // Then: the half-duplex guard is active, then expires.
@@ -121,24 +158,72 @@ void main() {
     expect(recorder.stopAfterStart, isTrue);
   });
 
-  test('surfaces transport rejection for non-member sends', () async {
+  test('continues the send loop when a broadcast send fails', () async {
     // Given: transport rejects broadcasts through the same seam as RLS.
+    final transport = _RejectingTransport();
     final service = PttService(
-      transport: _RejectingTransport(),
-      recorder: _FakeRecorder([
-        Uint8List.fromList([1]),
-      ]),
-      codec: _OffsetCodec(),
+      transport: transport,
+      recorder: _FakeRecorder([for (var i = 0; i < 7; i += 1) _frame(i)]),
+      codec: const PassthroughPttAudioCodec(),
       playback: _FakePlayback(),
       briefingState: _FakeBriefingState(),
     );
     await service.subscribe('channel-1');
 
-    // When / Then: hold start fails closed instead of swallowing the denial.
-    await expectLater(
-      service.startHold(),
-      throwsA(isA<PttTransportException>()),
+    // When: broadcast sends fail while holding PTT.
+    await service.startHold();
+
+    // Then: both batches were attempted and the loop did not throw.
+    expect(transport.sendAttempts, 2);
+  });
+
+  testWidgets('reconnects on connectionDown and returns to connected', (
+    tester,
+  ) async {
+    // Given: a subscribed service whose next reconnect succeeds.
+    final transport = _ReconnectTransport();
+    final service = PttService(
+      transport: transport,
+      recorder: _FakeRecorder(const []),
+      codec: const PassthroughPttAudioCodec(),
+      playback: _FakePlayback(),
+      briefingState: _FakeBriefingState(),
     );
+    await service.subscribe('channel-1');
+
+    // When: the transport reports a dropped channel.
+    transport.connectionDown();
+    await tester.pump();
+
+    // Then: state enters reconnecting, retries after backoff, and recovers.
+    expect(service.connectionState.value, PttConnectionState.reconnecting);
+    await tester.pump(const Duration(seconds: 1));
+    expect(transport.subscribedChannels, ['channel-1', 'channel-1']);
+    expect(service.connectionState.value, PttConnectionState.connected);
+  });
+
+  testWidgets('goes offline after five failed reconnect attempts', (
+    tester,
+  ) async {
+    // Given: a subscribed service whose reconnect attempts fail.
+    final transport = _ReconnectTransport(failuresBeforeSuccess: 99);
+    final service = PttService(
+      transport: transport,
+      recorder: _FakeRecorder(const []),
+      codec: const PassthroughPttAudioCodec(),
+      playback: _FakePlayback(),
+      briefingState: _FakeBriefingState(),
+    );
+    await service.subscribe('channel-1');
+
+    // When: all retry backoffs are exhausted.
+    transport.connectionDown();
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 23));
+
+    // Then: the service stops retrying and exposes offline.
+    expect(transport.subscribedChannels.length, 6);
+    expect(service.connectionState.value, PttConnectionState.offline);
   });
 
   test('feeds PCM chunks into one flutter sound stream', () async {
@@ -158,7 +243,7 @@ void main() {
     expect(player.streamInterleaved, isTrue);
     expect(player.streamChannels, PttChunkSpec.channels);
     expect(player.streamSampleRate, PttChunkSpec.sampleRate);
-    expect(player.streamBufferSize, PttChunkSpec.frameBytes);
+    expect(player.streamBufferSize, PttChunkSpec.batchBytes);
     expect(player.fedChunks, [
       Uint8List.fromList([1, 0]),
       Uint8List.fromList([2, 0]),
@@ -169,15 +254,32 @@ void main() {
   });
 }
 
+Uint8List _frame(int seed) {
+  return Uint8List(PttChunkSpec.frameBytes)
+    ..fillRange(0, PttChunkSpec.frameBytes, seed);
+}
+
+Uint8List _batch(int seed) {
+  return Uint8List(PttChunkSpec.batchBytes)
+    ..fillRange(0, PttChunkSpec.batchBytes, seed);
+}
+
 class _FakeTransport implements PttTransport {
   final _chunks = StreamController<Uint8List>.broadcast();
+  final _connectionDown = StreamController<void>.broadcast();
   final sentChunks = <Uint8List>[];
+  final subscribedChannels = <String>[];
 
   @override
   Stream<Uint8List> get onChunk => _chunks.stream;
 
   @override
-  Future<void> subscribe(String channelId) async {}
+  Stream<void> get onConnectionDown => _connectionDown.stream;
+
+  @override
+  Future<void> subscribe(String channelId) async {
+    subscribedChannels.add(channelId);
+  }
 
   @override
   Future<void> sendChunk(Uint8List bytes) async {
@@ -192,13 +294,40 @@ class _FakeTransport implements PttTransport {
   }
 
   @override
-  Future<void> dispose() => _chunks.close();
+  Future<void> dispose() async {
+    await _chunks.close();
+    await _connectionDown.close();
+  }
 }
 
 class _RejectingTransport extends _FakeTransport {
+  var sendAttempts = 0;
+
   @override
   Future<void> sendChunk(Uint8List bytes) async {
+    sendAttempts += 1;
     throw const PttTransportException('broadcast rejected');
+  }
+}
+
+class _ReconnectTransport extends _FakeTransport {
+  _ReconnectTransport({this.failuresBeforeSuccess = 0});
+
+  final int failuresBeforeSuccess;
+  var _reconnectAttempts = 0;
+
+  @override
+  Future<void> subscribe(String channelId) async {
+    subscribedChannels.add(channelId);
+    if (subscribedChannels.length > 1 &&
+        _reconnectAttempts < failuresBeforeSuccess) {
+      _reconnectAttempts += 1;
+      throw const PttTransportException('reconnect failed');
+    }
+  }
+
+  void connectionDown() {
+    _connectionDown.add(null);
   }
 }
 

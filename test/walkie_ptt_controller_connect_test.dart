@@ -89,11 +89,15 @@ PttService _service(_FakeTransport transport, {_FakeRecorder? recorder}) {
 
 class _FakeTransport implements PttTransport {
   final _chunks = StreamController<Uint8List>.broadcast();
+  final _connectionDown = StreamController<void>.broadcast();
   final subscribedChannels = <String>[];
   var channelDisposeCount = 0;
 
   @override
   Stream<Uint8List> get onChunk => _chunks.stream;
+
+  @override
+  Stream<void> get onConnectionDown => _connectionDown.stream;
 
   @override
   Future<void> subscribe(String channelId) async {
@@ -109,7 +113,10 @@ class _FakeTransport implements PttTransport {
   }
 
   @override
-  Future<void> dispose() => _chunks.close();
+  Future<void> dispose() async {
+    await _chunks.close();
+    await _connectionDown.close();
+  }
 }
 
 class _BlockingTransport extends _FakeTransport {

@@ -12,6 +12,7 @@ import '../services/route_geometry_matcher.dart';
 import '../services/route_loading_policy.dart';
 import '../services/run_session_service.dart';
 import '../services/settings_service.dart';
+import '../services/ptt_service.dart';
 import '../services/voice_briefing_service.dart';
 import '../services/crew_channel_service.dart';
 import '../labs/walkie/walkie_ptt_controller.dart';
@@ -485,13 +486,17 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     if (!crew.isJoined || channelId == null) return null;
     final controller =
         widget.pttControllerOverride ?? context.read<WalkiePttController>();
-    return ValueListenableBuilder<bool>(
-      valueListenable: controller.channelBusy,
-      builder: (context, channelBusy, _) => _DrivePttButton(
-        language: language,
-        channelBusy: channelBusy,
-        onStart: () => controller.startTalking(channelId),
-        onStop: () => controller.stopTalking(),
+    return ValueListenableBuilder<PttConnectionState>(
+      valueListenable: controller.connectionState,
+      builder: (context, connectionState, _) => ValueListenableBuilder<bool>(
+        valueListenable: controller.channelBusy,
+        builder: (context, channelBusy, _) => _DrivePttButton(
+          language: language,
+          channelBusy: channelBusy,
+          connectionState: connectionState,
+          onStart: () => controller.startTalking(channelId),
+          onStop: () => controller.stopTalking(),
+        ),
       ),
     );
   }
@@ -549,12 +554,14 @@ class _WalkieAutoConnectState extends State<_WalkieAutoConnect> {
 class _DrivePttButton extends StatefulWidget {
   final AppLanguage language;
   final bool channelBusy;
+  final PttConnectionState connectionState;
   final Future<void> Function() onStart;
   final Future<void> Function() onStop;
 
   const _DrivePttButton({
     required this.language,
     required this.channelBusy,
+    required this.connectionState,
     required this.onStart,
     required this.onStop,
   });
@@ -567,7 +574,7 @@ class _DrivePttButtonState extends State<_DrivePttButton> {
   bool _talking = false;
 
   void _begin() {
-    if (widget.channelBusy) return;
+    if (_disabled) return;
     if (_talking) return;
     setState(() => _talking = true);
     unawaited(widget.onStart());
@@ -579,60 +586,98 @@ class _DrivePttButtonState extends State<_DrivePttButton> {
     unawaited(widget.onStop());
   }
 
+  bool get _disabled =>
+      widget.channelBusy ||
+      widget.connectionState == PttConnectionState.reconnecting;
+
   @override
   Widget build(BuildContext context) {
-    final label = widget.channelBusy
+    final reconnecting =
+        widget.connectionState == PttConnectionState.reconnecting;
+    final disabled = _disabled;
+    final label = reconnecting
+        ? AppCopy.t(
+            widget.language,
+            ko: '재연결 중…',
+            en: 'Reconnecting…',
+            fr: 'Reconnexion…',
+          )
+        : widget.channelBusy
         ? AppCopy.t(widget.language, ko: '수신 중', en: 'RX', fr: 'Réception')
         : _talking
         ? AppCopy.t(widget.language, ko: '말하는 중', en: 'Talking', fr: 'En cours')
-        : AppCopy.t(widget.language, ko: '눌러서 무전', en: 'Hold to talk', fr: 'Maintenir');
+        : AppCopy.t(
+            widget.language,
+            ko: '눌러서 무전',
+            en: 'Hold to talk',
+            fr: 'Maintenir',
+          );
     return GestureDetector(
-      onTapDown: widget.channelBusy ? null : (_) => _begin(),
-      onTapUp: widget.channelBusy ? null : (_) => _finish(),
-      onTapCancel: widget.channelBusy ? null : _finish,
+      onTapDown: disabled ? null : (_) => _begin(),
+      onTapUp: disabled ? null : (_) => _finish(),
+      onTapCancel: disabled ? null : _finish,
       child: Semantics(
         button: true,
-        enabled: !widget.channelBusy,
+        enabled: !disabled,
         label: label,
-        child: Container(
-          width: 96,
-          height: 96,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: _talking ? AppColors.red : AppColors.panel2,
-            border: Border.all(
-              color: _talking ? AppColors.red : AppColors.outlineVariant,
-              width: 2,
-            ),
-            boxShadow: _talking
-                ? [
-                    BoxShadow(
-                      color: AppColors.red.withValues(alpha: 0.45),
-                      blurRadius: 22,
-                      spreadRadius: 2,
-                    ),
-                  ]
-                : null,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.mic_rounded,
-                size: 30,
-                color: _talking ? AppColors.onPrimary : AppColors.textPrimary,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _talking ? AppColors.red : AppColors.panel2,
+                border: Border.all(
+                  color: _talking ? AppColors.red : AppColors.outlineVariant,
+                  width: 2,
+                ),
+                boxShadow: _talking
+                    ? [
+                        BoxShadow(
+                          color: AppColors.red.withValues(alpha: 0.45),
+                          blurRadius: 22,
+                          spreadRadius: 2,
+                        ),
+                      ]
+                    : null,
               ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                textAlign: TextAlign.center,
-                style: AppText.technicalLabel(
-                  size: 9,
-                  color: _talking ? AppColors.onPrimary : AppColors.textSecondary,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.mic_rounded,
+                    size: 30,
+                    color: _talking
+                        ? AppColors.onPrimary
+                        : AppColors.textPrimary,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: AppText.technicalLabel(
+                      size: 9,
+                      color: _talking
+                          ? AppColors.onPrimary
+                          : AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (reconnecting)
+              const Positioned(
+                top: 14,
+                right: 14,
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

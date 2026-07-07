@@ -7,6 +7,7 @@ import 'package:revv_app/screens/lean_drive_screen.dart';
 import 'package:revv_app/services/crew_channel_service.dart';
 import 'package:revv_app/services/imu_service.dart';
 import 'package:revv_app/services/location_service.dart';
+import 'package:revv_app/services/ptt_service.dart';
 import 'package:revv_app/services/run_session_service.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/theme/text_styles.dart';
@@ -24,6 +25,11 @@ class _FakeCrew extends CrewChannelService {
 class _RecordingController implements WalkiePttController {
   @override
   final ValueNotifier<bool> channelBusy = ValueNotifier(false);
+
+  @override
+  final ValueNotifier<PttConnectionState> connectionState = ValueNotifier(
+    PttConnectionState.connected,
+  );
 
   int connectCount = 0;
   int disconnectCount = 0;
@@ -79,9 +85,15 @@ Future<void> _pump(
   await tester.pumpWidget(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider<LocationService>(create: (_) => LocationService()),
-        ChangeNotifierProvider<RunSessionService>(create: (_) => RunSessionService()),
-        ChangeNotifierProvider<SettingsService>(create: (_) => SettingsService()),
+        ChangeNotifierProvider<LocationService>(
+          create: (_) => LocationService(),
+        ),
+        ChangeNotifierProvider<RunSessionService>(
+          create: (_) => RunSessionService(),
+        ),
+        ChangeNotifierProvider<SettingsService>(
+          create: (_) => SettingsService(),
+        ),
         ChangeNotifierProvider<ImuService>(create: (_) => ImuService()),
         Provider<WalkiePttController>.value(
           value: controller ?? _RecordingController(),
@@ -153,6 +165,27 @@ void main() {
     await _pump(tester, enabled: true, joined: true, controller: controller);
 
     expect(find.text('RX'), findsOneWidget);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byIcon(Icons.mic_rounded)),
+    );
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    expect(controller.startCount, 0);
+    expect(controller.stopCount, 0);
+  });
+
+  testWidgets('reconnecting disables PTT start and shows spinner', (
+    tester,
+  ) async {
+    final controller = _RecordingController();
+    controller.connectionState.value = PttConnectionState.reconnecting;
+    await _pump(tester, enabled: true, joined: true, controller: controller);
+
+    expect(find.text('Reconnecting…'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
     final gesture = await tester.startGesture(
       tester.getCenter(find.byIcon(Icons.mic_rounded)),

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/labs/walkie/walkie_lab_screen.dart';
 import 'package:revv_app/services/crew_channel_service.dart';
+import 'package:revv_app/services/ptt_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -92,6 +93,22 @@ void main() {
     expect(ptt.startedChannels, isEmpty);
   });
 
+  testWidgets('status panel shows reconnecting and offline states', (
+    tester,
+  ) async {
+    final ptt = _FakeWalkiePttController();
+    await tester.pumpWalkie(ptt: ptt);
+    await tester.joinRoom();
+
+    ptt.connectionState.value = PttConnectionState.reconnecting;
+    await tester.pump();
+    expect(find.text('Reconnecting…'), findsOneWidget);
+
+    ptt.connectionState.value = PttConnectionState.offline;
+    await tester.pump();
+    expect(find.text('Disconnected — rejoin'), findsOneWidget);
+  });
+
   testWidgets('layout has no overflow at 320px width', (tester) async {
     await tester.binding.setSurfaceSize(const Size(320, 760));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -145,6 +162,11 @@ extension on WidgetTester {
 class _FakeWalkiePttController implements WalkiePttController {
   @override
   final ValueNotifier<bool> channelBusy = ValueNotifier(false);
+
+  @override
+  final ValueNotifier<PttConnectionState> connectionState = ValueNotifier(
+    PttConnectionState.connected,
+  );
 
   final connectedChannels = <String>[];
   final startedChannels = <String>[];

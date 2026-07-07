@@ -61,11 +61,15 @@ class _FakePttTransport implements PttTransport {
   final _FakeRealtimeBus _bus;
   final bool _member;
   final _chunks = StreamController<Uint8List>.broadcast();
+  final _connectionDown = StreamController<void>.broadcast();
   StreamSubscription<Uint8List>? _subscription;
   String? _channelId;
 
   @override
   Stream<Uint8List> get onChunk => _chunks.stream;
+
+  @override
+  Stream<void> get onConnectionDown => _connectionDown.stream;
 
   @override
   Future<void> subscribe(String channelId) async {
@@ -96,5 +100,6 @@ class _FakePttTransport implements PttTransport {
   Future<void> dispose() async {
     await disposeChannelOnly();
     await _chunks.close();
+    await _connectionDown.close();
   }
 }

@@ -9,6 +9,8 @@ import 'package:record/record.dart';
 import 'audio_session.dart';
 import 'ptt_transport.dart';
 
+enum PttConnectionState { connected, reconnecting, offline }
+
 abstract class PttRecorder {
   Future<Stream<Uint8List>> start();
   Future<void> stop();
@@ -30,6 +32,10 @@ abstract class BriefingState {
 
 class PttService {
   static const channelBusyWindow = Duration(milliseconds: 350);
+  static const _playbackPrebufferBytes = PttChunkSpec.batchBytes * 3;
+  static const _playbackPrebufferTimeout = Duration(milliseconds: 400);
+  static const _utteranceIdleReset = Duration(milliseconds: 600);
+  static const _maxReconnectAttempts = 5;
 
   PttService({
     required PttTransport transport,
@@ -45,7 +51,10 @@ class PttService {
     _briefingSubscription = _briefingState.onBriefingActiveChanged.listen((
       active,
     ) {
-      if (!active) unawaited(_drainPlaybackQueue());
+      if (!active) _maybeDrainPlaybackQueue();
+    });
+    _connectionSubscription = _transport.onConnectionDown.listen((_) {
+      _handleConnectionDown();
     });
   }
 
@@ -56,30 +65,49 @@ class PttService {
   final BriefingState _briefingState;
   final Queue<Uint8List> _playbackQueue = Queue<Uint8List>();
   final ValueNotifier<bool> channelBusy = ValueNotifier(false);
+  final ValueNotifier<PttConnectionState> connectionState = ValueNotifier(
+    PttConnectionState.offline,
+  );
 
   StreamSubscription<Uint8List>? _incomingSubscription;
   StreamSubscription<bool>? _briefingSubscription;
+  StreamSubscription<void>? _connectionSubscription;
   Future<void> _playbackDrain = Future<void>.value();
   Future<void>? _holdStarting;
   Timer? _busyTimer;
+  Timer? _prebufferTimer;
+  Timer? _utteranceTimer;
+  String? _channelId;
+  var _playbackPrebufferReady = false;
+  var _reconnecting = false;
+  var _connectEpoch = 0;
+  var _disposed = false;
 
   Future<void> subscribe(String channelId) async {
+    _connectEpoch += 1;
     await _transport.subscribe(channelId);
+    _channelId = channelId;
+    _reconnecting = false;
+    connectionState.value = PttConnectionState.connected;
     await _incomingSubscription?.cancel();
     _incomingSubscription = _transport.onChunk.listen((chunk) async {
       _markChannelBusy();
       final decoded = await _codec.decode(chunk);
       _playbackQueue.add(decoded);
-      if (!_briefingState.isBriefingActive) {
-        await _drainPlaybackQueue();
-      }
+      _scheduleUtteranceReset();
+      _maybeDrainPlaybackQueue();
     });
   }
 
   Future<void> unsubscribe() async {
+    _connectEpoch += 1;
+    _channelId = null;
+    _reconnecting = false;
+    connectionState.value = PttConnectionState.offline;
     await _incomingSubscription?.cancel();
     _incomingSubscription = null;
     _clearChannelBusy();
+    _resetPlaybackPrebuffer();
     await _transport.disposeChannelOnly();
   }
 
@@ -87,8 +115,22 @@ class PttService {
     final starting = _recorder.start();
     _holdStarting = starting.then<void>((_) {}, onError: (_) {});
     final stream = await starting;
-    await for (final chunk in stream) {
-      await _sendRecordedChunk(chunk);
+    final pending = <int>[];
+    try {
+      await for (final chunk in stream) {
+        pending.addAll(chunk);
+        while (pending.length >= PttChunkSpec.batchBytes) {
+          final batch = Uint8List.fromList(
+            pending.take(PttChunkSpec.batchBytes).toList(),
+          );
+          pending.removeRange(0, PttChunkSpec.batchBytes);
+          await _sendRecordedChunkSafely(batch);
+        }
+      }
+    } finally {
+      if (pending.isNotEmpty) {
+        await _sendRecordedChunkSafely(Uint8List.fromList(pending));
+      }
     }
   }
 
@@ -104,13 +146,109 @@ class PttService {
     await _transport.sendChunk(encoded);
   }
 
+  Future<void> _sendRecordedChunkSafely(Uint8List chunk) async {
+    try {
+      await _sendRecordedChunk(chunk);
+    } catch (_) {}
+  }
+
+  void _maybeDrainPlaybackQueue() {
+    if (_briefingState.isBriefingActive) return;
+    if (!_playbackPrebufferReady &&
+        _queuedPlaybackBytes >= _playbackPrebufferBytes) {
+      _releasePlaybackPrebuffer();
+      return;
+    }
+    if (_playbackPrebufferReady) {
+      unawaited(_drainPlaybackQueue());
+    } else {
+      _prebufferTimer ??= Timer(
+        _playbackPrebufferTimeout,
+        _releasePlaybackPrebuffer,
+      );
+    }
+  }
+
+  int get _queuedPlaybackBytes {
+    var bytes = 0;
+    for (final chunk in _playbackQueue) {
+      bytes += chunk.length;
+    }
+    return bytes;
+  }
+
+  void _releasePlaybackPrebuffer() {
+    if (_playbackPrebufferReady) return;
+    _playbackPrebufferReady = true;
+    _prebufferTimer?.cancel();
+    _prebufferTimer = null;
+    if (!_briefingState.isBriefingActive) {
+      unawaited(_drainPlaybackQueue());
+    }
+  }
+
   Future<void> _drainPlaybackQueue() {
+    if (!_playbackPrebufferReady) return Future<void>.value();
     _playbackDrain = _playbackDrain.then((_) async {
       while (!_briefingState.isBriefingActive && _playbackQueue.isNotEmpty) {
         await _playback.play(_playbackQueue.removeFirst());
       }
     });
     return _playbackDrain;
+  }
+
+  void _scheduleUtteranceReset() {
+    _utteranceTimer?.cancel();
+    _utteranceTimer = Timer(_utteranceIdleReset, _resetPlaybackPrebuffer);
+  }
+
+  void _resetPlaybackPrebuffer() {
+    _prebufferTimer?.cancel();
+    _prebufferTimer = null;
+    _utteranceTimer?.cancel();
+    _utteranceTimer = null;
+    _playbackPrebufferReady = false;
+  }
+
+  void _handleConnectionDown() {
+    if (_disposed || _reconnecting) return;
+    final channelId = _channelId;
+    if (channelId == null) return;
+    unawaited(_reconnect(channelId, _connectEpoch));
+  }
+
+  Future<void> _reconnect(String channelId, int epoch) async {
+    _reconnecting = true;
+    connectionState.value = PttConnectionState.reconnecting;
+    for (var attempt = 0; attempt < _maxReconnectAttempts; attempt += 1) {
+      await Future<void>.delayed(_reconnectDelay(attempt));
+      if (_disposed || _connectEpoch != epoch || _channelId != channelId) {
+        return;
+      }
+      try {
+        await _transport.subscribe(channelId);
+        if (_disposed || _connectEpoch != epoch || _channelId != channelId) {
+          return;
+        }
+        _reconnecting = false;
+        connectionState.value = PttConnectionState.connected;
+        return;
+      } catch (_) {}
+    }
+    if (!_disposed && _connectEpoch == epoch && _channelId == channelId) {
+      _reconnecting = false;
+      connectionState.value = PttConnectionState.offline;
+    }
+  }
+
+  Duration _reconnectDelay(int attempt) {
+    final seconds = switch (attempt) {
+      0 => 1,
+      1 => 2,
+      2 => 4,
+      _ => 8,
+    };
+    return Duration(seconds: seconds);
   }
 
   void _markChannelBusy() {
@@ -128,12 +266,17 @@ class PttService {
   }
 
   Future<void> dispose() async {
+    _disposed = true;
+    _connectEpoch += 1;
     await _incomingSubscription?.cancel();
     await _briefingSubscription?.cancel();
+    await _connectionSubscription?.cancel();
     _clearChannelBusy();
+    _resetPlaybackPrebuffer();
     await _recorder.stop();
     await _transport.dispose();
     channelBusy.dispose();
+    connectionState.dispose();
   }
 }
 
@@ -207,7 +350,7 @@ class FlutterSoundPttPlayback implements PttPlayback {
       interleaved: true,
       numChannels: PttChunkSpec.channels,
       sampleRate: PttChunkSpec.sampleRate,
-      bufferSize: PttChunkSpec.frameBytes,
+      bufferSize: PttChunkSpec.batchBytes,
     );
     _streaming = true;
   }

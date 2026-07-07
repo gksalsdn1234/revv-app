@@ -8,6 +8,7 @@ import 'supabase_service.dart';
 
 abstract class PttTransport {
   Stream<Uint8List> get onChunk;
+  Stream<void> get onConnectionDown;
 
   Future<void> subscribe(String channelId);
   Future<void> sendChunk(Uint8List bytes);
@@ -32,10 +33,18 @@ class RealtimePttTransport implements PttTransport {
 
   final SupabaseService _supabase;
   final _chunks = StreamController<Uint8List>.broadcast();
+  final _connectionDown = StreamController<void>.broadcast();
   RealtimeChannel? _channel;
+  var _sendFailureCount = 0;
+  var _disposingChannel = false;
 
   @override
   Stream<Uint8List> get onChunk => _chunks.stream;
+
+  @override
+  Stream<void> get onConnectionDown => _connectionDown.stream;
+
+  int get sendFailureCount => _sendFailureCount;
 
   @override
   Future<void> subscribe(String channelId) async {
@@ -57,7 +66,7 @@ class RealtimePttTransport implements PttTransport {
       // presence(crew:<id>)와 소켓 토픽 분리 — 같은 토픽 이중 join이
       // 먼저 붙은 presence 채널을 밀어내는 것을 방지한다.
       'crew:$channelId:audio',
-      opts: const RealtimeChannelConfig(ack: true, private: true),
+      opts: const RealtimeChannelConfig(ack: false, private: true),
     );
     _channel = channel;
 
@@ -75,7 +84,15 @@ class RealtimePttTransport implements PttTransport {
           },
         )
         .subscribe((status, error) {
-          if (completer.isCompleted) return;
+          if (completer.isCompleted) {
+            if (_channel == channel &&
+                !_disposingChannel &&
+                (status == RealtimeSubscribeStatus.channelError ||
+                    status == RealtimeSubscribeStatus.closed)) {
+              _connectionDown.add(null);
+            }
+            return;
+          }
           switch (status) {
             case RealtimeSubscribeStatus.subscribed:
               completer.complete();
@@ -114,12 +131,12 @@ class RealtimePttTransport implements PttTransport {
         'codec': PttChunkSpec.codec,
         'sampleRate': PttChunkSpec.sampleRate,
         'channels': PttChunkSpec.channels,
-        'frameMs': PttChunkSpec.frameDuration.inMilliseconds,
+        'frameMs': PttChunkSpec.durationForBytes(bytes).inMilliseconds,
         'chunk': base64Encode(bytes),
       },
     );
     if (response != ChannelResponse.ok) {
-      throw PttTransportException('Realtime broadcast rejected: $response');
+      _sendFailureCount += 1;
     }
   }
 
@@ -128,7 +145,12 @@ class RealtimePttTransport implements PttTransport {
     final channel = _channel;
     _channel = null;
     if (channel != null) {
-      await channel.unsubscribe();
+      _disposingChannel = true;
+      try {
+        await channel.unsubscribe();
+      } finally {
+        _disposingChannel = false;
+      }
     }
   }
 
@@ -136,6 +158,7 @@ class RealtimePttTransport implements PttTransport {
   Future<void> dispose() async {
     await disposeChannelOnly();
     await _chunks.close();
+    await _connectionDown.close();
   }
 }
 
@@ -149,4 +172,10 @@ class PttChunkSpec {
   static const frameDuration = Duration(milliseconds: frameMilliseconds);
   static const bytesPerSecond = sampleRate * channels * 2;
   static const frameBytes = bytesPerSecond * frameMilliseconds ~/ 1000;
+  static const batchFrames = 5;
+  static const batchBytes = frameBytes * batchFrames;
+
+  static Duration durationForBytes(Uint8List bytes) {
+    return Duration(milliseconds: bytes.length * 1000 ~/ bytesPerSecond);
+  }
 }

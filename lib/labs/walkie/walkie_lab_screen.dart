@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_language.dart';
 import '../../services/crew_channel_service.dart';
+import '../../services/ptt_service.dart';
 import '../../theme/colors.dart';
 import '../../theme/text_styles.dart';
 import '../../ui/app_copy.dart';
@@ -166,7 +167,8 @@ class _WalkieLabScreenState extends State<WalkieLabScreen> {
             if (!mounted) return;
             setState(() {
               // 랩 진단: 실제 예외를 노출해 마이크/채널 원인을 구분한다.
-              _status = '${_copy(ko: '무전 시작 실패', en: 'PTT start failed', fr: 'Échec PTT')}: $error';
+              _status =
+                  '${_copy(ko: '무전 시작 실패', en: 'PTT start failed', fr: 'Échec PTT')}: $error';
             });
           })
           .whenComplete(() {
@@ -210,22 +212,19 @@ class _WalkieLabScreenState extends State<WalkieLabScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _StatusPanel(
-                      label: joined
-                          ? _copy(ko: '연결됨', en: 'Connected', fr: 'Connecté')
-                          : _copy(
-                              ko: '대기 중',
-                              en: 'Not joined',
-                              fr: 'En attente',
-                            ),
-                      detail: joined
-                          ? '${_copy(ko: '코드', en: 'Code', fr: 'Code')} ${_crew.code ?? ''}'
-                          : _copy(
-                              ko: '방을 만들거나 코드로 참여하세요.',
-                              en: 'Create a room or join with a code.',
-                              fr: 'Créez un salon ou entrez un code.',
-                            ),
-                      active: joined,
+                    ValueListenableBuilder<PttConnectionState>(
+                      valueListenable: widget.pttController.connectionState,
+                      builder: (context, connectionState, _) => _StatusPanel(
+                        label: joined
+                            ? _copy(ko: '연결됨', en: 'Connected', fr: 'Connecté')
+                            : _copy(
+                                ko: '대기 중',
+                                en: 'Not joined',
+                                fr: 'En attente',
+                              ),
+                        detail: _connectionDetail(joined, connectionState),
+                        active: joined,
+                      ),
                     ),
                     const SizedBox(height: 12),
                     _RoomPanel(
@@ -284,6 +283,30 @@ class _WalkieLabScreenState extends State<WalkieLabScreen> {
 
   String _copy({required String ko, required String en, required String fr}) {
     return AppCopy.t(_language, ko: ko, en: en, fr: fr);
+  }
+
+  String _connectionDetail(bool joined, PttConnectionState connectionState) {
+    if (!joined) {
+      return _copy(
+        ko: '방을 만들거나 코드로 참여하세요.',
+        en: 'Create a room or join with a code.',
+        fr: 'Créez un salon ou entrez un code.',
+      );
+    }
+    return switch (connectionState) {
+      PttConnectionState.reconnecting => _copy(
+        ko: '재연결 중…',
+        en: 'Reconnecting…',
+        fr: 'Reconnexion…',
+      ),
+      PttConnectionState.offline => _copy(
+        ko: '연결 끊김 — 다시 참여하세요',
+        en: 'Disconnected — rejoin',
+        fr: 'Déconnecté',
+      ),
+      PttConnectionState.connected =>
+        '${_copy(ko: '코드', en: 'Code', fr: 'Code')} ${_crew.code ?? ''}',
+    };
   }
 }
 
