@@ -22,6 +22,8 @@ void main() {
       'supabase/migrations/20260705070001_crew_walkie_realtime.sql';
   const crewWalkiePresenceMigration =
       'supabase/migrations/20260706090000_crew_walkie_presence.sql';
+  const learningLoopMigration =
+      'supabase/migrations/20260707120000_learning_loop.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -33,6 +35,7 @@ void main() {
     crewWalkieMigration,
     crewWalkieRealtimeMigration,
     crewWalkiePresenceMigration,
+    learningLoopMigration,
   ];
 
   const userTables = [
@@ -433,6 +436,58 @@ void main() {
     expect(sql, isNot(contains('to anon')));
     expect(sql, isNot(contains('using (true)')));
     expect(sql, isNot(contains('with check (true)')));
+  });
+
+  test('learning loop logs are owner-only append-only and anon-blocked', () {
+    final sql = _readLower(learningLoopMigration);
+
+    expect(
+      sql,
+      contains('create table if not exists public.recommendation_logs'),
+    );
+    expect(sql, contains('create table if not exists public.user_preferences'));
+    expect(
+      sql,
+      contains(
+        'alter table public.recommendation_logs enable row level security',
+      ),
+    );
+    expect(
+      sql,
+      contains('alter table public.user_preferences enable row level security'),
+    );
+    expect(
+      sql,
+      contains('event text not null check (event in (\'shown\', \'chosen\'))'),
+    );
+    expect(
+      sql,
+      contains(
+        'mode text not null check (mode in (\'destination\', \'chain\', \'free\'))',
+      ),
+    );
+    expect(sql, contains('route_ids jsonb not null default \'[]\'::jsonb'));
+    expect(sql, contains('recommendation_logs_owner_insert'));
+    expect(sql, contains('for insert to authenticated'));
+    expect(sql, contains('with check (user_id = (select auth.uid()))'));
+    expect(sql, contains('recommendation_logs_owner_select'));
+    expect(sql, contains('for select to authenticated'));
+    expect(sql, contains('using (user_id = (select auth.uid()))'));
+    expect(sql, isNot(contains('for update')));
+    expect(sql, isNot(contains('for delete')));
+    expect(
+      sql,
+      contains(
+        'grant insert, select on public.recommendation_logs to authenticated',
+      ),
+    );
+    expect(sql, contains('revoke all on public.recommendation_logs from anon'));
+    expect(
+      sql,
+      contains('grant all on public.user_preferences to authenticated'),
+    );
+    expect(sql, contains('revoke all on public.user_preferences from anon'));
+    expect(sql, isNot(contains('using (true)')));
   });
 }
 

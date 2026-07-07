@@ -11,6 +11,7 @@ import '../services/drive_planner_service.dart';
 import '../services/external_nav.dart';
 import '../services/location_service.dart';
 import '../services/place_search_service.dart';
+import '../services/recommendation_log_service.dart';
 import '../services/route_loading_policy.dart';
 import '../services/settings_service.dart';
 import '../theme/colors.dart';
@@ -59,6 +60,7 @@ class LeanDrivePlannerScreen extends StatefulWidget {
   final LatLng? initialOrigin;
   final LatLng? initialDestination;
   final String? initialDestinationName;
+  final RecommendationLogService? recommendationLogService;
 
   /// 테스트 주입용 초기 도착 희망 시각 (프로덕션에서는 사용하지 않음)
   final TimeOfDay? initialArriveBy;
@@ -73,6 +75,7 @@ class LeanDrivePlannerScreen extends StatefulWidget {
     this.initialOrigin,
     this.initialDestination,
     this.initialDestinationName,
+    this.recommendationLogService,
     this.initialArriveBy,
   });
 
@@ -88,6 +91,8 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       widget.planner ?? DrivePlannerService();
   late final PlaceSearchService _placeSearch =
       widget.placeSearch ?? PlaceSearchService();
+  late final RecommendationLogService _recommendationLog =
+      widget.recommendationLogService ?? RecommendationLogService();
   LatLng _origin = _defaultOrigin;
   LatLng? _destination;
   String? _destinationName;
@@ -102,6 +107,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   String? _status;
   Timer? _planDebounce;
   int _planRequestId = 0;
+  String? _lastShownSignature;
   final DraggableScrollableController _sheetController =
       DraggableScrollableController();
   _PinPickTarget? _pinPickTarget;
@@ -165,6 +171,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
         ),
       ];
       _loadingOrigin = false;
+      unawaited(_logShownOnce(mode: 'chain', options: _options!));
       _snapResultsSheetOpen();
       return;
     }
@@ -237,6 +244,9 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       if (recommended != null && mounted) {
         setState(() => _selectedKind = recommended.kind);
       }
+      if (options.isNotEmpty) {
+        unawaited(_logShownOnce(mode: 'destination', options: options));
+      }
       _snapResultsSheetOpen();
     } catch (_) {
       if (!mounted || requestId != _planRequestId) return;
@@ -306,6 +316,15 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     if (route == null) return;
     final startChoice = await showCopilotStartSheet(context, route: route);
     if (!mounted || startChoice == null) return;
+    unawaited(
+      _recommendationLog.logChosen(
+        mode: _recommendationMode,
+        routeId: route.id,
+        optionKind: _selectedKind.key,
+        origin: _origin,
+        budgetMinutes: _selectedOptionBudget,
+      ),
+    );
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -352,6 +371,36 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
     );
+  }
+
+  Future<void> _logShownOnce({
+    required String mode,
+    required List<DrivePlanOption> options,
+  }) async {
+    final budgetMinutes = mode == 'chain'
+        ? options.first.budgetMinutes
+        : _budgetMinutes(_budget);
+    final signature = _shownSignature(mode, budgetMinutes);
+    if (_lastShownSignature == signature) return;
+    _lastShownSignature = signature;
+    final routeIds = _windingRouteIds(options);
+    await _recommendationLog.logShown(
+      mode: mode,
+      routeIds: routeIds,
+      origin: _origin,
+      budgetMinutes: budgetMinutes,
+    );
+  }
+
+  String get _recommendationMode =>
+      widget.initialPlan == null ? 'destination' : 'chain';
+
+  String _shownSignature(String mode, int budgetMinutes) {
+    final destination = _destination;
+    final destinationKey = destination == null
+        ? 'none'
+        : '${destination.lat.toStringAsFixed(5)},${destination.lng.toStringAsFixed(5)}';
+    return '$mode:$destinationKey:$budgetMinutes';
   }
 
   int get _selectedOptionBudget {
@@ -590,6 +639,19 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
 }
 
 enum _PinPickTarget { origin, destination }
+
+List<String> _windingRouteIds(Iterable<DrivePlanOption> options) {
+  final routeIds = <String>{};
+  for (final option in options) {
+    for (final leg in option.plan.legs) {
+      if (leg.kind == DrivePlanLegKind.winding) {
+        final id = leg.route?.id;
+        if (id != null && id.isNotEmpty) routeIds.add(id);
+      }
+    }
+  }
+  return routeIds.toList();
+}
 
 class _MapPinSelection {
   const _MapPinSelection();

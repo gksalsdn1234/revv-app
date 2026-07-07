@@ -9,6 +9,9 @@ import 'package:revv_app/services/drive_planner_service.dart';
 import 'package:revv_app/services/external_nav.dart';
 import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/place_search_service.dart';
+import 'package:revv_app/services/recommendation_log_service.dart';
+import 'package:revv_app/services/run_session_service.dart';
+import 'package:revv_app/services/imu_service.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/services/weather_service.dart';
 import 'package:revv_app/theme/text_styles.dart';
@@ -32,6 +35,7 @@ void main() {
     DrivePlan? extendedPlan,
     TimeOfDay? arriveBy,
     PlaceSearchService? placeSearch,
+    RecommendationLogService? recommendationLogService,
   }) async {
     final location = LocationService()..hasPermission = true;
     final settings = SettingsService();
@@ -45,6 +49,10 @@ void main() {
           ChangeNotifierProvider<LocationService>.value(value: location),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
           ChangeNotifierProvider(create: (_) => WeatherService()),
+          // "드라이브 시작" 확정 시 LeanDriveScreen이 push되므로 그 화면의
+          // 필수 Provider도 하네스에 있어야 한다.
+          ChangeNotifierProvider(create: (_) => RunSessionService()),
+          ChangeNotifierProvider(create: (_) => ImuService()),
         ],
         child: MaterialApp(
           home: LeanDrivePlannerScreen(
@@ -54,6 +62,7 @@ void main() {
               extendedPlan: extendedPlan,
             ),
             placeSearch: placeSearch,
+            recommendationLogService: recommendationLogService,
             originResolver: (_) async => const LatLng(45.5, -73.6),
             initialArriveBy: arriveBy,
           ),
@@ -329,6 +338,65 @@ void main() {
     expect(find.text('Lakeside Road 30분'), findsNothing);
   });
 
+  testWidgets('planner logs shown once per destination budget signature', (
+    tester,
+  ) async {
+    final log = _FakeRecommendationLogService();
+    await pumpPlanner(
+      tester,
+      plan: _planWithWinding(windingMinutes: 30),
+      recommendationLogService: log,
+    );
+
+    await selectMapPinDestination(tester);
+
+    expect(log.shown, [
+      {
+        'mode': 'destination',
+        'routeIds': ['lakeside'],
+        'origin': const LatLng(45.5, -73.6),
+        'budgetMinutes': 60,
+      },
+    ]);
+
+    await tester.tap(find.text('변경'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('지도 핀으로 지정'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('이 지점으로'));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    expect(log.shown, hasLength(1));
+  });
+
+  testWidgets('planner logs chosen after start choice is confirmed', (
+    tester,
+  ) async {
+    final log = _FakeRecommendationLogService();
+    await pumpPlanner(
+      tester,
+      plan: _planWithWinding(windingMinutes: 30),
+      recommendationLogService: log,
+    );
+
+    await selectMapPinDestination(tester);
+    await tester.tap(find.text('드라이브 시작'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('여기서 테스트 주행'));
+    await tester.pump();
+
+    expect(log.chosen, [
+      {
+        'mode': 'destination',
+        'routeId': 'lakeside',
+        'optionKind': 'standard',
+        'origin': const LatLng(45.5, -73.6),
+        'budgetMinutes': 60,
+      },
+    ]);
+  });
+
   testWidgets('rest legs render in the timeline', (tester) async {
     await pumpPlanner(tester, plan: _planWithRest());
 
@@ -477,6 +545,45 @@ class _FakePlanner extends DrivePlannerService {
         plan: extendedPlan ?? plan,
       ),
     ];
+  }
+}
+
+class _FakeRecommendationLogService extends RecommendationLogService {
+  final shown = <Map<String, Object?>>[];
+  final chosen = <Map<String, Object?>>[];
+
+  _FakeRecommendationLogService() : super.forTesting(insert: (_) async {});
+
+  @override
+  Future<void> logShown({
+    required String mode,
+    required List<String> routeIds,
+    LatLng? origin,
+    int? budgetMinutes,
+  }) async {
+    shown.add({
+      'mode': mode,
+      'routeIds': routeIds,
+      'origin': origin,
+      'budgetMinutes': budgetMinutes,
+    });
+  }
+
+  @override
+  Future<void> logChosen({
+    required String mode,
+    required String routeId,
+    String? optionKind,
+    LatLng? origin,
+    int? budgetMinutes,
+  }) async {
+    chosen.add({
+      'mode': mode,
+      'routeId': routeId,
+      'optionKind': optionKind,
+      'origin': origin,
+      'budgetMinutes': budgetMinutes,
+    });
   }
 }
 
