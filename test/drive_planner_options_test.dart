@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/models/drive_plan.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/services/drive_planner_service.dart';
@@ -259,6 +260,97 @@ void main() {
       );
     });
   });
+
+  group('buildFreeRoamOptions', () {
+    test('selects the dense high-score heading bucket first', () async {
+      final planner = DrivePlannerService(
+        candidateLoader: (_, _) async => [
+          _freeRoute('ne-a', 'Chemin Kilkenny', 0.10, 0.10, score: 9),
+          _freeRoute('ne-b', 'Route NE', 0.12, 0.11, score: 8),
+          _freeRoute('east-a', 'Route E', 0.00, 0.20, score: 5),
+          _freeRoute('east-b', 'Route E2', 0.01, 0.22, score: 5),
+        ],
+        transitLegLoader: _fixedLegs,
+      );
+
+      final options = await planner.buildFreeRoamOptions(
+        origin: const LatLng(45.5, -73.6),
+        totalBudgetMinutes: 60,
+      );
+
+      expect(options, isNotEmpty);
+      expect(options.first.headingLabel(AppLanguage.korean), contains('북동'));
+      expect(
+        _freeWindingIds(options.first.plan),
+        containsAll(['ne-a', 'ne-b']),
+      );
+    });
+
+    test(
+      'uses half-trip radius and limits selected route minutes to 45 percent',
+      () async {
+        var requestedRadius = 0;
+        final planner = DrivePlannerService(
+          candidateLoader: (_, radius) async {
+            requestedRadius = radius;
+            return [
+              _freeRoute('a', 'Route A', 0.10, 0.10, score: 9),
+              _freeRoute('b', 'Route B', 0.12, 0.12, score: 8),
+              _freeRoute('c', 'Route C', 0.14, 0.14, score: 7),
+            ];
+          },
+          transitLegLoader: _fixedLegs,
+        );
+
+        final options = await planner.buildFreeRoamOptions(
+          origin: const LatLng(45.5, -73.6),
+          totalBudgetMinutes: 60,
+        );
+
+        expect(requestedRadius, 23);
+        expect(options, hasLength(1));
+        expect(options.single.plan.windingMinutes, lessThanOrEqualTo(27));
+        expect(_freeWindingIds(options.single.plan), isNot(contains('c')));
+      },
+    );
+
+    test('builds a loop from origin back to origin', () async {
+      const origin = LatLng(45.5, -73.6);
+      final planner = DrivePlannerService(
+        candidateLoader: (_, _) async => [
+          _freeRoute('a', 'Route A', 0.10, 0.10, score: 9),
+          _freeRoute('b', 'Route B', 0.12, 0.12, score: 8),
+        ],
+        transitLegLoader: _fixedLegs,
+      );
+
+      final options = await planner.buildFreeRoamOptions(
+        origin: origin,
+        totalBudgetMinutes: 60,
+      );
+
+      final plan = options.single.plan;
+      expect(plan.legs.first.nodes.first, origin);
+      expect(plan.legs.last.nodes.last, origin);
+      expect(plan.waypoints.first, origin);
+      expect(plan.waypoints.last, origin);
+      expect(plan.baselineDirectMinutes, isNull);
+    });
+
+    test('returns empty options when no candidates exist', () async {
+      final planner = DrivePlannerService(
+        candidateLoader: (_, _) async => const [],
+        transitLegLoader: _fixedLegs,
+      );
+
+      final options = await planner.buildFreeRoamOptions(
+        origin: const LatLng(45.5, -73.6),
+        totalBudgetMinutes: 60,
+      );
+
+      expect(options, isEmpty);
+    });
+  });
 }
 
 bool _isDirectBaseline(List<LatLng> waypoints) {
@@ -267,4 +359,50 @@ bool _isDirectBaseline(List<LatLng> waypoints) {
       waypoints.first.lng == -73.6 &&
       waypoints.last.lat == 46.1 &&
       waypoints.last.lng == -73.9;
+}
+
+RevvRoute _freeRoute(
+  String id,
+  String name,
+  double latOffset,
+  double lngOffset, {
+  required double score,
+}) {
+  final start = LatLng(45.5 + latOffset, -73.6 + lngOffset);
+  final end = LatLng(45.5 + latOffset + 0.02, -73.6 + lngOffset + 0.01);
+  return RevvRoute(
+    id: id,
+    name: name,
+    nodes: [start, end],
+    distanceKm: 8,
+    windingScore: 6,
+    starRating: 4,
+    sharpCurveCount: 6,
+    centerPoint: LatLng((start.lat + end.lat) / 2, (start.lng + end.lng) / 2),
+    distanceFromUser: 4,
+    tightCurveKm: 1.2,
+    mediumCurveKm: 1.4,
+    maxContinuousKm: 2,
+    routeRankScore: score,
+    flowScore: 1,
+  );
+}
+
+Future<List<TransitLegEta>> _fixedLegs(List<LatLng> waypoints) async {
+  return [
+    for (var i = 0; i < waypoints.length - 1; i++)
+      TransitLegEta(
+        nodes: [waypoints[i], waypoints[i + 1]],
+        distanceKm: 4,
+        estimatedMinutes: 5,
+      ),
+  ];
+}
+
+List<String> _freeWindingIds(DrivePlan plan) {
+  return [
+    for (final leg in plan.legs)
+      if (leg.kind == DrivePlanLegKind.winding && leg.route != null)
+        leg.route!.id,
+  ];
 }

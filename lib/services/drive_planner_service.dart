@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import '../core/app_language.dart';
 import '../models/drive_plan.dart';
 import '../models/revv_route.dart';
 import 'route_loading_policy.dart';
@@ -40,6 +41,24 @@ class DrivePlanOption {
     required this.budgetMinutes,
     required this.plan,
   });
+}
+
+class FreeRoamOption {
+  final int headingBucket;
+  final RevvRoute leadRoute;
+  final int budgetMinutes;
+  final DrivePlan plan;
+
+  const FreeRoamOption({
+    required this.headingBucket,
+    required this.leadRoute,
+    required this.budgetMinutes,
+    required this.plan,
+  });
+
+  String headingLabel(AppLanguage language) {
+    return '${_headingLabel(headingBucket, language)} · ${routeDisplayName(leadRoute, language: language)}';
+  }
 }
 
 /// 연속 주행 [restIntervalMinutes]마다 [restStopMinutes] 휴식 leg를 삽입한다.
@@ -179,10 +198,9 @@ class DrivePlannerService {
     final ordered = _greedyOrderedRoutes(origin, hydrated);
     final resolvedDestination =
         destination ?? (ordered.isEmpty ? origin : ordered.last.nodes.last);
-    final baselineDirectMinutes = await _directBaselineMinutes(
-      origin,
-      resolvedDestination,
-    );
+    final baselineDirectMinutes = _samePoint(origin, resolvedDestination)
+        ? null
+        : await _directBaselineMinutes(origin, resolvedDestination);
     if (ordered.isEmpty) {
       final plan = await _assembleOrientedPlan(
         origin: origin,
@@ -203,6 +221,75 @@ class DrivePlannerService {
     return insertRestLegs(
       plan.copyWith(baselineDirectMinutes: baselineDirectMinutes),
     );
+  }
+
+  /// 목적지 없이 예산(왕복 총 분) 안에서 좋은 방향으로 나갔다 돌아오는 옵션들.
+  Future<List<FreeRoamOption>> buildFreeRoamOptions({
+    required LatLng origin,
+    required int totalBudgetMinutes,
+  }) async {
+    final radiusKm = ((totalBudgetMinutes / 60) * 45 / 2)
+        .clamp(20.0, 85.0)
+        .round();
+    final candidates = _qualityCandidates(
+      await _candidateLoader(origin, radiusKm),
+    );
+    if (candidates.isEmpty) return const [];
+
+    final buckets = <int, List<RevvRoute>>{};
+    for (final route in candidates) {
+      buckets
+          .putIfAbsent(_headingBucket(origin, route.centerPoint), () => [])
+          .add(route);
+    }
+
+    double bucketScore(List<RevvRoute> routes) {
+      return routes.fold<double>(
+        0,
+        (sum, route) => sum + recommendationScore(route),
+      );
+    }
+
+    final rankedBuckets =
+        buckets.entries.where((entry) => entry.value.length >= 2).toList()
+          ..sort(
+            (a, b) => bucketScore(b.value).compareTo(bucketScore(a.value)),
+          );
+
+    final routeBudgetMinutes = math.max(1, (totalBudgetMinutes * 0.45).floor());
+    final options = <FreeRoamOption>[];
+    for (final entry in rankedBuckets.take(3)) {
+      final routes = [...entry.value]
+        ..sort(
+          (a, b) => recommendationScore(b).compareTo(recommendationScore(a)),
+        );
+      final selected = <RevvRoute>[];
+      var selectedMinutes = 0;
+      for (final route in routes) {
+        if (selected.length >= 3) break;
+        final routeMinutes = estimatedDriveMinutes(route);
+        if (selectedMinutes + routeMinutes > routeBudgetMinutes) continue;
+        selected.add(route);
+        selectedMinutes += routeMinutes;
+      }
+      if (selected.isEmpty) continue;
+
+      final plan = await buildPlanFromRoutes(
+        origin: origin,
+        routes: selected,
+        destination: origin,
+      );
+      if (plan.totalMinutes > (totalBudgetMinutes * 1.2).ceil()) continue;
+      options.add(
+        FreeRoamOption(
+          headingBucket: entry.key,
+          leadRoute: selected.first,
+          budgetMinutes: totalBudgetMinutes,
+          plan: plan,
+        ),
+      );
+    }
+    return options;
   }
 
   /// 같은 목적지의 예산 3옵션(가볍게 ×0.6 / 기본 ×1.0 / 길게 ×1.5)을 만든다.
@@ -270,20 +357,24 @@ class DrivePlannerService {
       }
     }
 
-    final base = unique.values
+    final quality = _qualityCandidates(unique.values);
+    return [
+      ...quality,
+      ...buildChainedRoutes(quality, budget: DriveBudget.any),
+    ];
+  }
+
+  List<RevvRoute> _qualityCandidates(Iterable<RevvRoute> routes) {
+    final base = routes
         .where((route) => route.nodes.length >= 2)
         .where((route) => !shouldRejectLowQualityRoute(route))
         .toList();
     final keep = base
         .where((route) => recommendationTier(route) == 'keep')
         .toList();
-    final quality = keep.isNotEmpty
+    return keep.isNotEmpty
         ? keep
         : base.where((route) => recommendationTier(route) != 'reject').toList();
-    return [
-      ...quality,
-      ...buildChainedRoutes(quality, budget: DriveBudget.any),
-    ];
   }
 
   List<RevvRoute> _selectWindingRoutes(
@@ -555,4 +646,32 @@ LatLng _interpolate(LatLng origin, LatLng destination, double progress) {
     origin.lat + (destination.lat - origin.lat) * progress,
     origin.lng + (destination.lng - origin.lng) * progress,
   );
+}
+
+bool _samePoint(LatLng a, LatLng b) {
+  return (a.lat - b.lat).abs() < 0.000001 && (a.lng - b.lng).abs() < 0.000001;
+}
+
+int _headingBucket(LatLng origin, LatLng point) {
+  final lat1 = origin.lat * math.pi / 180;
+  final lat2 = point.lat * math.pi / 180;
+  final deltaLng = (point.lng - origin.lng) * math.pi / 180;
+  final y = math.sin(deltaLng) * math.cos(lat2);
+  final x =
+      math.cos(lat1) * math.sin(lat2) -
+      math.sin(lat1) * math.cos(lat2) * math.cos(deltaLng);
+  final bearing = (math.atan2(y, x) * 180 / math.pi + 360) % 360;
+  return ((bearing + 22.5) % 360 ~/ 45).toInt();
+}
+
+String _headingLabel(int bucket, AppLanguage language) {
+  const ko = ['북', '북동', '동', '남동', '남', '남서', '서', '북서'];
+  const en = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const fr = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+  final index = bucket.clamp(0, 7).toInt();
+  return switch (language) {
+    AppLanguage.korean => ko[index],
+    AppLanguage.english => en[index],
+    AppLanguage.french => fr[index],
+  };
 }

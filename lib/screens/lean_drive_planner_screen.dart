@@ -100,7 +100,10 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   int _mapFocusSignal = 0;
   DriveBudget _budget = DriveBudget.medium;
   List<DrivePlanOption>? _options;
+  List<FreeRoamOption>? _freeRoamOptions;
   DrivePlanOptionKind _selectedKind = DrivePlanOptionKind.standard;
+  int _selectedFreeRoamIndex = 0;
+  bool _freeRoamActive = false;
   late TimeOfDay? _arriveBy = widget.initialArriveBy;
   bool _loadingOrigin = true;
   bool _planning = false;
@@ -115,6 +118,13 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   bool get _usesInjectedRoutes => widget.initialRoutes.isNotEmpty;
 
   DrivePlan? get _plan {
+    final freeOptions = _freeRoamOptions;
+    if (_freeRoamActive && freeOptions != null && freeOptions.isNotEmpty) {
+      final index = _selectedFreeRoamIndex
+          .clamp(0, freeOptions.length - 1)
+          .toInt();
+      return freeOptions[index].plan;
+    }
     final options = _options;
     if (options == null || options.isEmpty) return null;
     return options
@@ -123,6 +133,11 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
           orElse: () => options.first,
         )
         .plan;
+  }
+
+  LatLng? get _planDestination {
+    if (_freeRoamActive && _plan != null) return _origin;
+    return _destination;
   }
 
   DateTime? get _arriveByDateTime {
@@ -213,6 +228,8 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       _planning = true;
       _status = null;
       _options = null;
+      _freeRoamOptions = null;
+      _freeRoamActive = false;
     });
     try {
       final options = _usesInjectedRoutes
@@ -265,11 +282,65 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     }
   }
 
+  Future<void> _buildFreeRoamPlan() async {
+    if (_loadingOrigin) return;
+    final language = context.read<SettingsService>().appLanguage;
+    final requestId = ++_planRequestId;
+    setState(() {
+      _planning = true;
+      _status = null;
+      _options = null;
+      _freeRoamOptions = null;
+      _freeRoamActive = true;
+      _selectedFreeRoamIndex = 0;
+    });
+    try {
+      final options = await _planner
+          .buildFreeRoamOptions(
+            origin: _origin,
+            totalBudgetMinutes: _budgetMinutes(_budget),
+          )
+          .timeout(_requestTimeout);
+      if (!mounted || requestId != _planRequestId) return;
+      setState(() {
+        _freeRoamOptions = options.isEmpty ? null : options;
+        _status = options.isEmpty
+            ? _copy(
+                language,
+                ko: '이 시간 안에 추천 루프를 만들지 못했어요.',
+                en: 'Could not build a loop for this time.',
+                fr: 'Impossible de créer une boucle pour cette durée.',
+              )
+            : null;
+      });
+      if (options.isNotEmpty) {
+        unawaited(_logShownOnce(mode: 'free', freeRoamOptions: options));
+      }
+      _snapResultsSheetOpen();
+    } catch (_) {
+      if (!mounted || requestId != _planRequestId) return;
+      setState(() {
+        _status = _copy(
+          language,
+          ko: '여정 계산이 오래 걸려 중단했어요. 다시 시도해 주세요.',
+          en: 'Planning took too long. Try again.',
+          fr: 'Le calcul a pris trop de temps. Réessayez.',
+        );
+      });
+    } finally {
+      if (mounted && requestId == _planRequestId) {
+        setState(() => _planning = false);
+      }
+    }
+  }
+
   void _scheduleBuildPlan() {
     _planDebounce?.cancel();
-    if (_destination == null || _loadingOrigin) return;
+    if (_loadingOrigin) return;
+    if (!_freeRoamActive && _destination == null) return;
     _planDebounce = Timer(const Duration(milliseconds: 300), () {
-      if (mounted) unawaited(_buildPlan());
+      if (!mounted) return;
+      unawaited(_freeRoamActive ? _buildFreeRoamPlan() : _buildPlan());
     });
   }
 
@@ -320,7 +391,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       _recommendationLog.logChosen(
         mode: _recommendationMode,
         routeId: route.id,
-        optionKind: _selectedKind.key,
+        optionKind: _freeRoamActive ? 'free' : _selectedKind.key,
         origin: _origin,
         budgetMinutes: _selectedOptionBudget,
       ),
@@ -338,7 +409,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
 
   Future<void> _openExternalNavigation() async {
     final plan = _plan;
-    final destination = _destination;
+    final destination = _planDestination;
     if (plan == null || destination == null) return;
     final language = context.read<SettingsService>().appLanguage;
     final waypoints = selectHandoffWaypoints(legs: plan.legs);
@@ -375,15 +446,20 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
 
   Future<void> _logShownOnce({
     required String mode,
-    required List<DrivePlanOption> options,
+    List<DrivePlanOption>? options,
+    List<FreeRoamOption>? freeRoamOptions,
   }) async {
+    final destinationOptions = options ?? const <DrivePlanOption>[];
+    final freeOptions = freeRoamOptions ?? const <FreeRoamOption>[];
     final budgetMinutes = mode == 'chain'
-        ? options.first.budgetMinutes
+        ? destinationOptions.first.budgetMinutes
         : _budgetMinutes(_budget);
     final signature = _shownSignature(mode, budgetMinutes);
     if (_lastShownSignature == signature) return;
     _lastShownSignature = signature;
-    final routeIds = _windingRouteIds(options);
+    final routeIds = mode == 'free'
+        ? _freeRoamRouteIds(freeOptions)
+        : _windingRouteIds(destinationOptions);
     await _recommendationLog.logShown(
       mode: mode,
       routeIds: routeIds,
@@ -392,8 +468,11 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     );
   }
 
-  String get _recommendationMode =>
-      widget.initialPlan == null ? 'destination' : 'chain';
+  String get _recommendationMode => _freeRoamActive
+      ? 'free'
+      : widget.initialPlan == null
+      ? 'destination'
+      : 'chain';
 
   String _shownSignature(String mode, int budgetMinutes) {
     final destination = _destination;
@@ -404,6 +483,13 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   }
 
   int get _selectedOptionBudget {
+    final freeOptions = _freeRoamOptions;
+    if (_freeRoamActive && freeOptions != null && freeOptions.isNotEmpty) {
+      final index = _selectedFreeRoamIndex
+          .clamp(0, freeOptions.length - 1)
+          .toInt();
+      return freeOptions[index].budgetMinutes;
+    }
     final options = _options;
     if (options == null || options.isEmpty) return _budgetMinutes(_budget);
     return options
@@ -431,7 +517,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
 
   List<PlanMapMarker> get _planMarkers {
     final plan = _plan;
-    final destination = _destination;
+    final destination = _planDestination;
     if (plan == null || destination == null) return const [];
     return buildPlanMapMarkers(
       origin: _origin,
@@ -463,6 +549,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
         _pinPickTarget = null;
         _loadingOrigin = true;
         _options = null;
+        _freeRoamOptions = null;
         _status = null;
       });
       unawaited(_loadOrigin());
@@ -496,6 +583,8 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       _mapCenter = result.point;
       _mapFocusSignal++;
       _options = null;
+      _freeRoamOptions = null;
+      _freeRoamActive = false;
       _status = null;
     });
     _scheduleBuildPlan();
@@ -515,9 +604,11 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       } else {
         _destination = _mapCenter;
         _destinationName = _mapPinLabel(language);
+        _freeRoamActive = false;
       }
       _pinPickTarget = null;
       _options = null;
+      _freeRoamOptions = null;
       _status = null;
     });
     _scheduleBuildPlan();
@@ -542,6 +633,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   Widget build(BuildContext context) {
     final language = context.watch<SettingsService>().appLanguage;
     final options = _options;
+    final freeRoamOptions = _freeRoamOptions;
     final plan = _plan;
     final status = _status;
     final recommended = _recommendedOption;
@@ -586,10 +678,12 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
             planning: _planning,
             status: status,
             options: options,
+            freeRoamOptions: freeRoamOptions,
             plan: plan,
             recommended: recommended,
             arriveBy: arriveBy,
             selectedKind: _selectedKind,
+            selectedFreeRoamIndex: _selectedFreeRoamIndex,
             selectedOptionBudget: _selectedOptionBudget,
             canStart: _firstWindingRoute != null,
             onOrigin: _openOriginPicker,
@@ -598,6 +692,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
               setState(() {
                 _budget = value;
                 _options = null;
+                _freeRoamOptions = null;
                 _status = null;
               });
               _scheduleBuildPlan();
@@ -605,6 +700,9 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
             onPickArriveBy: _pickArriveBy,
             onClearArriveBy: _clearArriveBy,
             onSelectedOption: (kind) => setState(() => _selectedKind = kind),
+            onSelectedFreeRoam: (index) =>
+                setState(() => _selectedFreeRoamIndex = index),
+            onFreeRoam: _buildFreeRoamPlan,
             onStart: _startFirstWinding,
             onNavigate: _openExternalNavigation,
           ),
@@ -653,6 +751,19 @@ List<String> _windingRouteIds(Iterable<DrivePlanOption> options) {
   return routeIds.toList();
 }
 
+List<String> _freeRoamRouteIds(Iterable<FreeRoamOption> options) {
+  final routeIds = <String>{};
+  for (final option in options) {
+    for (final leg in option.plan.legs) {
+      if (leg.kind == DrivePlanLegKind.winding) {
+        final id = leg.route?.id;
+        if (id != null && id.isNotEmpty) routeIds.add(id);
+      }
+    }
+  }
+  return routeIds.toList();
+}
+
 class _MapPinSelection {
   const _MapPinSelection();
 }
@@ -668,10 +779,12 @@ class _PlannerSheet extends StatelessWidget {
   final bool planning;
   final String? status;
   final List<DrivePlanOption>? options;
+  final List<FreeRoamOption>? freeRoamOptions;
   final DrivePlan? plan;
   final DrivePlanOption? recommended;
   final DateTime? arriveBy;
   final DrivePlanOptionKind selectedKind;
+  final int selectedFreeRoamIndex;
   final int selectedOptionBudget;
   final bool canStart;
   final VoidCallback onOrigin;
@@ -680,6 +793,8 @@ class _PlannerSheet extends StatelessWidget {
   final VoidCallback onPickArriveBy;
   final VoidCallback onClearArriveBy;
   final ValueChanged<DrivePlanOptionKind> onSelectedOption;
+  final ValueChanged<int> onSelectedFreeRoam;
+  final VoidCallback onFreeRoam;
   final VoidCallback onStart;
   final VoidCallback onNavigate;
 
@@ -694,10 +809,12 @@ class _PlannerSheet extends StatelessWidget {
     required this.planning,
     required this.status,
     required this.options,
+    required this.freeRoamOptions,
     required this.plan,
     required this.recommended,
     required this.arriveBy,
     required this.selectedKind,
+    required this.selectedFreeRoamIndex,
     required this.selectedOptionBudget,
     required this.canStart,
     required this.onOrigin,
@@ -706,11 +823,16 @@ class _PlannerSheet extends StatelessWidget {
     required this.onPickArriveBy,
     required this.onClearArriveBy,
     required this.onSelectedOption,
+    required this.onSelectedFreeRoam,
+    required this.onFreeRoam,
     required this.onStart,
     required this.onNavigate,
   });
 
-  bool get _hasResult => options != null && plan != null;
+  bool get _hasResult =>
+      ((options != null && options!.isNotEmpty) ||
+          (freeRoamOptions != null && freeRoamOptions!.isNotEmpty)) &&
+      plan != null;
 
   @override
   Widget build(BuildContext context) {
@@ -745,14 +867,17 @@ class _PlannerSheet extends StatelessWidget {
                         child: _ResultSheetBody(
                           language: language,
                           destinationName: destinationName,
-                          options: options!,
+                          options: options,
+                          freeRoamOptions: freeRoamOptions,
                           plan: plan!,
                           recommended: recommended,
                           arriveBy: arriveBy,
                           selectedKind: selectedKind,
+                          selectedFreeRoamIndex: selectedFreeRoamIndex,
                           selectedOptionBudget: selectedOptionBudget,
                           onSearchDestination: onSearchDestination,
                           onSelectedOption: onSelectedOption,
+                          onSelectedFreeRoam: onSelectedFreeRoam,
                         ),
                       )
                     else
@@ -768,6 +893,7 @@ class _PlannerSheet extends StatelessWidget {
                         onBudget: onBudget,
                         onPickArriveBy: onPickArriveBy,
                         onClearArriveBy: onClearArriveBy,
+                        onFreeRoam: onFreeRoam,
                       ),
                   ],
                 ),
@@ -853,6 +979,7 @@ class _InputSheetBody extends StatelessWidget {
   final TimeOfDay? arriveBy;
   final VoidCallback onPickArriveBy;
   final VoidCallback onClearArriveBy;
+  final VoidCallback onFreeRoam;
 
   const _InputSheetBody({
     required this.language,
@@ -866,6 +993,7 @@ class _InputSheetBody extends StatelessWidget {
     required this.arriveBy,
     required this.onPickArriveBy,
     required this.onClearArriveBy,
+    required this.onFreeRoam,
   });
 
   @override
@@ -928,6 +1056,32 @@ class _InputSheetBody extends StatelessWidget {
           onPickArriveBy: onPickArriveBy,
           onClearArriveBy: onClearArriveBy,
         ),
+        if (!hasDestination) ...[
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            key: const Key('free-roam-button'),
+            onPressed: loadingOrigin ? null : onFreeRoam,
+            icon: const Icon(Icons.explore_rounded, size: 18),
+            label: Text(
+              _copy(
+                language,
+                ko: '그냥 추천받아 달리기',
+                en: 'Surprise me',
+                fr: 'Itinéraire surprise',
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.textPrimary,
+              side: BorderSide(
+                color: AppColors.outline.withValues(alpha: 0.28),
+              ),
+              minimumSize: const Size.fromHeight(46),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
         const SizedBox(height: 8),
         TextButton.icon(
           onPressed: onOrigin,
@@ -1040,30 +1194,39 @@ class _BudgetRow extends StatelessWidget {
 class _ResultSheetBody extends StatelessWidget {
   final AppLanguage language;
   final String? destinationName;
-  final List<DrivePlanOption> options;
+  final List<DrivePlanOption>? options;
+  final List<FreeRoamOption>? freeRoamOptions;
   final DrivePlan plan;
   final DrivePlanOption? recommended;
   final DateTime? arriveBy;
   final DrivePlanOptionKind selectedKind;
+  final int selectedFreeRoamIndex;
   final int selectedOptionBudget;
   final VoidCallback onSearchDestination;
   final ValueChanged<DrivePlanOptionKind> onSelectedOption;
+  final ValueChanged<int> onSelectedFreeRoam;
 
   const _ResultSheetBody({
     required this.language,
     required this.destinationName,
     required this.options,
+    required this.freeRoamOptions,
     required this.plan,
     required this.recommended,
     required this.arriveBy,
     required this.selectedKind,
+    required this.selectedFreeRoamIndex,
     required this.selectedOptionBudget,
     required this.onSearchDestination,
     required this.onSelectedOption,
+    required this.onSelectedFreeRoam,
   });
 
   @override
   Widget build(BuildContext context) {
+    final destinationOptions = options ?? const <DrivePlanOption>[];
+    final freeOptions = freeRoamOptions ?? const <FreeRoamOption>[];
+    final isFreeRoam = freeOptions.isNotEmpty;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1076,19 +1239,29 @@ class _ResultSheetBody extends StatelessWidget {
           _PlanCompareLine(plan: plan, language: language),
         ],
         const SizedBox(height: 12),
-        _PlanOptionStrip(
-          options: options,
-          selected: selectedKind,
-          recommended: recommended?.kind,
-          language: language,
-          onSelected: onSelectedOption,
-        ),
+        if (isFreeRoam)
+          _FreeRoamOptionStrip(
+            options: freeOptions,
+            selectedIndex: selectedFreeRoamIndex,
+            language: language,
+            onSelected: onSelectedFreeRoam,
+          )
+        else
+          _PlanOptionStrip(
+            options: destinationOptions,
+            selected: selectedKind,
+            recommended: recommended?.kind,
+            language: language,
+            onSelected: onSelectedOption,
+          ),
         const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
               child: Text(
-                destinationName ?? _mapPinLabel(language),
+                isFreeRoam
+                    ? _loopBackLabel(language)
+                    : destinationName ?? _mapPinLabel(language),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppText.body(size: 13, weight: FontWeight.w800),
@@ -1106,9 +1279,9 @@ class _ResultSheetBody extends StatelessWidget {
           height: 18,
           color: AppColors.outlineVariant.withValues(alpha: 0.18),
         ),
-        if (arriveBy != null && recommended == null)
+        if (!isFreeRoam && arriveBy != null && recommended == null)
           _ArrivalInfeasibleCard(
-            options: options,
+            options: destinationOptions,
             arriveBy: arriveBy!,
             language: language,
           ),
@@ -1752,6 +1925,49 @@ class _PlanOptionStrip extends StatelessWidget {
   }
 }
 
+class _FreeRoamOptionStrip extends StatelessWidget {
+  final List<FreeRoamOption> options;
+  final int selectedIndex;
+  final AppLanguage language;
+  final ValueChanged<int> onSelected;
+
+  const _FreeRoamOptionStrip({
+    required this.options,
+    required this.selectedIndex,
+    required this.language,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: [
+          for (var index = 0; index < options.length; index++) ...[
+            ChoiceChip(
+              label: Text(options[index].headingLabel(language)),
+              selected: index == selectedIndex,
+              onSelected: (_) => onSelected(index),
+              selectedColor: AppColors.primaryContainer,
+              backgroundColor: AppColors.panel2.withValues(alpha: 0.92),
+              labelStyle: AppText.body(
+                size: 12,
+                weight: FontWeight.w800,
+                color: index == selectedIndex
+                    ? AppColors.onPrimary
+                    : AppColors.textPrimary,
+              ),
+            ),
+            if (index != options.length - 1) const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _ArrivalInfeasibleCard extends StatelessWidget {
   final List<DrivePlanOption> options;
   final DateTime arriveBy;
@@ -1907,6 +2123,15 @@ String _mapPinLabel(AppLanguage language) {
     ko: '지도에서 선택한 지점',
     en: 'Picked on map',
     fr: 'Point sur la carte',
+  );
+}
+
+String _loopBackLabel(AppLanguage language) {
+  return _copy(
+    language,
+    ko: '출발지로 돌아오는 루프',
+    en: 'Loop back to start',
+    fr: 'Boucle retour',
   );
 }
 

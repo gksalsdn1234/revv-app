@@ -36,6 +36,7 @@ void main() {
     TimeOfDay? arriveBy,
     PlaceSearchService? placeSearch,
     RecommendationLogService? recommendationLogService,
+    List<FreeRoamOption>? freeRoamOptions,
   }) async {
     final location = LocationService()..hasPermission = true;
     final settings = SettingsService();
@@ -60,6 +61,7 @@ void main() {
               plan,
               lightPlan: lightPlan,
               extendedPlan: extendedPlan,
+              freeRoamOptions: freeRoamOptions ?? const [],
             ),
             placeSearch: placeSearch,
             recommendationLogService: recommendationLogService,
@@ -370,6 +372,66 @@ void main() {
     expect(log.shown, hasLength(1));
   });
 
+  testWidgets('free roam button builds loop results and logs shown once', (
+    tester,
+  ) async {
+    final log = _FakeRecommendationLogService();
+    await pumpPlanner(
+      tester,
+      plan: _planWithWinding(windingMinutes: 30),
+      freeRoamOptions: [
+        FreeRoamOption(
+          headingBucket: 1,
+          leadRoute: _routeForPlan('free-a', 'Chemin Kilkenny'),
+          budgetMinutes: 60,
+          plan: _freeRoamPlan(),
+        ),
+      ],
+      recommendationLogService: log,
+    );
+
+    expect(find.byKey(const Key('free-roam-button')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('free-roam-button')));
+    await tester.pump(const Duration(milliseconds: 350));
+    await tester.pumpAndSettle();
+
+    expect(find.text('북동 · Chemin Kilkenny'), findsOneWidget);
+    expect(find.text('출발지로 돌아오는 루프'), findsOneWidget);
+    expect(find.text('드라이브 시작'), findsOneWidget);
+    expect(log.shown, [
+      {
+        'mode': 'free',
+        'routeIds': ['free-a'],
+        'origin': const LatLng(45.5, -73.6),
+        'budgetMinutes': 60,
+      },
+    ]);
+  });
+
+  testWidgets('free roam button disappears after destination is set', (
+    tester,
+  ) async {
+    await pumpPlanner(
+      tester,
+      plan: _planWithWinding(windingMinutes: 30),
+      freeRoamOptions: [
+        FreeRoamOption(
+          headingBucket: 1,
+          leadRoute: _routeForPlan('free-a', 'Chemin Kilkenny'),
+          budgetMinutes: 60,
+          plan: _freeRoamPlan(),
+        ),
+      ],
+    );
+
+    expect(find.byKey(const Key('free-roam-button')), findsOneWidget);
+
+    await selectMapPinDestination(tester);
+
+    expect(find.byKey(const Key('free-roam-button')), findsNothing);
+  });
+
   testWidgets('planner logs chosen after start choice is confirmed', (
     tester,
   ) async {
@@ -512,12 +574,17 @@ class _FakePlanner extends DrivePlannerService {
   final DrivePlan plan;
   final DrivePlan? lightPlan;
   final DrivePlan? extendedPlan;
+  final List<FreeRoamOption> freeRoamOptions;
 
-  _FakePlanner(this.plan, {this.lightPlan, this.extendedPlan})
-    : super(
-        candidateLoader: (_, _) async => const [],
-        transitLegLoader: (_) async => const [],
-      );
+  _FakePlanner(
+    this.plan, {
+    this.lightPlan,
+    this.extendedPlan,
+    this.freeRoamOptions = const [],
+  }) : super(
+         candidateLoader: (_, _) async => const [],
+         transitLegLoader: (_) async => const [],
+       );
 
   @override
   Future<DrivePlan?> buildPlan(DrivePlanRequest request) async {
@@ -545,6 +612,14 @@ class _FakePlanner extends DrivePlannerService {
         plan: extendedPlan ?? plan,
       ),
     ];
+  }
+
+  @override
+  Future<List<FreeRoamOption>> buildFreeRoamOptions({
+    required LatLng origin,
+    required int totalBudgetMinutes,
+  }) async {
+    return freeRoamOptions;
   }
 }
 
@@ -614,6 +689,56 @@ DrivePlan _planWithRest() {
   );
 }
 
+DrivePlan _freeRoamPlan() {
+  final route = _routeForPlan('free-a', 'Chemin Kilkenny');
+  return DrivePlan(
+    legs: [
+      const DrivePlanLeg(
+        kind: DrivePlanLegKind.transit,
+        nodes: [LatLng(45.5, -73.6), LatLng(45.55, -73.65)],
+        distanceKm: 8,
+        estimatedMinutes: 10,
+      ),
+      DrivePlanLeg(
+        kind: DrivePlanLegKind.winding,
+        nodes: route.nodes,
+        distanceKm: route.distanceKm,
+        estimatedMinutes: 30,
+        route: route,
+      ),
+      const DrivePlanLeg(
+        kind: DrivePlanLegKind.transit,
+        nodes: [LatLng(45.60, -73.70), LatLng(45.5, -73.6)],
+        distanceKm: 8,
+        estimatedMinutes: 10,
+      ),
+    ],
+    totalMinutes: 50,
+    windingMinutes: 30,
+    transitMinutes: 20,
+    waypoints: const [
+      LatLng(45.5, -73.6),
+      LatLng(45.55, -73.65),
+      LatLng(45.60, -73.70),
+      LatLng(45.5, -73.6),
+    ],
+  );
+}
+
+RevvRoute _routeForPlan(String id, String name) {
+  return RevvRoute(
+    id: id,
+    name: name,
+    nodes: const [LatLng(45.55, -73.65), LatLng(45.60, -73.70)],
+    distanceKm: 12,
+    windingScore: 5,
+    starRating: 4,
+    sharpCurveCount: 8,
+    centerPoint: const LatLng(45.57, -73.67),
+    distanceFromUser: 3,
+  );
+}
+
 DrivePlan _planWithWinding({
   required int windingMinutes,
   String routeName = 'Lakeside Road',
@@ -621,17 +746,10 @@ DrivePlan _planWithWinding({
   int? baselineDirectMinutes,
   int sharpCurveCount = 8,
 }) {
-  final route = RevvRoute(
-    id: 'lakeside',
-    name: routeName,
-    nodes: const [LatLng(45.55, -73.65), LatLng(45.60, -73.70)],
-    distanceKm: 12,
-    windingScore: 5,
-    starRating: 4,
-    sharpCurveCount: sharpCurveCount,
-    centerPoint: const LatLng(45.57, -73.67),
-    distanceFromUser: 3,
-  );
+  final route = _routeForPlan(
+    'lakeside',
+    routeName,
+  ).copyWith(sharpCurveCount: sharpCurveCount);
   return DrivePlan(
     legs: [
       const DrivePlanLeg(
