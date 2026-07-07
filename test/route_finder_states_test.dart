@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/app_language.dart';
 import 'package:provider/provider.dart';
+import 'package:revv_app/models/drive_plan.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_route_finder_screen.dart';
+import 'package:revv_app/services/drive_planner_service.dart';
 import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
 import 'package:revv_app/services/route_service.dart';
@@ -333,6 +335,59 @@ void main() {
     expect(find.text('신청 중'), findsNothing);
     expect(find.textContaining('알림 신청을 저장하지 못했어요'), findsOneWidget);
   });
+
+  testWidgets('long press enables chain drive into planner initial plan', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final first = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
+    final second = _finderRoute(id: 'second', name: 'Second Road', lng: -73.20);
+    final routeService = RouteService()
+      ..routes = [first, second]
+      ..mapVisualRoutes = [first, second];
+    final planner = _ChainPlanner();
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: MaterialApp(home: LeanRouteFinderScreen(planner: planner)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('추천 보기'));
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('First Road'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1개 선택'), findsOneWidget);
+    expect(find.text('이어달리기'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.chevron_right_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Second Road'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2개 선택'), findsOneWidget);
+
+    await tester.tap(find.text('이어달리기'));
+    await tester.pumpAndSettle();
+
+    expect(planner.lastRouteIds, ['first', 'second']);
+    expect(find.text('First Road 12분'), findsOneWidget);
+    expect(find.text('Second Road 12분'), findsOneWidget);
+  });
 }
 
 class _DeniedLocationService extends LocationService {
@@ -363,4 +418,104 @@ class _OutsideCoverageLocationService extends LocationService {
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
   }) async => const LatLng(43.6532, -79.3832);
+}
+
+class _ReadyLocationService extends LocationService {
+  _ReadyLocationService() {
+    hasPermission = true;
+  }
+
+  @override
+  Future<void> requestPermission() async {}
+
+  @override
+  Future<void> startTracking() async {}
+
+  @override
+  Future<LatLng?> ensureLiveLocation({
+    Duration timeout = const Duration(seconds: 6),
+  }) async => const LatLng(45.0, -73.0);
+}
+
+class _ChainPlanner extends DrivePlannerService {
+  List<String> lastRouteIds = const [];
+
+  _ChainPlanner()
+    : super(
+        candidateLoader: (_, _) async => const [],
+        transitLegLoader: (_) async => const [],
+      );
+
+  @override
+  Future<DrivePlan> buildPlanFromRoutes({
+    required LatLng origin,
+    required List<RevvRoute> routes,
+    LatLng? destination,
+  }) async {
+    lastRouteIds = routes.map((route) => route.id).toList();
+    final waypoints = <LatLng>[origin];
+    final legs = <DrivePlanLeg>[];
+    for (final route in routes) {
+      legs.add(
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.transit,
+          nodes: [waypoints.last, route.nodes.first],
+          distanceKm: 1,
+          estimatedMinutes: 3,
+        ),
+      );
+      legs.add(
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.winding,
+          nodes: route.nodes,
+          distanceKm: route.distanceKm,
+          estimatedMinutes: 12,
+          route: route,
+        ),
+      );
+      waypoints
+        ..add(route.nodes.first)
+        ..add(route.nodes.last);
+    }
+    final end = destination ?? waypoints.last;
+    legs.add(
+      DrivePlanLeg(
+        kind: DrivePlanLegKind.transit,
+        nodes: [waypoints.last, end],
+        distanceKm: 1,
+        estimatedMinutes: 3,
+      ),
+    );
+    waypoints.add(end);
+    return DrivePlan(
+      legs: legs,
+      totalMinutes: routes.length * 15 + 3,
+      windingMinutes: routes.length * 12,
+      transitMinutes: routes.length * 3 + 3,
+      waypoints: waypoints,
+    );
+  }
+}
+
+RevvRoute _finderRoute({
+  required String id,
+  required String name,
+  required double lng,
+}) {
+  return RevvRoute(
+    id: id,
+    name: name,
+    nodes: [LatLng(45.0, lng), LatLng(45.02, lng - 0.02)],
+    distanceKm: 8,
+    windingScore: 6,
+    starRating: 4,
+    sharpCurveCount: 8,
+    centerPoint: LatLng(45.01, lng - 0.01),
+    distanceFromUser: 5,
+    tightCurveKm: 1,
+    mediumCurveKm: 1,
+    maxContinuousKm: 1,
+    routeRankScore: 6,
+    flowScore: 1,
+  );
 }

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../core/app_language.dart';
 import '../models/revv_route.dart';
+import '../services/drive_planner_service.dart';
 import '../services/location_service.dart';
 import '../services/route_loading_policy.dart';
 import '../services/route_service.dart';
@@ -20,6 +21,7 @@ import '../ui/route_quality_profile.dart';
 import '../ui/winding_experience.dart';
 import '../widgets/copilot_start_sheet.dart';
 import '../widgets/map_widget.dart';
+import 'lean_drive_planner_screen.dart';
 import 'lean_drive_screen.dart';
 import 'lean_route_detail_screen.dart';
 
@@ -63,7 +65,9 @@ const _routeRegionPresets = [
 ];
 
 class LeanRouteFinderScreen extends StatefulWidget {
-  const LeanRouteFinderScreen({super.key});
+  final DrivePlannerService? planner;
+
+  const LeanRouteFinderScreen({super.key, this.planner});
 
   @override
   State<LeanRouteFinderScreen> createState() => _LeanRouteFinderScreenState();
@@ -83,6 +87,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   RevvRoute? _selectedRouteOverride;
   String? _selectedRegionKey;
   LatLng? _coverageRequestPoint;
+  final Map<String, RevvRoute> _chainSelection = {};
+
+  bool get _chainMode => _chainSelection.isNotEmpty;
 
   @override
   void initState() {
@@ -312,6 +319,51 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedRouteOverride = null;
     });
     context.read<RouteService>().selectRoute(routes[clamped]);
+  }
+
+  void _toggleChainRoute(RevvRoute route) {
+    setState(() {
+      if (_chainSelection.containsKey(route.id)) {
+        _chainSelection.remove(route.id);
+      } else {
+        _chainSelection[route.id] = route;
+      }
+    });
+  }
+
+  void _clearChainSelection() {
+    setState(_chainSelection.clear);
+  }
+
+  Future<void> _startChainDrive() async {
+    if (_chainSelection.length < 2) return;
+    final origin = await _resolveSearchPoint();
+    if (!mounted || origin == null) return;
+    final selectedRoutes = _chainSelection.values.toList();
+    final planner = widget.planner ?? DrivePlannerService();
+    final plan = await planner.buildPlanFromRoutes(
+      origin: origin,
+      routes: selectedRoutes,
+    );
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LeanDrivePlannerScreen(
+          planner: planner,
+          initialPlan: plan,
+          initialRoutes: selectedRoutes,
+          initialOrigin: origin,
+          initialDestination: plan.waypoints.last,
+          initialDestinationName: AppCopy.t(
+            context.read<SettingsService>().appLanguage,
+            ko: '선택 루트 끝점',
+            en: 'Selected route end',
+            fr: 'Fin des routes choisies',
+          ),
+        ),
+      ),
+    );
   }
 
   void _setLens(_RouteLens lens) {
@@ -569,6 +621,17 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       routes: lensRoutes,
                       onChanged: _setDriveBudget,
                     ),
+                    if (_chainMode) ...[
+                      const SizedBox(height: 8),
+                      _RouteChainBar(
+                        language: language,
+                        count: _chainSelection.length,
+                        onCancel: _clearChainSelection,
+                        onChain: _chainSelection.length >= 2
+                            ? () => unawaited(_startChainDrive())
+                            : null,
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     if (_curveRoadView) const _CurveHeatLegend(),
                   ],
@@ -709,6 +772,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       onGo: () => unawaited(_startDrive(selected)),
                       onDetails: () => _showRouteDetails(selected),
                       mapSelected: _selectedRouteOverride != null,
+                      chainMode: _chainMode,
+                      chainSelected: _chainSelection.containsKey(selected.id),
+                      onToggleChain: () => _toggleChainRoute(selected),
                     ),
             ),
           ],
@@ -886,6 +952,54 @@ class _LeanRouteTopBar extends StatelessWidget {
           ),
           const SizedBox(width: 6),
           _LeanCircleButton(icon: Icons.gps_fixed_rounded, onTap: onRecenter),
+        ],
+      ),
+    );
+  }
+}
+
+class _RouteChainBar extends StatelessWidget {
+  final AppLanguage language;
+  final int count;
+  final VoidCallback onCancel;
+  final VoidCallback? onChain;
+
+  const _RouteChainBar({
+    required this.language,
+    required this.count,
+    required this.onCancel,
+    required this.onChain,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _LeanGlass(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              _selectedCountLabel(count, language),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.body(
+                size: 13,
+                weight: FontWeight.w900,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          _LeanTextButton(
+            label: AppCopy.cancel(language),
+            icon: Icons.close_rounded,
+            onTap: onCancel,
+          ),
+          const SizedBox(width: 8),
+          _LeanTextButton(
+            label: _chainDriveLabel(language),
+            icon: Icons.route_rounded,
+            onTap: onChain,
+          ),
         ],
       ),
     );
@@ -1340,6 +1454,9 @@ class _LeanRouteTicket extends StatelessWidget {
   final VoidCallback onGo;
   final VoidCallback onDetails;
   final bool mapSelected;
+  final bool chainMode;
+  final bool chainSelected;
+  final VoidCallback onToggleChain;
 
   const _LeanRouteTicket({
     required this.route,
@@ -1350,6 +1467,9 @@ class _LeanRouteTicket extends StatelessWidget {
     required this.onGo,
     required this.onDetails,
     this.mapSelected = false,
+    this.chainMode = false,
+    this.chainSelected = false,
+    required this.onToggleChain,
   });
 
   @override
@@ -1364,6 +1484,8 @@ class _LeanRouteTicket extends StatelessWidget {
       language: language,
     );
     return GestureDetector(
+      onTap: chainMode ? onToggleChain : null,
+      onLongPress: onToggleChain,
       onHorizontalDragEnd: (details) {
         final dx = details.primaryVelocity ?? 0;
         if (dx < -160) {
@@ -1474,6 +1596,19 @@ class _LeanRouteTicket extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 10),
+                      if (chainMode)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Icon(
+                            chainSelected
+                                ? Icons.check_circle_rounded
+                                : Icons.radio_button_unchecked_rounded,
+                            color: chainSelected
+                                ? AppColors.primaryContainer
+                                : AppColors.stone,
+                            size: 24,
+                          ),
+                        ),
                       _LeanCircleButton(
                         icon: Icons.info_outline_rounded,
                         onTap: onDetails,
@@ -2471,6 +2606,19 @@ List<String> routeChainSegmentNames(RevvRoute route) {
       .map((name) => name.trim())
       .where((name) => name.isNotEmpty)
       .toList(growable: false);
+}
+
+String _chainDriveLabel(AppLanguage language) {
+  return AppCopy.t(language, ko: '이어달리기', en: 'Chain drive', fr: 'Enchaîner');
+}
+
+String _selectedCountLabel(int count, AppLanguage language) {
+  return AppCopy.t(
+    language,
+    ko: '$count개 선택',
+    en: '$count selected',
+    fr: '$count sélectionnés',
+  );
 }
 
 List<RevvRoute> _filterRoutes(List<RevvRoute> routes, _RouteLens lens) {

@@ -277,6 +277,90 @@ void main() {
       expect(_windingIds(plan), ['maybe-flow']);
     },
   );
+
+  test('buildPlanFromRoutes orders selected routes by nearest entry', () async {
+    final near = _route(id: 'near', startLng: 0.10, windingScore: 2.0);
+    final far = _route(id: 'far', startLng: 0.80, windingScore: 9.0);
+    final service = _service(const []);
+
+    final plan = await service.buildPlanFromRoutes(
+      origin: const LatLng(0, 0),
+      routes: [far, near],
+    );
+
+    expect(_windingIds(plan), ['near', 'far']);
+  });
+
+  test(
+    'buildPlanFromRoutes orients each route toward the current point',
+    () async {
+      final reversed = _routeWithNodes(
+        id: 'reversed',
+        center: const LatLng(0, 0.15),
+        nodes: const [LatLng(0, 0.30), LatLng(0, 0.10)],
+        windingScore: 8,
+      );
+      final service = _service(const []);
+
+      final plan = await service.buildPlanFromRoutes(
+        origin: const LatLng(0, 0),
+        routes: [reversed],
+      );
+
+      final nodes = _windingLegs(plan).single.nodes;
+      expect(nodes.first.lng, closeTo(0.10, 0.001));
+      expect(nodes.last.lng, closeTo(0.30, 0.001));
+    },
+  );
+
+  test('buildPlanFromRoutes defaults destination to last route end', () async {
+    final service = _service(const []);
+
+    final plan = await service.buildPlanFromRoutes(
+      origin: const LatLng(0, 0),
+      routes: [
+        _route(id: 'a', startLng: 0.10, windingScore: 7),
+        _route(id: 'b', startLng: 0.40, windingScore: 7),
+      ],
+    );
+
+    expect(plan.waypoints.last.lng, closeTo(0.45, 0.001));
+    expect(plan.legs.last.nodes.last.lng, closeTo(0.45, 0.001));
+  });
+
+  test(
+    'buildPlanFromRoutes uses explicit destination for final transit',
+    () async {
+      const destination = LatLng(0, 0.90);
+      final service = _service(const []);
+
+      final plan = await service.buildPlanFromRoutes(
+        origin: const LatLng(0, 0),
+        routes: [_route(id: 'a', startLng: 0.10, windingScore: 7)],
+        destination: destination,
+      );
+
+      expect(plan.waypoints.last, destination);
+      expect(plan.legs.last.kind, DrivePlanLegKind.transit);
+      expect(plan.legs.last.nodes.last.lng, closeTo(0.90, 0.001));
+    },
+  );
+
+  test('buildPlanFromRoutes keeps selected low quality routes', () async {
+    final rejected = _route(
+      id: 'rejected',
+      startLng: 0.10,
+      windingScore: 1,
+    ).copyWith(qualityRejectReason: 'facility');
+    final service = _service(const []);
+
+    final plan = await service.buildPlanFromRoutes(
+      origin: const LatLng(0, 0),
+      routes: [rejected],
+    );
+
+    expect(_windingIds(plan), ['rejected']);
+  });
 }
 
 DrivePlannerService _service(

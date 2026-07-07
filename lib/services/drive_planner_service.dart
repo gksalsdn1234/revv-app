@@ -167,6 +167,32 @@ class DrivePlannerService {
     return _assemblePlan(request, selected);
   }
 
+  /// 사용자가 고른 루트들을 그대로 이어붙인 플랜 (탐색·랭킹 없음).
+  /// 순서는 현위치 기준 최근접 이웃(greedy)으로 정하고 각 루트는 진행 방향으로 orient.
+  Future<DrivePlan> buildPlanFromRoutes({
+    required LatLng origin,
+    required List<RevvRoute> routes,
+    LatLng? destination,
+  }) async {
+    final hydrated = await _hydrateSelectedRoutes(routes);
+    final ordered = _greedyOrderedRoutes(origin, hydrated);
+    if (ordered.isEmpty) {
+      return _assembleOrientedPlan(
+        origin: origin,
+        destination: destination ?? origin,
+        windingRoutes: const [],
+        budgetShortfallMinutes: 0,
+      );
+    }
+    final plan = await _assembleOrientedPlan(
+      origin: origin,
+      destination: destination ?? ordered.last.nodes.last,
+      windingRoutes: ordered,
+      budgetShortfallMinutes: 0,
+    );
+    return insertRestLegs(plan);
+  }
+
   /// 같은 목적지의 예산 3옵션(가볍게 ×0.6 / 기본 ×1.0 / 길게 ×1.5)을 만든다.
   /// 후보 수집(회랑 검색)은 1회만 수행해 옵션 간 중복 계산을 없앤다.
   /// 각 옵션에는 휴식 leg가 삽입돼 총 소요에 반영된다.
@@ -301,19 +327,40 @@ class DrivePlannerService {
             request,
           ).compareTo(_projection(b.nodes.first, request)),
         );
-    final transitWaypoints = <LatLng>[request.origin];
-    for (final route in oriented) {
+    return _assembleOrientedPlan(
+      origin: request.origin,
+      destination: request.destination,
+      windingRoutes: oriented,
+      budgetShortfallMinutes: math.max(
+        0,
+        request.windingBudgetMinutes -
+            oriented.fold<int>(
+              0,
+              (sum, route) => sum + estimatedDriveMinutes(route),
+            ),
+      ),
+    );
+  }
+
+  Future<DrivePlan> _assembleOrientedPlan({
+    required LatLng origin,
+    required LatLng destination,
+    required List<RevvRoute> windingRoutes,
+    required int budgetShortfallMinutes,
+  }) async {
+    final transitWaypoints = <LatLng>[origin];
+    for (final route in windingRoutes) {
       transitWaypoints.add(route.nodes.first);
       transitWaypoints.add(route.nodes.last);
     }
-    transitWaypoints.add(request.destination);
+    transitWaypoints.add(destination);
 
     final transitLegs = await _safeTransitLegs(transitWaypoints);
     final legs = <DrivePlanLeg>[];
     var transitIndex = 0;
-    for (var i = 0; i < oriented.length; i++) {
+    for (var i = 0; i < windingRoutes.length; i++) {
       legs.add(_transitPlanLeg(transitLegs[transitIndex]));
-      final route = oriented[i];
+      final route = windingRoutes[i];
       legs.add(
         DrivePlanLeg(
           kind: DrivePlanLegKind.winding,
@@ -339,10 +386,7 @@ class DrivePlannerService {
       windingMinutes: windingMinutes,
       transitMinutes: transitMinutes,
       waypoints: transitWaypoints,
-      budgetShortfallMinutes: math.max(
-        0,
-        request.windingBudgetMinutes - windingMinutes,
-      ),
+      budgetShortfallMinutes: budgetShortfallMinutes,
       usesApproximateTransit: transitLegs.any(
         (leg) => leg.usesFallbackGeometry,
       ),
@@ -392,6 +436,38 @@ class DrivePlannerService {
     final last = _projection(route.nodes.last, request);
     if (first <= last) return route;
     return route.copyWith(nodes: route.nodes.reversed.toList());
+  }
+
+  List<RevvRoute> _greedyOrderedRoutes(LatLng origin, List<RevvRoute> routes) {
+    final remaining = routes.where((route) => route.nodes.length >= 2).toList();
+    final ordered = <RevvRoute>[];
+    var current = origin;
+    while (remaining.isNotEmpty) {
+      remaining.sort((a, b) {
+        return _nearestEndpointKm(
+          current,
+          a,
+        ).compareTo(_nearestEndpointKm(current, b));
+      });
+      final next = _orientedFromPoint(remaining.removeAt(0), current);
+      ordered.add(next);
+      current = next.nodes.last;
+    }
+    return ordered;
+  }
+
+  RevvRoute _orientedFromPoint(RevvRoute route, LatLng point) {
+    final firstKm = RevvRoute.haversineKm(point, route.nodes.first);
+    final lastKm = RevvRoute.haversineKm(point, route.nodes.last);
+    if (firstKm <= lastKm) return route;
+    return route.copyWith(nodes: route.nodes.reversed.toList());
+  }
+
+  double _nearestEndpointKm(LatLng point, RevvRoute route) {
+    return math.min(
+      RevvRoute.haversineKm(point, route.nodes.first),
+      RevvRoute.haversineKm(point, route.nodes.last),
+    );
   }
 
   double _routeValue(RevvRoute route, DrivePlanRequest request) {

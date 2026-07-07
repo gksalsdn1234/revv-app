@@ -8,6 +8,7 @@ import '../core/app_language.dart';
 import '../models/drive_plan.dart';
 import '../models/revv_route.dart';
 import '../services/drive_planner_service.dart';
+import '../services/external_nav.dart';
 import '../services/location_service.dart';
 import '../services/place_search_service.dart';
 import '../services/route_loading_policy.dart';
@@ -53,6 +54,11 @@ class LeanDrivePlannerScreen extends StatefulWidget {
   final DrivePlannerService? planner;
   final PlaceSearchService? placeSearch;
   final DrivePlannerOriginResolver? originResolver;
+  final DrivePlan? initialPlan;
+  final List<RevvRoute> initialRoutes;
+  final LatLng? initialOrigin;
+  final LatLng? initialDestination;
+  final String? initialDestinationName;
 
   /// 테스트 주입용 초기 도착 희망 시각 (프로덕션에서는 사용하지 않음)
   final TimeOfDay? initialArriveBy;
@@ -62,6 +68,11 @@ class LeanDrivePlannerScreen extends StatefulWidget {
     this.planner,
     this.placeSearch,
     this.originResolver,
+    this.initialPlan,
+    this.initialRoutes = const [],
+    this.initialOrigin,
+    this.initialDestination,
+    this.initialDestinationName,
     this.initialArriveBy,
   });
 
@@ -94,6 +105,8 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   final DraggableScrollableController _sheetController =
       DraggableScrollableController();
   _PinPickTarget? _pinPickTarget;
+
+  bool get _usesInjectedRoutes => widget.initialRoutes.isNotEmpty;
 
   DrivePlan? get _plan {
     final options = _options;
@@ -138,6 +151,23 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
   @override
   void initState() {
     super.initState();
+    final initialPlan = widget.initialPlan;
+    if (initialPlan != null) {
+      _origin = widget.initialOrigin ?? initialPlan.waypoints.first;
+      _destination = widget.initialDestination ?? initialPlan.waypoints.last;
+      _destinationName = widget.initialDestinationName;
+      _mapCenter = _destination ?? _origin;
+      _options = [
+        DrivePlanOption(
+          kind: DrivePlanOptionKind.standard,
+          budgetMinutes: initialPlan.windingMinutes,
+          plan: initialPlan,
+        ),
+      ];
+      _loadingOrigin = false;
+      _snapResultsSheetOpen();
+      return;
+    }
     unawaited(_loadOrigin());
   }
 
@@ -178,15 +208,17 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
       _options = null;
     });
     try {
-      final options = await _planner
-          .buildPlanOptions(
-            DrivePlanRequest(
-              origin: _origin,
-              destination: destination,
-              windingBudgetMinutes: _budgetMinutes(_budget),
-            ),
-          )
-          .timeout(_requestTimeout);
+      final options = _usesInjectedRoutes
+          ? await _buildInjectedRouteOptions(destination)
+          : await _planner
+                .buildPlanOptions(
+                  DrivePlanRequest(
+                    origin: _origin,
+                    destination: destination,
+                    windingBudgetMinutes: _budgetMinutes(_budget),
+                  ),
+                )
+                .timeout(_requestTimeout);
       if (!mounted || requestId != _planRequestId) return;
       setState(() {
         _options = options.isEmpty ? null : options;
@@ -201,7 +233,7 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
             : null;
       });
       // 도착 시각이 있으면 완주 가능한 최대 와인딩 옵션을 자동 선택
-      final recommended = _recommendedOption;
+      final recommended = _usesInjectedRoutes ? null : _recommendedOption;
       if (recommended != null && mounted) {
         setState(() => _selectedKind = recommended.kind);
       }
@@ -229,6 +261,25 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     _planDebounce = Timer(const Duration(milliseconds: 300), () {
       if (mounted) unawaited(_buildPlan());
     });
+  }
+
+  Future<List<DrivePlanOption>> _buildInjectedRouteOptions(
+    LatLng destination,
+  ) async {
+    final plan = await _planner
+        .buildPlanFromRoutes(
+          origin: _origin,
+          routes: widget.initialRoutes,
+          destination: destination,
+        )
+        .timeout(_requestTimeout);
+    return [
+      DrivePlanOption(
+        kind: DrivePlanOptionKind.standard,
+        budgetMinutes: plan.windingMinutes,
+        plan: plan,
+      ),
+    ];
   }
 
   Future<void> _pickArriveBy() async {
@@ -276,9 +327,10 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
         : plan.waypoints.sublist(1, plan.waypoints.length - 1);
     final webUri = Uri.https('www.google.com', '/maps/dir/', {
       'api': '1',
-      'origin': _coord(_origin),
-      'destination': _coord(destination),
-      if (waypoints.isNotEmpty) 'waypoints': waypoints.map(_coord).join('|'),
+      'origin': googleMapsCoord(_origin),
+      'destination': googleMapsCoord(destination),
+      if (waypoints.isNotEmpty)
+        'waypoints': waypoints.map(googleMapsCoord).join('|'),
       'travelmode': 'driving',
     });
     final appUri = buildGoogleMapsAppUri(
@@ -1722,10 +1774,6 @@ int _budgetMinutes(DriveBudget budget) {
   };
 }
 
-String _coord(LatLng point) {
-  return '${point.lat.toStringAsFixed(4)},${point.lng.toStringAsFixed(4)}';
-}
-
 String _mapPinLabel(AppLanguage language) {
   return _copy(
     language,
@@ -1742,25 +1790,6 @@ String _compactBudgetLabel(DriveBudget budget, AppLanguage language) {
     DriveBudget.long => _copy(language, ko: '2시간+', en: '2h+', fr: '2 h+'),
     DriveBudget.any => _copy(language, ko: '전체', en: 'Any', fr: 'Tout'),
   };
-}
-
-Uri buildGoogleMapsAppUri({
-  required LatLng origin,
-  required LatLng destination,
-  required List<LatLng> waypoints,
-}) {
-  return Uri(
-    scheme: 'comgooglemapsurl',
-    host: 'www.google.com',
-    path: '/maps/dir/',
-    queryParameters: {
-      'api': '1',
-      'saddr': _coord(origin),
-      'daddr': _coord(destination),
-      if (waypoints.isNotEmpty) 'waypoints': waypoints.map(_coord).join('|'),
-      'directionsmode': 'driving',
-    },
-  );
 }
 
 String _formatTimeOfDay(TimeOfDay time) {

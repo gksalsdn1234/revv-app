@@ -6,6 +6,7 @@ import 'package:revv_app/models/drive_plan.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_drive_planner_screen.dart';
 import 'package:revv_app/services/drive_planner_service.dart';
+import 'package:revv_app/services/external_nav.dart';
 import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/place_search_service.dart';
 import 'package:revv_app/services/settings_service.dart';

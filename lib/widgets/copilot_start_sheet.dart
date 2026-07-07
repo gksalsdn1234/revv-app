@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/revv_route.dart';
+import '../services/external_nav.dart';
 import '../services/route_service.dart';
 import '../services/route_loading_policy.dart';
 import '../services/settings_service.dart';
@@ -14,15 +15,10 @@ import '../ui/route_quality_profile.dart';
 
 enum CopilotStartChoice { start, simulate }
 
-typedef NavigationUrlLauncher = Future<bool> Function(
-  Uri url, {
-  required LaunchMode mode,
-});
+typedef NavigationUrlLauncher =
+    Future<bool> Function(Uri url, {required LaunchMode mode});
 
-Future<bool> _defaultLaunchNavigationUrl(
-  Uri url, {
-  required LaunchMode mode,
-}) {
+Future<bool> _defaultLaunchNavigationUrl(Uri url, {required LaunchMode mode}) {
   return launchUrl(url, mode: mode);
 }
 
@@ -202,9 +198,18 @@ class _CopilotStartSheet extends StatelessWidget {
                           Expanded(
                             child: _NavAppButton(
                               label: 'Waze',
+                              subtitle: AppCopy.t(
+                                language,
+                                ko: '시작점까지',
+                                en: 'To start',
+                                fr: 'Au départ',
+                              ),
                               icon: Icons.navigation_rounded,
-                              onTap: () =>
-                                  _openWaze(context, route, launchNavigationUrl),
+                              onTap: () => _openWaze(
+                                context,
+                                route,
+                                launchNavigationUrl,
+                              ),
                             ),
                           ),
                         ],
@@ -377,12 +382,19 @@ Future<void> _openGoogleMaps(
 ) async {
   context.read<RouteService>().beginGuideToStart(route);
   final start = _routeStart(route);
-  final appUri = Uri.parse(
-    'comgooglemaps://?daddr=${start.lat},${start.lng}&directionsmode=driving',
+  final end = _routeEnd(route);
+  final waypoints = _sampleIntermediateWaypoints(route.nodes);
+  final appUri = buildGoogleMapsAppUri(
+    origin: start,
+    destination: end,
+    waypoints: waypoints,
   );
   final webUri = Uri.https('www.google.com', '/maps/dir/', {
     'api': '1',
-    'destination': '${start.lat},${start.lng}',
+    'origin': googleMapsCoord(start),
+    'destination': googleMapsCoord(end),
+    if (waypoints.isNotEmpty)
+      'waypoints': waypoints.map(googleMapsCoord).join('|'),
     'travelmode': 'driving',
   });
   await _launchNavigationUri(
@@ -452,13 +464,30 @@ LatLng _routeStart(RevvRoute route) {
   return route.centerPoint;
 }
 
+LatLng _routeEnd(RevvRoute route) {
+  if (route.nodes.isNotEmpty) return route.nodes.last;
+  return route.centerPoint;
+}
+
+List<LatLng> _sampleIntermediateWaypoints(List<LatLng> nodes) {
+  if (nodes.length <= 2) return const [];
+  final middle = nodes.sublist(1, nodes.length - 1);
+  if (middle.length <= 9) return middle;
+  return List.generate(9, (index) {
+    final sampleIndex = ((index + 1) * (middle.length + 1) / 10).round() - 1;
+    return middle[sampleIndex.clamp(0, middle.length - 1)];
+  });
+}
+
 class _NavAppButton extends StatelessWidget {
   final String label;
+  final String? subtitle;
   final IconData icon;
   final VoidCallback onTap;
 
   const _NavAppButton({
     required this.label,
+    this.subtitle,
     required this.icon,
     required this.onTap,
   });
@@ -468,7 +497,21 @@ class _NavAppButton extends StatelessWidget {
     return OutlinedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 17),
-      label: Text(label),
+      label: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label),
+          if (subtitle != null)
+            Text(
+              subtitle!,
+              style: AppText.body(
+                size: 10,
+                weight: FontWeight.w800,
+                color: AppColors.primaryContainer.withValues(alpha: 0.72),
+              ),
+            ),
+        ],
+      ),
       style: OutlinedButton.styleFrom(
         foregroundColor: AppColors.primaryContainer,
         side: BorderSide(
