@@ -10,6 +10,7 @@ import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/ptt_service.dart';
 import 'package:revv_app/services/run_session_service.dart';
 import 'package:revv_app/services/settings_service.dart';
+import 'package:revv_app/services/voice_briefing_service.dart';
 import 'package:revv_app/theme/text_styles.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -79,6 +80,8 @@ Future<void> _pump(
   required bool enabled,
   required bool joined,
   _RecordingController? controller,
+  RevvRoute route = _route,
+  DriveRouteNodesLoader? routeNodesLoader,
 }) async {
   SharedPreferences.setMockInitialValues({});
   AppText.forceSystemFonts = true;
@@ -104,11 +107,13 @@ Future<void> _pump(
       ],
       child: MaterialApp(
         home: LeanDriveScreen(
-          route: _route,
+          route: route,
           simulated: true,
           walkieEnabledOverride: enabled,
           crewChannelOverride: _FakeCrew(joined: joined),
           pttControllerOverride: controller,
+          voiceOverride: VoiceBriefingService(speak: (_, _) async {}),
+          routeNodesLoader: routeNodesLoader,
         ),
       ),
     ),
@@ -199,5 +204,59 @@ void main() {
 
     expect(controller.startCount, 0);
     expect(controller.stopCount, 0);
+  });
+
+  testWidgets('starting drive hydrates sparse route nodes once', (tester) async {
+    int loadCount = 0;
+    await _pump(
+      tester,
+      enabled: false,
+      joined: false,
+      routeNodesLoader: (routeId) async {
+        loadCount++;
+        expect(routeId, 'r1');
+        return const [
+          LatLng(45.5, -73.6),
+          LatLng(45.5002, -73.6002),
+          LatLng(45.5004, -73.6004),
+        ];
+      },
+    );
+
+    expect(loadCount, 1);
+  });
+
+  testWidgets('starting drive keeps dense route nodes without hydration', (
+    tester,
+  ) async {
+    int loadCount = 0;
+    const denseRoute = RevvRoute(
+      id: 'dense',
+      name: 'Dense',
+      nodes: [
+        LatLng(45.5, -73.6),
+        LatLng(45.5002, -73.6002),
+        LatLng(45.5004, -73.6004),
+      ],
+      distanceKm: 1,
+      windingScore: 5,
+      starRating: 3,
+      sharpCurveCount: 1,
+      centerPoint: LatLng(45.5002, -73.6002),
+      distanceFromUser: 1,
+    );
+
+    await _pump(
+      tester,
+      enabled: false,
+      joined: false,
+      route: denseRoute,
+      routeNodesLoader: (_) async {
+        loadCount++;
+        return const [];
+      },
+    );
+
+    expect(loadCount, 0);
   });
 }

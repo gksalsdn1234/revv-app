@@ -28,6 +28,47 @@ DriveCurveCue cue({
   );
 }
 
+class _FakeVoiceTtsClient implements VoiceTtsClient {
+  _FakeVoiceTtsClient({required this.voices});
+
+  final Object? voices;
+  final selectedVoices = <Map<String, String>>[];
+  final spoken = <String>[];
+  final languages = <String>[];
+  final speechRates = <double>[];
+  final pitches = <double>[];
+  int getVoicesCount = 0;
+
+  @override
+  Future<void> configureAudioSession() async {}
+
+  @override
+  Future<void> setSpeechRate(double rate) async => speechRates.add(rate);
+
+  @override
+  Future<void> setPitch(double pitch) async => pitches.add(pitch);
+
+  @override
+  Future<void> setLanguage(String language) async => languages.add(language);
+
+  @override
+  Future<Object?> getVoices() async {
+    getVoicesCount++;
+    return voices;
+  }
+
+  @override
+  Future<void> setVoice(Map<String, String> voice) async {
+    selectedVoices.add(voice);
+  }
+
+  @override
+  Future<void> speak(String text) async => spoken.add(text);
+
+  @override
+  Future<void> stop() async {}
+}
+
 void main() {
   const forbidden = ['속도', '스릴', '짜릿', '과속', 'MAX', 'BEST', 'PEAK', '어택'];
 
@@ -137,5 +178,62 @@ void main() {
         }
       }
     }
+  });
+
+  test('selects enhanced voice for the active locale and caches voices', () async {
+    final fakeTts = _FakeVoiceTtsClient(
+      voices: const [
+        {'name': 'en-US Standard', 'locale': 'en-US', 'quality': 'default'},
+        {'name': 'en-US Premium', 'locale': 'en-US', 'quality': 'premium'},
+        {'name': 'ko-KR Enhanced', 'locale': 'ko-KR', 'quality': 'enhanced'},
+      ],
+    );
+    final service = VoiceBriefingService(ttsFactory: () => fakeTts);
+
+    service.announceStart(AppLanguage.english, muted: false);
+    await Future<void>.delayed(Duration.zero);
+    service.onCue(cue(), language: AppLanguage.english, muted: false);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(fakeTts.languages, ['en-US']);
+    expect(fakeTts.speechRates.single, 0.5);
+    expect(fakeTts.pitches.single, 1.0);
+    expect(fakeTts.getVoicesCount, 1);
+    expect(fakeTts.selectedVoices.single, {
+      'name': 'en-US Premium',
+      'locale': 'en-US',
+    });
+  });
+
+  test('keeps default voice when no enhanced voice matches the locale', () async {
+    final fakeTts = _FakeVoiceTtsClient(
+      voices: const [
+        {'name': 'en-US Standard', 'locale': 'en-US', 'quality': 'default'},
+        {'name': 'ko-KR Premium', 'locale': 'ko-KR', 'quality': 'premium'},
+      ],
+    );
+    final service = VoiceBriefingService(ttsFactory: () => fakeTts);
+
+    service.announceStart(AppLanguage.french, muted: false);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(fakeTts.languages, ['fr-CA']);
+    expect(fakeTts.selectedVoices, isEmpty);
+    expect(fakeTts.spoken.single, 'Le briefing virages est actif. Bonne route.');
+  });
+
+  test('announceStart speaks once and then no-ops', () async {
+    voice.announceStart(AppLanguage.korean, muted: false);
+    voice.announceStart(AppLanguage.korean, muted: false);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(spoken, ['코너 브리핑을 시작해요. 좋은 드라이브 되세요.']);
+  });
+
+  test('announceStart stays silent while muted', () async {
+    voice.announceStart(AppLanguage.korean, muted: true);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(spoken, isEmpty);
   });
 }

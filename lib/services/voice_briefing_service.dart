@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 import '../core/app_language.dart';
@@ -6,6 +9,51 @@ import 'audio_session.dart';
 
 /// TTS 발화 시임 — 테스트에서 fake 주입.
 typedef VoiceSpeak = Future<void> Function(String text, AppLanguage language);
+typedef VoiceTtsFactory = VoiceTtsClient Function();
+
+/// 실제 TTS 플러그인 시임 — 테스트에서 fake voice 목록/선택을 검증한다.
+abstract class VoiceTtsClient {
+  Future<void> configureAudioSession();
+  Future<void> setSpeechRate(double rate);
+  Future<void> setPitch(double pitch);
+  Future<void> setLanguage(String language);
+  Future<Object?> getVoices();
+  Future<void> setVoice(Map<String, String> voice);
+  Future<void> speak(String text);
+  Future<void> stop();
+}
+
+class _FlutterVoiceTtsClient implements VoiceTtsClient {
+  _FlutterVoiceTtsClient() : _tts = FlutterTts();
+
+  final FlutterTts _tts;
+
+  @override
+  Future<void> configureAudioSession() => configureMusicDuckingAudioSession(
+    setIosAudioCategory: _tts.setIosAudioCategory,
+  );
+
+  @override
+  Future<void> setSpeechRate(double rate) => _tts.setSpeechRate(rate);
+
+  @override
+  Future<void> setPitch(double pitch) => _tts.setPitch(pitch);
+
+  @override
+  Future<void> setLanguage(String language) => _tts.setLanguage(language);
+
+  @override
+  Future<Object?> getVoices() async => _tts.getVoices;
+
+  @override
+  Future<void> setVoice(Map<String, String> voice) => _tts.setVoice(voice);
+
+  @override
+  Future<void> speak(String text) => _tts.speak(text);
+
+  @override
+  Future<void> stop() => _tts.stop();
+}
 
 /// 주행 중 음성 코너 브리핑 (코파일럿 1호).
 ///
@@ -13,9 +61,14 @@ typedef VoiceSpeak = Future<void> Function(String text, AppLanguage language);
 /// 최소 [cooldown]. 음악은 멈추지 않고 위에 얹는다(iOS duckOthers).
 /// TTS 실패는 조용히 무시한다 — 브리핑은 보조 수단이고 앱은 죽지 않는다.
 class VoiceBriefingService {
-  VoiceBriefingService({VoiceSpeak? speak, DateTime Function()? clock})
+  VoiceBriefingService({
+    VoiceSpeak? speak,
+    DateTime Function()? clock,
+    VoiceTtsFactory? ttsFactory,
+  })
     : _speakOverride = speak,
-      _clock = clock ?? DateTime.now;
+      _clock = clock ?? DateTime.now,
+      _ttsFactory = ttsFactory ?? _FlutterVoiceTtsClient.new;
 
   static const cooldown = Duration(seconds: 8);
 
@@ -28,12 +81,30 @@ class VoiceBriefingService {
 
   final VoiceSpeak? _speakOverride;
   final DateTime Function() _clock;
+  final VoiceTtsFactory _ttsFactory;
 
-  FlutterTts? _tts;
+  VoiceTtsClient? _tts;
   AppLanguage? _ttsLanguage;
+  AppLanguage? _voicesLanguage;
+  Object? _cachedVoices;
   DateTime? _lastSpokenAt;
   double? _spokenDistanceM;
   DateTime? _lastCueSeenAt;
+  bool _startAnnounced = false;
+
+  void announceStart(AppLanguage language, {required bool muted}) {
+    if (_startAnnounced || muted) return;
+    _startAnnounced = true;
+    unawaited(_speak(
+      _t(
+        language,
+        ko: '코너 브리핑을 시작해요. 좋은 드라이브 되세요.',
+        en: 'Corner briefing is on. Enjoy the drive.',
+        fr: 'Le briefing virages est actif. Bonne route.',
+      ),
+      language,
+    ));
+  }
 
   /// 주행 샘플마다 호출. 조건이 맞을 때만 발화한다.
   void onCue(DriveCurveCue? cue, {required AppLanguage language, required bool muted}) {
@@ -130,23 +201,26 @@ class VoiceBriefingService {
     }
   }
 
-  Future<FlutterTts?> _ensureTts(AppLanguage language) async {
+  Future<VoiceTtsClient?> _ensureTts(AppLanguage language) async {
     try {
       var tts = _tts;
       if (tts == null) {
-        tts = FlutterTts();
-        await configureMusicDuckingAudioSession(
-          setIosAudioCategory: tts.setIosAudioCategory,
+        tts = _ttsFactory();
+        await tts.configureAudioSession();
+        await tts.setSpeechRate(
+          defaultTargetPlatform == TargetPlatform.iOS ? 0.52 : 0.5,
         );
-        await tts.setSpeechRate(0.5);
+        await tts.setPitch(1.0);
         _tts = tts;
       }
       if (_ttsLanguage != language) {
-        await tts.setLanguage(switch (language) {
+        final locale = switch (language) {
           AppLanguage.korean => 'ko-KR',
           AppLanguage.french => 'fr-CA',
           _ => 'en-US',
-        });
+        };
+        await tts.setLanguage(locale);
+        await _selectEnhancedVoice(tts, language, locale);
         _ttsLanguage = language;
       }
       return tts;
@@ -155,9 +229,76 @@ class VoiceBriefingService {
     }
   }
 
+  Future<void> _selectEnhancedVoice(
+    VoiceTtsClient tts,
+    AppLanguage language,
+    String locale,
+  ) async {
+    try {
+      if (_voicesLanguage != language) {
+        _cachedVoices = await tts.getVoices();
+        _voicesLanguage = language;
+      }
+      final voice = _enhancedVoiceFor(_cachedVoices, locale);
+      if (voice != null) await tts.setVoice(voice);
+    } catch (_) {
+      // Enhanced voice 선택 실패는 기본 보이스로 계속 진행한다.
+    }
+  }
+
+  Map<String, String>? _enhancedVoiceFor(Object? voices, String locale) {
+    if (voices is! Iterable) return null;
+    for (final voice in voices) {
+      final candidate = _voiceMap(voice, locale);
+      if (candidate == null) continue;
+      final name = candidate['name']?.toLowerCase() ?? '';
+      final quality = candidate['quality']?.toLowerCase() ?? '';
+      if (!_matchesLocale(candidate, locale)) continue;
+      if (!name.contains('enhanced') &&
+          !name.contains('premium') &&
+          !quality.contains('enhanced') &&
+          !quality.contains('premium')) {
+        continue;
+      }
+      return {
+        'name': candidate['name']!,
+        'locale': candidate['locale'] ?? locale,
+      };
+    }
+    return null;
+  }
+
+  Map<String, String>? _voiceMap(Object? voice, String locale) {
+    if (voice is! Map) return null;
+    final name = _voiceField(voice, const ['name', 'identifier']);
+    if (name == null || name.isEmpty) return null;
+    final quality = _voiceField(voice, const ['quality']);
+    final result = {
+      'name': name,
+      'locale': _voiceField(voice, const ['locale', 'language']) ?? locale,
+    };
+    if (quality != null) result['quality'] = quality;
+    return result;
+  }
+
+  String? _voiceField(Map<dynamic, dynamic> voice, List<String> keys) {
+    for (final key in keys) {
+      final value = voice[key] ?? voice[key.toUpperCase()];
+      if (value != null) return value.toString();
+    }
+    return null;
+  }
+
+  bool _matchesLocale(Map<String, String> voice, String locale) {
+    final expected = locale.toLowerCase();
+    final voiceLocale = voice['locale']?.toLowerCase() ?? '';
+    final name = voice['name']?.toLowerCase() ?? '';
+    return voiceLocale.startsWith(expected) || name.startsWith(expected);
+  }
+
   void dispose() {
     try {
-      _tts?.stop();
+      unawaited(_tts?.stop());
     } catch (_) {}
     _tts = null;
   }

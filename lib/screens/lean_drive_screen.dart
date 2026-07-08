@@ -14,6 +14,7 @@ import '../services/route_loading_policy.dart';
 import '../services/run_session_service.dart';
 import '../services/settings_service.dart';
 import '../services/ptt_service.dart';
+import '../services/supabase_service.dart';
 import '../services/voice_briefing_service.dart';
 import '../services/crew_channel_service.dart';
 import '../labs/walkie/walkie_ptt_controller.dart';
@@ -28,6 +29,8 @@ import 'lean_run_summary_screen.dart';
 /// 플래그 off(프로덕션 기본)면 아래 PTT 오버레이는 생성되지 않는다.
 const bool _revvWalkieLabEnabled = bool.fromEnvironment('REVV_WALKIE_LAB');
 
+typedef DriveRouteNodesLoader = Future<List<LatLng>> Function(String routeId);
+
 class LeanDriveScreen extends StatefulWidget {
   final RevvRoute route;
   final bool simulated;
@@ -37,6 +40,8 @@ class LeanDriveScreen extends StatefulWidget {
   final CrewChannelService? crewChannelOverride;
   final WalkiePttController? pttControllerOverride;
   final bool walkieEnabledOverride;
+  final VoiceBriefingService? voiceOverride;
+  final DriveRouteNodesLoader? routeNodesLoader;
 
   const LeanDriveScreen({
     super.key,
@@ -45,6 +50,8 @@ class LeanDriveScreen extends StatefulWidget {
     this.crewChannelOverride,
     this.pttControllerOverride,
     this.walkieEnabledOverride = _revvWalkieLabEnabled,
+    this.voiceOverride,
+    this.routeNodesLoader,
   });
 
   @override
@@ -56,7 +63,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   RunSessionService? _session;
   ImuService? _imuService;
   SettingsService? _settings;
-  final VoiceBriefingService _voice = VoiceBriefingService();
+  late final VoiceBriefingService _voice;
   bool _started = false;
   DateTime? _startedAt;
   Timer? _clock;
@@ -82,6 +89,12 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   DateTime? _routeEventUntil;
 
   @override
+  void initState() {
+    super.initState();
+    _voice = widget.voiceOverride ?? VoiceBriefingService();
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_started) return;
@@ -98,11 +111,14 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   }
 
   Future<void> _startDrive() async {
-    unawaited(_prepareMatchedRouteGeometry());
     if (!widget.simulated) {
       await _location?.requestPermission();
       await _location?.startTracking();
     }
+    final language = _settings?.appLanguage ?? AppLanguage.korean;
+    _voice.announceStart(language, muted: _settings?.ttsMuted ?? true);
+    await _hydrateSparseRouteNodes();
+    unawaited(_prepareMatchedRouteGeometry());
     if (!mounted) return;
     _startedAt = DateTime.now();
     _clock = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -306,6 +322,17 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     setState(() => _matchedRouteNodes = matched);
   }
 
+  Future<void> _hydrateSparseRouteNodes() async {
+    if (_averageRouteNodeSpacingM(widget.route.nodes) <= 120) return;
+    final loader =
+        widget.routeNodesLoader ?? SupabaseService().fetchRouteNodes;
+    final nodes = await loader(widget.route.id).catchError((_) => const <LatLng>[]);
+    if (!mounted || nodes.length < 2 || _sameRouteNodes(nodes, widget.route.nodes)) {
+      return;
+    }
+    setState(() => _matchedRouteNodes = nodes);
+  }
+
   bool _sameRouteNodes(List<LatLng> a, List<LatLng> b) {
     if (a.length != b.length) return false;
     for (int i = 0; i < a.length; i++) {
@@ -496,6 +523,15 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       ),
     );
   }
+}
+
+double _averageRouteNodeSpacingM(List<LatLng> nodes) {
+  if (nodes.length < 2) return 0;
+  double totalKm = 0;
+  for (int i = 1; i < nodes.length; i++) {
+    totalKm += RevvRoute.haversineKm(nodes[i - 1], nodes[i]);
+  }
+  return totalKm * 1000 / (nodes.length - 1);
 }
 
 class _WalkieAutoConnect extends StatefulWidget {
