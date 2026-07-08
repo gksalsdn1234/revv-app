@@ -68,26 +68,78 @@ void main() {
       final plan = await service.buildPlan(_request(40));
 
       final windingIds = _windingIds(plan);
-      expect(windingIds, containsAll(['best', 'next']));
+      expect(windingIds, contains('best'));
       expect(windingIds, isNot(contains('overlap')));
-      expect(plan!.windingMinutes, inInclusiveRange(32, 48));
+      expect(windingIds, isNot(contains('too-much')));
+      expect(plan!.windingMinutes, lessThanOrEqualTo(48));
     },
   );
 
-  test('planner orders winding legs by corridor projection', () async {
+  test('planner orders winding legs by nearest next route', () async {
     final routes = [
-      _route(id: 'late', startLng: 0.70, windingScore: 7.0),
-      _route(id: 'early', startLng: 0.25, windingScore: 7.2),
+      _routeWithNodes(
+        id: 'projection-first',
+        center: const LatLng(0.18, 0.21),
+        nodes: const [LatLng(0.18, 0.20), LatLng(0.18, 0.22)],
+        windingScore: 7.0,
+        distanceKm: 34,
+      ),
+      _routeWithNodes(
+        id: 'nearest-first',
+        center: const LatLng(0, 0.25),
+        nodes: const [LatLng(0, 0.24), LatLng(0, 0.26)],
+        windingScore: 7.0,
+        distanceKm: 34,
+      ),
     ];
     final service = _service(routes);
 
-    final plan = await service.buildPlan(_request(45));
+    final plan = await service.buildPlan(_request(80));
 
-    expect(_windingIds(plan), ['early', 'late']);
+    expect(_windingIds(plan), ['nearest-first', 'projection-first']);
     final lastTransit = plan!.legs.last;
     expect(lastTransit.kind, DrivePlanLegKind.transit);
-    expect(lastTransit.nodes.first.lng, closeTo(0.75, 0.001));
+    expect(lastTransit.nodes.first.lat, closeTo(0.18, 0.001));
   });
+
+  test(
+    'planner nearest-neighbor order shortens clustered route connections',
+    () async {
+      final routes = [
+        _routeWithNodes(
+          id: 'projection-first',
+          center: const LatLng(0.18, 0.21),
+          nodes: const [LatLng(0.18, 0.20), LatLng(0.18, 0.22)],
+          windingScore: 7.0,
+          distanceKm: 34,
+        ),
+        _routeWithNodes(
+          id: 'near-origin',
+          center: const LatLng(0, 0.25),
+          nodes: const [LatLng(0, 0.24), LatLng(0, 0.26)],
+          windingScore: 7.0,
+          distanceKm: 34,
+        ),
+        _routeWithNodes(
+          id: 'near-next',
+          center: const LatLng(0, 0.29),
+          nodes: const [LatLng(0, 0.28), LatLng(0, 0.30)],
+          windingScore: 7.0,
+          distanceKm: 34,
+        ),
+      ];
+      final service = _service(routes);
+
+      final plan = await service.buildPlan(_request(120));
+      final ids = _windingIds(plan);
+
+      expect(ids, ['near-origin', 'near-next', 'projection-first']);
+      expect(
+        _connectionKm(plan!),
+        lessThan(_projectedConnectionKm(const LatLng(0, 0), routes)),
+      );
+    },
+  );
 
   test(
     'planner uses latitude-scaled projection for diagonal corridors',
@@ -97,11 +149,13 @@ void main() {
           id: 'southeast',
           center: const LatLng(44.45, -77.38),
           windingScore: 7.0,
+          distanceKm: 260,
         ),
         _routeAt(
           id: 'northwest',
           center: const LatLng(44.98, -75.49),
           windingScore: 7.0,
+          distanceKm: 260,
         ),
       ];
       final service = _service(routes);
@@ -110,7 +164,7 @@ void main() {
         const DrivePlanRequest(
           origin: LatLng(45.5, -73.6),
           destination: LatLng(44.0, -79.0),
-          windingBudgetMinutes: 60,
+          windingBudgetMinutes: 600,
         ),
       );
 
@@ -127,17 +181,19 @@ void main() {
           center: const LatLng(0, 0.30),
           nodes: const [LatLng(0, 0.60), LatLng(0, 0.62)],
           windingScore: 7.0,
+          distanceKm: 50,
         ),
         _routeWithNodes(
           id: 'center-late-entry-early',
           center: const LatLng(0, 0.40),
           nodes: const [LatLng(0, 0.20), LatLng(0, 0.22)],
           windingScore: 7.0,
+          distanceKm: 50,
         ),
       ];
       final service = _service(routes);
 
-      final plan = await service.buildPlan(_request(60));
+      final plan = await service.buildPlan(_request(110));
 
       expect(_windingIds(plan), [
         'center-late-entry-early',
@@ -259,6 +315,43 @@ void main() {
 
     expect(_windingIds(plan), isEmpty);
     expect(plan!.windingMinutes, 0);
+  });
+
+  test(
+    'planner skips candidates whose connector costs more than winding time',
+    () async {
+      final service = _service([
+        _route(
+          id: 'near',
+          startLng: 0.10,
+          windingScore: 9.0,
+          routeRankScore: 9.0,
+        ),
+        _routeWithNodes(
+          id: 'expensive-connector',
+          center: const LatLng(0.20, 0.72),
+          nodes: const [LatLng(0.20, 0.70), LatLng(0.20, 0.74)],
+          windingScore: 4.0,
+        ),
+      ]);
+
+      final plan = await service.buildPlan(_request(80));
+
+      expect(_windingIds(plan), ['near']);
+    },
+  );
+
+  test('planner selects at most three winding routes', () async {
+    final service = _service([
+      _route(id: 'a', startLng: 0.10, windingScore: 9.0),
+      _route(id: 'b', startLng: 0.20, windingScore: 8.0),
+      _route(id: 'c', startLng: 0.30, windingScore: 7.0),
+      _route(id: 'd', startLng: 0.40, windingScore: 6.0),
+    ]);
+
+    final plan = await service.buildPlan(_request(100));
+
+    expect(_windingIds(plan), hasLength(3));
   });
 
   test(
@@ -422,6 +515,30 @@ List<DrivePlanLeg> _windingLegs(DrivePlan? plan) {
       .toList();
 }
 
+double _connectionKm(DrivePlan plan) {
+  // 목적지행 마지막 transit은 제외 — 순서 개선이 겨냥하는 건 루트 사이
+  // 교차 연결이고, 최종 레그는 어떤 순서든 목적지 위치가 지배한다.
+  final legs = plan.legs
+      .where((leg) => leg.kind == DrivePlanLegKind.transit)
+      .toList();
+  if (legs.isNotEmpty) legs.removeLast();
+  return legs.fold<double>(0, (sum, leg) => sum + leg.distanceKm);
+}
+
+double _projectedConnectionKm(LatLng origin, List<RevvRoute> routes) {
+  final sorted = [...routes]
+    ..sort((a, b) => a.nodes.first.lng.compareTo(b.nodes.first.lng));
+  var current = origin;
+  var km = 0.0;
+  for (final route in sorted) {
+    km += RevvRoute.haversineKm(current, route.nodes.first);
+    current = route.nodes.last;
+  }
+  // 플랜 transit 폴백과 동일한 실도로 근사 계수(transit_eta_service의 1.3)를
+  // 적용해야 같은 단위로 비교된다.
+  return km * 1.3;
+}
+
 RevvRoute _route({
   required String id,
   required double startLng,
@@ -452,6 +569,7 @@ RevvRoute _routeAt({
   required String id,
   required LatLng center,
   required double windingScore,
+  double distanceKm = 16,
 }) {
   return _routeWithNodes(
     id: id,
@@ -461,6 +579,7 @@ RevvRoute _routeAt({
       LatLng(center.lat + 0.02, center.lng + 0.02),
     ],
     windingScore: windingScore,
+    distanceKm: distanceKm,
   );
 }
 
@@ -469,12 +588,13 @@ RevvRoute _routeWithNodes({
   required LatLng center,
   required List<LatLng> nodes,
   required double windingScore,
+  double distanceKm = 16,
 }) {
   return RevvRoute(
     id: id,
     name: 'Route $id',
     nodes: nodes,
-    distanceKm: 16,
+    distanceKm: distanceKm,
     windingScore: windingScore,
     starRating: 4,
     sharpCurveCount: 10,

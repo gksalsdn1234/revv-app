@@ -61,14 +61,31 @@ class PlanMapMarker {
   const PlanMapMarker({required this.point, required this.kind});
 }
 
+String buildPolylineGeoJson(List<List<LatLng>> polylines) {
+  final coordinates = polylines
+      .where((points) => points.isNotEmpty)
+      .map((points) => points.map((point) => [point.lng, point.lat]).toList())
+      .toList();
+  final geometry = coordinates.length == 1
+      ? {'type': 'LineString', 'coordinates': coordinates.first}
+      : {'type': 'MultiLineString', 'coordinates': coordinates};
+  return jsonEncode({
+    'type': 'Feature',
+    'geometry': geometry,
+    'properties': {},
+  });
+}
+
 class MapWidget extends StatefulWidget {
   final bool isSprintMode;
 
   /// 현재위치 → 루트 시작점 내비 경로 (파란 선)
   final List<LatLng>? navPolyline;
+  final List<List<LatLng>>? navPolylines;
 
   /// 선택한 드라이빙 루트 (빨간 선)
   final List<LatLng>? routePolyline;
+  final List<List<LatLng>>? routePolylines;
   final bool curveHeatmap;
   final List<PlanMapMarker>? planMarkers;
 
@@ -97,7 +114,9 @@ class MapWidget extends StatefulWidget {
     super.key,
     this.isSprintMode = false,
     this.navPolyline,
+    this.navPolylines,
     this.routePolyline,
+    this.routePolylines,
     this.curveHeatmap = true,
     this.planMarkers,
     this.candidatePolylines = const [],
@@ -158,6 +177,15 @@ class _MapWidgetState extends State<MapWidget> {
 
   double get _routeLineWidth =>
       widget.curveHeatmap ? (widget.routeFocusMode ? 5.5 : 2.8) : 6.5;
+
+  List<List<LatLng>> get _navPolylineParts =>
+      _normalizePolylineParts(widget.navPolylines, widget.navPolyline);
+
+  List<List<LatLng>> get _routePolylineParts =>
+      _normalizePolylineParts(widget.routePolylines, widget.routePolyline);
+
+  List<LatLng> get _routePolylinePoints =>
+      _flattenPolylineParts(_routePolylineParts);
 
   List<_LineLayerSpec> _buildLineLayers(
     String id,
@@ -361,6 +389,17 @@ class _MapWidgetState extends State<MapWidget> {
     }
 
     if (_styleLoaded) {
+      final oldNavParts = _normalizePolylineParts(
+        oldWidget.navPolylines,
+        oldWidget.navPolyline,
+      );
+      final navParts = _navPolylineParts;
+      final oldRouteParts = _normalizePolylineParts(
+        oldWidget.routePolylines,
+        oldWidget.routePolyline,
+      );
+      final routeParts = _routePolylineParts;
+      final routePoints = _routePolylinePoints;
       if (oldWidget.recenterSignal != widget.recenterSignal) {
         _recenterOnUser();
       }
@@ -393,29 +432,23 @@ class _MapWidgetState extends State<MapWidget> {
         _applyRouteFocusStyle();
         if (widget.routeFocusMode) {
           _drawPolyline('nav', const [], Colors.blue.toARGB32(), 4.0);
-        } else if (widget.navPolyline?.isNotEmpty == true) {
-          _drawPolyline(
-            'nav',
-            widget.navPolyline!,
-            Colors.blue.toARGB32(),
-            4.0,
-          );
+        } else if (navParts.isNotEmpty) {
+          _drawPolylineParts('nav', navParts, Colors.blue.toARGB32(), 4.0);
         }
-        if (widget.routePolyline?.isNotEmpty == true &&
-            !_shouldDrawCurveHeatmap) {
-          _drawPolyline(
+        if (routeParts.isNotEmpty && !_shouldDrawCurveHeatmap) {
+          _drawPolylineParts(
             'route',
-            widget.routePolyline!,
+            routeParts,
             AppColors.red.toARGB32(),
             _routeLineWidth,
           );
         }
       }
-      if (oldWidget.navPolyline != widget.navPolyline ||
+      if (!_samePolylineGroups(oldNavParts, navParts) ||
           oldWidget.curveHeatmap != widget.curveHeatmap) {
-        _drawPolyline(
+        _drawPolylineParts(
           'nav',
-          widget.routeFocusMode ? const [] : widget.navPolyline ?? [],
+          widget.routeFocusMode ? const [] : navParts,
           Colors.blue.toARGB32(),
           4.0,
         );
@@ -435,13 +468,13 @@ class _MapWidgetState extends State<MapWidget> {
           if (!mounted ||
               !_styleLoaded ||
               _shouldDrawCurveHeatmap ||
-              widget.routePolyline?.isNotEmpty != true) {
+              routeParts.isEmpty) {
             return;
           }
           // 후보 라인 갱신 후 선택 라인을 한 번 더 올려 선택지가 묻히지 않게 한다.
-          _drawPolyline(
+          _drawPolylineParts(
             'route',
-            widget.routePolyline!,
+            routeParts,
             AppColors.red.toARGB32(),
             _routeLineWidth,
           );
@@ -453,23 +486,22 @@ class _MapWidgetState extends State<MapWidget> {
       )) {
         _drawDifficultyLines(widget.difficultyLines);
       }
-      if (oldWidget.routePolyline != widget.routePolyline ||
+      if (!_samePolylineGroups(oldRouteParts, routeParts) ||
           oldWidget.showCurveHeatmap != widget.showCurveHeatmap ||
           oldWidget.curveHeatmap != widget.curveHeatmap) {
-        if (_shouldDrawCurveHeatmap &&
-            widget.routePolyline?.isNotEmpty == true) {
-          _drawCurveHeatmap(widget.routePolyline!);
+        if (_shouldDrawCurveHeatmap && routePoints.isNotEmpty) {
+          _drawCurveHeatmap(routePoints);
         } else {
           _clearHeatmap();
-          _drawPolyline(
+          _drawPolylineParts(
             'route',
-            widget.routePolyline ?? [],
+            routeParts,
             AppColors.red.toARGB32(),
             _routeLineWidth,
           );
         }
-        if (!widget.isSprintMode && widget.routePolyline?.isNotEmpty == true) {
-          _focusRoutePolyline(widget.routePolyline!);
+        if (!widget.isSprintMode && routePoints.isNotEmpty) {
+          _focusRoutePolyline(routePoints);
         }
       }
       if (!_samePlanMarkers(oldWidget.planMarkers, widget.planMarkers)) {
@@ -768,30 +800,28 @@ class _MapWidgetState extends State<MapWidget> {
       _activateFollowViewport();
     }
     // 폴리라인 재그리기 (스타일 재로드 시)
-    if (!widget.routeFocusMode && widget.navPolyline?.isNotEmpty == true) {
-      await _drawPolyline(
-        'nav',
-        widget.navPolyline!,
-        Colors.blue.toARGB32(),
-        4.0,
-      );
+    final navParts = _navPolylineParts;
+    final routeParts = _routePolylineParts;
+    final routePoints = _routePolylinePoints;
+    if (!widget.routeFocusMode && navParts.isNotEmpty) {
+      await _drawPolylineParts('nav', navParts, Colors.blue.toARGB32(), 4.0);
     }
     await _drawCurveFieldHeatmap(widget.curveHeatmapPolylines);
     await _drawDifficultyLines(widget.difficultyLines);
     await _drawCandidatePolylines(widget.candidatePolylines);
-    if (widget.routePolyline?.isNotEmpty == true) {
+    if (routeParts.isNotEmpty) {
       if (_shouldDrawCurveHeatmap) {
-        await _drawCurveHeatmap(widget.routePolyline!);
+        await _drawCurveHeatmap(routePoints);
       } else {
-        await _drawPolyline(
+        await _drawPolylineParts(
           'route',
-          widget.routePolyline!,
+          routeParts,
           AppColors.red.toARGB32(),
           _routeLineWidth,
         );
       }
       if (!widget.isSprintMode) {
-        await _focusRoutePolyline(widget.routePolyline!, immediate: true);
+        await _focusRoutePolyline(routePoints, immediate: true);
       }
     }
     await _drawSimulationMarker(widget.simulatedPosition);
@@ -819,6 +849,21 @@ class _MapWidgetState extends State<MapWidget> {
       }
     }
     return true;
+  }
+
+  static List<List<LatLng>> _normalizePolylineParts(
+    List<List<LatLng>>? parts,
+    List<LatLng>? single,
+  ) {
+    if (parts != null) {
+      return parts.where((points) => points.isNotEmpty).toList();
+    }
+    if (single == null || single.isEmpty) return const [];
+    return [single];
+  }
+
+  static List<LatLng> _flattenPolylineParts(List<List<LatLng>> parts) {
+    return [for (final part in parts) ...part];
   }
 
   static bool _sameDifficultyLines(
@@ -1042,6 +1087,20 @@ class _MapWidgetState extends State<MapWidget> {
     List<LatLng> points,
     int colorArgb,
     double width,
+  ) {
+    return _drawPolylineParts(
+      id,
+      points.isEmpty ? const [] : [points],
+      colorArgb,
+      width,
+    );
+  }
+
+  Future<void> _drawPolylineParts(
+    String id,
+    List<List<LatLng>> polylines,
+    int colorArgb,
+    double width,
   ) async {
     final map = _mapController;
     if (map == null || !_styleLoaded) return;
@@ -1065,16 +1124,9 @@ class _MapWidgetState extends State<MapWidget> {
       await map.style.removeStyleSource(sourceId);
     } catch (_) {}
 
-    if (points.isEmpty) return;
+    if (polylines.isEmpty) return;
 
-    final geoJson = jsonEncode({
-      'type': 'Feature',
-      'geometry': {
-        'type': 'LineString',
-        'coordinates': points.map((p) => [p.lng, p.lat]).toList(),
-      },
-      'properties': {},
-    });
+    final geoJson = buildPolylineGeoJson(polylines);
 
     try {
       await map.style.addSource(mbx.GeoJsonSource(id: sourceId, data: geoJson));

@@ -511,9 +511,11 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     return null;
   }
 
-  List<LatLng> get _transitPolyline => _planPolyline(DrivePlanLegKind.transit);
+  List<List<LatLng>> get _transitPolylines =>
+      _planPolylines(DrivePlanLegKind.transit);
 
-  List<LatLng> get _windingPolyline => _planPolyline(DrivePlanLegKind.winding);
+  List<List<LatLng>> get _windingPolylines =>
+      _planPolylines(DrivePlanLegKind.winding);
 
   List<PlanMapMarker> get _planMarkers {
     final plan = _plan;
@@ -526,12 +528,12 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
     );
   }
 
-  List<LatLng> _planPolyline(DrivePlanLegKind kind) {
+  List<List<LatLng>> _planPolylines(DrivePlanLegKind kind) {
     final plan = _plan;
     if (plan == null) return const [];
     return [
       for (final leg in plan.legs)
-        if (leg.kind == kind) ...leg.nodes,
+        if (leg.kind == kind && leg.nodes.isNotEmpty) leg.nodes,
     ];
   }
 
@@ -658,8 +660,8 @@ class _LeanDrivePlannerScreenState extends State<LeanDrivePlannerScreen> {
         children: [
           Positioned.fill(
             child: MapWidget(
-              navPolyline: _transitPolyline,
-              routePolyline: _windingPolyline,
+              navPolylines: _transitPolylines,
+              routePolylines: _windingPolylines,
               curveHeatmap: false,
               planMarkers: _planMarkers,
               cameraTarget: _mapCenter,

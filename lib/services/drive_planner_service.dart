@@ -357,11 +357,11 @@ class DrivePlannerService {
       }
     }
 
-    final quality = _qualityCandidates(unique.values);
-    return [
-      ...quality,
-      ...buildChainedRoutes(quality, budget: DriveBudget.any),
-    ];
+    // 파인더용 pre-chained combo는 제외한다: combo는 루트 사이 간격(최대
+    // 15km)을 노드 직선으로 잇기 때문에 플랜의 와인딩 leg 안에 존재하지 않는
+    // 직선이 그려진다. 플래너는 개별 루트를 골라 사이를 실도로 transit으로
+    // 조립하는 자체 체인이 있으므로 combo가 필요 없다.
+    return _qualityCandidates(unique.values);
   }
 
   List<RevvRoute> _qualityCandidates(Iterable<RevvRoute> routes) {
@@ -404,6 +404,7 @@ class DrivePlannerService {
     final selected = <RevvRoute>[];
     var minutes = 0;
     for (final route in ranked) {
+      if (selected.length >= 3) break;
       final routeMinutes = estimatedDriveMinutes(route);
       if (minutes + routeMinutes > maxMinutes) continue;
       final overlaps = selected.any((current) {
@@ -414,16 +415,14 @@ class DrivePlannerService {
             0.42;
       });
       if (overlaps) continue;
+      if (_connectorMinutesFromSelected(selected, route, request) >
+          routeMinutes) {
+        continue;
+      }
       selected.add(route);
       minutes += routeMinutes;
     }
 
-    selected.sort(
-      (a, b) => _projection(
-        a.centerPoint,
-        request,
-      ).compareTo(_projection(b.centerPoint, request)),
-    );
     return selected;
   }
 
@@ -432,13 +431,7 @@ class DrivePlannerService {
     List<RevvRoute> windingRoutes,
   ) async {
     final hydrated = await _hydrateSelectedRoutes(windingRoutes);
-    final oriented =
-        hydrated.map((route) => _orientedRoute(route, request)).toList()..sort(
-          (a, b) => _projection(
-            a.nodes.first,
-            request,
-          ).compareTo(_projection(b.nodes.first, request)),
-        );
+    final oriented = _greedyOrderedRoutes(request.origin, hydrated);
     return _assembleOrientedPlan(
       origin: request.origin,
       destination: request.destination,
@@ -563,6 +556,27 @@ class DrivePlannerService {
     final last = _projection(route.nodes.last, request);
     if (first <= last) return route;
     return route.copyWith(nodes: route.nodes.reversed.toList());
+  }
+
+  double _connectorMinutesFromSelected(
+    List<RevvRoute> selected,
+    RevvRoute candidate,
+    DrivePlanRequest request,
+  ) {
+    if (selected.isEmpty) return 0;
+    final entry = _orientedRoute(candidate, request).nodes.first;
+    var nearestKm = double.infinity;
+    for (final route in selected) {
+      nearestKm = math.min(
+        nearestKm,
+        RevvRoute.haversineKm(route.nodes.first, entry),
+      );
+      nearestKm = math.min(
+        nearestKm,
+        RevvRoute.haversineKm(route.nodes.last, entry),
+      );
+    }
+    return nearestKm / 0.75;
   }
 
   List<RevvRoute> _greedyOrderedRoutes(LatLng origin, List<RevvRoute> routes) {

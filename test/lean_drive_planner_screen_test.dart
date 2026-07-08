@@ -163,6 +163,26 @@ void main() {
     );
   });
 
+  testWidgets('planner passes winding and transit legs as separate map parts', (
+    tester,
+  ) async {
+    await pumpPlanner(tester, plan: _planWithTwoWindingLegs());
+
+    await selectMapPinDestination(tester);
+
+    final map = tester.widget<MapWidget>(find.byType(MapWidget));
+    expect(map.routePolylines, hasLength(2));
+    expect(map.routePolylines![0], const [
+      LatLng(45.55, -73.65),
+      LatLng(45.60, -73.70),
+    ]);
+    expect(map.routePolylines![1], const [
+      LatLng(45.62, -73.72),
+      LatLng(45.66, -73.76),
+    ]);
+    expect(map.navPolylines, hasLength(3));
+  });
+
   testWidgets('timeline renders map color dots for transit and winding legs', (
     tester,
   ) async {
@@ -447,6 +467,11 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('여기서 테스트 주행'));
     await tester.pump();
+
+    // 시뮬레이션 주행 화면을 닫아 타이머를 정리한다 — 안 하면 teardown 후
+    // dispose된 RunSessionService를 스케줄러 콜백이 만져 실패한다.
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
 
     expect(log.chosen, [
       {
@@ -802,5 +827,67 @@ DrivePlan _planWithoutWinding() {
     transitMinutes: 24,
     waypoints: [LatLng(45.5, -73.6), LatLng(45.7, -73.8)],
     budgetShortfallMinutes: 30,
+  );
+}
+
+DrivePlan _planWithTwoWindingLegs() {
+  final first = _routeForPlan('first', 'First Road');
+  final second = RevvRoute(
+    id: 'second',
+    name: 'Second Road',
+    nodes: const [LatLng(45.62, -73.72), LatLng(45.66, -73.76)],
+    distanceKm: 9,
+    windingScore: 5,
+    starRating: 4,
+    sharpCurveCount: 6,
+    centerPoint: const LatLng(45.64, -73.74),
+    distanceFromUser: 6,
+  );
+  return DrivePlan(
+    legs: [
+      const DrivePlanLeg(
+        kind: DrivePlanLegKind.transit,
+        nodes: [LatLng(45.5, -73.6), LatLng(45.55, -73.65)],
+        distanceKm: 8,
+        estimatedMinutes: 10,
+      ),
+      DrivePlanLeg(
+        kind: DrivePlanLegKind.winding,
+        nodes: first.nodes,
+        distanceKm: first.distanceKm,
+        estimatedMinutes: 30,
+        route: first,
+      ),
+      const DrivePlanLeg(
+        kind: DrivePlanLegKind.transit,
+        nodes: [LatLng(45.60, -73.70), LatLng(45.62, -73.72)],
+        distanceKm: 4,
+        estimatedMinutes: 6,
+      ),
+      DrivePlanLeg(
+        kind: DrivePlanLegKind.winding,
+        nodes: second.nodes,
+        distanceKm: second.distanceKm,
+        estimatedMinutes: 12,
+        route: second,
+      ),
+      const DrivePlanLeg(
+        kind: DrivePlanLegKind.transit,
+        nodes: [LatLng(45.66, -73.76), LatLng(45.7, -73.8)],
+        distanceKm: 6,
+        estimatedMinutes: 8,
+      ),
+    ],
+    totalMinutes: 66,
+    windingMinutes: 42,
+    transitMinutes: 24,
+    waypoints: const [
+      LatLng(45.5, -73.6),
+      LatLng(45.55, -73.65),
+      LatLng(45.60, -73.70),
+      LatLng(45.62, -73.72),
+      LatLng(45.66, -73.76),
+      LatLng(45.7, -73.8),
+    ],
   );
 }
