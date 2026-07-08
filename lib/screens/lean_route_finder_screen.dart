@@ -626,6 +626,10 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       _RouteChainBar(
                         language: language,
                         count: _chainSelection.length,
+                        totalDistanceKm: _chainSelection.values.fold<double>(
+                          0,
+                          (total, route) => total + route.distanceKm,
+                        ),
                         onCancel: _clearChainSelection,
                         onChain: _chainSelection.length >= 2
                             ? () => unawaited(_startChainDrive())
@@ -773,6 +777,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       onDetails: () => _showRouteDetails(selected),
                       mapSelected: _selectedRouteOverride != null,
                       chainMode: _chainMode,
+                      chainCount: _chainSelection.length,
                       chainSelected: _chainSelection.containsKey(selected.id),
                       onToggleChain: () => _toggleChainRoute(selected),
                     ),
@@ -961,46 +966,88 @@ class _LeanRouteTopBar extends StatelessWidget {
 class _RouteChainBar extends StatelessWidget {
   final AppLanguage language;
   final int count;
+  final double totalDistanceKm;
   final VoidCallback onCancel;
   final VoidCallback? onChain;
 
   const _RouteChainBar({
     required this.language,
     required this.count,
+    required this.totalDistanceKm,
     required this.onCancel,
     required this.onChain,
   });
 
   @override
   Widget build(BuildContext context) {
-    return _LeanGlass(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              _selectedCountLabel(count, language),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppText.body(
-                size: 13,
-                weight: FontWeight.w900,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ),
-          _LeanTextButton(
-            label: AppCopy.cancel(language),
-            icon: Icons.close_rounded,
-            onTap: onCancel,
-          ),
-          const SizedBox(width: 8),
-          _LeanTextButton(
-            label: _chainDriveLabel(language),
-            icon: Icons.route_rounded,
-            onTap: onChain,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppColors.primaryContainer,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.26),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
           ),
         ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _chainSummaryLabel(count, totalDistanceKm, language),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(
+                      size: 13,
+                      weight: FontWeight.w900,
+                      color: AppColors.onPrimary,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: onChain,
+                  icon: const Icon(Icons.route_rounded, size: 17),
+                  label: Text(
+                    onChain == null
+                        ? _chainPickMoreLabel(language)
+                        : _chainDriveLabel(language),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: onChain == null
+                        ? AppColors.onPrimary.withValues(alpha: 0.58)
+                        : AppColors.onPrimary,
+                    textStyle: AppText.body(size: 12, weight: FontWeight.w900),
+                  ),
+                ),
+                IconButton(
+                  tooltip: AppCopy.cancel(language),
+                  onPressed: onCancel,
+                  icon: const Icon(Icons.close_rounded, size: 19),
+                  color: AppColors.onPrimary,
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            Text(
+              _chainBrowseHint(language),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.mono(
+                size: 10,
+                weight: FontWeight.w800,
+                color: AppColors.onPrimary.withValues(alpha: 0.82),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1455,6 +1502,7 @@ class _LeanRouteTicket extends StatelessWidget {
   final VoidCallback onDetails;
   final bool mapSelected;
   final bool chainMode;
+  final int chainCount;
   final bool chainSelected;
   final VoidCallback onToggleChain;
 
@@ -1468,6 +1516,7 @@ class _LeanRouteTicket extends StatelessWidget {
     required this.onDetails,
     this.mapSelected = false,
     this.chainMode = false,
+    this.chainCount = 0,
     this.chainSelected = false,
     required this.onToggleChain,
   });
@@ -1641,6 +1690,46 @@ class _LeanRouteTicket extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 42,
+                    child: OutlinedButton.icon(
+                      key: const Key('chain-toggle-button'),
+                      onPressed: onToggleChain,
+                      icon: Icon(
+                        chainSelected
+                            ? Icons.check_rounded
+                            : Icons.add_road_rounded,
+                        size: 18,
+                      ),
+                      label: Text(
+                        _chainToggleLabel(
+                          language: language,
+                          selected: chainSelected,
+                          count: chainCount,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: chainSelected
+                            ? AppColors.redSoft
+                            : AppColors.surface.withValues(alpha: 0.72),
+                        foregroundColor: AppColors.primaryContainer,
+                        side: BorderSide(
+                          color: AppColors.primaryContainer.withValues(
+                            alpha: chainSelected ? 0.62 : 0.34,
+                          ),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        textStyle: AppText.body(
+                          size: 12,
+                          weight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Row(
                     children: [
                       _LeanCircleButton(
@@ -2612,13 +2701,51 @@ String _chainDriveLabel(AppLanguage language) {
   return AppCopy.t(language, ko: '이어달리기', en: 'Chain drive', fr: 'Enchaîner');
 }
 
-String _selectedCountLabel(int count, AppLanguage language) {
+String _chainPickMoreLabel(AppLanguage language) {
   return AppCopy.t(
     language,
-    ko: '$count개 선택',
-    en: '$count selected',
-    fr: '$count sélectionnés',
+    ko: '1개 더 고르세요',
+    en: 'Pick one more',
+    fr: 'Encore un',
   );
+}
+
+String _chainBrowseHint(AppLanguage language) {
+  return AppCopy.t(
+    language,
+    ko: '◀▶로 다른 루트를 보고 추가하세요',
+    en: 'Browse ◀▶ and add more',
+    fr: 'Parcourez ◀▶ et ajoutez',
+  );
+}
+
+String _chainSummaryLabel(
+  int count,
+  double totalDistanceKm,
+  AppLanguage language,
+) {
+  return AppCopy.t(
+    language,
+    ko: '$count개 루트 · 총 ~${totalDistanceKm.round()}km',
+    en: '$count routes · ~${totalDistanceKm.round()}km total',
+    fr: '$count routes · ~${totalDistanceKm.round()}km au total',
+  );
+}
+
+String _chainToggleLabel({
+  required AppLanguage language,
+  required bool selected,
+  required int count,
+}) {
+  if (selected) {
+    return AppCopy.t(
+      language,
+      ko: '추가됨 $count',
+      en: 'Added $count',
+      fr: 'Ajouté $count',
+    );
+  }
+  return AppCopy.t(language, ko: '이어달리기 추가', en: 'Add to chain', fr: 'Ajouter');
 }
 
 List<RevvRoute> _filterRoutes(List<RevvRoute> routes, _RouteLens lens) {

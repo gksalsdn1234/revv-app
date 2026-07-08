@@ -371,15 +371,16 @@ void main() {
     await tester.longPress(find.text('First Road'));
     await tester.pumpAndSettle();
 
-    expect(find.text('1개 선택'), findsOneWidget);
-    expect(find.text('이어달리기'), findsOneWidget);
+    expect(find.text('1개 루트 · 총 ~8km'), findsOneWidget);
+    expect(find.text('1개 더 고르세요'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.chevron_right_rounded));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Second Road'));
     await tester.pumpAndSettle();
 
-    expect(find.text('2개 선택'), findsOneWidget);
+    expect(find.text('2개 루트 · 총 ~16km'), findsOneWidget);
+    expect(find.text('이어달리기'), findsOneWidget);
 
     await tester.tap(find.text('이어달리기'));
     await tester.pumpAndSettle();
@@ -387,6 +388,65 @@ void main() {
     expect(planner.lastRouteIds, ['first', 'second']);
     expect(find.text('First Road 12분'), findsOneWidget);
     expect(find.text('Second Road 12분'), findsOneWidget);
+  });
+
+  testWidgets('chain toggle button selects routes and cancel clears chain', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final first = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
+    final second = _finderRoute(id: 'second', name: 'Second Road', lng: -73.20);
+    final routeService = RouteService()
+      ..routes = [first, second]
+      ..mapVisualRoutes = [first, second];
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: const MaterialApp(home: LeanRouteFinderScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('추천 보기'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('chain-toggle-button')), findsOneWidget);
+    expect(find.text('이어달리기 추가'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('chain-toggle-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('추가됨 1'), findsOneWidget);
+    expect(find.text('1개 루트 · 총 ~8km'), findsOneWidget);
+    expect(find.text('1개 더 고르세요'), findsOneWidget);
+    expect(find.text('◀▶로 다른 루트를 보고 추가하세요'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.chevron_right_rounded));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chain-toggle-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('추가됨 2'), findsOneWidget);
+    expect(find.text('2개 루트 · 총 ~16km'), findsOneWidget);
+    expect(find.text('이어달리기'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.close_rounded));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2개 루트 · 총 ~16km'), findsNothing);
+    expect(find.text('이어달리기 추가'), findsOneWidget);
   });
 }
 
