@@ -12,6 +12,7 @@ import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
 import '../ui/run_report_metrics.dart';
+import 'drive_dynamics_tracker.dart';
 import 'run_pending_upload_store.dart';
 import 'supabase_service.dart';
 
@@ -20,6 +21,10 @@ abstract class RunHistoryCloudClient {
   Future<bool> uploadRun(RunSummary summary);
   Future<bool> uploadRunDetail(RunTelemetryDetail detail);
   Future<bool> uploadRouteFeedback(RouteFeedback feedback);
+  Future<bool> uploadTelemetrySummary(
+    String runId,
+    DriveDynamicsSummary summary,
+  );
   Future<List<RunSummary>> fetchMissingRuns(Set<String> localIds);
   Future<Set<String>> fetchRunIds();
   Future<RunTelemetryDetail?> fetchRunDetail(String runId);
@@ -46,6 +51,12 @@ class SupabaseRunHistoryCloudClient implements RunHistoryCloudClient {
   @override
   Future<bool> uploadRouteFeedback(RouteFeedback feedback) =>
       _service.uploadRouteFeedback(feedback);
+
+  @override
+  Future<bool> uploadTelemetrySummary(
+    String runId,
+    DriveDynamicsSummary summary,
+  ) => _service.saveTelemetrySummary(runId, summary);
 
   @override
   Future<List<RunSummary>> fetchMissingRuns(Set<String> localIds) =>
@@ -197,6 +208,12 @@ class RunHistoryService extends ChangeNotifier {
     if (cloudUploadEnabled) {
       await _pendingStore.saveSummary(summary);
       unawaited(_uploadSummaryAndClearPending(summary));
+      unawaited(
+        _cloud.uploadTelemetrySummary(
+          summary.id,
+          DriveDynamicsTracker.summarizeSamples(session.telemetrySamples),
+        ),
+      );
     }
 
     final sync = _cloud;

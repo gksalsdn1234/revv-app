@@ -11,6 +11,7 @@ import '../models/revv_route.dart';
 import '../models/route_feedback.dart';
 import '../models/run_telemetry_detail.dart';
 import '../models/run_summary.dart';
+import 'drive_dynamics_tracker.dart';
 import 'route_loading_policy.dart';
 import 'secure_session_store.dart';
 
@@ -210,6 +211,23 @@ class SupabaseService extends ChangeNotifier {
       return true;
     } catch (e) {
       _debugLog('[Supabase] uploadRunDetail failed: ${_safeError(e)}');
+      return false;
+    }
+  }
+
+  Future<bool> saveTelemetrySummary(
+    String runId,
+    DriveDynamicsSummary summary,
+  ) async {
+    if (!_ready || uid == null) return false;
+    try {
+      await client!
+          .from('telemetry_summary')
+          .insert(telemetrySummaryToRow(runId, summary, userId: uid!));
+      _debugLog('[Supabase] telemetry summary uploaded — $runId');
+      return true;
+    } catch (e) {
+      _debugLog('[Supabase] saveTelemetrySummary failed: ${_safeError(e)}');
       return false;
     }
   }
@@ -724,6 +742,23 @@ class SupabaseService extends ChangeNotifier {
       'detail_version': detail.version,
       'telemetry_json': detail.toJson(),
       'created_at': detail.createdAt.toIso8601String(),
+    };
+  }
+
+  static Map<String, dynamic> telemetrySummaryToRow(
+    String runId,
+    DriveDynamicsSummary summary, {
+    required String userId,
+  }) {
+    return {
+      'run_id': runId,
+      'user_id': userId,
+      'hard_brake_count': summary.hardBrakeCount,
+      'harsh_steer_count': summary.harshSteerCount,
+      'smooth_ratio': summary.smoothRatio,
+      'p95_lateral_g': summary.p95LateralG,
+      'sample_seconds': summary.sampleSeconds,
+      'detail_version': 'v1',
     };
   }
 

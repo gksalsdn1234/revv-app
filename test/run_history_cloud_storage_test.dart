@@ -7,6 +7,7 @@ import 'package:revv_app/models/route_feedback.dart';
 import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/models/run_summary.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
+import 'package:revv_app/services/drive_dynamics_tracker.dart';
 import 'package:revv_app/services/run_history_service.dart';
 import 'package:revv_app/services/run_pending_upload_store.dart';
 import 'package:revv_app/services/secure_session_store.dart';
@@ -159,6 +160,22 @@ void main() {
       expect(cloud.recordedRouteIds, isEmpty);
     },
   );
+
+  test('RunHistoryService ignores telemetry summary upload failure', () async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: true,
+    });
+    final cloud = _FakeCloud(uploadTelemetrySummaryResult: false);
+    final history = RunHistoryService(cloudClient: cloud);
+
+    final summary = await history.save(_sessionWithRoute());
+    await Future<void>.delayed(Duration.zero);
+
+    expect(summary.id, isNotEmpty);
+    expect(history.history, hasLength(1));
+    expect(cloud.uploadTelemetrySummaryCount, 1);
+    expect(cloud.lastTelemetrySummary?.hardBrakeCount, 0);
+  });
 
   test('deleteAllRunData keeps local data when cloud delete fails', () async {
     SharedPreferences.setMockInitialValues({
@@ -346,12 +363,19 @@ RunSession _sessionWithRoute() {
 }
 
 class _FakeCloud implements RunHistoryCloudClient {
-  _FakeCloud({this.uploadDetailResult = true, this.deleteResult = true});
+  _FakeCloud({
+    this.uploadDetailResult = true,
+    this.deleteResult = true,
+    this.uploadTelemetrySummaryResult = true,
+  });
 
   final bool uploadDetailResult;
   final bool deleteResult;
+  final bool uploadTelemetrySummaryResult;
   final recordedRouteIds = <String?>[];
   var uploadDetailCount = 0;
+  var uploadTelemetrySummaryCount = 0;
+  DriveDynamicsSummary? lastTelemetrySummary;
 
   @override
   bool get isReady => true;
@@ -383,5 +407,15 @@ class _FakeCloud implements RunHistoryCloudClient {
   Future<bool> uploadRunDetail(RunTelemetryDetail detail) async {
     uploadDetailCount++;
     return uploadDetailResult;
+  }
+
+  @override
+  Future<bool> uploadTelemetrySummary(
+    String runId,
+    DriveDynamicsSummary summary,
+  ) async {
+    uploadTelemetrySummaryCount++;
+    lastTelemetrySummary = summary;
+    return uploadTelemetrySummaryResult;
   }
 }

@@ -3,6 +3,7 @@ import 'package:flutter/scheduler.dart';
 import '../models/run_session.dart';
 import '../models/revv_route.dart';
 import '../models/run_telemetry_detail.dart';
+import 'drive_dynamics_tracker.dart';
 // SharpCorner는 run_session.dart에 정의됨
 
 class RunSessionService extends ChangeNotifier {
@@ -34,6 +35,7 @@ class RunSessionService extends ChangeNotifier {
   double _distanceKm = 0;
   final List<LatLng> _gpsPath = [];
   final List<TelemetrySample> _telemetrySamples = [];
+  DriveDynamicsTracker _dynamicsTracker = DriveDynamicsTracker();
   LatLng? _lastPosition;
   DateTime? _lastTelemetrySampleTime;
   LatLng? _lastTelemetrySamplePosition;
@@ -75,6 +77,7 @@ class RunSessionService extends ChangeNotifier {
     _distanceKm = 0;
     _gpsPath.clear();
     _telemetrySamples.clear();
+    _dynamicsTracker = DriveDynamicsTracker();
     _lastPosition = null;
     _lastTelemetrySampleTime = null;
     _lastTelemetrySamplePosition = null;
@@ -116,6 +119,11 @@ class RunSessionService extends ChangeNotifier {
       lateralG: lateralG,
       longitudinalG: longitudinalG,
       driveMode: driveMode ?? _currentMode,
+    );
+    _dynamicsTracker.addSample(
+      lateralG: lateralG,
+      longitudinalG: longitudinalG,
+      elapsed: currentDuration,
     );
     _scheduleNotify();
   }
@@ -207,6 +215,7 @@ class RunSessionService extends ChangeNotifier {
   RunSession? stopSession({double maxLateralG = 0.0, double maxLonG = 0.0}) {
     if (!isRecording || _startTime == null) return null;
     isRecording = false;
+    _dynamicsTracker.summarize();
     _finalizeCurrentMode();
     final session = RunSession(
       startTime: _startTime!,

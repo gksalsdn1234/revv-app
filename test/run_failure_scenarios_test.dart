@@ -4,6 +4,7 @@ import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/route_feedback.dart';
 import 'package:revv_app/models/run_summary.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
+import 'package:revv_app/services/drive_dynamics_tracker.dart';
 import 'package:revv_app/services/run_history_service.dart';
 import 'package:revv_app/services/run_pending_upload_store.dart';
 import 'package:revv_app/services/secure_session_store.dart';
@@ -190,4 +191,10 @@ class _RetryCloud implements RunHistoryCloudClient {
     if (_uploadDetailResults.isEmpty) return true;
     return _uploadDetailResults.removeAt(0);
   }
+
+  @override
+  Future<bool> uploadTelemetrySummary(
+    String runId,
+    DriveDynamicsSummary summary,
+  ) async => true;
 }

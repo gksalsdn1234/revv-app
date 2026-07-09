@@ -4,6 +4,7 @@ import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/route_feedback.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
 import 'package:revv_app/models/run_summary.dart';
+import 'package:revv_app/services/drive_dynamics_tracker.dart';
 import 'package:revv_app/services/supabase_service.dart';
 
 void main() {
@@ -90,6 +91,38 @@ void main() {
     expect(restored.analytics['gBuckets'], {'0.2': 4, '0.4': 2});
     expect(restored.weather['tempDisplay'], '18°C');
   });
+
+  test(
+    'DriveDynamicsSummary serializes into Supabase telemetry_summary payload',
+    () {
+      const summary = DriveDynamicsSummary(
+        hardBrakeCount: 1,
+        harshSteerCount: 2,
+        smoothRatio: 0.92,
+        p95LateralG: 0.42,
+        sampleSeconds: 480,
+      );
+
+      final row = SupabaseService.telemetrySummaryToRow(
+        'run-1',
+        summary,
+        userId: 'user-1',
+      );
+
+      expect(row, {
+        'run_id': 'run-1',
+        'user_id': 'user-1',
+        'hard_brake_count': 1,
+        'harsh_steer_count': 2,
+        'smooth_ratio': 0.92,
+        'p95_lateral_g': 0.42,
+        'sample_seconds': 480,
+        'detail_version': 'v1',
+      });
+      expect(row.keys, isNot(contains('telemetry_json')));
+      expect(row.keys, isNot(contains('gps_path')));
+    },
+  );
 
   test('RouteFeedback serializes into Supabase route_feedback payload', () {
     final feedback = RouteFeedback(

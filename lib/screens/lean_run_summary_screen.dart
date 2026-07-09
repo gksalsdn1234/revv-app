@@ -13,6 +13,7 @@ import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
 import '../services/run_history_service.dart';
+import '../services/drive_dynamics_tracker.dart';
 import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
@@ -227,6 +228,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                     summary?.id ?? 'preview',
                     session,
                   );
+            final dynamicsSummary = _dynamicsSummary(session, detail);
             final shareMetrics = buildRunShareMetrics(
               session: session,
               summary: summary,
@@ -345,6 +347,23 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                                       color: AppColors.stone,
                                     ),
                                   ),
+                                  if (dynamicsSummary != null) ...[
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      dynamicsSummaryLine(
+                                        language,
+                                        dynamicsSummary,
+                                      ),
+                                      key: const ValueKey(
+                                        'dynamics-summary-line',
+                                      ),
+                                      style: AppText.mono(
+                                        size: 11,
+                                        weight: FontWeight.w700,
+                                        color: AppColors.stone,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -1962,6 +1981,33 @@ String historySummaryLine(RunSummary? summary) {
   final date =
       '${summary.date.year}-${summary.date.month.toString().padLeft(2, '0')}-${summary.date.day.toString().padLeft(2, '0')}';
   return '$date · ${summary.distanceKm.toStringAsFixed(1)} km · ${summary.durationDisplay}';
+}
+
+DriveDynamicsSummary? _dynamicsSummary(
+  RunSession? session,
+  RunTelemetryDetail? detail,
+) {
+  final samples = session?.telemetrySamples ?? detail?.samples ?? const [];
+  if (samples.isEmpty) return null;
+  return DriveDynamicsTracker.summarizeSamples(samples);
+}
+
+String dynamicsSummaryLine(AppLanguage language, DriveDynamicsSummary summary) {
+  if (!summary.hasEvents) {
+    return AppCopy.t(
+      language,
+      ko: '부드러운 주행이었어요',
+      en: 'Smooth drive',
+      fr: 'Conduite fluide',
+    );
+  }
+  final smoothPct = (summary.smoothRatio * 100).round();
+  return AppCopy.t(
+    language,
+    ko: '부드러움 $smoothPct% · 급제동 ${summary.hardBrakeCount}회 · 급조작 ${summary.harshSteerCount}회',
+    en: 'Smoothness $smoothPct% · Hard brakes ${summary.hardBrakeCount} · Abrupt steering ${summary.harshSteerCount}',
+    fr: 'Fluidité $smoothPct % · Freinages brusques ${summary.hardBrakeCount} · Coups de volant ${summary.harshSteerCount}',
+  );
 }
 
 int? _analyticsInt(Map<String, dynamic> analytics, String key) {

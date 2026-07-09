@@ -26,6 +26,8 @@ void main() {
       'supabase/migrations/20260707120000_learning_loop.sql';
   const v2DataShellsMigration =
       'supabase/migrations/20260707200000_v2_data_shells.sql';
+  const telemetrySummaryMigration =
+      'supabase/migrations/20260707220000_telemetry_summary.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -39,6 +41,7 @@ void main() {
     crewWalkiePresenceMigration,
     learningLoopMigration,
     v2DataShellsMigration,
+    telemetrySummaryMigration,
   ];
 
   const userTables = [
@@ -520,6 +523,53 @@ void main() {
       ),
     );
   });
+
+  test(
+    'telemetry summary is owner-only append-only and stores summaries only',
+    () {
+      final sql = _readLower(telemetrySummaryMigration);
+
+      expect(
+        sql,
+        contains('create table if not exists public.telemetry_summary'),
+      );
+      expect(sql, contains('run_id text primary key'));
+      expect(
+        sql,
+        contains(
+          'alter table public.telemetry_summary enable row level security',
+        ),
+      );
+      expect(sql, contains('telemetry_summary_owner_insert'));
+      expect(sql, contains('for insert to authenticated'));
+      expect(sql, contains('with check (user_id = (select auth.uid()))'));
+      expect(sql, contains('telemetry_summary_owner_select'));
+      expect(sql, contains('for select to authenticated'));
+      expect(sql, contains('using (user_id = (select auth.uid()))'));
+      expect(
+        sql,
+        contains(
+          'grant insert, select on public.telemetry_summary to authenticated',
+        ),
+      );
+      expect(
+        sql,
+        contains(
+          'revoke update, delete on public.telemetry_summary from authenticated',
+        ),
+      );
+      expect(sql, contains('revoke all on public.telemetry_summary from anon'));
+      expect(sql, contains('hard_brake_count integer'));
+      expect(sql, contains('harsh_steer_count integer'));
+      expect(sql, contains('smooth_ratio double precision'));
+      expect(sql, contains('p95_lateral_g double precision'));
+      expect(sql, contains('sample_seconds integer'));
+      expect(sql, isNot(contains('telemetry_json')));
+      expect(sql, isNot(contains('gps')));
+      expect(sql, isNot(contains('lat ')));
+      expect(sql, isNot(contains('lng ')));
+    },
+  );
 }
 
 String _readLower(String path) => File(path).readAsStringSync().toLowerCase();
