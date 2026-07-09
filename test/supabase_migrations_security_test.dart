@@ -24,6 +24,8 @@ void main() {
       'supabase/migrations/20260706090000_crew_walkie_presence.sql';
   const learningLoopMigration =
       'supabase/migrations/20260707120000_learning_loop.sql';
+  const v2DataShellsMigration =
+      'supabase/migrations/20260707200000_v2_data_shells.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -36,6 +38,7 @@ void main() {
     crewWalkieRealtimeMigration,
     crewWalkiePresenceMigration,
     learningLoopMigration,
+    v2DataShellsMigration,
   ];
 
   const userTables = [
@@ -488,6 +491,34 @@ void main() {
     );
     expect(sql, contains('revoke all on public.user_preferences from anon'));
     expect(sql, isNot(contains('using (true)')));
+  });
+
+  test('v2 data shells stay fail-closed for client writes', () {
+    final sql = _readLower(v2DataShellsMigration);
+
+    // photo_spots: 로그인 조회 + 본인 insert만, update/delete 정책 없음
+    expect(sql, contains('create table if not exists public.photo_spots'));
+    expect(
+      sql,
+      contains('alter table public.photo_spots enable row level security'),
+    );
+    expect(sql, contains('created_by = (select auth.uid())'));
+    expect(sql, isNot(contains('photo_spots_owner_update')));
+    expect(sql, contains('revoke update, delete on public.photo_spots'));
+    expect(sql, contains('revoke all on public.photo_spots from anon'));
+
+    // route_scores: 읽기 전용 공개, 쓰기는 service_role뿐
+    expect(sql, contains('create table if not exists public.route_scores'));
+    expect(
+      sql,
+      contains('alter table public.route_scores enable row level security'),
+    );
+    expect(
+      sql,
+      contains(
+        'revoke insert, update, delete on public.route_scores from anon, authenticated',
+      ),
+    );
   });
 }
 
