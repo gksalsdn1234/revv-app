@@ -7,6 +7,8 @@ import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_route_finder_screen.dart';
 import 'package:revv_app/services/drive_planner_service.dart';
 import 'package:revv_app/services/location_service.dart';
+import 'package:revv_app/services/place_search_service.dart';
+import 'package:revv_app/services/recommendation_log_service.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
 import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/settings_service.dart';
@@ -63,6 +65,11 @@ void main() {
         child: MaterialApp(home: Scaffold(body: child)),
       ),
     );
+  }
+
+  Future<void> useTallSurface(WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(430, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
   }
 
   void expectSafeCopy(List<String> values) {
@@ -203,13 +210,14 @@ void main() {
     },
   );
 
-  testWidgets('filter sheet applies lens selection to the finder overlay', (
-    tester,
-  ) async {
+  testWidgets('loop-only chip filters the finder route list', (tester) async {
+    await useTallSurface(tester);
     SharedPreferences.setMockInitialValues({});
-    final route = RevvRoute(
-      id: 'sweeper',
-      name: 'Sweeper Road',
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final loop = RevvRoute(
+      id: 'loop',
+      name: 'Loop Road',
       nodes: const [LatLng(45.0, -73.0), LatLng(45.02, -73.02)],
       distanceKm: 30,
       windingScore: 5.6,
@@ -220,17 +228,30 @@ void main() {
       tightCurveKm: 0.2,
       mediumCurveKm: 3.0,
       maxContinuousKm: 1.8,
+      isLoop: true,
+    );
+    final oneWay = RevvRoute(
+      id: 'one-way',
+      name: 'One Way Road',
+      nodes: const [LatLng(45.1, -73.0), LatLng(45.12, -73.02)],
+      distanceKm: 30,
+      windingScore: 5.6,
+      starRating: 4,
+      sharpCurveCount: 12,
+      centerPoint: const LatLng(45.11, -73.01),
+      distanceFromUser: 40,
+      tightCurveKm: 0.2,
+      mediumCurveKm: 3.0,
+      maxContinuousKm: 1.8,
     );
     final routeService = RouteService()
-      ..routes = [route]
-      ..mapVisualRoutes = [route];
+      ..routes = [loop, oneWay]
+      ..mapVisualRoutes = [loop, oneWay];
 
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider<SettingsService>(
-            create: (_) => SettingsService(),
-          ),
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
           ChangeNotifierProvider<RouteService>.value(value: routeService),
           ChangeNotifierProvider<LocationService>.value(
             value: _DeniedLocationService(),
@@ -240,25 +261,21 @@ void main() {
       ),
     );
     await tester.pump();
-
-    expect(find.byKey(const Key('route-finder-filter-badge')), findsNothing);
-
-    await tester.tap(find.byKey(const Key('route-finder-filter-button')));
+    await tester.scrollUntilVisible(
+      find.text('One Way Road'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
     await tester.pumpAndSettle();
 
-    expect(find.text('Filters'), findsOneWidget);
-    expect(find.text('Sweepers 1'), findsOneWidget);
+    expect(find.text('Loop Road'), findsOneWidget);
+    expect(find.text('One Way Road'), findsOneWidget);
 
-    await tester.tap(find.text('Sweepers 1'));
+    await tester.tap(find.text('루프만'));
     await tester.pump();
 
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('route-finder-filter-button')),
-        matching: find.text('1'),
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Loop Road'), findsOneWidget);
+    expect(find.text('One Way Road'), findsNothing);
   });
 
   testWidgets('route duration meta renders estimate and chain segment count', (
@@ -306,6 +323,7 @@ void main() {
   testWidgets('coverage request failure restores the request button', (
     tester,
   ) async {
+    await useTallSurface(tester);
     SharedPreferences.setMockInitialValues({});
     final settings = SettingsService();
     await settings.setAppLanguage(AppLanguage.korean);
@@ -336,9 +354,119 @@ void main() {
     expect(find.textContaining('알림 신청을 저장하지 못했어요'), findsOneWidget);
   });
 
+  testWidgets('destination search opens journey sheet and logs destination', (
+    tester,
+  ) async {
+    await useTallSurface(tester);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final route = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
+    final routeService = RouteService()
+      ..routes = [route]
+      ..mapVisualRoutes = [route];
+    final log = _FakeRecommendationLogService();
+    final planner = _FinderPlanner(route);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: MaterialApp(
+          home: LeanRouteFinderScreen(
+            planner: planner,
+            placeSearch: _FakePlaceSearch([
+              const PlaceResult(
+                name: 'Circuit Gilles-Villeneuve',
+                address: 'Montreal, Quebec',
+                point: LatLng(45.5001, -73.5229),
+              ),
+            ]),
+            recommendationLogService: log,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('목적지 또는 지역'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('planner-place-search-field')),
+      'circuit',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Circuit Gilles-Villeneuve'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('First Road 12분'), findsOneWidget);
+    expect(log.shown.single['mode'], 'destination');
+    expect(log.shown.single['routeIds'], ['first']);
+  });
+
+  testWidgets('free roam button opens journey sheet and logs free mode', (
+    tester,
+  ) async {
+    await useTallSurface(tester);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final route = _finderRoute(
+      id: 'free-a',
+      name: 'Chemin Kilkenny',
+      lng: -73.00,
+    );
+    final routeService = RouteService()
+      ..routes = [route]
+      ..mapVisualRoutes = [route];
+    final log = _FakeRecommendationLogService();
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: MaterialApp(
+          home: LeanRouteFinderScreen(
+            planner: _FinderPlanner(route),
+            recommendationLogService: log,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('근처 루트 1개'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('finder-free-roam-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('북 · Chemin Kilkenny'), findsOneWidget);
+    expect(find.text('출발지로 돌아오는 루프'), findsOneWidget);
+    expect(log.shown.single['mode'], 'free');
+    expect(log.shown.single['routeIds'], ['free-a']);
+  });
+
   testWidgets('long press enables chain drive into planner initial plan', (
     tester,
   ) async {
+    await useTallSurface(tester);
     SharedPreferences.setMockInitialValues({});
     final settings = SettingsService();
     await settings.setAppLanguage(AppLanguage.korean);
@@ -366,17 +494,19 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('추천 보기'));
-    await tester.pumpAndSettle();
     await tester.longPress(find.text('First Road'));
     await tester.pumpAndSettle();
 
     expect(find.text('1개 루트 · 총 ~8km'), findsOneWidget);
     expect(find.text('1개 더 고르세요'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.chevron_right_rounded));
+    await tester.scrollUntilVisible(
+      find.text('Second Road'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Second Road'));
+    await tester.longPress(find.text('Second Road'));
     await tester.pumpAndSettle();
 
     expect(find.text('2개 루트 · 총 ~16km'), findsOneWidget);
@@ -393,6 +523,7 @@ void main() {
   testWidgets('chain toggle button selects routes and cancel clears chain', (
     tester,
   ) async {
+    await useTallSurface(tester);
     SharedPreferences.setMockInitialValues({});
     final settings = SettingsService();
     await settings.setAppLanguage(AppLanguage.korean);
@@ -419,13 +550,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('추천 보기'));
-    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const Key('chain-toggle-button')),
+      findsAtLeastNWidgets(1),
+    );
+    expect(find.text('이어달리기 추가'), findsNWidgets(2));
 
-    expect(find.byKey(const Key('chain-toggle-button')), findsOneWidget);
-    expect(find.text('이어달리기 추가'), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('chain-toggle-button')));
+    await tester.tap(find.byKey(const Key('chain-toggle-button')).first);
     await tester.pumpAndSettle();
 
     expect(find.text('추가됨 1'), findsOneWidget);
@@ -433,12 +564,16 @@ void main() {
     expect(find.text('1개 더 고르세요'), findsOneWidget);
     expect(find.text('◀▶로 다른 루트를 보고 추가하세요'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.chevron_right_rounded));
+    await tester.scrollUntilVisible(
+      find.text('Second Road'),
+      300,
+      scrollable: find.byType(Scrollable).last,
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('chain-toggle-button')));
+    await tester.tap(find.byKey(const Key('chain-toggle-button')).last);
     await tester.pumpAndSettle();
 
-    expect(find.text('추가됨 2'), findsOneWidget);
+    expect(find.text('추가됨 2'), findsWidgets);
     expect(find.text('2개 루트 · 총 ~16km'), findsOneWidget);
     expect(find.text('이어달리기'), findsOneWidget);
 
@@ -446,7 +581,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('2개 루트 · 총 ~16km'), findsNothing);
-    expect(find.text('이어달리기 추가'), findsOneWidget);
+    expect(find.text('이어달리기 추가'), findsWidgets);
   });
 }
 
@@ -495,6 +630,89 @@ class _ReadyLocationService extends LocationService {
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
   }) async => const LatLng(45.0, -73.0);
+}
+
+class _FakePlaceSearch extends PlaceSearchService {
+  final List<PlaceResult> results;
+
+  _FakePlaceSearch(this.results);
+
+  @override
+  bool get isEnabled => true;
+
+  @override
+  Future<List<PlaceResult>> searchPlaces(
+    String query, {
+    LatLng? proximity,
+    String language = 'en',
+  }) async {
+    return results;
+  }
+}
+
+class _FakeRecommendationLogService extends RecommendationLogService {
+  final shown = <Map<String, Object?>>[];
+
+  _FakeRecommendationLogService() : super.forTesting(insert: (_) async {});
+
+  @override
+  Future<void> logShown({
+    required String mode,
+    required List<String> routeIds,
+    LatLng? origin,
+    int? budgetMinutes,
+  }) async {
+    shown.add({
+      'mode': mode,
+      'routeIds': routeIds,
+      'origin': origin,
+      'budgetMinutes': budgetMinutes,
+    });
+  }
+}
+
+class _FinderPlanner extends _ChainPlanner {
+  final RevvRoute route;
+
+  _FinderPlanner(this.route);
+
+  @override
+  Future<List<DrivePlanOption>> buildPlanOptions(
+    DrivePlanRequest request,
+  ) async {
+    final plan = await buildPlanFromRoutes(
+      origin: request.origin,
+      routes: [route],
+      destination: request.destination,
+    );
+    return [
+      DrivePlanOption(
+        kind: DrivePlanOptionKind.standard,
+        budgetMinutes: request.windingBudgetMinutes,
+        plan: plan,
+      ),
+    ];
+  }
+
+  @override
+  Future<List<FreeRoamOption>> buildFreeRoamOptions({
+    required LatLng origin,
+    required int totalBudgetMinutes,
+  }) async {
+    final plan = await buildPlanFromRoutes(
+      origin: origin,
+      routes: [route],
+      destination: origin,
+    );
+    return [
+      FreeRoamOption(
+        headingBucket: 0,
+        leadRoute: route,
+        budgetMinutes: totalBudgetMinutes,
+        plan: plan,
+      ),
+    ];
+  }
 }
 
 class _ChainPlanner extends DrivePlannerService {
