@@ -22,7 +22,6 @@ import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
 import '../widgets/copilot_start_sheet.dart';
 import 'lean_drive_screen.dart';
-import 'lean_drive_planner_screen.dart';
 import 'lean_route_finder_screen.dart';
 import 'lean_run_summary_screen.dart';
 
@@ -323,6 +322,32 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     );
   }
 
+  void _openFinder({RevvRoute? route}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LeanRouteFinderScreen(initialRouteId: route?.id),
+      ),
+    );
+  }
+
+  String _homeRouteStatus({
+    required AppLanguage language,
+    required LocationService location,
+    required RouteService routes,
+  }) {
+    if (routes.isLoading ||
+        (!location.hasBestKnownLocation && routes.routes.isEmpty)) {
+      return AppCopy.t(
+        language,
+        ko: '루트 찾는 중…',
+        en: 'Finding roads…',
+        fr: 'Recherche…',
+      );
+    }
+    return '${routes.routes.length} ROUTES NEARBY';
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = context.watch<LocationService>();
@@ -332,7 +357,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     final supabase = context.watch<SupabaseService>();
     final language = settings.appLanguage;
     final lastRun = history.history.isNotEmpty ? history.history.first : null;
-    final readyCount = routes.routes.length;
+    final previewRoutes = routes.routes.take(3).toList(growable: false);
 
     return Scaffold(
       backgroundColor: AppColors.cream,
@@ -363,51 +388,9 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                   Expanded(
                     child: Align(
                       alignment: Alignment.centerRight,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _LeanLanguageToggle(
-                              language: language,
-                              onChanged: settings.setAppLanguage,
-                            ),
-                            const SizedBox(width: 8),
-                            GestureDetector(
-                              onTap: () =>
-                                  settings.setTtsMuted(!settings.ttsMuted),
-                              child: Container(
-                                padding: const EdgeInsets.all(7),
-                                decoration: BoxDecoration(
-                                  color: AppColors.ink.withValues(alpha: 0.07),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: AppColors.ink.withValues(
-                                      alpha: 0.14,
-                                    ),
-                                  ),
-                                ),
-                                child: Icon(
-                                  settings.ttsMuted
-                                      ? Icons.volume_off_rounded
-                                      : Icons.volume_up_rounded,
-                                  size: 16,
-                                  color: settings.ttsMuted
-                                      ? AppColors.stone
-                                      : AppColors.primaryContainer,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _LeanStatusDot(
-                              active: supabase.isCloudAvailable,
-                              label: supabase.isCloudAvailable
-                                  ? 'SYNCED'
-                                  : 'LOCAL',
-                            ),
-                          ],
-                        ),
-                      ),
+                      child: supabase.isCloudAvailable
+                          ? const SizedBox.shrink()
+                          : const _LeanStatusDot(active: false, label: 'LOCAL'),
                     ),
                   ),
                 ],
@@ -465,7 +448,11 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                                       const SizedBox(width: 8),
                                       Expanded(
                                         child: Text(
-                                          '$readyCount ROUTES NEARBY',
+                                          _homeRouteStatus(
+                                            language: language,
+                                            location: location,
+                                            routes: routes,
+                                          ),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           textAlign: TextAlign.right,
@@ -509,13 +496,7 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                                         ),
                                       ),
                                       onPressed: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const LeanRouteFinderScreen(),
-                                          ),
-                                        );
+                                        _openFinder();
                                       },
                                       icon: const Icon(
                                         Icons.arrow_forward_rounded,
@@ -530,53 +511,6 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                                           weight: FontWeight.w800,
                                           letterSpacing: 1.5,
                                           color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 10),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 46,
-                                    child: OutlinedButton.icon(
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: AppColors.cream,
-                                        side: BorderSide(
-                                          color: AppColors.cream.withValues(
-                                            alpha: 0.28,
-                                          ),
-                                        ),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                        ),
-                                      ),
-                                      onPressed: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                const LeanDrivePlannerScreen(),
-                                          ),
-                                        );
-                                      },
-                                      icon: const Icon(
-                                        Icons.alt_route_rounded,
-                                        size: 19,
-                                      ),
-                                      label: Text(
-                                        AppCopy.t(
-                                          language,
-                                          ko: '목적지까지 여정 만들기',
-                                          en: 'Plan to destination',
-                                          fr: 'Planifier la destination',
-                                        ).toUpperCase(),
-                                        style: AppText.label(
-                                          size: 14,
-                                          weight: FontWeight.w800,
-                                          letterSpacing: 1.2,
-                                          color: AppColors.cream,
                                         ),
                                       ),
                                     ),
@@ -609,20 +543,44 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
                           },
                         ),
                       ],
+                      const SizedBox(height: 20),
+                      _SectionHeader(
+                        label: AppCopy.t(
+                          language,
+                          ko: '근처 와인딩',
+                          en: 'Nearby roads',
+                          fr: 'Routes à proximité',
+                        ).toUpperCase(),
+                      ),
+                      const SizedBox(height: 10),
+                      if (previewRoutes.isEmpty)
+                        _FinderPlaceholderCard(language: language)
+                      else
+                        for (final route in previewRoutes) ...[
+                          _NearbyRouteCard(
+                            route: route,
+                            language: language,
+                            onTap: () => _openFinder(route: route),
+                          ),
+                          if (route != previewRoutes.last)
+                            const SizedBox(height: 10),
+                        ],
                       if (lastRun != null) ...[
                         const SizedBox(height: 20),
                         _SectionHeader(
                           label: AppCopy.t(
                             language,
-                            ko: 'RECENT RUNS',
-                            en: 'RECENT RUNS',
-                            fr: 'RUNS RÉCENTS',
+                            ko: '최근 주행',
+                            en: 'Recent drive',
+                            fr: 'Dernier trajet',
                           ),
-                          trailing: 'All ${history.totalRuns} →',
-                          onTap: () => _showHistorySheet(context),
                         ),
                         const SizedBox(height: 10),
-                        _LastRunCard(run: lastRun, language: language),
+                        _LastRunCard(
+                          run: lastRun,
+                          language: language,
+                          onTap: () => _showHistorySheet(context),
+                        ),
                       ],
                       if (history.totalRuns > 0) ...[
                         const SizedBox(height: 16),
@@ -653,8 +611,13 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
 class _LastRunCard extends StatelessWidget {
   final RunSummary run;
   final AppLanguage language;
+  final VoidCallback onTap;
 
-  const _LastRunCard({required this.run, required this.language});
+  const _LastRunCard({
+    required this.run,
+    required this.language,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -662,81 +625,45 @@ class _LastRunCard extends StatelessWidget {
     final diff = now.difference(run.date);
     final relDate = _relativeDate(diff, language);
     final distText = '${run.distanceKm.toStringAsFixed(1)} km';
-    final hasCornerEvents = run.sharpCornersCount > 0;
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.creamRaised,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.creamRaised,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
                 AppCopy.t(
                   language,
-                  ko: 'LAST DRIVE',
-                  en: 'LAST DRIVE',
-                  fr: 'DERNIER TRAJET',
+                  ko: '지난 드라이브: ${run.routeName} · $distText · $relDate',
+                  en: 'Last drive: ${run.routeName} · $distText · $relDate',
+                  fr: 'Dernier trajet : ${run.routeName} · $distText · $relDate',
                 ),
-                style: AppText.mono(
-                  size: 9,
-                  letterSpacing: 1.6,
-                  color: AppColors.stone,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                relDate,
-                style: AppText.mono(
-                  size: 9,
-                  letterSpacing: 1.2,
-                  color: AppColors.stone,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.body(
+                  size: 14,
+                  weight: FontWeight.w900,
+                  color: AppColors.ink,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            run.routeName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppText.body(
-              size: 17,
-              weight: FontWeight.w900,
-              color: AppColors.ink,
             ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              _RunPill(label: distText),
-              const SizedBox(width: 7),
-              _RunPill(label: run.durationDisplay),
-              if (hasCornerEvents) ...[
-                const SizedBox(width: 7),
-                _RunPill(
-                  label: AppCopy.t(
-                    language,
-                    ko: '${run.sharpCornersCount} 코너',
-                    en: '${run.sharpCornersCount} corners',
-                    fr: '${run.sharpCornersCount} virages',
-                  ),
-                  accent: true,
-                ),
-              ],
-              if (run.weatherEmoji.isNotEmpty) ...[
-                const SizedBox(width: 7),
-                _RunPill(label: run.weatherEmoji),
-              ],
-            ],
-          ),
-        ],
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: AppColors.stone,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -806,12 +733,115 @@ class _RunPill extends StatelessWidget {
   }
 }
 
+class _NearbyRouteCard extends StatelessWidget {
+  final RevvRoute route;
+  final AppLanguage language;
+  final VoidCallback onTap;
+
+  const _NearbyRouteCard({
+    required this.route,
+    required this.language,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.creamRaised,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+        ),
+        child: Row(
+          children: [
+            const _RouteGlyph(),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    routeDisplayName(route, language: language),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(
+                      size: 15,
+                      weight: FontWeight.w900,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 6,
+                    children: [
+                      _RunPill(
+                        label: '${route.distanceKm.toStringAsFixed(1)} km',
+                      ),
+                      _RunPill(label: driveMinutesLabel(route, language)),
+                      _RunPill(
+                        label: 'FUN ${route.windingScore.toStringAsFixed(1)}',
+                        accent: true,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.chevron_right_rounded,
+              size: 20,
+              color: AppColors.stone,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FinderPlaceholderCard extends StatelessWidget {
+  final AppLanguage language;
+
+  const _FinderPlaceholderCard({required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
+      child: Text(
+        AppCopy.t(
+          language,
+          ko: '파인더에서 탐색 →',
+          en: 'Explore in Finder →',
+          fr: 'Explorer dans Finder →',
+        ),
+        style: AppText.body(
+          size: 14,
+          weight: FontWeight.w900,
+          color: AppColors.primaryContainer,
+        ),
+      ),
+    );
+  }
+}
+
 class _SectionHeader extends StatelessWidget {
   final String label;
-  final String? trailing;
-  final VoidCallback? onTap;
 
-  const _SectionHeader({required this.label, this.trailing, this.onTap});
+  const _SectionHeader({required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -825,20 +855,6 @@ class _SectionHeader extends StatelessWidget {
             color: AppColors.stone,
           ),
         ),
-        const Spacer(),
-        if (trailing != null)
-          GestureDetector(
-            onTap: onTap,
-            child: Text(
-              trailing!,
-              style: AppText.label(
-                size: 14,
-                weight: FontWeight.w700,
-                letterSpacing: 0.5,
-                color: AppColors.primaryContainer,
-              ),
-            ),
-          ),
       ],
     );
   }
@@ -1357,7 +1373,6 @@ class _HistoryRunRow extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _RouteGlyph extends StatelessWidget {
@@ -1575,9 +1590,10 @@ class _SettingsSheet extends StatelessWidget {
                   onLeft: () => settings.setDistUnit('km'),
                   onRight: () => settings.setDistUnit('mi'),
                 ),
-                _SettingsInfoTile(
+                _SettingsLanguageTile(
                   label: AppCopy.settingsLanguage(language),
-                  value: language.label,
+                  language: language,
+                  onChanged: settings.setAppLanguage,
                 ),
                 const SizedBox(height: 10),
                 _SettingsGroupLabel(
@@ -1765,6 +1781,56 @@ class _SettingsSegmentTile extends StatelessWidget {
                   active: !leftActive,
                   onTap: onRight,
                 ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingsLanguageTile extends StatelessWidget {
+  final String label;
+  final AppLanguage language;
+  final ValueChanged<AppLanguage> onChanged;
+
+  const _SettingsLanguageTile({
+    required this.label,
+    required this.language,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: AppText.body(
+                size: 15,
+                weight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              color: AppColors.ink.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(9),
+            ),
+            child: Row(
+              children: [
+                for (final item in AppLanguage.values)
+                  _SegmentOption(
+                    label: item.shortLabel,
+                    active: item == language,
+                    onTap: () => onChanged(item),
+                  ),
               ],
             ),
           ),
@@ -2153,61 +2219,6 @@ class _TinyActionButton extends StatelessWidget {
 }
 
 // ── 공통 위젯 ─────────────────────────────────────────────
-
-class _LeanLanguageToggle extends StatelessWidget {
-  final AppLanguage language;
-  final ValueChanged<AppLanguage> onChanged;
-
-  const _LeanLanguageToggle({required this.language, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: AppColors.panel.withValues(alpha: 0.78),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: AppColors.outlineVariant.withValues(alpha: 0.32),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: AppLanguage.values
-            .map(
-              (item) => GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => onChanged(item),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  curve: Curves.easeOut,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: item == language
-                        ? AppColors.primaryContainer
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    item.shortLabel,
-                    style: AppText.technicalLabel(
-                      size: 9,
-                      color: item == language
-                          ? AppColors.onPrimary
-                          : AppColors.textHint,
-                    ),
-                  ),
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-}
 
 class _LeanStatusDot extends StatelessWidget {
   final bool active;

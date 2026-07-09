@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:revv_app/core/storage_keys.dart';
+import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
@@ -202,6 +203,181 @@ void main() {
     expect(find.text('7 RUNS · MEMBER SINCE APR 2026'), findsNothing);
     expect(find.text('Anonymous driver'), findsOneWidget);
     expect(find.text('2 runs · since MAR 2026'), findsOneWidget);
+  });
+
+  testWidgets('home digest uses one CTA and cached nearby route cards', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.binding.setSurfaceSize(const Size(430, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final routeService = RouteService()
+      ..routes = [
+        _homeRoute('route-1', 'First Road', -73.0),
+        _homeRoute('route-2', 'Second Road', -73.1),
+        _homeRoute('route-3', 'Third Road', -73.2),
+        _homeRoute('route-4', 'Fourth Road', -73.3),
+      ];
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _HomeLocationService(hasLocation: true),
+          ),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider.value(value: SupabaseService()),
+        ],
+        child: const MaterialApp(home: LeanHomeScreen()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('FIND ROUTES'), findsOneWidget);
+    expect(find.textContaining('Plan to destination'), findsNothing);
+    expect(find.text('4 ROUTES NEARBY'), findsOneWidget);
+    expect(find.text('NEARBY ROADS'), findsOneWidget);
+    expect(find.text('First Road'), findsOneWidget);
+    expect(find.text('Second Road'), findsOneWidget);
+    expect(find.text('Third Road'), findsOneWidget);
+    expect(find.text('Fourth Road'), findsNothing);
+    expect(find.text('SYNCED'), findsNothing);
+
+    await tester.tap(find.text('First Road'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('nearby routes'), findsWidgets);
+    expect(routeService.selectedRoute?.id, 'route-1');
+  });
+
+  testWidgets('home digest shows placeholder and loading status correctly', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final routeService = RouteService()..isLoading = true;
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _HomeLocationService(hasLocation: false),
+          ),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider.value(value: SupabaseService()),
+        ],
+        child: const MaterialApp(home: LeanHomeScreen()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Finding roads…'), findsOneWidget);
+    expect(find.text('0 ROUTES NEARBY'), findsNothing);
+    expect(find.text('Explore in Finder →'), findsOneWidget);
+  });
+
+  testWidgets('home digest recent run is one line and opens history', (
+    tester,
+  ) async {
+    final runs = [
+      RunSummary(
+        id: 'run-1',
+        date: DateTime.now().subtract(const Duration(hours: 2)),
+        distanceKm: 12.4,
+        durationSeconds: 900,
+        maxSpeedKmh: 62,
+        avgSpeedKmh: 43,
+        routeName: 'Morning Pass',
+        weatherEmoji: '',
+        tempDisplay: '',
+      ),
+    ];
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.runs: RunSummary.listToJson(runs),
+    });
+    final history = RunHistoryService();
+    await history.load();
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<RunHistoryService>.value(value: history),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _HomeLocationService(hasLocation: true),
+          ),
+          ChangeNotifierProvider(create: (_) => RouteService()),
+          ChangeNotifierProvider.value(value: SupabaseService()),
+        ],
+        child: const MaterialApp(home: LeanHomeScreen()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.textContaining('Last drive: Morning Pass · 12.4 km'),
+      findsOneWidget,
+    );
+    expect(find.text('LAST DRIVE'), findsNothing);
+
+    await tester.tap(find.textContaining('Last drive: Morning Pass'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('HISTORY'), findsOneWidget);
+    expect(find.text('Morning Pass'), findsWidgets);
+  });
+
+  testWidgets('home utilities move language and voice controls to settings', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    final supabase = SupabaseService()
+      ..debugSetCloudSessionStateForTesting(
+        ready: true,
+        uid: 'user-1',
+        anonymous: false,
+      );
+    addTearDown(supabase.debugResetForTesting);
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _HomeLocationService(hasLocation: true),
+          ),
+          ChangeNotifierProvider(create: (_) => RouteService()),
+          ChangeNotifierProvider.value(value: supabase),
+        ],
+        child: const MaterialApp(home: LeanHomeScreen()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('KO'), findsNothing);
+    expect(find.text('FR'), findsNothing);
+    expect(find.byIcon(Icons.volume_up_rounded), findsNothing);
+    expect(find.text('SYNCED'), findsNothing);
+    expect(find.text('LOCAL'), findsNothing);
+
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Language'), findsOneWidget);
+    expect(find.text('KO'), findsOneWidget);
+    expect(find.text('EN'), findsOneWidget);
+    expect(find.text('FR'), findsOneWidget);
+    expect(find.text('Voice guidance'), findsOneWidget);
+
+    await tester.tap(find.text('KO'));
+    await tester.pumpAndSettle();
+
+    expect(settings.appLanguage, AppLanguage.korean);
   });
 
   testWidgets('run summary session log expands detailed sections', (
@@ -889,5 +1065,49 @@ RunTelemetryDetail _shareActionDetail() {
     driveModeSeconds: const {'cruise': 1, 'winding': 1},
     weather: const {'tempDisplay': '18C'},
     createdAt: DateTime.parse('2026-04-01T10:12:00Z'),
+  );
+}
+
+class _HomeLocationService extends LocationService {
+  _HomeLocationService({required this.hasLocation}) {
+    hasPermission = hasLocation;
+  }
+
+  final bool hasLocation;
+
+  @override
+  bool get hasBestKnownLocation => hasLocation;
+
+  @override
+  LatLng? get bestKnownLatLng => hasLocation ? const LatLng(45.0, -73.0) : null;
+
+  @override
+  Future<void> requestPermission() async {}
+
+  @override
+  Future<void> startTracking() async {}
+
+  @override
+  Future<LatLng?> ensureLiveLocation({
+    Duration timeout = const Duration(seconds: 6),
+  }) async => bestKnownLatLng;
+}
+
+RevvRoute _homeRoute(String id, String name, double lng) {
+  return RevvRoute(
+    id: id,
+    name: name,
+    nodes: [LatLng(45.0, lng), LatLng(45.02, lng - 0.02)],
+    distanceKm: 8,
+    windingScore: 6,
+    starRating: 4,
+    sharpCurveCount: 8,
+    centerPoint: LatLng(45.01, lng - 0.01),
+    distanceFromUser: 5,
+    tightCurveKm: 1,
+    mediumCurveKm: 1,
+    maxContinuousKm: 1,
+    routeRankScore: 6,
+    flowScore: 1,
   );
 }

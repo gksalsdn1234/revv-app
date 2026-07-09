@@ -11,8 +11,13 @@ import 'package:revv_app/services/place_search_service.dart';
 import 'package:revv_app/services/recommendation_log_service.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
 import 'package:revv_app/services/route_service.dart';
+import 'package:revv_app/services/imu_service.dart';
+import 'package:revv_app/services/run_session_service.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/services/supabase_service.dart';
+import 'package:revv_app/services/weather_service.dart';
+import 'package:revv_app/widgets/journey_sheet.dart';
+import 'package:revv_app/widgets/map_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -413,6 +418,150 @@ void main() {
     expect(log.shown.single['routeIds'], ['first']);
   });
 
+  testWidgets('finder journey shows direct comparison and switches options', (
+    tester,
+  ) async {
+    await useTallSurface(tester);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final route = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
+    final routeService = RouteService()
+      ..routes = [route]
+      ..mapVisualRoutes = [route];
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: MaterialApp(
+          home: LeanRouteFinderScreen(
+            planner: _FinderPlanner(
+              route,
+              plan: _drivePlanForRoute(route, baselineDirectMinutes: 30),
+              lightPlan: _drivePlanForRoute(
+                route.copyWith(name: 'Hill Loop'),
+                windingMinutes: 10,
+              ),
+            ),
+            placeSearch: _FakePlaceSearch([
+              const PlaceResult(
+                name: 'Circuit Gilles-Villeneuve',
+                address: 'Montreal, Quebec',
+                point: LatLng(45.5001, -73.5229),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('목적지 또는 지역'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('planner-place-search-field')),
+      'circuit',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Circuit Gilles-Villeneuve'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('plan-compare-line')), findsOneWidget);
+    expect(find.text('기본 30m · REVV 27m'), findsOneWidget);
+    expect(find.text('커브 8개'), findsOneWidget);
+    expect(find.text('First Road 12분'), findsOneWidget);
+
+    await tester.tap(find.textContaining('가볍게'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hill Loop 10분'), findsOneWidget);
+    expect(find.text('First Road 12분'), findsNothing);
+  });
+
+  testWidgets('finder logs chosen after start choice is confirmed', (
+    tester,
+  ) async {
+    await useTallSurface(tester);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final route = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
+    final routeService = RouteService()
+      ..routes = [route]
+      ..mapVisualRoutes = [route];
+    final log = _FakeRecommendationLogService();
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+          ChangeNotifierProvider(create: (_) => WeatherService()),
+          ChangeNotifierProvider(create: (_) => RunSessionService()),
+          ChangeNotifierProvider(create: (_) => ImuService()),
+        ],
+        child: MaterialApp(
+          home: LeanRouteFinderScreen(
+            planner: _FinderPlanner(route),
+            placeSearch: _FakePlaceSearch([
+              const PlaceResult(
+                name: 'Circuit Gilles-Villeneuve',
+                address: 'Montreal, Quebec',
+                point: LatLng(45.5001, -73.5229),
+              ),
+            ]),
+            recommendationLogService: log,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('목적지 또는 지역'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('planner-place-search-field')),
+      'circuit',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Circuit Gilles-Villeneuve'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('드라이브 시작'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('여기서 테스트 주행'));
+    await tester.pump();
+
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await tester.pumpAndSettle();
+
+    expect(log.chosen, [
+      {
+        'mode': 'destination',
+        'routeId': 'first',
+        'optionKind': 'standard',
+        'origin': const LatLng(45.0, -73.0),
+        'budgetMinutes': 60,
+      },
+    ]);
+  });
+
   testWidgets('free roam button opens journey sheet and logs free mode', (
     tester,
   ) async {
@@ -583,6 +732,102 @@ void main() {
     expect(find.text('2개 루트 · 총 ~16km'), findsNothing);
     expect(find.text('이어달리기 추가'), findsWidgets);
   });
+
+  test('buildJourneyPlanMapMarkers creates markers for each winding leg', () {
+    const firstStart = LatLng(45.1, -73.1);
+    const firstEnd = LatLng(45.2, -73.2);
+    const secondStart = LatLng(45.3, -73.3);
+    const secondEnd = LatLng(45.4, -73.4);
+    const plan = DrivePlan(
+      legs: [
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.winding,
+          nodes: [firstStart, firstEnd],
+          distanceKm: 8,
+          estimatedMinutes: 12,
+        ),
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.winding,
+          nodes: [secondStart, secondEnd],
+          distanceKm: 7,
+          estimatedMinutes: 10,
+        ),
+      ],
+      totalMinutes: 22,
+      windingMinutes: 22,
+      transitMinutes: 0,
+      waypoints: [firstStart, firstEnd, secondStart, secondEnd],
+    );
+
+    final markers = buildJourneyPlanMapMarkers(
+      origin: const LatLng(45.0, -73.0),
+      destination: const LatLng(45.5, -73.5),
+      plan: plan,
+    );
+
+    expect(markers.map((marker) => marker.kind), [
+      PlanMapMarkerKind.origin,
+      PlanMapMarkerKind.destination,
+      PlanMapMarkerKind.windingStart,
+      PlanMapMarkerKind.windingEnd,
+      PlanMapMarkerKind.windingStart,
+      PlanMapMarkerKind.windingEnd,
+    ]);
+    expect(markers[2].point, firstStart);
+    expect(markers[3].point, firstEnd);
+    expect(markers[4].point, secondStart);
+    expect(markers[5].point, secondEnd);
+  });
+
+  testWidgets('journey sheet marks the arrival-time recommended option', (
+    tester,
+  ) async {
+    final base = _finderRoute(id: 'base', name: 'Base Road', lng: -73.00);
+    final extended = _finderRoute(
+      id: 'extended',
+      name: 'Ridge Sweep',
+      lng: -73.20,
+    );
+    await pumpWithSettings(
+      tester,
+      JourneySheet(
+        controller: DraggableScrollableController(),
+        language: AppLanguage.korean,
+        destinationName: 'Circuit',
+        options: [
+          DrivePlanOption(
+            kind: DrivePlanOptionKind.standard,
+            budgetMinutes: 60,
+            plan: _drivePlanForRoute(base, windingMinutes: 30),
+          ),
+          DrivePlanOption(
+            kind: DrivePlanOptionKind.extended,
+            budgetMinutes: 90,
+            plan: _drivePlanForRoute(extended, windingMinutes: 45),
+          ),
+        ],
+        freeRoamOptions: const [],
+        plan: _drivePlanForRoute(extended, windingMinutes: 45),
+        recommended: DrivePlanOption(
+          kind: DrivePlanOptionKind.extended,
+          budgetMinutes: 90,
+          plan: _drivePlanForRoute(extended, windingMinutes: 45),
+        ),
+        arriveBy: DateTime.now().add(const Duration(hours: 4)),
+        selectedKind: DrivePlanOptionKind.extended,
+        selectedFreeRoamIndex: 0,
+        selectedOptionBudget: 90,
+        canStart: true,
+        onSelectedOption: (_) {},
+        onSelectedFreeRoam: (_) {},
+        onStart: () {},
+        onNavigate: () {},
+      ),
+    );
+
+    expect(find.textContaining('추천'), findsOneWidget);
+    expect(find.text('Ridge Sweep 45분'), findsOneWidget);
+  });
 }
 
 class _DeniedLocationService extends LocationService {
@@ -652,6 +897,7 @@ class _FakePlaceSearch extends PlaceSearchService {
 
 class _FakeRecommendationLogService extends RecommendationLogService {
   final shown = <Map<String, Object?>>[];
+  final chosen = <Map<String, Object?>>[];
 
   _FakeRecommendationLogService() : super.forTesting(insert: (_) async {});
 
@@ -669,27 +915,58 @@ class _FakeRecommendationLogService extends RecommendationLogService {
       'budgetMinutes': budgetMinutes,
     });
   }
+
+  @override
+  Future<void> logChosen({
+    required String mode,
+    required String routeId,
+    String? optionKind,
+    LatLng? origin,
+    int? budgetMinutes,
+  }) async {
+    chosen.add({
+      'mode': mode,
+      'routeId': routeId,
+      'optionKind': optionKind,
+      'origin': origin,
+      'budgetMinutes': budgetMinutes,
+    });
+  }
 }
 
 class _FinderPlanner extends _ChainPlanner {
   final RevvRoute route;
+  final DrivePlan? plan;
+  final DrivePlan? lightPlan;
 
-  _FinderPlanner(this.route);
+  _FinderPlanner(this.route, {this.plan, this.lightPlan});
 
   @override
   Future<List<DrivePlanOption>> buildPlanOptions(
     DrivePlanRequest request,
   ) async {
-    final plan = await buildPlanFromRoutes(
-      origin: request.origin,
-      routes: [route],
-      destination: request.destination,
-    );
+    final standardPlan =
+        plan ??
+        await buildPlanFromRoutes(
+          origin: request.origin,
+          routes: [route],
+          destination: request.destination,
+        );
     return [
+      DrivePlanOption(
+        kind: DrivePlanOptionKind.light,
+        budgetMinutes: (request.windingBudgetMinutes * 0.6).round(),
+        plan: lightPlan ?? standardPlan,
+      ),
       DrivePlanOption(
         kind: DrivePlanOptionKind.standard,
         budgetMinutes: request.windingBudgetMinutes,
-        plan: plan,
+        plan: standardPlan,
+      ),
+      DrivePlanOption(
+        kind: DrivePlanOptionKind.extended,
+        budgetMinutes: (request.windingBudgetMinutes * 1.5).round(),
+        plan: standardPlan,
       ),
     ];
   }
@@ -713,6 +990,46 @@ class _FinderPlanner extends _ChainPlanner {
       ),
     ];
   }
+}
+
+DrivePlan _drivePlanForRoute(
+  RevvRoute route, {
+  int windingMinutes = 12,
+  int? baselineDirectMinutes,
+}) {
+  return DrivePlan(
+    legs: [
+      const DrivePlanLeg(
+        kind: DrivePlanLegKind.transit,
+        nodes: [LatLng(45.0, -73.0), LatLng(45.0, -73.2)],
+        distanceKm: 1,
+        estimatedMinutes: 10,
+      ),
+      DrivePlanLeg(
+        kind: DrivePlanLegKind.winding,
+        nodes: route.nodes,
+        distanceKm: route.distanceKm,
+        estimatedMinutes: windingMinutes,
+        route: route,
+      ),
+      const DrivePlanLeg(
+        kind: DrivePlanLegKind.transit,
+        nodes: [LatLng(45.02, -73.22), LatLng(45.1, -73.3)],
+        distanceKm: 1,
+        estimatedMinutes: 5,
+      ),
+    ],
+    totalMinutes: windingMinutes + 15,
+    windingMinutes: windingMinutes,
+    transitMinutes: 15,
+    waypoints: const [
+      LatLng(45.0, -73.0),
+      LatLng(45.0, -73.2),
+      LatLng(45.02, -73.22),
+      LatLng(45.1, -73.3),
+    ],
+    baselineDirectMinutes: baselineDirectMinutes,
+  );
 }
 
 class _ChainPlanner extends DrivePlannerService {

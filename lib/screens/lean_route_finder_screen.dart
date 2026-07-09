@@ -75,12 +75,14 @@ class LeanRouteFinderScreen extends StatefulWidget {
   final DrivePlannerService? planner;
   final PlaceSearchService? placeSearch;
   final RecommendationLogService? recommendationLogService;
+  final String? initialRouteId;
 
   const LeanRouteFinderScreen({
     super.key,
     this.planner,
     this.placeSearch,
     this.recommendationLogService,
+    this.initialRouteId,
   });
 
   @override
@@ -122,6 +124,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   bool _planning = false;
   String? _journeyMode;
   String? _lastShownSignature;
+  bool _initialRouteFocused = false;
 
   bool get _chainMode => _chainSelection.isNotEmpty;
 
@@ -541,6 +544,15 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     context.read<RouteService>().selectRoute(route);
   }
 
+  void _focusInitialRoute(List<RevvRoute> routes) {
+    final routeId = widget.initialRouteId;
+    if (_initialRouteFocused || routeId == null || routes.isEmpty) return;
+    final index = routes.indexWhere((route) => route.id == routeId);
+    if (index < 0) return;
+    _initialRouteFocused = true;
+    _selectIndex(routes, index);
+  }
+
   void _toggleChainRoute(RevvRoute route) {
     setState(() {
       if (_chainSelection.containsKey(route.id)) {
@@ -871,6 +883,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       lensRoutes,
       budget: _driveBudget,
     );
+    if (!_initialRouteFocused && widget.initialRouteId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusInitialRoute(visibleRoutes);
+      });
+    }
     final mapSourceRoutes = _driveBudget == DriveBudget.any
         ? service.mapVisualRoutes
         : visibleRoutes;
