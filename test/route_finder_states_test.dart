@@ -881,6 +881,24 @@ void main() {
     expect(recommendations.map((route) => route.id), ['a2', 'b1', 'c1']);
   });
 
+  test('encodePolyline5 matches the documented Google example', () {
+    // https://developers.google.com/maps/documentation/utilities/polylinealgorithm
+    final encoded = encodePolyline5([
+      (38.5, -120.2),
+      (40.7, -120.95),
+      (43.252, -126.453),
+    ]);
+    expect(encoded, '_p~iF~ps|U_ulLnnqC_mqNvxq`@');
+  });
+
+  test('regionMiniMapUrl is null without a mapbox token', () {
+    final cluster = buildRouteClusters([
+      _finderRoute(id: 'a', name: 'A', lng: -73.0),
+    ]).single;
+    // 테스트 환경은 MAPBOX_ACCESS_TOKEN 미설정 → 폴백 경로
+    expect(regionMiniMapUrl(cluster), isNull);
+  });
+
   test('todayRecommendedRoutes prefers routes not driven yet', () {
     final routes = [
       _finderRoute(id: 'a1', name: 'A1', lng: -73.00).copyWith(funScore: 10),

@@ -15,6 +15,7 @@ import '../services/location_service.dart';
 import '../services/place_search_service.dart';
 import '../services/recommendation_log_service.dart';
 import '../services/driven_routes_service.dart';
+import '../services/mapbox_service.dart';
 import '../services/region_photo_service.dart';
 import '../services/route_loading_policy.dart';
 import '../services/route_service.dart';
@@ -1106,8 +1107,24 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         ? service.mapVisualRoutes
         : visibleRoutes;
     final noDestination = _destination == null;
+    // 지역 묶음은 넓은 풀에서 — visibleRouteLimit(카드 상한)에 갇히면
+    // "가지수"가 확 줄어 보인다. 지도용 후보 전체에 같은 필터를 태운다.
+    final clusterPoolSource = service.mapVisualRoutes.isNotEmpty
+        ? service.mapVisualRoutes
+        : routes;
+    final clusterPool = routesForDriveBudget(
+      _rankRoutes(
+        _filterRoutes(
+          _loopOnly
+              ? clusterPoolSource.where((route) => route.isLoop).toList()
+              : clusterPoolSource,
+          _lens,
+        ),
+      ),
+      budget: _driveBudget,
+    );
     final clusters = noDestination
-        ? buildRouteClusters(visibleRoutes)
+        ? buildRouteClusters(clusterPool)
         : const <RegionRouteCluster>[];
     final clusterBounds = _clusterBoundsForViewport(_mapCenterPoint, _mapZoom);
     final drivenService = context.watch<DrivenRoutesService>();
@@ -1980,37 +1997,79 @@ class _RegionClusterPhoto extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Wikimedia 랜덤 사진은 지역과 무관한 경우가 많아(민우 피드백) 시그니처
+    // 스타일 미니맵으로 교체 — 대표 루트가 레드로 그려진 "그 동네 지도".
+    // photo_spots(유저 사진)가 쌓이면 그때 진짜 경치 사진으로 승격한다.
+    final url = regionMiniMapUrl(cluster);
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: SizedBox(
         width: 64,
         height: 64,
-        child: FutureBuilder<String?>(
-          future: photoService.photoUrl(
-            geohash4: cluster.id,
-            point: cluster.center,
-          ),
-          builder: (context, snapshot) {
-            final url = snapshot.data;
-            if (url == null || url.isEmpty) return const _RegionPhotoFallback();
-            return Image.network(
-              url,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => const _RegionPhotoFallback(),
-              loadingBuilder: (context, child, progress) {
-                if (progress == null) return child;
-                return AnimatedOpacity(
-                  opacity: 0.42,
-                  duration: const Duration(milliseconds: 180),
-                  child: child,
-                );
-              },
-            );
-          },
-        ),
+        child: url == null
+            ? const _RegionPhotoFallback()
+            : Image.network(
+                url,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const _RegionPhotoFallback(),
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return const _RegionPhotoFallback();
+                },
+              ),
       ),
     );
   }
+}
+
+/// 시그니처 스타일 정적 미니맵 URL — 대표 루트를 레드 패스로 얹는다.
+/// 토큰 미설정(테스트 등)이면 null.
+@visibleForTesting
+String? regionMiniMapUrl(RegionRouteCluster cluster) {
+  if (!MapboxService.isConfigured) return null;
+  final nodes = cluster.representative.nodes;
+  final path = nodes.length >= 2
+      ? 'path-2.5+e2231a-0.95(${Uri.encodeComponent(encodePolyline5([for (final n in _downsampleNodes(nodes, 40)) (n.lat, n.lng)]))})/'
+      : '';
+  final center = '${cluster.center.lng},${cluster.center.lat},10.2,0';
+  return 'https://api.mapbox.com/styles/v1/mingwoo/cmrd3w7yt005f01qo8l1f4anc/static/'
+      '$path$center/128x128@2x'
+      '?access_token=${MapboxService.accessToken}&attribution=false&logo=false';
+}
+
+List<LatLng> _downsampleNodes(List<LatLng> nodes, int maxCount) {
+  if (nodes.length <= maxCount) return nodes;
+  final step = nodes.length / maxCount;
+  return [
+    for (var i = 0; i < maxCount; i++) nodes[(i * step).floor()],
+    nodes.last,
+  ];
+}
+
+/// Google polyline5 인코딩 (Static Images API path용).
+@visibleForTesting
+String encodePolyline5(List<(double, double)> points) {
+  final buffer = StringBuffer();
+  var lastLat = 0;
+  var lastLng = 0;
+  void encode(int value) {
+    var v = value < 0 ? ~(value << 1) : (value << 1);
+    while (v >= 0x20) {
+      buffer.writeCharCode((0x20 | (v & 0x1f)) + 63);
+      v >>= 5;
+    }
+    buffer.writeCharCode(v + 63);
+  }
+
+  for (final (lat, lng) in points) {
+    final iLat = (lat * 1e5).round();
+    final iLng = (lng * 1e5).round();
+    encode(iLat - lastLat);
+    encode(iLng - lastLng);
+    lastLat = iLat;
+    lastLng = iLng;
+  }
+  return buffer.toString();
 }
 
 class _RegionPhotoFallback extends StatelessWidget {
