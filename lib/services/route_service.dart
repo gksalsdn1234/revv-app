@@ -52,16 +52,43 @@ class RouteService extends ChangeNotifier {
 
   RevvRoute? get effectiveSprintRoute => sprintRoute ?? selectedRoute;
 
+  bool get hasFreshPendingGuide {
+    final startedAt = pendingGuideStartedAt;
+    if (pendingGuideRoute == null || startedAt == null) return false;
+    return DateTime.now().difference(startedAt) < const Duration(hours: 24);
+  }
+
+  bool shouldPromptPendingDrive({required double distanceKm}) {
+    return hasFreshPendingGuide && distanceKm <= 0.5;
+  }
+
   void beginGuideToStart(RevvRoute route) {
     pendingGuideRoute = route;
     pendingGuideStartedAt = DateTime.now();
+    unawaited(_savePendingDrive(route.id, pendingGuideStartedAt!));
     notifyListeners();
   }
 
   void clearGuideToStart() {
     pendingGuideRoute = null;
     pendingGuideStartedAt = null;
+    unawaited(_clearPendingDrive());
     notifyListeners();
+  }
+
+  Future<void> _savePendingDrive(String routeId, DateTime savedAt) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(StorageKeys.pendingDriveRouteId, routeId);
+    await prefs.setString(
+      StorageKeys.pendingDriveSavedAt,
+      savedAt.toIso8601String(),
+    );
+  }
+
+  Future<void> _clearPendingDrive() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(StorageKeys.pendingDriveRouteId);
+    await prefs.remove(StorageKeys.pendingDriveSavedAt);
   }
 
   void requestSprint({

@@ -435,7 +435,7 @@ DriveRouteStatus _routeStatus({
   if (distanceToStartM > 180 && alongM < 180) {
     return DriveRouteStatus.approachingStart;
   }
-  if (distanceFromRouteM > 120) return DriveRouteStatus.offRoute;
+  if (distanceFromRouteM > 300) return DriveRouteStatus.offRoute;
   return DriveRouteStatus.onRoute;
 }
 

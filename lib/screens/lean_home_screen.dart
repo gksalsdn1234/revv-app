@@ -79,6 +79,10 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     final routes = context.read<RouteService>();
     final route = routes.pendingGuideRoute;
     if (route == null) return;
+    if (!routes.hasFreshPendingGuide) {
+      routes.clearGuideToStart();
+      return;
+    }
 
     _checkingGuideReturn = true;
     try {
@@ -92,18 +96,16 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
           ? route.distanceFromUser
           : RevvRoute.haversineKm(current, start);
 
-      final shouldPrompt =
-          distanceKm <= 0.8 ||
-          DateTime.now()
-                  .difference(routes.pendingGuideStartedAt ?? DateTime.now())
-                  .inMinutes >=
-              2;
+      final shouldPrompt = routes.shouldPromptPendingDrive(
+        distanceKm: distanceKm,
+      );
       if (!shouldPrompt || _guidePromptShown) return;
       _guidePromptShown = true;
 
       final startChoice = await showCopilotStartSheet(
         context,
         route: route.copyWith(distanceFromUser: distanceKm),
+        arrivedPrompt: true,
       );
       if (!mounted) return;
       if (startChoice != null) {

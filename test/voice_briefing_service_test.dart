@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/app_language.dart';
+import 'package:revv_app/models/revv_route.dart';
+import 'package:revv_app/services/route_turn_service.dart';
 import 'package:revv_app/services/voice_briefing_service.dart';
 import 'package:revv_app/ui/route_drive_cue.dart';
 
@@ -85,21 +87,36 @@ void main() {
     );
   });
 
-  test('speaks a tight curve once inside the window', () {
-    voice.onCue(cue(distanceM: 300), language: AppLanguage.korean, muted: false);
-    voice.onCue(cue(distanceM: 200), language: AppLanguage.korean, muted: false);
-    voice.onCue(cue(distanceM: 90), language: AppLanguage.korean, muted: false);
+  test('speaks a tight curve once inside the 300m window', () {
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 300),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 200),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 90),
+      language: AppLanguage.korean,
+      muted: false,
+    );
 
     expect(spoken, hasLength(1));
-    expect(spoken.first, contains('우측 타이트'));
-    expect(spoken.first, contains('여유 있게 진입'));
+    expect(spoken.first, '300, 우 타이트');
   });
 
   test('stays silent when muted or severity is low', () {
-    voice.onCue(cue(), language: AppLanguage.korean, muted: true);
-    voice.onCue(cue(severity: 1), language: AppLanguage.korean, muted: false);
-    voice.onCue(
-      cue(severity: 2, curveCountAhead: 0), // 이탈/상태 큐
+    voice.onCoPilotCue(curveCue: cue(), language: AppLanguage.korean, muted: true);
+    voice.onCoPilotCue(
+      curveCue: cue(severity: 1),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    voice.onCoPilotCue(
+      curveCue: cue(severity: 2, curveCountAhead: 0), // 이탈/상태 큐
       language: AppLanguage.korean,
       muted: false,
     );
@@ -107,14 +124,22 @@ void main() {
   });
 
   test('ignores curves outside the speaking window', () {
-    voice.onCue(cue(distanceM: 700), language: AppLanguage.korean, muted: false);
-    voice.onCue(cue(distanceM: 30), language: AppLanguage.korean, muted: false);
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 700),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 30),
+      language: AppLanguage.korean,
+      muted: false,
+    );
     expect(spoken, isEmpty);
   });
 
   test('combo pattern announces the chain', () {
-    voice.onCue(
-      cue(curveCountAhead: 4, nextGapM: 150),
+    voice.onCoPilotCue(
+      curveCue: cue(curveCountAhead: 4, nextGapM: 150),
       language: AppLanguage.korean,
       muted: false,
     );
@@ -123,43 +148,134 @@ void main() {
   });
 
   test('hairpin gets the prepare-early phrasing', () {
-    voice.onCue(
-      cue(severity: 3, intensity: '헤어핀'),
+    voice.onCoPilotCue(
+      curveCue: cue(severity: 3, intensity: '헤어핀', direction: '좌측'),
       language: AppLanguage.korean,
       muted: false,
     );
-    expect(spoken.single, contains('헤어핀'));
-    expect(spoken.single, contains('미리 준비'));
+    expect(spoken.single, '200, 헤어핀 좌');
   });
 
   test('cooldown suppresses a second callout within 8 seconds', () {
-    voice.onCue(cue(distanceM: 200), language: AppLanguage.korean, muted: false);
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 200),
+      language: AppLanguage.korean,
+      muted: false,
+    );
     // 커브 통과(큐 소멸) 후 곧바로 새 커브 — 쿨다운에 걸림
     voice.onCue(null, language: AppLanguage.korean, muted: false);
     now = now.add(const Duration(seconds: 4));
-    voice.onCue(cue(distanceM: 250), language: AppLanguage.korean, muted: false);
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 250),
+      language: AppLanguage.korean,
+      muted: false,
+    );
     expect(spoken, hasLength(1));
 
     now = now.add(const Duration(seconds: 5));
-    voice.onCue(cue(distanceM: 240), language: AppLanguage.korean, muted: false);
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 240),
+      language: AppLanguage.korean,
+      muted: false,
+    );
     expect(spoken, hasLength(2));
   });
 
   test('re-arms for a new farther curve after passing the spoken one', () {
-    voice.onCue(cue(distanceM: 150), language: AppLanguage.korean, muted: false);
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 150),
+      language: AppLanguage.korean,
+      muted: false,
+    );
     now = now.add(const Duration(seconds: 10));
     // 발화한 커브(150m)보다 충분히 먼 새 커브
-    voice.onCue(cue(distanceM: 310), language: AppLanguage.korean, muted: false);
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 310),
+      language: AppLanguage.korean,
+      muted: false,
+    );
     expect(spoken, hasLength(2));
   });
 
   test('long clear gap adds the flow-ending prefix', () {
     // 첫 큐 관측 (발화 없이 창 밖)
-    voice.onCue(cue(distanceM: 700), language: AppLanguage.korean, muted: false);
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 700),
+      language: AppLanguage.korean,
+      muted: false,
+    );
     // 20초 이상 큐 없음 → 긴 흐름 구간
     now = now.add(const Duration(seconds: 25));
-    voice.onCue(cue(distanceM: 300), language: AppLanguage.korean, muted: false);
-    expect(spoken.single, startsWith('긴 흐름 구간이 끝나요.'));
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 300),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    expect(spoken.single, '300, 긴 흐름 구간 — 우 타이트');
+  });
+
+  test('merges nearby TBT and curve events into one pacenote', () {
+    final phrase = voice.buildCoPilotPhrase(
+      language: AppLanguage.korean,
+      navStep: const NavStep(
+        sequence: 1,
+        maneuverType: 'fork',
+        modifier: 'right',
+        location: LatLng(45, -73),
+        distanceFromStartM: 100,
+      ),
+      navDistanceM: 300,
+      curveCue: cue(distanceM: 120, direction: '좌측'),
+    );
+
+    expect(phrase, '300, 우측 갈림길 — 바로 좌 타이트');
+    expect(phrase, isNot(contains('미터 앞')));
+    expect(phrase, isNot(contains('하세요')));
+  });
+
+  test('speaks 300m and 80m stages for the same nav step', () {
+    const step = NavStep(
+      sequence: 1,
+      maneuverType: 'fork',
+      modifier: 'right',
+      location: LatLng(45, -73),
+      distanceFromStartM: 100,
+    );
+
+    voice.onCoPilotCue(
+      navStep: step,
+      navDistanceM: 300,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 9));
+    voice.onCoPilotCue(
+      navStep: step,
+      navDistanceM: 80,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken, ['300, 우측 갈림길', '80, 우측 갈림길']);
+  });
+
+  test('off-route and back-on-route phrases use rally tone', () {
+    voice.onRouteStatusChange(
+      previous: DriveRouteStatus.onRoute,
+      next: DriveRouteStatus.offRoute,
+      language: AppLanguage.korean,
+      muted: false,
+      rejoinBearing: 90,
+    );
+    now = now.add(const Duration(seconds: 9));
+    voice.onRouteStatusChange(
+      previous: DriveRouteStatus.offRoute,
+      next: DriveRouteStatus.onRoute,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken, ['루트 아웃 — 우측에서 재진입', '온 루트']);
   });
 
   test('phrases avoid forbidden performance language in all languages', () {

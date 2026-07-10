@@ -26,6 +26,7 @@ Future<CopilotStartChoice?> showCopilotStartSheet(
   BuildContext context, {
   required RevvRoute route,
   NavigationUrlLauncher launchNavigationUrl = _defaultLaunchNavigationUrl,
+  bool arrivedPrompt = false,
 }) {
   return showModalBottomSheet<CopilotStartChoice>(
     context: context,
@@ -33,6 +34,7 @@ Future<CopilotStartChoice?> showCopilotStartSheet(
     builder: (_) => _CopilotStartSheet(
       route: route,
       launchNavigationUrl: launchNavigationUrl,
+      arrivedPrompt: arrivedPrompt,
     ),
   );
 }
@@ -40,10 +42,12 @@ Future<CopilotStartChoice?> showCopilotStartSheet(
 class _CopilotStartSheet extends StatelessWidget {
   final RevvRoute route;
   final NavigationUrlLauncher launchNavigationUrl;
+  final bool arrivedPrompt;
 
   const _CopilotStartSheet({
     required this.route,
     required this.launchNavigationUrl,
+    required this.arrivedPrompt,
   });
 
   @override
@@ -79,7 +83,9 @@ class _CopilotStartSheet extends StatelessWidget {
               ),
             ],
           ),
-          child: Column(
+          // 문구 길이·기기 높이에 따라 미세 오버플로가 나지 않게 스크롤 허용
+          child: SingleChildScrollView(
+            child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -99,7 +105,14 @@ class _CopilotStartSheet extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      displayName,
+                      arrivedPrompt
+                          ? AppCopy.t(
+                              language,
+                              ko: '루트 도착! 주행 시작할까요?',
+                              en: 'Route reached. Start the drive?',
+                              fr: 'Route atteinte. Commencer?',
+                            )
+                          : displayName,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppText.body(
@@ -168,9 +181,9 @@ class _CopilotStartSheet extends StatelessWidget {
                           Text(
                             AppCopy.t(
                               language,
-                              ko: '시작점까지 먼저 이동하세요',
-                              en: 'Navigate to the start first',
-                              fr: 'Allez d\'abord au point de départ',
+                              ko: '시작점 이동 먼저',
+                              en: 'Start point first',
+                              fr: 'Départ d\'abord',
                             ),
                             style: AppText.body(
                               size: 12,
@@ -368,6 +381,7 @@ class _CopilotStartSheet extends StatelessWidget {
                 ),
               ),
             ],
+            ),
           ),
         ),
       ),

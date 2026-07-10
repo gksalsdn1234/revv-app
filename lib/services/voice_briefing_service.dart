@@ -6,6 +6,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import '../core/app_language.dart';
 import '../ui/route_drive_cue.dart';
 import 'audio_session.dart';
+import 'route_turn_service.dart';
 
 /// TTS 발화 시임 — 테스트에서 fake 주입.
 typedef VoiceSpeak = Future<void> Function(String text, AppLanguage language);
@@ -89,6 +90,7 @@ class VoiceBriefingService {
   Object? _cachedVoices;
   DateTime? _lastSpokenAt;
   double? _spokenDistanceM;
+  final Set<String> _spokenStages = {};
   DateTime? _lastCueSeenAt;
   bool _startAnnounced = false;
 
@@ -108,10 +110,23 @@ class VoiceBriefingService {
 
   /// 주행 샘플마다 호출. 조건이 맞을 때만 발화한다.
   void onCue(DriveCurveCue? cue, {required AppLanguage language, required bool muted}) {
+    onCoPilotCue(curveCue: cue, language: language, muted: muted);
+  }
+
+  /// TBT와 코너 큐를 한 명의 코드라이버 페이스노트로 읽는다.
+  void onCoPilotCue({
+    NavStep? navStep,
+    double? navDistanceM,
+    DriveCurveCue? curveCue,
+    required AppLanguage language,
+    required bool muted,
+  }) {
     final now = _clock();
-    if (cue == null || cue.severity <= 0) {
+    final cue = curveCue;
+    if (navStep == null && (cue == null || cue.severity <= 0)) {
       // 큐가 사라짐 = 커브 통과/흐름 구간. 다음 커브를 위해 재무장.
       _spokenDistanceM = null;
+      _spokenStages.removeWhere((key) => key.startsWith('c:'));
       return;
     }
 
@@ -122,67 +137,182 @@ class VoiceBriefingService {
     _lastCueSeenAt = now;
 
     if (muted) return;
-    if (cue.severity < 2) return; // 완만/중간은 침묵 — 놀랄 코너만
-    if (cue.curveCountAhead < 1) return; // 이탈/시작/완료 큐는 코너가 아님
-    if (cue.distanceM < speakWindowMinM || cue.distanceM > speakWindowMaxM) {
+    final distanceM = navDistanceM ?? cue?.distanceM ?? double.infinity;
+    final stageKey = _stageKey(navStep, navDistanceM, cue);
+    if (stageKey == null || _spokenStages.contains(stageKey)) return;
+    if (distanceM < speakWindowMinM || distanceM > speakWindowMaxM) {
+      return;
+    }
+    if (navStep == null &&
+        (cue == null || cue.severity < 2 || cue.curveCountAhead < 1)) {
       return;
     }
 
     // 같은 커브 접근 중 재발화 방지: 발화 후 거리가 크게 늘어나야(=새 커브) 재무장
     final spokenAt = _spokenDistanceM;
-    if (spokenAt != null && cue.distanceM <= spokenAt + 120) return;
+    if (navStep == null && spokenAt != null && distanceM <= spokenAt + 120) {
+      return;
+    }
 
     final last = _lastSpokenAt;
     if (last != null && now.difference(last) < cooldown) return;
 
-    final phrase = buildPhrase(cue, language: language, afterLongClear: hadLongClear);
+    final phrase = buildCoPilotPhrase(
+      language: language,
+      navStep: navStep,
+      navDistanceM: navDistanceM,
+      curveCue: cue,
+      afterLongClear: hadLongClear,
+    );
     _lastSpokenAt = now;
-    _spokenDistanceM = cue.distanceM;
+    _spokenDistanceM = distanceM;
+    _spokenStages.add(stageKey);
     _speak(phrase, language);
   }
 
-  /// 큐 → 안내 문장. 패턴: ①긴 흐름 뒤 급코너 ②연속 콤보 ③단일 급코너.
-  /// 안전 언어: 거리·방향·성격 + "여유 있게 진입" 톤. 속도 지시 금지.
+  void onRouteStatusChange({
+    required DriveRouteStatus previous,
+    required DriveRouteStatus next,
+    required AppLanguage language,
+    required bool muted,
+    double? rejoinBearing,
+  }) {
+    if (muted || previous == next) return;
+    final phrase = switch ((previous, next)) {
+      (DriveRouteStatus.offRoute, DriveRouteStatus.onRoute) => _t(
+        language,
+        ko: '온 루트',
+        en: 'on route',
+        fr: 'sur la route',
+      ),
+      (_, DriveRouteStatus.offRoute) => _t(
+        language,
+        ko: '루트 아웃 — ${_rejoinSide(language, rejoinBearing)}에서 재진입',
+        en: 'route out — rejoin from the ${_rejoinSide(language, rejoinBearing)}',
+        fr: 'hors route — reprise par la ${_rejoinSide(language, rejoinBearing)}',
+      ),
+      _ => null,
+    };
+    if (phrase == null) return;
+    _lastSpokenAt = _clock();
+    _speak(phrase, language);
+  }
+
+  /// 큐 → 페이스노트. 거리 숫자 + 방향 + 성격만 읽고 조작 지시는 하지 않는다.
   String buildPhrase(
     DriveCurveCue cue, {
     required AppLanguage language,
     bool afterLongClear = false,
   }) {
-    final distance = _roundedDistance(cue.distanceM, language);
-    final corner = '${cue.directionLabel} ${cue.intensityLabel}';
+    return buildCoPilotPhrase(
+      language: language,
+      curveCue: cue,
+      afterLongClear: afterLongClear,
+    );
+  }
 
-    final isCombo = cue.curveCountAhead >= 3 && (cue.nextGapM ?? 999) <= 280;
-    final body = isCombo
-        ? _t(
-            language,
-            ko: '$distance 앞 $corner, 이어서 코너 ${cue.curveCountAhead}개가 연속돼요.',
-            en: '$corner in $distance, then ${cue.curveCountAhead} corners in a row.',
-            fr: '$corner dans $distance, puis ${cue.curveCountAhead} virages enchaînés.',
-          )
-        : cue.severity >= 3
-        ? _t(
-            language,
-            ko: '$distance 앞 $corner이에요. 미리 준비하세요.',
-            en: '$corner in $distance. Get set early.',
-            fr: '$corner dans $distance. Préparez-vous tôt.',
-          )
-        : _t(
-            language,
-            ko: '$distance 앞 $corner 커브예요. 여유 있게 진입하세요.',
-            en: '$corner curve in $distance. Ease into it.',
-            fr: 'Virage $corner dans $distance. Entrez en souplesse.',
-          );
-
-    if (afterLongClear) {
-      final prefix = _t(
-        language,
-        ko: '긴 흐름 구간이 끝나요. ',
-        en: 'Long flow section ending. ',
-        fr: 'Fin de la section fluide. ',
+  String buildCoPilotPhrase({
+    required AppLanguage language,
+    NavStep? navStep,
+    double? navDistanceM,
+    DriveCurveCue? curveCue,
+    bool afterLongClear = false,
+  }) {
+    final distanceM = navDistanceM ?? curveCue?.distanceM ?? 0;
+    final calls = <String>[];
+    if (navStep != null) calls.add(navStep.call(language));
+    if (curveCue != null && curveCue.curveCountAhead > 0) {
+      final curve = _curveCall(curveCue, language);
+      calls.add(
+        afterLongClear
+            ? _t(
+                language,
+                ko: '긴 흐름 구간 — $curve',
+                en: 'long flow — $curve',
+                fr: 'section fluide — $curve',
+              )
+            : curve,
       );
-      return '$prefix$body';
+      if (curveCue.curveCountAhead >= 3 && (curveCue.nextGapM ?? 999) <= 280) {
+        calls.add(_t(
+          language,
+          ko: '이어서 연속 ${curveCue.curveCountAhead}개',
+          en: 'then ${curveCue.curveCountAhead} in a row',
+          fr: 'puis ${curveCue.curveCountAhead} enchaînés',
+        ));
+      }
     }
-    return body;
+    if (calls.isEmpty) return _pacedDistance(distanceM);
+    final rest = calls.skip(1).map(
+      (call) => navStep == null
+          ? call
+          : _t(language, ko: '바로 $call', en: 'into $call', fr: call),
+    );
+    return [
+      '${_pacedDistance(distanceM)}, ${calls.first}',
+      ...rest,
+    ].join(' — ');
+  }
+
+  String? _stageKey(NavStep? navStep, double? navDistanceM, DriveCurveCue? cue) {
+    final distanceM = navDistanceM ?? cue?.distanceM;
+    if (distanceM == null) return null;
+    final stage = distanceM <= 95
+        ? '80'
+        : distanceM <= speakWindowMaxM
+        ? '300'
+        : null;
+    if (stage == null) return null;
+    if (navStep != null) return 'n:${navStep.sequence}:$stage';
+    if (cue == null) return null;
+    return 'c:${_pacedDistance(distanceM)}:${cue.directionLabel}:'
+        '${cue.intensityLabel}:${cue.curveCountAhead}:$stage';
+  }
+
+  String _curveCall(DriveCurveCue cue, AppLanguage language) {
+    final direction = cue.directionLabel.toLowerCase();
+    final left = direction.contains('좌') ||
+        direction.contains('left') ||
+        direction.contains('gauche');
+    final side = left
+        ? _t(language, ko: '좌', en: 'left', fr: 'gauche')
+        : _t(language, ko: '우', en: 'right', fr: 'droite');
+    final intensity = cue.intensityLabel.toLowerCase();
+    if (cue.intensityLabel.contains('헤어핀') ||
+        intensity.contains('hairpin') ||
+        intensity.contains('épingle')) {
+      return _t(
+        language,
+        ko: '헤어핀 $side',
+        en: 'hairpin $side',
+        fr: 'épingle $side',
+      );
+    }
+    final character = cue.intensityLabel.contains('타이트') ||
+            intensity.contains('tight') ||
+            intensity.contains('serré')
+        ? _t(language, ko: '타이트', en: 'tight', fr: 'serrée')
+        : cue.intensityLabel.contains('완만') ||
+              intensity.contains('gentle') ||
+              intensity.contains('doux')
+        ? _t(language, ko: '완만', en: 'gentle', fr: 'douce')
+        : cue.intensityLabel;
+    return '$side $character';
+  }
+
+  String _rejoinSide(AppLanguage language, double? bearing) {
+    if (bearing == null) {
+      return _t(language, ko: '우측', en: 'right', fr: 'droite');
+    }
+    final right = (bearing % 360) <= 180;
+    return right
+        ? _t(language, ko: '우측', en: 'right', fr: 'droite')
+        : _t(language, ko: '좌측', en: 'left', fr: 'gauche');
+  }
+
+  String _pacedDistance(double meters) {
+    if (meters >= 1000) return ((meters / 100).round() * 100).toString();
+    return ((meters / 10).round() * 10).clamp(0, 990).toString();
   }
 
   // 재진입 가드는 쿨다운(8초)이 담당한다 — 별도 플래그는 두지 않는다
@@ -301,15 +431,6 @@ class VoiceBriefingService {
       unawaited(_tts?.stop());
     } catch (_) {}
     _tts = null;
-  }
-
-  String _roundedDistance(double meters, AppLanguage language) {
-    if (meters >= 950) {
-      final km = (meters / 1000).toStringAsFixed(1);
-      return _t(language, ko: '약 $km킬로미터', en: 'about $km kilometers', fr: 'environ $km kilomètres');
-    }
-    final rounded = ((meters / 50).round() * 50).clamp(50, 900);
-    return _t(language, ko: '약 $rounded미터', en: 'about $rounded meters', fr: 'environ $rounded mètres');
   }
 
   String _t(AppLanguage language, {required String ko, required String en, required String fr}) {

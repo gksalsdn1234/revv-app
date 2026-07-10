@@ -11,6 +11,7 @@ import '../services/imu_service.dart';
 import '../services/location_service.dart';
 import '../services/route_geometry_matcher.dart';
 import '../services/route_loading_policy.dart';
+import '../services/route_turn_service.dart';
 import '../services/run_session_service.dart';
 import '../services/settings_service.dart';
 import '../services/ptt_service.dart';
@@ -42,6 +43,7 @@ class LeanDriveScreen extends StatefulWidget {
   final bool walkieEnabledOverride;
   final VoiceBriefingService? voiceOverride;
   final DriveRouteNodesLoader? routeNodesLoader;
+  final RouteTurnService? routeTurnService;
 
   const LeanDriveScreen({
     super.key,
@@ -52,6 +54,7 @@ class LeanDriveScreen extends StatefulWidget {
     this.walkieEnabledOverride = _revvWalkieLabEnabled,
     this.voiceOverride,
     this.routeNodesLoader,
+    this.routeTurnService,
   });
 
   @override
@@ -64,6 +67,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   ImuService? _imuService;
   SettingsService? _settings;
   late final VoiceBriefingService _voice;
+  late final RouteTurnService _turnService;
   bool _started = false;
   DateTime? _startedAt;
   Timer? _clock;
@@ -84,6 +88,8 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   DriveCurveCue? _cue;
   DriveRhythmBrief? _rhythmBrief;
   TurnByTurnState? _turnByTurn;
+  NavStepProgress? _navStepProgress;
+  List<NavStep> _navSteps = const [];
   DriveRouteStatus _routeStatus = DriveRouteStatus.approachingStart;
   String? _routeEventMessage;
   DateTime? _routeEventUntil;
@@ -92,6 +98,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   void initState() {
     super.initState();
     _voice = widget.voiceOverride ?? VoiceBriefingService();
+    _turnService = widget.routeTurnService ?? RouteTurnService();
   }
 
   @override
@@ -118,6 +125,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     final language = _settings?.appLanguage ?? AppLanguage.korean;
     _voice.announceStart(language, muted: _settings?.ttsMuted ?? true);
     await _hydrateSparseRouteNodes();
+    unawaited(_loadRouteTurns(_activeRouteNodes));
     unawaited(_prepareMatchedRouteGeometry());
     if (!mounted) return;
     _startedAt = DateTime.now();
@@ -220,8 +228,15 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       _activeRouteNodes,
       language: language,
     );
-    _voice.onCue(
-      routeState.cue,
+    final navStepProgress = nextStepProgress(
+      position,
+      _activeRouteNodes,
+      _navSteps,
+    );
+    _voice.onCoPilotCue(
+      navStep: navStepProgress?.step,
+      navDistanceM: navStepProgress?.aheadM,
+      curveCue: routeState.cue,
       language: language,
       muted: _settings?.ttsMuted ?? true,
     );
@@ -232,6 +247,13 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     );
     final nextEvent = _routeEventFor(_routeStatus, routeState.status, language);
     final nextBearing = _nextNavigationBearing(position, heading);
+    _handleRouteStatusTransition(
+      previous: _routeStatus,
+      next: routeState.status,
+      position: position,
+      language: language,
+      muted: _settings?.ttsMuted ?? true,
+    );
     if (!mounted) return;
     setState(() {
       _drivePosition = position;
@@ -244,6 +266,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       _cue = routeState.cue;
       _rhythmBrief = routeState.rhythmBrief;
       _turnByTurn = turnByTurn;
+      _navStepProgress = navStepProgress;
       _routeStatus = routeState.status;
       if (nextEvent != null) {
         _routeEventMessage = nextEvent;
@@ -253,6 +276,44 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
         _routeEventUntil = null;
       }
     });
+  }
+
+  Future<void> _loadRouteTurns(List<LatLng> nodes) async {
+    final steps = await _turnService.fetchSteps(nodes);
+    if (!mounted || steps.isEmpty) return;
+    setState(() => _navSteps = steps);
+  }
+
+  void _handleRouteStatusTransition({
+    required DriveRouteStatus previous,
+    required DriveRouteStatus next,
+    required LatLng position,
+    required AppLanguage language,
+    required bool muted,
+  }) {
+    if (previous == next) return;
+    final rejoin = nearestRoutePoint(position, _activeRouteNodes);
+    _voice.onRouteStatusChange(
+      previous: previous,
+      next: next,
+      language: language,
+      muted: muted,
+      rejoinBearing: rejoin == null
+          ? _navigationBearing
+          : _bearingBetween(position, rejoin),
+    );
+    if (next != DriveRouteStatus.offRoute) return;
+    if (rejoin == null) return;
+    unawaited(_recalculateRouteTurns(position, rejoin));
+  }
+
+  Future<void> _recalculateRouteTurns(LatLng position, LatLng rejoin) async {
+    final steps = await _turnService.recalculateSteps(
+      current: position,
+      rejoin: rejoin,
+    );
+    if (!mounted || steps.isEmpty) return;
+    setState(() => _navSteps = steps);
   }
 
   double? _nextNavigationBearing(LatLng position, double? heading) {
@@ -425,6 +486,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                     cue: cue,
                     rhythmBrief: _rhythmBrief,
                     turnByTurn: _turnByTurn,
+                    navStepProgress: _navStepProgress,
                     status: _routeStatus,
                     eventMessage: routeEvent,
                     language: language,
@@ -740,16 +802,16 @@ String? _routeEventFor(
       next == DriveRouteStatus.onRoute) {
     return AppCopy.t(
       language,
-      ko: '다시 루트 진입',
-      en: 'Back on route',
-      fr: 'Retour sur route',
+      ko: '온 루트',
+      en: 'On route',
+      fr: 'Sur la route',
     );
   }
   if (next == DriveRouteStatus.offRoute) {
     return AppCopy.t(
       language,
-      ko: '루트에서 벗어남',
-      en: 'Off route',
+      ko: '루트 아웃',
+      en: 'Route out',
       fr: 'Hors route',
     );
   }
@@ -867,6 +929,7 @@ class _NextCurveBanner extends StatelessWidget {
   final DriveCurveCue? cue;
   final DriveRhythmBrief? rhythmBrief;
   final TurnByTurnState? turnByTurn;
+  final NavStepProgress? navStepProgress;
   final DriveRouteStatus status;
   final String? eventMessage;
   final AppLanguage language;
@@ -875,6 +938,7 @@ class _NextCurveBanner extends StatelessWidget {
     required this.cue,
     required this.rhythmBrief,
     required this.turnByTurn,
+    required this.navStepProgress,
     required this.status,
     required this.eventMessage,
     required this.language,
@@ -888,6 +952,7 @@ class _NextCurveBanner extends StatelessWidget {
     final severityColor = _severityColor(severity);
     final fallback = _fallbackCue(status, language);
     final turn = turnByTurn?.instruction;
+    final nav = navStepProgress;
     final headline = data?.headline ?? fallback.label;
     final rhythmLine = data?.rhythmLine ?? rhythm?.advice ?? fallback.detail;
     return _DriveGlass(
@@ -895,6 +960,30 @@ class _NextCurveBanner extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (nav != null && nav.aheadM <= 320) ...[
+            Row(
+              children: [
+                const Icon(
+                  Icons.assistant_direction_rounded,
+                  size: 16,
+                  color: AppColors.primaryContainer,
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    '${_paceDistance(nav.aheadM)} · ${nav.step.call(language)}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.technicalLabel(
+                      size: 12,
+                      color: AppColors.primaryContainer,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
           if (eventMessage != null) ...[
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1005,6 +1094,11 @@ class _NextCurveBanner extends StatelessWidget {
       ),
     );
   }
+}
+
+String _paceDistance(double meters) {
+  if (meters >= 1000) return ((meters / 100).round() * 100).toString();
+  return ((meters / 10).round() * 10).clamp(0, 990).toString();
 }
 
 class _TinyHudPill extends StatelessWidget {

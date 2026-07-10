@@ -61,6 +61,18 @@ class PlanMapMarker {
   const PlanMapMarker({required this.point, required this.kind});
 }
 
+class RouteClusterMapMarker {
+  final String id;
+  final LatLng point;
+  final int count;
+
+  const RouteClusterMapMarker({
+    required this.id,
+    required this.point,
+    required this.count,
+  });
+}
+
 String buildPolylineGeoJson(List<List<LatLng>> polylines) {
   final coordinates = polylines
       .where((points) => points.isNotEmpty)
@@ -88,6 +100,7 @@ class MapWidget extends StatefulWidget {
   final List<List<LatLng>>? routePolylines;
   final bool curveHeatmap;
   final List<PlanMapMarker>? planMarkers;
+  final List<RouteClusterMapMarker> clusterMarkers;
 
   /// 루트파인더에서 선택되지 않은 보조 후보 루트들.
   /// 선택 루트보다 얇고 muted 톤으로 그려서 지도에서 선택지를 읽을 수 있게 한다.
@@ -119,6 +132,7 @@ class MapWidget extends StatefulWidget {
     this.routePolylines,
     this.curveHeatmap = true,
     this.planMarkers,
+    this.clusterMarkers = const [],
     this.candidatePolylines = const [],
     this.curveHeatmapPolylines = const [],
     this.difficultyLines = const [],
@@ -507,6 +521,12 @@ class _MapWidgetState extends State<MapWidget> {
       if (!_samePlanMarkers(oldWidget.planMarkers, widget.planMarkers)) {
         _drawPlanMarkers(widget.planMarkers ?? const []);
       }
+      if (!_sameClusterMarkers(
+        oldWidget.clusterMarkers,
+        widget.clusterMarkers,
+      )) {
+        _drawClusterMarkers(widget.clusterMarkers);
+      }
     }
     // 스타일 재로드 중(_styleLoaded=false)에 polyline 변경이 오면
     // _onStyleLoaded가 완료될 때 widget의 최신값을 자동으로 그림
@@ -826,6 +846,7 @@ class _MapWidgetState extends State<MapWidget> {
     }
     await _drawSimulationMarker(widget.simulatedPosition);
     await _drawPlanMarkers(widget.planMarkers ?? const []);
+    await _drawClusterMarkers(widget.clusterMarkers);
     if (widget.cameraTarget != null && widget.cameraTargetSignal > 0) {
       await _moveCameraToPoint(
         widget.cameraTarget!,
@@ -892,10 +913,7 @@ class _MapWidgetState extends State<MapWidget> {
     return true;
   }
 
-  static bool _samePlanMarkers(
-    List<PlanMapMarker>? a,
-    List<PlanMapMarker>? b,
-  ) {
+  static bool _samePlanMarkers(List<PlanMapMarker>? a, List<PlanMapMarker>? b) {
     if (identical(a, b)) return true;
     final left = a ?? const <PlanMapMarker>[];
     final right = b ?? const <PlanMapMarker>[];
@@ -904,6 +922,23 @@ class _MapWidgetState extends State<MapWidget> {
       if (left[i].kind != right[i].kind ||
           left[i].point.lat != right[i].point.lat ||
           left[i].point.lng != right[i].point.lng) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static bool _sameClusterMarkers(
+    List<RouteClusterMapMarker> a,
+    List<RouteClusterMapMarker> b,
+  ) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id ||
+          a[i].count != b[i].count ||
+          a[i].point.lat != b[i].point.lat ||
+          a[i].point.lng != b[i].point.lng) {
         return false;
       }
     }
@@ -1264,7 +1299,11 @@ class _MapWidgetState extends State<MapWidget> {
         mbx.CircleLayer(
           id: 'plan-marker-origin-layer',
           sourceId: sourceId,
-          filter: const ['==', ['get', 'kind'], 'origin'],
+          filter: const [
+            '==',
+            ['get', 'kind'],
+            'origin',
+          ],
           circleColor: 0xFF3B82F6,
           circleRadius: 6.2,
           circleStrokeColor: 0xFFFFFFFF,
@@ -1275,7 +1314,11 @@ class _MapWidgetState extends State<MapWidget> {
         mbx.CircleLayer(
           id: 'plan-marker-destination-layer',
           sourceId: sourceId,
-          filter: const ['==', ['get', 'kind'], 'destination'],
+          filter: const [
+            '==',
+            ['get', 'kind'],
+            'destination',
+          ],
           circleColor: AppColors.red.toARGB32(),
           circleRadius: 7.8,
           circleStrokeColor: 0xFFFFFFFF,
@@ -1286,7 +1329,11 @@ class _MapWidgetState extends State<MapWidget> {
         mbx.CircleLayer(
           id: 'plan-marker-winding-start-layer',
           sourceId: sourceId,
-          filter: const ['==', ['get', 'kind'], 'windingStart'],
+          filter: const [
+            '==',
+            ['get', 'kind'],
+            'windingStart',
+          ],
           circleColor: AppColors.red.toARGB32(),
           circleRadius: 5.6,
           circleStrokeColor: 0xFFFFFFFF,
@@ -1297,7 +1344,11 @@ class _MapWidgetState extends State<MapWidget> {
         mbx.CircleLayer(
           id: 'plan-marker-winding-end-underlay-layer',
           sourceId: sourceId,
-          filter: const ['==', ['get', 'kind'], 'windingEnd'],
+          filter: const [
+            '==',
+            ['get', 'kind'],
+            'windingEnd',
+          ],
           circleColor: 0x00E2231A,
           circleRadius: 5.8,
           circleStrokeColor: 0xFFFFFFFF,
@@ -1308,7 +1359,11 @@ class _MapWidgetState extends State<MapWidget> {
         mbx.CircleLayer(
           id: 'plan-marker-winding-end-layer',
           sourceId: sourceId,
-          filter: const ['==', ['get', 'kind'], 'windingEnd'],
+          filter: const [
+            '==',
+            ['get', 'kind'],
+            'windingEnd',
+          ],
           circleColor: 0x00E2231A,
           circleRadius: 5.8,
           circleStrokeColor: AppColors.red.toARGB32(),
@@ -1318,6 +1373,84 @@ class _MapWidgetState extends State<MapWidget> {
     } catch (e) {
       if (kDebugMode) {
         debugPrint('[MapWidget] plan markers: ${e.runtimeType}');
+      }
+    }
+  }
+
+  Future<void> _drawClusterMarkers(List<RouteClusterMapMarker> markers) async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded) return;
+
+    const sourceId = 'route-cluster-markers';
+    const layerIds = [
+      'route-cluster-shadow-layer',
+      'route-cluster-circle-layer',
+      'route-cluster-count-layer',
+    ];
+    for (final layerId in layerIds) {
+      try {
+        await map.style.removeStyleLayer(layerId);
+      } catch (_) {}
+    }
+    try {
+      await map.style.removeStyleSource(sourceId);
+    } catch (_) {}
+
+    if (markers.isEmpty) return;
+
+    final geoJson = jsonEncode({
+      'type': 'FeatureCollection',
+      'features': markers
+          .map(
+            (marker) => {
+              'type': 'Feature',
+              'geometry': {
+                'type': 'Point',
+                'coordinates': [marker.point.lng, marker.point.lat],
+              },
+              'properties': {'id': marker.id, 'count': '${marker.count}'},
+            },
+          )
+          .toList(),
+    });
+
+    try {
+      await map.style.addSource(mbx.GeoJsonSource(id: sourceId, data: geoJson));
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'route-cluster-shadow-layer',
+          sourceId: sourceId,
+          circleColor: 0xFF05080D,
+          circleRadius: 18.0,
+          circleOpacity: 0.34,
+          circleBlur: 0.35,
+        ),
+      );
+      await map.style.addLayer(
+        mbx.CircleLayer(
+          id: 'route-cluster-circle-layer',
+          sourceId: sourceId,
+          circleColor: AppColors.primaryContainer.toARGB32(),
+          circleRadius: 14.0,
+          circleStrokeColor: 0xFFFFFFFF,
+          circleStrokeWidth: 2.2,
+        ),
+      );
+      await map.style.addLayer(
+        mbx.SymbolLayer(
+          id: 'route-cluster-count-layer',
+          sourceId: sourceId,
+          textField: '{count}',
+          textColor: 0xFFFFFFFF,
+          textSize: 12.0,
+          textHaloColor: 0xAA000000,
+          textHaloWidth: 0.7,
+          textAllowOverlap: true,
+        ),
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('[MapWidget] cluster markers: ${e.runtimeType}');
       }
     }
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:revv_app/core/app_language.dart';
+import 'package:revv_app/core/storage_keys.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/settings_service.dart';
@@ -40,6 +41,9 @@ void main() {
     expect(waypoints, hasLength(lessThanOrEqualTo(2)));
     expect(waypoints.first, isNot('45.0000,-73.0000'));
     expect(waypoints.last, isNot('45.1300,-73.1300'));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(StorageKeys.pendingDriveRouteId), 'route');
+    expect(prefs.getString(StorageKeys.pendingDriveSavedAt), isNotNull);
   });
 
   testWidgets('Waze button labels start-only handoff', (tester) async {
@@ -60,6 +64,25 @@ void main() {
     expect(find.text('Waze'), findsOneWidget);
     expect(find.text('시작점까지'), findsOneWidget);
   });
+
+  testWidgets('arrived prompt uses resume copy', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+
+    await _pumpSheet(
+      tester,
+      route: _routeWithNodes(4).copyWith(distanceFromUser: 0.2),
+      settings: settings,
+      arrivedPrompt: true,
+      launcher: (_, {required mode}) async => true,
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('루트 도착! 주행 시작할까요?'), findsOneWidget);
+  });
 }
 
 Future<void> _pumpSheet(
@@ -67,6 +90,7 @@ Future<void> _pumpSheet(
   required RevvRoute route,
   required SettingsService settings,
   required NavigationUrlLauncher launcher,
+  bool arrivedPrompt = false,
 }) async {
   await tester.pumpWidget(
     MultiProvider(
@@ -82,6 +106,7 @@ Future<void> _pumpSheet(
                 context,
                 route: route,
                 launchNavigationUrl: launcher,
+                arrivedPrompt: arrivedPrompt,
               ),
               child: const Text('Open'),
             ),

@@ -40,6 +40,10 @@ class StorageKeys {
   static const lastKnownLat = 'revv_last_known_lat';
   static const lastKnownLng = 'revv_last_known_lng';
 
+  /// 외부 내비로 시작점 이동 중인 드라이브
+  static const pendingDriveRouteId = 'pending_drive_route_id';
+  static const pendingDriveSavedAt = 'pending_drive_saved_at';
+
   // ── 집 위치 (HomeLocationService) ──────────────────────────
   static const homeLat = 'home_lat';
   static const homeLng = 'home_lng';

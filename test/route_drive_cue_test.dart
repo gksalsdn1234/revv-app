@@ -43,14 +43,14 @@ void main() {
     'off-route state is explicit after the driver leaves the route line',
     () {
       final state = readDriveRouteState(
-        const LatLng(45.0044, -72.9977),
+        const LatLng(45.0064, -72.9977),
         _routeNodes,
       );
 
       expect(state.status, DriveRouteStatus.offRoute);
       expect(state.cue?.label, '루트에서 벗어남');
       expect(state.rhythmBrief.rhythmLabel, '루트 복귀');
-      expect(state.distanceFromRouteM, greaterThan(120));
+      expect(state.distanceFromRouteM, greaterThan(300));
     },
   );
 

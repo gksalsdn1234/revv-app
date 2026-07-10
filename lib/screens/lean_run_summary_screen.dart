@@ -5,8 +5,11 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_language.dart';
+import '../core/storage_keys.dart';
 import '../models/revv_route.dart';
 import '../models/route_feedback.dart';
 import '../models/run_session.dart';
@@ -14,6 +17,8 @@ import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
 import '../services/run_history_service.dart';
 import '../services/drive_dynamics_tracker.dart';
+import '../services/external_nav.dart';
+import '../services/location_service.dart';
 import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
@@ -141,6 +146,51 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
   static Future<void> _presentSystemShareSheet(File file) {
     return SharePlus.instance.share(
       ShareParams(files: [XFile(file.path, mimeType: 'image/png')]),
+    );
+  }
+
+  Future<void> _navigateHome(AppLanguage language) async {
+    // async gap 전에 context 의존값을 캡처한다 (lint: use_build_context_synchronously)
+    final current = context.read<LocationService>().bestKnownLatLng;
+    final prefs = await SharedPreferences.getInstance();
+    final homeLat = prefs.getDouble(StorageKeys.homeLat);
+    final homeLng = prefs.getDouble(StorageKeys.homeLng);
+    final destination = homeLat == null || homeLng == null
+        ? null
+        : LatLng(homeLat, homeLng);
+    final appUri = destination == null
+        ? Uri.parse('comgooglemaps://')
+        : Uri(
+            scheme: 'comgooglemapsurl',
+            host: 'www.google.com',
+            path: '/maps/dir/',
+            queryParameters: {
+              'api': '1',
+              if (current != null) 'saddr': googleMapsCoord(current),
+              'daddr': googleMapsCoord(destination),
+              'directionsmode': 'driving',
+            },
+          );
+    final webUri = destination == null
+        ? Uri.https('www.google.com', '/maps')
+        : Uri.https('www.google.com', '/maps/dir/', {
+            'api': '1',
+            if (current != null) 'origin': googleMapsCoord(current),
+            'destination': googleMapsCoord(destination),
+            'travelmode': 'driving',
+          });
+    var launched = false;
+    try {
+      launched = await launchUrl(appUri, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        launched = await launchUrl(webUri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      launched = false;
+    }
+    if (launched || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
     );
   }
 
@@ -474,6 +524,23 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                                   ko: '공유 카드 만들기',
                                   en: 'Share ride card',
                                   fr: 'Partager la carte',
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 52,
+                            child: OutlinedButton.icon(
+                              onPressed: () => unawaited(_navigateHome(language)),
+                              icon: const Icon(Icons.assistant_direction_rounded),
+                              label: Text(
+                                AppCopy.t(
+                                  language,
+                                  ko: '집까지 안내',
+                                  en: 'Navigate home',
+                                  fr: 'Guidage retour',
                                 ),
                               ),
                             ),
