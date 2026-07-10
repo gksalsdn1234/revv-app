@@ -29,6 +29,7 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>comgooglemaps</string>
+		<string>google.streetview</string>
 		<string>waze</string>
 	</array>
 	<key>LSRequiresIPhoneOS</key>

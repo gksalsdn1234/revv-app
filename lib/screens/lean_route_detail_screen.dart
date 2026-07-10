@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/revv_route.dart';
 import '../core/app_language.dart';
@@ -17,10 +18,53 @@ import '../ui/route_quality_profile.dart';
 import '../widgets/copilot_start_sheet.dart';
 import 'lean_drive_screen.dart';
 
+typedef RouteDetailUrlLauncher =
+    Future<bool> Function(Uri url, {LaunchMode mode});
+
+class StreetViewTarget {
+  final LatLng point;
+  final double bearing;
+
+  const StreetViewTarget({required this.point, required this.bearing});
+}
+
+StreetViewTarget streetViewTargetForRoute(RevvRoute route) {
+  if (route.nodes.isEmpty) {
+    return StreetViewTarget(point: route.centerPoint, bearing: 0);
+  }
+  final index = route.nodes.length ~/ 2;
+  final point = route.nodes[index];
+  final next = index + 1 < route.nodes.length ? route.nodes[index + 1] : null;
+  return StreetViewTarget(
+    point: point,
+    bearing: next == null ? 0 : _bearingDegrees(point, next),
+  );
+}
+
+Uri buildStreetViewAppUri(StreetViewTarget target) {
+  final point = _streetViewCoord(target.point);
+  final bearing = target.bearing.toStringAsFixed(0);
+  return Uri.parse('google.streetview:cbll=$point&cbp=0,$bearing,0,0,0');
+}
+
+Uri buildStreetViewWebUri(StreetViewTarget target) {
+  return Uri.https('www.google.com', '/maps/@', {
+    'api': '1',
+    'map_action': 'pano',
+    'viewpoint': _streetViewCoord(target.point),
+    'heading': target.bearing.toStringAsFixed(0),
+  });
+}
+
 class LeanRouteDetailScreen extends StatelessWidget {
   final RevvRoute route;
+  final RouteDetailUrlLauncher? urlLauncher;
 
-  const LeanRouteDetailScreen({super.key, required this.route});
+  const LeanRouteDetailScreen({
+    super.key,
+    required this.route,
+    this.urlLauncher,
+  });
 
   Future<void> _startDrive(BuildContext context) async {
     final startChoice = await showCopilotStartSheet(context, route: route);
@@ -31,6 +75,40 @@ class LeanRouteDetailScreen extends StatelessWidget {
         builder: (_) => LeanDriveScreen(
           route: route,
           simulated: startChoice == CopilotStartChoice.simulate,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openStreetView(BuildContext context) async {
+    final language = context.read<SettingsService>().appLanguage;
+    final target = streetViewTargetForRoute(route);
+    final launcher = urlLauncher ?? launchUrl;
+    var launched = false;
+    try {
+      launched = await launcher(
+        buildStreetViewAppUri(target),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!launched) {
+        launched = await launcher(
+          buildStreetViewWebUri(target),
+          mode: LaunchMode.externalApplication,
+        );
+      }
+    } catch (_) {
+      launched = false;
+    }
+    if (launched || !context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppCopy.t(
+            language,
+            ko: '로드뷰를 열지 못했어요.',
+            en: 'Could not open Street View.',
+            fr: 'Impossible d’ouvrir Street View.',
+          ),
         ),
       ),
     );
@@ -135,12 +213,26 @@ class LeanRouteDetailScreen extends StatelessWidget {
                         const SizedBox(height: 12),
                         _DriveEnvironmentRow(route: route, language: language),
                         const SizedBox(height: 12),
+                        _StreetViewButton(
+                          language: language,
+                          onTap: () => _openStreetView(context),
+                        ),
+                        const SizedBox(height: 12),
                         _RouteDetailExpansion(
                           briefing: briefing,
                           copy: copy,
                           cautionBody: cautionBody,
                           turnPlan: turnPlan,
                           language: language,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Photo: Wikimedia Commons',
+                          style: AppText.mono(
+                            size: 10,
+                            weight: FontWeight.w800,
+                            color: AppColors.stone,
+                          ),
                         ),
                         SizedBox(
                           height: MediaQuery.paddingOf(context).bottom + 86,
@@ -902,6 +994,38 @@ class _DriveEnvironmentRow extends StatelessWidget {
   }
 }
 
+class _StreetViewButton extends StatelessWidget {
+  final AppLanguage language;
+  final VoidCallback onTap;
+
+  const _StreetViewButton({required this.language, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: OutlinedButton.icon(
+        onPressed: onTap,
+        icon: const Icon(Icons.streetview_rounded, size: 20),
+        label: Text(
+          AppCopy.t(language, ko: '로드뷰', en: 'Street View', fr: 'Street View'),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.primaryContainer,
+          side: BorderSide(
+            color: AppColors.primaryContainer.withValues(alpha: 0.30),
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          textStyle: AppText.body(size: 14, weight: FontWeight.w900),
+        ),
+      ),
+    );
+  }
+}
+
 class _RouteDetailExpansion extends StatelessWidget {
   final CopilotRouteBriefing briefing;
   final RouteDetailCopy copy;
@@ -1623,6 +1747,21 @@ List<String> _routeChainSegmentNames(RevvRoute route) {
       .toList(growable: false);
   if (names.length < 2) return const [];
   return names.take(3).toList(growable: false);
+}
+
+String _streetViewCoord(LatLng point) {
+  return '${point.lat.toStringAsFixed(6)},${point.lng.toStringAsFixed(6)}';
+}
+
+double _bearingDegrees(LatLng from, LatLng to) {
+  final fromLat = from.lat * math.pi / 180;
+  final toLat = to.lat * math.pi / 180;
+  final deltaLng = (to.lng - from.lng) * math.pi / 180;
+  final y = math.sin(deltaLng) * math.cos(toLat);
+  final x =
+      math.cos(fromLat) * math.sin(toLat) -
+      math.sin(fromLat) * math.cos(toLat) * math.cos(deltaLng);
+  return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
 }
 
 String? _cautionBody(RouteDetailCopy copy) {

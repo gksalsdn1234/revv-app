@@ -266,6 +266,8 @@ void main() {
       ),
     );
     await tester.pump();
+    await tester.tap(find.textContaining('Loop Road 일대'));
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.text('One Way Road'),
       300,
@@ -277,7 +279,9 @@ void main() {
     expect(find.text('One Way Road'), findsOneWidget);
 
     await tester.tap(find.text('루프만'));
-    await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Loop Road 일대'));
+    await tester.pumpAndSettle();
 
     expect(find.text('Loop Road'), findsOneWidget);
     expect(find.text('One Way Road'), findsNothing);
@@ -601,7 +605,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('근처 루트 1개'), findsOneWidget);
+    expect(find.text('오늘의 추천'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('finder-free-roam-button')));
     await tester.pumpAndSettle();
@@ -620,7 +624,7 @@ void main() {
     final settings = SettingsService();
     await settings.setAppLanguage(AppLanguage.korean);
     final first = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
-    final second = _finderRoute(id: 'second', name: 'Second Road', lng: -73.20);
+    final second = _finderRoute(id: 'second', name: 'Second Road', lng: -73.02);
     final routeService = RouteService()
       ..routes = [first, second]
       ..mapVisualRoutes = [first, second];
@@ -643,6 +647,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.textContaining('First Road 일대'));
+    await tester.pumpAndSettle();
     await tester.longPress(find.text('First Road'));
     await tester.pumpAndSettle();
 
@@ -677,7 +683,7 @@ void main() {
     final settings = SettingsService();
     await settings.setAppLanguage(AppLanguage.korean);
     final first = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
-    final second = _finderRoute(id: 'second', name: 'Second Road', lng: -73.20);
+    final second = _finderRoute(id: 'second', name: 'Second Road', lng: -73.02);
     final routeService = RouteService()
       ..routes = [first, second]
       ..mapVisualRoutes = [first, second];
@@ -699,6 +705,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.tap(find.textContaining('First Road 일대'));
+    await tester.pumpAndSettle();
     expect(
       find.byKey(const Key('chain-toggle-button')),
       findsAtLeastNWidgets(1),
@@ -777,6 +785,69 @@ void main() {
     expect(markers[3].point, firstEnd);
     expect(markers[4].point, secondStart);
     expect(markers[5].point, secondEnd);
+  });
+
+  test(
+    'buildRouteClusters groups routes by geohash and ranks by fun score',
+    () {
+      final north = _finderRoute(
+        id: 'north-low',
+        name: 'North Low',
+        lng: -73.00,
+      ).copyWith(funScore: 4);
+      final northTop = _finderRoute(
+        id: 'north-top',
+        name: 'Chemin Kilkenny',
+        lng: -73.01,
+      ).copyWith(funScore: 9);
+      final west = _finderRoute(
+        id: 'west',
+        name: 'Morin-Heights',
+        lng: -74.20,
+      ).copyWith(funScore: 8);
+
+      final clusters = buildRouteClusters([north, northTop, west]);
+
+      expect(clusters, hasLength(2));
+      expect(clusters.first.name, 'Chemin Kilkenny');
+      expect(clusters.first.routes.map((route) => route.id), [
+        'north-top',
+        'north-low',
+      ]);
+    },
+  );
+
+  test('todayRecommendedRoutes returns routes from three clusters', () {
+    final routes = [
+      _finderRoute(id: 'a1', name: 'A1', lng: -73.00).copyWith(funScore: 9),
+      _finderRoute(id: 'a2', name: 'A2', lng: -73.01).copyWith(funScore: 10),
+      _finderRoute(id: 'b1', name: 'B1', lng: -74.20).copyWith(funScore: 8),
+      _finderRoute(id: 'c1', name: 'C1', lng: -75.20).copyWith(funScore: 7),
+      _finderRoute(id: 'd1', name: 'D1', lng: -76.20).copyWith(funScore: 6),
+    ];
+
+    final recommendations = todayRecommendedRoutes(buildRouteClusters(routes));
+
+    expect(recommendations.map((route) => route.id), ['a2', 'b1', 'c1']);
+  });
+
+  test('visibleRouteClusters returns only clusters inside injected bounds', () {
+    final clusters = buildRouteClusters([
+      _finderRoute(id: 'inside', name: 'Inside', lng: -73.00),
+      _finderRoute(id: 'outside', name: 'Outside', lng: -76.00),
+    ]);
+
+    final visible = visibleRouteClusters(
+      clusters,
+      const RouteClusterBounds(
+        south: 44.5,
+        west: -73.5,
+        north: 45.5,
+        east: -72.5,
+      ),
+    );
+
+    expect(visible.map((cluster) => cluster.name), ['Inside']);
   });
 
   testWidgets('journey sheet marks the arrival-time recommended option', (

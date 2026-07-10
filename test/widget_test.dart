@@ -10,6 +10,7 @@ import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
 import 'package:revv_app/screens/lean_home_screen.dart';
+import 'package:revv_app/screens/lean_route_finder_screen.dart';
 import 'package:revv_app/screens/lean_run_summary_screen.dart';
 import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/route_service.dart';
@@ -248,7 +249,9 @@ void main() {
     await tester.tap(find.text('First Road'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('nearby routes'), findsWidgets);
+    // initialRouteId 진입은 요약 대신 포커스 상태로 열린다 — 화면 타입과
+    // 선택 루트로 내비게이션+포커스를 단언한다.
+    expect(find.byType(LeanRouteFinderScreen), findsOneWidget);
     expect(routeService.selectedRoute?.id, 'route-1');
   });
 

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_route_detail_screen.dart';
 import 'package:revv_app/services/settings_service.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 RevvRoute _route({
   List<double>? elevationProfile,
@@ -84,6 +85,49 @@ void _expectNoForbiddenSafetyWords(String text) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('street view URI uses middle route node and bearing', () {
+    final target = streetViewTargetForRoute(_route());
+
+    expect(target.point.lat, 45.0100);
+    expect(target.point.lng, -72.9900);
+    expect(target.bearing, closeTo(313, 1));
+    expect(
+      buildStreetViewAppUri(target).toString(),
+      'google.streetview:cbll=45.010000,-72.990000&cbp=0,313,0,0,0',
+    );
+    expect(
+      buildStreetViewWebUri(target).toString(),
+      contains('map_action=pano'),
+    );
+  });
+
+  testWidgets('street view failure shows snackbar', (tester) async {
+    final launched = <Uri>[];
+    await tester.binding.setSurfaceSize(const Size(390, 1800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<SettingsService>.value(
+        value: SettingsService(),
+        child: MaterialApp(
+          home: LeanRouteDetailScreen(
+            route: _route(),
+            urlLauncher: (url, {mode = LaunchMode.platformDefault}) async {
+              launched.add(url);
+              return false;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Street View'));
+    await tester.pump();
+
+    expect(launched, hasLength(2));
+    expect(find.text('Could not open Street View.'), findsOneWidget);
+  });
 
   testWidgets('route detail renders enrichment sections when data exists', (
     tester,

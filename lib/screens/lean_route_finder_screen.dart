@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -13,6 +14,7 @@ import '../services/external_nav.dart';
 import '../services/location_service.dart';
 import '../services/place_search_service.dart';
 import '../services/recommendation_log_service.dart';
+import '../services/region_photo_service.dart';
 import '../services/route_loading_policy.dart';
 import '../services/route_service.dart';
 import '../services/settings_service.dart';
@@ -35,6 +37,121 @@ import 'lean_route_detail_screen.dart';
 enum _RouteLens { all, nearby, sweeper, tight, flow, loop }
 
 enum _RouteMapMode { wide, balanced, close }
+
+class RouteClusterBounds {
+  final double south;
+  final double west;
+  final double north;
+  final double east;
+
+  const RouteClusterBounds({
+    required this.south,
+    required this.west,
+    required this.north,
+    required this.east,
+  });
+
+  LatLng get center => LatLng((south + north) / 2, (west + east) / 2);
+
+  bool contains(LatLng point) {
+    return point.lat >= south &&
+        point.lat <= north &&
+        point.lng >= west &&
+        point.lng <= east;
+  }
+}
+
+class RegionRouteCluster {
+  final String id;
+  final String name;
+  final List<RevvRoute> routes;
+  final LatLng center;
+  final RouteClusterBounds bounds;
+
+  const RegionRouteCluster({
+    required this.id,
+    required this.name,
+    required this.routes,
+    required this.center,
+    required this.bounds,
+  });
+
+  RevvRoute get representative => routes.first;
+}
+
+List<RegionRouteCluster> buildRouteClusters(List<RevvRoute> routes) {
+  final grouped = <String, List<RevvRoute>>{};
+  for (final route in routes) {
+    grouped.putIfAbsent(_routeClusterKey(route), () => []).add(route);
+  }
+  final clusters = grouped.entries.map((entry) {
+    final ranked = _rankRoutesByFun(entry.value);
+    final bounds = _boundsForRoutes(ranked);
+    return RegionRouteCluster(
+      id: entry.key,
+      name: routeDisplayName(ranked.first),
+      routes: ranked,
+      center: bounds.center,
+      bounds: bounds,
+    );
+  }).toList();
+  clusters.sort((a, b) => b.routes.length.compareTo(a.routes.length));
+  return clusters;
+}
+
+List<RevvRoute> todayRecommendedRoutes(List<RegionRouteCluster> clusters) {
+  final rankedClusters = [...clusters]
+    ..sort(
+      (a, b) => _routeFunScore(
+        b.representative,
+      ).compareTo(_routeFunScore(a.representative)),
+    );
+  return rankedClusters
+      .take(3)
+      .map((cluster) => cluster.representative)
+      .toList(growable: false);
+}
+
+List<RegionRouteCluster> visibleRouteClusters(
+  List<RegionRouteCluster> clusters,
+  RouteClusterBounds bounds,
+) {
+  return clusters
+      .where((cluster) => bounds.contains(cluster.center))
+      .toList(growable: false);
+}
+
+String _routeClusterKey(RevvRoute route) {
+  final geohash = route.geohash4.trim();
+  if (geohash.isNotEmpty) return geohash;
+  return '${route.centerPoint.lat.toStringAsFixed(1)},${route.centerPoint.lng.toStringAsFixed(1)}';
+}
+
+List<RevvRoute> _rankRoutesByFun(List<RevvRoute> routes) {
+  return [...routes]
+    ..sort((a, b) => _routeFunScore(b).compareTo(_routeFunScore(a)));
+}
+
+double _routeFunScore(RevvRoute route) {
+  if (route.funScore > 0) return route.funScore;
+  if (route.routeRankScore > 0) return route.routeRankScore;
+  return route.windingScore;
+}
+
+RouteClusterBounds _boundsForRoutes(List<RevvRoute> routes) {
+  var south = routes.first.centerPoint.lat;
+  var north = routes.first.centerPoint.lat;
+  var west = routes.first.centerPoint.lng;
+  var east = routes.first.centerPoint.lng;
+  for (final route in routes) {
+    final point = route.centerPoint;
+    if (point.lat < south) south = point.lat;
+    if (point.lat > north) north = point.lat;
+    if (point.lng < west) west = point.lng;
+    if (point.lng > east) east = point.lng;
+  }
+  return RouteClusterBounds(south: south, west: west, north: north, east: east);
+}
 
 enum RouteFinderStateKind {
   temporaryLocationDenied,
@@ -125,6 +242,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   String? _journeyMode;
   String? _lastShownSignature;
   bool _initialRouteFocused = false;
+  String? _selectedClusterId;
+  Timer? _cameraDebounce;
+  final RegionPhotoService _regionPhotoService = RegionPhotoService();
 
   bool get _chainMode => _chainSelection.isNotEmpty;
 
@@ -136,6 +256,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
   @override
   void dispose() {
+    _cameraDebounce?.cancel();
     _journeySheetController.dispose();
     super.dispose();
   }
@@ -246,6 +367,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         _selectedIndex = 0;
         _hasUserSelectedRoute = false;
         _selectedRouteOverride = null;
+        _selectedClusterId = null;
         _localStatusMessage = null;
         _selectedRegionKey = regionKey;
         _mapCenterPoint = point;
@@ -265,6 +387,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedIndex = 0;
       _hasUserSelectedRoute = false;
       _selectedRouteOverride = null;
+      _selectedClusterId = null;
       _localStatusMessage = null;
       _selectedRegionKey = regionKey;
       _coverageRequestPoint = null;
@@ -513,6 +636,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedIndex = 0;
       _hasUserSelectedRoute = false;
       _selectedRouteOverride = null;
+      _selectedClusterId = null;
     });
   }
 
@@ -772,6 +896,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedIndex = 0;
       _hasUserSelectedRoute = false;
       _selectedRouteOverride = null;
+      _selectedClusterId = null;
     });
   }
 
@@ -781,6 +906,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedIndex = 0;
       _hasUserSelectedRoute = false;
       _selectedRouteOverride = null;
+      _selectedClusterId = null;
       _journeyMode = null;
       _options = null;
       _freeRoamOptions = null;
@@ -793,7 +919,24 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedIndex = 0;
       _hasUserSelectedRoute = false;
       _selectedRouteOverride = null;
+      _selectedClusterId = null;
     });
+  }
+
+  void _selectCluster(RegionRouteCluster cluster) {
+    setState(() {
+      _selectedClusterId = cluster.id;
+      _selectedIndex = 0;
+      _hasUserSelectedRoute = false;
+      _selectedRouteOverride = null;
+      _mapCenterPoint = cluster.bounds.center;
+      _mapZoom = 12.2;
+      _mapFocusSignal++;
+    });
+  }
+
+  void _clearSelectedCluster() {
+    setState(() => _selectedClusterId = null);
   }
 
   Future<void> _startDrive(RevvRoute route) async {
@@ -827,9 +970,13 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         previousMode != nextMode;
     _mapCenterPoint = viewport.center;
     _mapZoom = viewport.zoom;
-    if (shouldRefreshMarkers && mounted) {
-      setState(() {});
-    }
+    _cameraDebounce?.cancel();
+    _cameraDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      setState(() {
+        if (shouldRefreshMarkers) _selectedClusterId = null;
+      });
+    });
   }
 
   void _handleRouteLineTap(String routeId) {
@@ -870,6 +1017,43 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     return routesForDriveBudget(lensRoutes, budget: _driveBudget);
   }
 
+  RouteClusterBounds _clusterBoundsForViewport(LatLng? center, double zoom) {
+    if (center == null || zoom < 9.5) {
+      return const RouteClusterBounds(
+        south: -90,
+        west: -180,
+        north: 90,
+        east: 180,
+      );
+    }
+    final radiusKm = switch (_mapModeForZoom(zoom)) {
+      _RouteMapMode.wide => 180.0,
+      _RouteMapMode.balanced => 95.0,
+      _RouteMapMode.close => 35.0,
+    };
+    final latDelta = radiusKm / 111.32;
+    final lngDelta =
+        radiusKm /
+        (111.32 * math.cos(center.lat * math.pi / 180).abs().clamp(0.1, 1.0));
+    return RouteClusterBounds(
+      south: center.lat - latDelta,
+      west: center.lng - lngDelta,
+      north: center.lat + latDelta,
+      east: center.lng + lngDelta,
+    );
+  }
+
+  RegionRouteCluster? _selectedCluster(
+    List<RegionRouteCluster> clusters,
+    String? id,
+  ) {
+    if (id == null) return null;
+    for (final cluster in clusters) {
+      if (cluster.id == id) return cluster;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final service = context.watch<RouteService>();
@@ -891,8 +1075,25 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final mapSourceRoutes = _driveBudget == DriveBudget.any
         ? service.mapVisualRoutes
         : visibleRoutes;
+    final noDestination = _destination == null;
+    final clusters = noDestination
+        ? buildRouteClusters(visibleRoutes)
+        : const <RegionRouteCluster>[];
+    final clusterBounds = _clusterBoundsForViewport(_mapCenterPoint, _mapZoom);
+    final visibleClusters = noDestination
+        ? visibleRouteClusters(clusters, clusterBounds)
+        : const <RegionRouteCluster>[];
+    final selectedCluster = noDestination
+        ? _selectedCluster(visibleClusters, _selectedClusterId)
+        : null;
+    final clusterRoutes = selectedCluster?.routes ?? const <RevvRoute>[];
+    final showIndividualRoutes = !noDestination || _mapZoom >= 12.0;
     final mapDisplayRoutes = _routesForViewport(
-      mapSourceRoutes.isNotEmpty ? mapSourceRoutes : visibleRoutes,
+      showIndividualRoutes
+          ? mapSourceRoutes.isNotEmpty
+                ? mapSourceRoutes
+                : visibleRoutes
+          : const <RevvRoute>[],
       _mapCenterPoint,
       _mapZoom,
     );
@@ -1013,6 +1214,16 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                 routePolylines: showingJourney ? _windingPolylines : null,
                 curveHeatmap: !showingJourney,
                 planMarkers: showingJourney ? _planMarkers : null,
+                clusterMarkers: showingJourney
+                    ? const []
+                    : [
+                        for (final cluster in visibleClusters)
+                          RouteClusterMapMarker(
+                            id: cluster.id,
+                            point: cluster.center,
+                            count: cluster.routes.length,
+                          ),
+                      ],
                 candidatePolylines: showingJourney
                     ? const []
                     : [
@@ -1126,6 +1337,52 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                           setState(() => _selectedFreeRoamIndex = index),
                       onStart: _startFirstWinding,
                       onNavigate: _openExternalNavigation,
+                    )
+                  : noDestination
+                  ? _RegionAnchoredRoutesSheet(
+                      language: language,
+                      routes: clusterRoutes,
+                      clusters: visibleClusters,
+                      selectedCluster: selectedCluster,
+                      recommendations: todayRecommendedRoutes(visibleClusters),
+                      planning: _planning,
+                      emptyTitle: stateKind != null
+                          ? routeFinderStateTitle(stateKind, language)
+                          : emptyTitle,
+                      emptyBody: stateKind != null
+                          ? routeFinderStateBody(stateKind, language)
+                          : emptyBody,
+                      onEmptyAction: stateKind != null
+                          ? switch (stateKind) {
+                              RouteFinderStateKind.temporaryLocationDenied =>
+                                _searchCurrentLocation,
+                              RouteFinderStateKind.permanentlyLocationDenied =>
+                                _openLocationSettings,
+                              RouteFinderStateKind.emptyRoutes =>
+                                _selectRegionPreset,
+                              RouteFinderStateKind.loadFailed => _searchHere,
+                              RouteFinderStateKind.cachedRoutes => _searchHere,
+                            }
+                          : budgetEmpty
+                          ? () => _setDriveBudget(DriveBudget.any)
+                          : filterEmpty
+                          ? () => _setLens(_RouteLens.all)
+                          : canBroadenStrength
+                          ? () =>
+                                _applyFilterStrength(RouteFilterStrength.broad)
+                          : _searchHere,
+                      onFreeRoam: () => unawaited(_buildFreeRoamJourney()),
+                      selectedRouteId: selected?.id,
+                      chainSelection: _chainSelection,
+                      photoService: _regionPhotoService,
+                      onClusterTap: _selectCluster,
+                      onClusterBack: _clearSelectedCluster,
+                      onRouteTap: (route) {
+                        _selectRouteFromList(visibleRoutes, route);
+                      },
+                      onToggleChain: _toggleChainRoute,
+                      onGo: (route) => unawaited(_startDrive(route)),
+                      onDetails: _showRouteDetails,
                     )
                   : _FinderRoutesSheet(
                       language: language,
@@ -1295,6 +1552,407 @@ class RouteCoverageBoundaryCard extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _RegionAnchoredRoutesSheet extends StatelessWidget {
+  final AppLanguage language;
+  final List<RevvRoute> routes;
+  final List<RegionRouteCluster> clusters;
+  final RegionRouteCluster? selectedCluster;
+  final List<RevvRoute> recommendations;
+  final bool planning;
+  final String emptyTitle;
+  final String emptyBody;
+  final VoidCallback onEmptyAction;
+  final VoidCallback onFreeRoam;
+  final String? selectedRouteId;
+  final Map<String, RevvRoute> chainSelection;
+  final RegionPhotoService photoService;
+  final ValueChanged<RegionRouteCluster> onClusterTap;
+  final VoidCallback onClusterBack;
+  final ValueChanged<RevvRoute> onRouteTap;
+  final ValueChanged<RevvRoute> onToggleChain;
+  final ValueChanged<RevvRoute> onGo;
+  final ValueChanged<RevvRoute> onDetails;
+
+  const _RegionAnchoredRoutesSheet({
+    required this.language,
+    required this.routes,
+    required this.clusters,
+    required this.selectedCluster,
+    required this.recommendations,
+    required this.planning,
+    required this.emptyTitle,
+    required this.emptyBody,
+    required this.onEmptyAction,
+    required this.onFreeRoam,
+    required this.selectedRouteId,
+    required this.chainSelection,
+    required this.photoService,
+    required this.onClusterTap,
+    required this.onClusterBack,
+    required this.onRouteTap,
+    required this.onToggleChain,
+    required this.onGo,
+    required this.onDetails,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.42,
+      minChildSize: 0.18,
+      maxChildSize: 0.85,
+      snap: true,
+      snapSizes: const [0.18, 0.42, 0.85],
+      builder: (context, scrollController) {
+        return RevvGlassCard(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+          padding: EdgeInsets.zero,
+          radius: 18,
+          child: ListView(
+            controller: scrollController,
+            padding: EdgeInsets.fromLTRB(
+              16,
+              10,
+              16,
+              MediaQuery.paddingOf(context).bottom + 16,
+            ),
+            children: [
+              const _SheetHandle(),
+              if (planning)
+                JourneyPlanningCard(language: language, framed: false)
+              else if (clusters.isEmpty)
+                _LeanEmptyTicket(
+                  title: emptyTitle,
+                  body: emptyBody,
+                  actionLabel: AppCopy.t(
+                    language,
+                    ko: '다시 찾기',
+                    en: 'Retry',
+                    fr: 'Réessayer',
+                  ),
+                  actionIcon: Icons.refresh_rounded,
+                  onAction: onEmptyAction,
+                )
+              else if (selectedCluster == null)
+                ..._clusterList(context)
+              else
+                ..._clusterRoutes(context, selectedCluster!),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  List<Widget> _clusterList(BuildContext context) {
+    return [
+      Text(
+        AppCopy.t(
+          language,
+          ko: '오늘의 추천',
+          en: 'Today’s picks',
+          fr: 'Suggestions du jour',
+        ),
+        style: AppText.body(
+          size: 14,
+          weight: FontWeight.w900,
+          color: AppColors.textPrimary,
+        ),
+      ),
+      const SizedBox(height: 10),
+      for (final route in recommendations) ...[
+        _TodayRouteTile(
+          route: route,
+          language: language,
+          onTap: () => onRouteTap(route),
+          onDetails: () => onDetails(route),
+        ),
+        const SizedBox(height: 8),
+      ],
+      OutlinedButton.icon(
+        key: const Key('finder-free-roam-button'),
+        onPressed: onFreeRoam,
+        icon: const Icon(Icons.explore_rounded, size: 18),
+        label: Text(
+          AppCopy.t(language, ko: '그냥 추천', en: 'Surprise me', fr: 'Suggestion'),
+        ),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.textPrimary,
+          side: BorderSide(color: AppColors.outline.withValues(alpha: 0.28)),
+          minimumSize: const Size.fromHeight(44),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      const SizedBox(height: 14),
+      Text(
+        AppCopy.t(language, ko: '지역 묶음', en: 'Areas', fr: 'Secteurs'),
+        style: AppText.body(
+          size: 14,
+          weight: FontWeight.w900,
+          color: AppColors.textPrimary,
+        ),
+      ),
+      const SizedBox(height: 10),
+      for (final cluster in clusters) ...[
+        _RegionClusterTile(
+          cluster: cluster,
+          language: language,
+          photoService: photoService,
+          onTap: () => onClusterTap(cluster),
+        ),
+        const SizedBox(height: 8),
+      ],
+    ];
+  }
+
+  List<Widget> _clusterRoutes(
+    BuildContext context,
+    RegionRouteCluster cluster,
+  ) {
+    return [
+      Row(
+        children: [
+          _LeanCircleButton(
+            icon: Icons.arrow_back_rounded,
+            onTap: onClusterBack,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '${cluster.name} · ${cluster.routes.length}${AppCopy.t(language, ko: '개', en: '', fr: '')}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppText.body(
+                size: 14,
+                weight: FontWeight.w900,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      for (final route in routes) ...[
+        GestureDetector(
+          onTap: () => onRouteTap(route),
+          child: _LeanRouteTicket(
+            route: route,
+            index: routes.indexOf(route),
+            total: routes.length,
+            onPrev: null,
+            onNext: null,
+            onGo: () => onGo(route),
+            onDetails: () => onDetails(route),
+            mapSelected: route.id == selectedRouteId,
+            chainMode: false,
+            chainCount: chainSelection.length,
+            chainSelected: chainSelection.containsKey(route.id),
+            onToggleChain: () => onToggleChain(route),
+          ),
+        ),
+        const SizedBox(height: 10),
+      ],
+    ];
+  }
+}
+
+class _TodayRouteTile extends StatelessWidget {
+  final RevvRoute route;
+  final AppLanguage language;
+  final VoidCallback onTap;
+  final VoidCallback onDetails;
+
+  const _TodayRouteTile({
+    required this.route,
+    required this.language,
+    required this.onTap,
+    required this.onDetails,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.creamRaised,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.ink.withValues(alpha: 0.08)),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.auto_awesome_rounded,
+              color: AppColors.primaryContainer,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                routeDisplayName(route, language: language),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.body(
+                  size: 13,
+                  weight: FontWeight.w900,
+                  color: AppColors.ink,
+                ),
+              ),
+            ),
+            IconButton(
+              onPressed: onDetails,
+              icon: const Icon(Icons.info_outline_rounded, size: 18),
+              color: AppColors.stone,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RegionClusterTile extends StatelessWidget {
+  final RegionRouteCluster cluster;
+  final AppLanguage language;
+  final RegionPhotoService photoService;
+  final VoidCallback onTap;
+
+  const _RegionClusterTile({
+    required this.cluster,
+    required this.language,
+    required this.photoService,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.creamRaised,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.ink.withValues(alpha: 0.08)),
+        ),
+        child: Row(
+          children: [
+            _RegionClusterPhoto(cluster: cluster, photoService: photoService),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    AppCopy.t(
+                      language,
+                      ko: '${cluster.name} 일대',
+                      en: '${cluster.name} area',
+                      fr: 'Secteur ${cluster.name}',
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(
+                      size: 14,
+                      weight: FontWeight.w900,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    AppCopy.t(
+                      language,
+                      ko: '루트 ${cluster.routes.length}개 · 대표: ${routeDisplayName(cluster.representative, language: language)}',
+                      en: '${cluster.routes.length} routes · Featured: ${routeDisplayName(cluster.representative, language: language)}',
+                      fr: '${cluster.routes.length} routes · Repère : ${routeDisplayName(cluster.representative, language: language)}',
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(
+                      size: 11,
+                      weight: FontWeight.w800,
+                      color: AppColors.stone,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded, color: AppColors.stone),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RegionClusterPhoto extends StatelessWidget {
+  final RegionRouteCluster cluster;
+  final RegionPhotoService photoService;
+
+  const _RegionClusterPhoto({
+    required this.cluster,
+    required this.photoService,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 64,
+        height: 64,
+        child: FutureBuilder<String?>(
+          future: photoService.photoUrl(
+            geohash4: cluster.id,
+            point: cluster.center,
+          ),
+          builder: (context, snapshot) {
+            final url = snapshot.data;
+            if (url == null || url.isEmpty) return const _RegionPhotoFallback();
+            return Image.network(
+              url,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => const _RegionPhotoFallback(),
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                return AnimatedOpacity(
+                  opacity: 0.42,
+                  duration: const Duration(milliseconds: 180),
+                  child: child,
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _RegionPhotoFallback extends StatelessWidget {
+  const _RegionPhotoFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.surface, AppColors.creamMuted],
+        ),
+      ),
+      child: const Center(
+        child: Icon(Icons.terrain_rounded, color: AppColors.primaryContainer),
       ),
     );
   }
