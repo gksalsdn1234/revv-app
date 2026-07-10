@@ -16,20 +16,6 @@ class AppCopy {
     return isFr(language) ? fr : en;
   }
 
-  static String homeTitle(AppLanguage language) => t(
-    language,
-    ko: '좋은 길을 찾고.\n바로 달리기.',
-    en: 'Find the road.\nStart the drive.',
-    fr: 'Trouver la route.\nLancer le trajet.',
-  );
-
-  static String homeSubtitle(AppLanguage language) => t(
-    language,
-    ko: '지도, 루트 선택, 주행, 요약 저장에 집중한 베타입니다.',
-    en: 'A lean beta focused on the core flow: map, route choice, drive, and saved summary.',
-    fr: 'Une bêta légère centrée sur l’essentiel : carte, choix de route, conduite et résumé.',
-  );
-
   static String routeFinder(AppLanguage language) =>
       t(language, ko: '루트 찾기', en: 'Find routes', fr: 'Trouver des routes');
 
@@ -42,8 +28,8 @@ class AppCopy {
   static String history(AppLanguage language) =>
       t(language, ko: '기록', en: 'History', fr: 'Historique');
 
-  static String homeNav(AppLanguage language) =>
-      t(language, ko: '홈', en: 'Home', fr: 'Accueil');
+  static String mapNav(AppLanguage language) =>
+      t(language, ko: '지도', en: 'Map', fr: 'Carte');
 
   static String settingsNav(AppLanguage language) =>
       t(language, ko: '설정', en: 'Settings', fr: 'Réglages');

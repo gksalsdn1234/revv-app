@@ -193,6 +193,7 @@ class LeanRouteFinderScreen extends StatefulWidget {
   final PlaceSearchService? placeSearch;
   final RecommendationLogService? recommendationLogService;
   final String? initialRouteId;
+  final bool showBackButton;
 
   const LeanRouteFinderScreen({
     super.key,
@@ -200,6 +201,7 @@ class LeanRouteFinderScreen extends StatefulWidget {
     this.placeSearch,
     this.recommendationLogService,
     this.initialRouteId,
+    this.showBackButton = true,
   });
 
   @override
@@ -1207,6 +1209,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         child: Stack(
           fit: StackFit.expand,
           children: [
+            const Positioned.fill(child: _FinderColdStartBackground()),
             Positioned.fill(
               child: MapWidget(
                 navPolylines: showingJourney ? _transitPolylines : null,
@@ -1251,7 +1254,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                   children: [
                     _LeanRouteTopBar(
                       busy: service.isLoading,
-                      onBack: () => Navigator.pop(context),
+                      onBack: widget.showBackButton
+                          ? () => Navigator.pop(context)
+                          : null,
                       destinationName: _destinationName,
                       onDestination: _openDestinationSearch,
                       onClearDestination: _destination == null
@@ -2117,7 +2122,7 @@ class _SheetHandle extends StatelessWidget {
 
 class _LeanRouteTopBar extends StatelessWidget {
   final bool busy;
-  final VoidCallback onBack;
+  final VoidCallback? onBack;
   final String? destinationName;
   final VoidCallback onDestination;
   final VoidCallback? onClearDestination;
@@ -2159,6 +2164,32 @@ class _LeanRouteTopBar extends StatelessWidget {
           const SizedBox(width: 6),
           _LeanCircleButton(icon: Icons.gps_fixed_rounded, onTap: onRecenter),
         ],
+      ),
+    );
+  }
+}
+
+class _FinderColdStartBackground extends StatelessWidget {
+  const _FinderColdStartBackground();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: const BoxDecoration(color: AppColors.bg),
+      child: Center(
+        child: AnimatedOpacity(
+          opacity: 0.18,
+          duration: Duration(milliseconds: 420),
+          child: Text(
+            'REVV',
+            style: AppText.display(
+              size: 54,
+              weight: FontWeight.w900,
+              letterSpacing: 0,
+              color: AppColors.cream,
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -3,10 +3,10 @@ import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/ui/app_copy.dart';
 
 void main() {
-  test('home, loading, and settings policy labels are localized', () {
-    expect(AppCopy.homeNav(AppLanguage.korean), '홈');
-    expect(AppCopy.homeNav(AppLanguage.english), 'Home');
-    expect(AppCopy.homeNav(AppLanguage.french), 'Accueil');
+  test('map, loading, and settings policy labels are localized', () {
+    expect(AppCopy.mapNav(AppLanguage.korean), '지도');
+    expect(AppCopy.mapNav(AppLanguage.english), 'Map');
+    expect(AppCopy.mapNav(AppLanguage.french), 'Carte');
 
     expect(AppCopy.loadingTagline(AppLanguage.korean), contains('안전'));
     expect(AppCopy.loadingScanning(AppLanguage.english), 'Scan');

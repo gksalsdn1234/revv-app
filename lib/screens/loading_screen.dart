@@ -7,7 +7,7 @@ import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
-import 'lean_home_screen.dart';
+import 'lean_app_shell_screen.dart';
 
 class LoadingScreen extends StatefulWidget {
   const LoadingScreen({super.key});
@@ -56,7 +56,7 @@ class _LoadingScreenState extends State<LoadingScreen>
       if (mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (_) => const LeanHomeScreen()),
+          MaterialPageRoute(builder: (_) => const LeanAppShellScreen()),
         );
       }
     });
@@ -164,6 +164,25 @@ class _LoadingScreenState extends State<LoadingScreen>
                           color: AppColors.stone,
                           letterSpacing: 1.6,
                         ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: compact ? 14 : 18),
+                  FadeTransition(
+                    opacity: _logoFade,
+                    child: Text(
+                      AppCopy.t(
+                        language,
+                        ko: '도로를 찾고\n주행을 시작하세요.',
+                        en: 'Find the road.\nStart the drive.',
+                        fr: 'Trouvez la route.\nLancez le run.',
+                      ),
+                      textAlign: TextAlign.center,
+                      style: AppText.rajdhani(
+                        size: tight ? 30 : 36,
+                        weight: FontWeight.w800,
+                        height: 0.96,
+                        color: AppColors.cream,
                       ),
                     ),
                   ),

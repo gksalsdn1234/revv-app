@@ -27,8 +27,8 @@ import 'lean_run_summary_screen.dart';
 
 const bool _revvWalkieLabEnabled = bool.fromEnvironment('REVV_WALKIE_LAB');
 
-class LeanHomeScreen extends StatefulWidget {
-  const LeanHomeScreen({
+class LeanAppShellScreen extends StatefulWidget {
+  const LeanAppShellScreen({
     super.key,
     this.walkieLabEntryEnabled = _revvWalkieLabEnabled,
     this.walkieLabBuilder,
@@ -38,13 +38,14 @@ class LeanHomeScreen extends StatefulWidget {
   final WidgetBuilder? walkieLabBuilder;
 
   @override
-  State<LeanHomeScreen> createState() => _LeanHomeScreenState();
+  State<LeanAppShellScreen> createState() => _LeanAppShellScreenState();
 }
 
-class _LeanHomeScreenState extends State<LeanHomeScreen>
+class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     with WidgetsBindingObserver {
   bool _checkingGuideReturn = false;
   bool _guidePromptShown = false;
+  _RaceTab _currentTab = _RaceTab.map;
 
   @override
   void initState() {
@@ -289,20 +290,6 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     );
   }
 
-  void _showSettingsSheet(BuildContext ctx) {
-    showModalBottomSheet(
-      context: ctx,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _SettingsSheet(
-        onToggleCloud: () => unawaited(_toggleCloudRunStorage(ctx)),
-        onDeleteHistory: () => _confirmDeleteRunData(ctx),
-        onPrivacy: _openPrivacyPolicy,
-        showWalkieLabEntry: widget.walkieLabEntryEnabled,
-        onOpenWalkieLab: () => _openWalkieLab(ctx),
-      ),
-    );
-  }
-
   void _openWalkieLab(BuildContext ctx) {
     // 랩과 주행화면이 같은 인스턴스를 공유하도록 Provider에서 꺼내 넘긴다.
     final builder =
@@ -315,294 +302,62 @@ class _LeanHomeScreenState extends State<LeanHomeScreen>
     Navigator.of(ctx).push(MaterialPageRoute(builder: builder));
   }
 
-  void _showHistorySheet(BuildContext ctx) {
-    showModalBottomSheet(
-      context: ctx,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => const HistorySheet(),
-    );
-  }
-
-  void _openFinder({RevvRoute? route}) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => LeanRouteFinderScreen(initialRouteId: route?.id),
-      ),
-    );
-  }
-
-  String _homeRouteStatus({
-    required AppLanguage language,
-    required LocationService location,
-    required RouteService routes,
-  }) {
-    if (routes.isLoading ||
-        (!location.hasBestKnownLocation && routes.routes.isEmpty)) {
-      return AppCopy.t(
-        language,
-        ko: '루트 찾는 중…',
-        en: 'Finding roads…',
-        fr: 'Recherche…',
-      );
-    }
-    return '${routes.routes.length} ROUTES NEARBY';
-  }
-
   @override
   Widget build(BuildContext context) {
     final location = context.watch<LocationService>();
     final routes = context.watch<RouteService>();
-    final history = context.watch<RunHistoryService>();
     final settings = context.watch<SettingsService>();
-    final supabase = context.watch<SupabaseService>();
     final language = settings.appLanguage;
-    final lastRun = history.history.isNotEmpty ? history.history.first : null;
-    final previewRoutes = routes.routes.take(3).toList(growable: false);
 
     return Scaffold(
-      backgroundColor: AppColors.cream,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 18, 24, 18),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      backgroundColor: AppColors.bg,
+      body: Stack(
+        children: [
+          IndexedStack(
+            index: _currentTab.index,
             children: [
-              Row(
-                children: [
-                  Text(
-                    'REVV',
-                    style: AppText.label(
-                      size: 24,
-                      weight: FontWeight.w900,
-                      letterSpacing: 3,
-                      color: AppColors.ink,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    width: 5,
-                    height: 18,
-                    color: AppColors.primaryContainer,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: supabase.isCloudAvailable
-                          ? const SizedBox.shrink()
-                          : const _LeanStatusDot(active: false, label: 'LOCAL'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          color: AppColors.ink,
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              height: 10,
-                              decoration: const BoxDecoration(
-                                color: AppColors.ink,
-                              ),
-                              child: CustomPaint(
-                                painter: _CheckeredPainter(
-                                  tileSize: 7,
-                                  color: AppColors.cream,
-                                ),
-                                size: const Size(double.infinity, 10),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                20,
-                                18,
-                                20,
-                                20,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Text(
-                                        'READY TO RUN',
-                                        style: AppText.mono(
-                                          size: 10,
-                                          weight: FontWeight.w700,
-                                          letterSpacing: 2,
-                                          color: AppColors.primaryContainer,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          _homeRouteStatus(
-                                            language: language,
-                                            location: location,
-                                            routes: routes,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          textAlign: TextAlign.right,
-                                          style: AppText.mono(
-                                            size: 10,
-                                            color: AppColors.stone,
-                                            letterSpacing: 1,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    AppCopy.t(
-                                      language,
-                                      ko: '도로를 찾고\n주행을 시작하세요.',
-                                      en: 'Find the road.\nStart the drive.',
-                                      fr: 'Trouvez la route.\nLancez le run.',
-                                    ),
-                                    style: AppText.rajdhani(
-                                      size: 40,
-                                      weight: FontWeight.w800,
-                                      height: 0.95,
-                                      color: AppColors.cream,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 18),
-                                  SizedBox(
-                                    width: double.infinity,
-                                    height: 54,
-                                    child: FilledButton.icon(
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor:
-                                            AppColors.primaryContainer,
-                                        foregroundColor: Colors.white,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            12,
-                                          ),
-                                        ),
-                                      ),
-                                      onPressed: () {
-                                        _openFinder();
-                                      },
-                                      icon: const Icon(
-                                        Icons.arrow_forward_rounded,
-                                        size: 20,
-                                      ),
-                                      label: Text(
-                                        AppCopy.routeFinder(
-                                          language,
-                                        ).toUpperCase(),
-                                        style: AppText.label(
-                                          size: 19,
-                                          weight: FontWeight.w800,
-                                          letterSpacing: 1.5,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (routes.pendingGuideRoute != null) ...[
-                        const SizedBox(height: 14),
-                        _GuideToStartCard(
-                          route: routes.pendingGuideRoute!,
-                          current: location.bestKnownLatLng,
-                          onGoogle: () => _openGoogleMapsForRoute(
-                            context,
-                            routes.pendingGuideRoute!,
-                          ),
-                          onWaze: () => _openWazeForRoute(
-                            context,
-                            routes.pendingGuideRoute!,
-                          ),
-                          onStart: () => unawaited(
-                            _startFromGuideCard(routes.pendingGuideRoute!),
-                          ),
-                          onCancel: () {
-                            _guidePromptShown = false;
-                            routes.clearGuideToStart();
-                          },
-                        ),
-                      ],
-                      const SizedBox(height: 20),
-                      _SectionHeader(
-                        label: AppCopy.t(
-                          language,
-                          ko: '근처 와인딩',
-                          en: 'Nearby roads',
-                          fr: 'Routes à proximité',
-                        ).toUpperCase(),
-                      ),
-                      const SizedBox(height: 10),
-                      if (previewRoutes.isEmpty)
-                        _FinderPlaceholderCard(language: language)
-                      else
-                        for (final route in previewRoutes) ...[
-                          _NearbyRouteCard(
-                            route: route,
-                            language: language,
-                            onTap: () => _openFinder(route: route),
-                          ),
-                          if (route != previewRoutes.last)
-                            const SizedBox(height: 10),
-                        ],
-                      if (lastRun != null) ...[
-                        const SizedBox(height: 20),
-                        _SectionHeader(
-                          label: AppCopy.t(
-                            language,
-                            ko: '최근 주행',
-                            en: 'Recent drive',
-                            fr: 'Dernier trajet',
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        _LastRunCard(
-                          run: lastRun,
-                          language: language,
-                          onTap: () => _showHistorySheet(context),
-                        ),
-                      ],
-                      if (history.totalRuns > 0) ...[
-                        const SizedBox(height: 16),
-                        _StatsLine(history: history),
-                      ],
-                      const SizedBox(height: 16),
-                    ],
-                  ),
-                ),
-              ),
-              _RaceBottomNav(
-                current: _RaceTab.home,
-                language: language,
-                onHome: _primeLocation,
-                onHistory: () => _showHistorySheet(context),
-                onSettings: () => _showSettingsSheet(context),
+              const LeanRouteFinderScreen(showBackButton: false),
+              const HistoryTab(),
+              SettingsTab(
+                onToggleCloud: () => unawaited(_toggleCloudRunStorage(context)),
+                onDeleteHistory: () => _confirmDeleteRunData(context),
+                onPrivacy: _openPrivacyPolicy,
+                showWalkieLabEntry: widget.walkieLabEntryEnabled,
+                onOpenWalkieLab: () => _openWalkieLab(context),
               ),
             ],
           ),
-        ),
+          if (routes.pendingGuideRoute != null)
+            Positioned(
+              top: MediaQuery.paddingOf(context).top + 14,
+              left: 14,
+              right: 14,
+              child: _GuideToStartCard(
+                route: routes.pendingGuideRoute!,
+                current: location.bestKnownLatLng,
+                onGoogle: () =>
+                    _openGoogleMapsForRoute(context, routes.pendingGuideRoute!),
+                onWaze: () =>
+                    _openWazeForRoute(context, routes.pendingGuideRoute!),
+                onStart: () =>
+                    unawaited(_startFromGuideCard(routes.pendingGuideRoute!)),
+                onCancel: () {
+                  _guidePromptShown = false;
+                  routes.clearGuideToStart();
+                },
+              ),
+            ),
+        ],
+      ),
+      bottomNavigationBar: _RaceBottomNav(
+        current: _currentTab,
+        language: language,
+        onMap: () {
+          setState(() => _currentTab = _RaceTab.map);
+          unawaited(_primeLocation());
+        },
+        onHistory: () => setState(() => _currentTab = _RaceTab.history),
+        onSettings: () => setState(() => _currentTab = _RaceTab.settings),
       ),
     );
   }
@@ -702,179 +457,19 @@ class _LastRunCard extends StatelessWidget {
   }
 }
 
-class _RunPill extends StatelessWidget {
-  final String label;
-  final bool accent;
-
-  const _RunPill({required this.label, this.accent = false});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: accent
-            ? AppColors.primaryContainer.withValues(alpha: 0.10)
-            : AppColors.creamMuted,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(
-          color: accent
-              ? AppColors.primaryContainer.withValues(alpha: 0.28)
-              : AppColors.ink.withValues(alpha: 0.14),
-        ),
-      ),
-      child: Text(
-        label,
-        style: AppText.mono(
-          size: 11,
-          weight: FontWeight.w700,
-          color: accent ? AppColors.primaryContainer : AppColors.ink,
-        ),
-      ),
-    );
-  }
-}
-
-class _NearbyRouteCard extends StatelessWidget {
-  final RevvRoute route;
-  final AppLanguage language;
-  final VoidCallback onTap;
-
-  const _NearbyRouteCard({
-    required this.route,
-    required this.language,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.creamRaised,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
-        ),
-        child: Row(
-          children: [
-            const _RouteGlyph(),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    routeDisplayName(route, language: language),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppText.body(
-                      size: 15,
-                      weight: FontWeight.w900,
-                      color: AppColors.ink,
-                    ),
-                  ),
-                  const SizedBox(height: 7),
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 6,
-                    children: [
-                      _RunPill(
-                        label: '${route.distanceKm.toStringAsFixed(1)} km',
-                      ),
-                      _RunPill(label: driveMinutesLabel(route, language)),
-                      _RunPill(
-                        label: 'FUN ${route.windingScore.toStringAsFixed(1)}',
-                        accent: true,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            const Icon(
-              Icons.chevron_right_rounded,
-              size: 20,
-              color: AppColors.stone,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FinderPlaceholderCard extends StatelessWidget {
-  final AppLanguage language;
-
-  const _FinderPlaceholderCard({required this.language});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.creamRaised,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
-      ),
-      child: Text(
-        AppCopy.t(
-          language,
-          ko: '파인더에서 탐색 →',
-          en: 'Explore in Finder →',
-          fr: 'Explorer dans Finder →',
-        ),
-        style: AppText.body(
-          size: 14,
-          weight: FontWeight.w900,
-          color: AppColors.primaryContainer,
-        ),
-      ),
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String label;
-
-  const _SectionHeader({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Text(
-          label,
-          style: AppText.mono(
-            size: 10,
-            letterSpacing: 1.8,
-            color: AppColors.stone,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-enum _RaceTab { home, history, settings }
+enum _RaceTab { map, history, settings }
 
 class _RaceBottomNav extends StatelessWidget {
   final _RaceTab current;
   final AppLanguage language;
-  final VoidCallback onHome;
+  final VoidCallback onMap;
   final VoidCallback onHistory;
   final VoidCallback onSettings;
 
   const _RaceBottomNav({
     required this.current,
     required this.language,
-    required this.onHome,
+    required this.onMap,
     required this.onHistory,
     required this.onSettings,
   });
@@ -895,10 +490,10 @@ class _RaceBottomNav extends StatelessWidget {
         children: [
           Expanded(
             child: _RaceNavItem(
-              icon: Icons.home_outlined,
-              label: AppCopy.homeNav(language),
-              active: current == _RaceTab.home,
-              onTap: onHome,
+              icon: Icons.map_outlined,
+              label: AppCopy.mapNav(language),
+              active: current == _RaceTab.map,
+              onTap: onMap,
             ),
           ),
           Expanded(
@@ -967,30 +562,6 @@ class _RaceNavItem extends StatelessWidget {
   }
 }
 
-// ── 통계 한 줄 ────────────────────────────────────────────
-
-class _StatsLine extends StatelessWidget {
-  final RunHistoryService history;
-
-  const _StatsLine({required this.history});
-
-  @override
-  Widget build(BuildContext context) {
-    final totalKm = history.totalDistanceKm;
-    final kmText = totalKm >= 1000
-        ? '${(totalKm / 1000).toStringAsFixed(1)}k km'
-        : '${totalKm.toStringAsFixed(1)} km';
-    final parts = ['${history.totalRuns} runs', kmText];
-
-    return Text(
-      parts.join(' · '),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: AppText.mono(size: 10, letterSpacing: 1.4, color: AppColors.stone),
-    );
-  }
-}
-
 typedef HistoryReportOpener =
     Future<void> Function(
       BuildContext context,
@@ -1005,17 +576,6 @@ class HistorySheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final history = context.watch<RunHistoryService>();
-    final runs = history.history;
-    final bestRevv = runs.fold<int?>(
-      null,
-      (best, run) => run.revvScore == null
-          ? best
-          : best == null || run.revvScore! > best
-          ? run.revvScore
-          : best,
-    );
-
     return SafeArea(
       top: false,
       child: DraggableScrollableSheet(
@@ -1029,109 +589,171 @@ class HistorySheet extends StatelessWidget {
               color: AppColors.cream,
               borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
             ),
-            child: ListView(
+            child: _HistoryContent(
               controller: controller,
-              children: [
-                Center(
-                  child: Container(
-                    width: 42,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppColors.ink.withValues(alpha: 0.28),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  'HISTORY',
-                  style: AppText.technicalLabel(
-                    size: 10,
-                    letterSpacing: 2,
-                    color: AppColors.stone,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Season log',
-                  style: AppText.display(
-                    size: 40,
-                    height: 0.94,
-                    weight: FontWeight.w900,
-                    color: AppColors.ink,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    _HistoryMetric(
-                      label: 'RUNS',
-                      value: '${history.totalRuns}',
-                    ),
-                    _HistoryMetric(
-                      label: 'KM TOTAL',
-                      value: history.totalDistanceKm.toStringAsFixed(0),
-                    ),
-                    _HistoryMetric(
-                      label: 'AVG KM',
-                      value: history.totalRuns == 0
-                          ? '--'
-                          : (history.totalDistanceKm / history.totalRuns)
-                                .toStringAsFixed(1),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    _HistoryMetric(
-                      label: 'TIME',
-                      value: _compactDuration(
-                        runs.fold<int>(
-                          0,
-                          (sum, run) => sum + run.durationSeconds,
-                        ),
-                      ),
-                    ),
-                    _HistoryMetric(
-                      label: 'REVV',
-                      value: bestRevv == null ? '--' : '$bestRevv',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 22),
-                _MiniDistanceChart(runs: runs.take(8).toList()),
-                const SizedBox(height: 22),
-                Text(
-                  'Recent',
-                  style: AppText.label(
-                    size: 18,
-                    weight: FontWeight.w900,
-                    color: AppColors.ink,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (runs.isEmpty)
-                  Text(
-                    'No runs yet',
-                    style: AppText.body(
-                      size: 15,
-                      weight: FontWeight.w700,
-                      color: AppColors.stone,
-                    ),
-                  )
-                else
-                  for (var i = 0; i < runs.length && i < 12; i++)
-                    _HistoryRunRow(
-                      rank: i + 1,
-                      run: runs[i],
-                      onTap: () => _openRunReport(context, runs[i]),
-                    ),
-              ],
+              showHandle: true,
+              onOpenReport: onOpenReport,
             ),
           );
         },
       ),
+    );
+  }
+}
+
+class HistoryTab extends StatelessWidget {
+  final HistoryReportOpener? onOpenReport;
+
+  const HistoryTab({super.key, this.onOpenReport});
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: AppColors.cream,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 18, 24, 16),
+          child: _HistoryContent(
+            showRecentRunCard: true,
+            onOpenReport: onOpenReport,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryContent extends StatelessWidget {
+  final ScrollController? controller;
+  final bool showHandle;
+  final bool showRecentRunCard;
+  final HistoryReportOpener? onOpenReport;
+
+  const _HistoryContent({
+    this.controller,
+    this.showHandle = false,
+    this.showRecentRunCard = false,
+    this.onOpenReport,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final history = context.watch<RunHistoryService>();
+    final settings = context.watch<SettingsService>();
+    final runs = history.history;
+    final bestRevv = runs.fold<int?>(
+      null,
+      (best, run) => run.revvScore == null
+          ? best
+          : best == null || run.revvScore! > best
+          ? run.revvScore
+          : best,
+    );
+    final lastRun = runs.isNotEmpty ? runs.first : null;
+
+    return ListView(
+      controller: controller,
+      children: [
+        if (showHandle) ...[
+          Center(
+            child: Container(
+              width: 42,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AppColors.ink.withValues(alpha: 0.28),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+        Text(
+          'HISTORY',
+          style: AppText.technicalLabel(
+            size: 10,
+            letterSpacing: 2,
+            color: AppColors.stone,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'Season log',
+          style: AppText.display(
+            size: 40,
+            height: 0.94,
+            weight: FontWeight.w900,
+            color: AppColors.ink,
+          ),
+        ),
+        if (showRecentRunCard && lastRun != null) ...[
+          const SizedBox(height: 14),
+          _LastRunCard(
+            run: lastRun,
+            language: settings.appLanguage,
+            onTap: () => _openRunReport(context, lastRun),
+          ),
+        ],
+        const SizedBox(height: 18),
+        Row(
+          children: [
+            _HistoryMetric(label: 'RUNS', value: '${history.totalRuns}'),
+            _HistoryMetric(
+              label: 'KM TOTAL',
+              value: history.totalDistanceKm.toStringAsFixed(0),
+            ),
+            _HistoryMetric(
+              label: 'AVG KM',
+              value: history.totalRuns == 0
+                  ? '--'
+                  : (history.totalDistanceKm / history.totalRuns)
+                        .toStringAsFixed(1),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            _HistoryMetric(
+              label: 'TIME',
+              value: _compactDuration(
+                runs.fold<int>(0, (sum, run) => sum + run.durationSeconds),
+              ),
+            ),
+            _HistoryMetric(
+              label: 'REVV',
+              value: bestRevv == null ? '--' : '$bestRevv',
+            ),
+          ],
+        ),
+        const SizedBox(height: 22),
+        _MiniDistanceChart(runs: runs.take(8).toList()),
+        const SizedBox(height: 22),
+        Text(
+          'Recent',
+          style: AppText.label(
+            size: 18,
+            weight: FontWeight.w900,
+            color: AppColors.ink,
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (runs.isEmpty)
+          Text(
+            'No runs yet',
+            style: AppText.body(
+              size: 15,
+              weight: FontWeight.w700,
+              color: AppColors.stone,
+            ),
+          )
+        else
+          for (var i = 0; i < runs.length && i < 12; i++)
+            _HistoryRunRow(
+              rank: i + 1,
+              run: runs[i],
+              onTap: () => _openRunReport(context, runs[i]),
+            ),
+      ],
     );
   }
 
@@ -1145,7 +767,7 @@ class HistorySheet extends StatelessWidget {
   Future<void> _openRunReport(BuildContext context, RunSummary run) async {
     final history = context.read<RunHistoryService>();
     final navigator = Navigator.of(context);
-    navigator.pop();
+    if (showHandle) navigator.pop();
     final detail = await history.loadDetail(run.id);
     if (!navigator.mounted) return;
     if (onOpenReport != null) {
@@ -1430,14 +1052,15 @@ class _RouteGlyphPainter extends CustomPainter {
 
 // ── 설정 시트 ─────────────────────────────────────────────
 
-class _SettingsSheet extends StatelessWidget {
+class SettingsTab extends StatelessWidget {
   final VoidCallback onToggleCloud;
   final VoidCallback onDeleteHistory;
   final VoidCallback onPrivacy;
   final bool showWalkieLabEntry;
   final VoidCallback onOpenWalkieLab;
 
-  const _SettingsSheet({
+  const SettingsTab({
+    super.key,
     required this.onToggleCloud,
     required this.onDeleteHistory,
     required this.onPrivacy,
@@ -1447,8 +1070,45 @@ class _SettingsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ColoredBox(
+      color: AppColors.bg,
+      child: _SettingsSheet(
+        onToggleCloud: onToggleCloud,
+        onDeleteHistory: onDeleteHistory,
+        onPrivacy: onPrivacy,
+        showWalkieLabEntry: showWalkieLabEntry,
+        onOpenWalkieLab: onOpenWalkieLab,
+        embedded: true,
+        popOnAction: false,
+      ),
+    );
+  }
+}
+
+class _SettingsSheet extends StatelessWidget {
+  final VoidCallback onToggleCloud;
+  final VoidCallback onDeleteHistory;
+  final VoidCallback onPrivacy;
+  final bool showWalkieLabEntry;
+  final VoidCallback onOpenWalkieLab;
+  final bool embedded;
+  final bool popOnAction;
+
+  const _SettingsSheet({
+    required this.onToggleCloud,
+    required this.onDeleteHistory,
+    required this.onPrivacy,
+    required this.showWalkieLabEntry,
+    required this.onOpenWalkieLab,
+    this.embedded = false,
+    this.popOnAction = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final settings = context.watch<SettingsService>();
     final history = context.watch<RunHistoryService>();
+    final supabase = context.watch<SupabaseService>();
     final language = settings.appLanguage;
     final runCount = history.history.length;
     final profileMeta = runCount == 0
@@ -1459,13 +1119,17 @@ class _SettingsSheet extends StatelessWidget {
           }();
 
     return SafeArea(
-      top: false,
+      top: embedded,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        padding: embedded
+            ? const EdgeInsets.fromLTRB(14, 18, 14, 16)
+            : const EdgeInsets.fromLTRB(14, 0, 14, 14),
         child: Container(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.sizeOf(context).height * 0.88,
-          ),
+          constraints: embedded
+              ? null
+              : BoxConstraints(
+                  maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+                ),
           decoration: BoxDecoration(
             color: AppColors.cream,
             borderRadius: BorderRadius.circular(18),
@@ -1474,28 +1138,33 @@ class _SettingsSheet extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const SizedBox(height: 14),
-                Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.outlineVariant.withValues(alpha: 0.38),
-                    borderRadius: BorderRadius.circular(999),
+                if (!embedded) ...[
+                  const SizedBox(height: 14),
+                  Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.outlineVariant.withValues(alpha: 0.38),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 18),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Row(
                     children: [
-                      Text(
-                        AppCopy.settingsGarage(language).toUpperCase(),
-                        style: AppText.technicalLabel(
-                          size: 10,
-                          letterSpacing: 1.8,
-                          color: AppColors.stone,
+                      Expanded(
+                        child: Text(
+                          AppCopy.settingsGarage(language).toUpperCase(),
+                          style: AppText.technicalLabel(
+                            size: 10,
+                            letterSpacing: 1.8,
+                            color: AppColors.stone,
+                          ),
                         ),
                       ),
+                      _CloudStatusChip(supabase: supabase),
                     ],
                   ),
                 ),
@@ -1575,7 +1244,7 @@ class _SettingsSheet extends StatelessWidget {
                       fr: 'Lab voix groupe',
                     ),
                     onTap: () {
-                      Navigator.pop(context);
+                      if (popOnAction) Navigator.pop(context);
                       onOpenWalkieLab();
                     },
                   ),
@@ -1610,7 +1279,7 @@ class _SettingsSheet extends StatelessWidget {
                       ? AppCopy.cloudOff(language)
                       : AppCopy.cloudOn(language),
                   onTap: () {
-                    Navigator.pop(context);
+                    if (popOnAction) Navigator.pop(context);
                     onToggleCloud();
                   },
                 ),
@@ -1640,7 +1309,7 @@ class _SettingsSheet extends StatelessWidget {
                   label: AppCopy.deleteHistory(language),
                   danger: true,
                   onTap: () {
-                    Navigator.pop(context);
+                    if (popOnAction) Navigator.pop(context);
                     onDeleteHistory();
                   },
                 ),
@@ -1648,7 +1317,7 @@ class _SettingsSheet extends StatelessWidget {
                   icon: Icons.privacy_tip_outlined,
                   label: AppCopy.privacyPolicy(language),
                   onTap: () {
-                    Navigator.pop(context);
+                    if (popOnAction) Navigator.pop(context);
                     onPrivacy();
                   },
                 ),
@@ -1670,6 +1339,26 @@ class _SettingsSheet extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _CloudStatusChip extends StatelessWidget {
+  final SupabaseService supabase;
+
+  const _CloudStatusChip({required this.supabase});
+
+  @override
+  Widget build(BuildContext context) {
+    if (supabase.status == SyncStatus.error) {
+      return const _LeanStatusDot(active: false, label: 'SYNC ERROR');
+    }
+    if (supabase.status == SyncStatus.syncing) {
+      return const _LeanStatusDot(active: false, label: 'SYNCING');
+    }
+    if (supabase.isCloudAvailable) {
+      return const _LeanStatusDot(active: true, label: 'SYNCED');
+    }
+    return const _LeanStatusDot(active: false, label: 'LOCAL');
   }
 }
 
@@ -2251,34 +1940,4 @@ class _LeanStatusDot extends StatelessWidget {
       ),
     );
   }
-}
-
-// ── Checkered flag painter ────────────────────────────────
-
-class _CheckeredPainter extends CustomPainter {
-  final double tileSize;
-  final Color color;
-
-  const _CheckeredPainter({required this.tileSize, required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = color.withValues(alpha: 0.9);
-    final cols = (size.width / tileSize).ceil() + 1;
-    final rows = (size.height / tileSize).ceil() + 1;
-    for (int row = 0; row < rows; row++) {
-      for (int col = 0; col < cols; col++) {
-        if ((row + col) % 2 == 0) {
-          canvas.drawRect(
-            Rect.fromLTWH(col * tileSize, row * tileSize, tileSize, tileSize),
-            paint,
-          );
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _CheckeredPainter oldDelegate) =>
-      tileSize != oldDelegate.tileSize || color != oldDelegate.color;
 }

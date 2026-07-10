@@ -2,18 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:revv_app/models/revv_route.dart';
-import 'package:revv_app/screens/lean_home_screen.dart';
+import 'package:revv_app/screens/lean_app_shell_screen.dart';
 import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/run_history_service.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/services/supabase_service.dart';
+import 'package:revv_app/services/weather_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('flag off shows no walkie lab entry', (tester) async {
-    await tester.pumpHome(const LeanHomeScreen());
+    await tester.pumpShell(const LeanAppShellScreen());
     await tester.openSettings();
 
     expect(find.text('Crew voice lab'), findsNothing);
@@ -22,8 +23,8 @@ void main() {
   testWidgets('flag on exposes entry and navigates from settings', (
     tester,
   ) async {
-    await tester.pumpHome(
-      LeanHomeScreen(
+    await tester.pumpShell(
+      LeanAppShellScreen(
         walkieLabEntryEnabled: true,
         walkieLabBuilder: (_) => const _EntryProbeScreen(),
       ),
@@ -40,7 +41,7 @@ void main() {
 }
 
 extension on WidgetTester {
-  Future<void> pumpHome(Widget home) async {
+  Future<void> pumpShell(Widget shell) async {
     await binding.setSurfaceSize(const Size(800, 2600));
     addTearDown(() => binding.setSurfaceSize(null));
     await pumpWidget(
@@ -51,10 +52,11 @@ extension on WidgetTester {
           ChangeNotifierProvider<LocationService>.value(
             value: _QuietLocationService(),
           ),
+          ChangeNotifierProvider(create: (_) => WeatherService()),
           ChangeNotifierProvider(create: (_) => RouteService()),
           ChangeNotifierProvider.value(value: SupabaseService()),
         ],
-        child: MaterialApp(home: home),
+        child: MaterialApp(home: shell),
       ),
     );
     await pump(const Duration(milliseconds: 100));

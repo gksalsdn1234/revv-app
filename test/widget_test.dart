@@ -9,7 +9,7 @@ import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
-import 'package:revv_app/screens/lean_home_screen.dart';
+import 'package:revv_app/screens/lean_app_shell_screen.dart';
 import 'package:revv_app/screens/lean_route_finder_screen.dart';
 import 'package:revv_app/screens/lean_run_summary_screen.dart';
 import 'package:revv_app/services/location_service.dart';
@@ -20,6 +20,7 @@ import 'package:revv_app/services/run_session_service.dart';
 import 'package:revv_app/services/secure_session_store.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/services/supabase_service.dart';
+import 'package:revv_app/services/weather_service.dart';
 import 'package:revv_app/models/run_summary.dart';
 
 void main() {
@@ -187,11 +188,14 @@ void main() {
         providers: [
           ChangeNotifierProvider<RunHistoryService>.value(value: history),
           ChangeNotifierProvider(create: (_) => SettingsService()),
-          ChangeNotifierProvider(create: (_) => LocationService()),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ShellLocationService(hasLocation: true),
+          ),
+          ChangeNotifierProvider(create: (_) => WeatherService()),
           ChangeNotifierProvider(create: (_) => RouteService()),
           ChangeNotifierProvider.value(value: SupabaseService()),
         ],
-        child: const MaterialApp(home: LeanHomeScreen()),
+        child: const MaterialApp(home: LeanAppShellScreen()),
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
@@ -206,19 +210,56 @@ void main() {
     expect(find.text('2 runs · since MAR 2026'), findsOneWidget);
   });
 
-  testWidgets('home digest uses one CTA and cached nearby route cards', (
+  testWidgets('boot root renders finder with three tabs and no home digest', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.binding.setSurfaceSize(const Size(430, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider(create: (_) => SettingsService()),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ShellLocationService(hasLocation: true),
+          ),
+          ChangeNotifierProvider(create: (_) => WeatherService()),
+          ChangeNotifierProvider(create: (_) => RouteService()),
+          ChangeNotifierProvider.value(value: SupabaseService()),
+        ],
+        child: const MaterialApp(home: LeanAppShellScreen()),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byType(LeanRouteFinderScreen), findsOneWidget);
+    expect(find.text('Map'), findsOneWidget);
+    expect(find.text('History'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Home'), findsNothing);
+    expect(find.text('FIND ROUTES'), findsNothing);
+    expect(find.text('NEARBY ROADS'), findsNothing);
+
+    await tester.tap(find.text('History'));
+    await tester.pumpAndSettle();
+    expect(find.text('HISTORY'), findsOneWidget);
+
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('SETTINGS / GARAGE'), findsOneWidget);
+  });
+
+  testWidgets('pending drive resume sheet appears from the tab root', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
     await tester.binding.setSurfaceSize(const Size(430, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final routeService = RouteService()
-      ..routes = [
-        _homeRoute('route-1', 'First Road', -73.0),
-        _homeRoute('route-2', 'Second Road', -73.1),
-        _homeRoute('route-3', 'Third Road', -73.2),
-        _homeRoute('route-4', 'Fourth Road', -73.3),
-      ];
+      ..pendingGuideRoute = _pendingRoute
+      ..pendingGuideStartedAt = DateTime.now();
 
     await tester.pumpWidget(
       MultiProvider(
@@ -226,63 +267,22 @@ void main() {
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
           ChangeNotifierProvider<LocationService>.value(
-            value: _HomeLocationService(hasLocation: true),
+            value: _ShellLocationService(hasLocation: true),
           ),
+          ChangeNotifierProvider(create: (_) => WeatherService()),
           ChangeNotifierProvider<RouteService>.value(value: routeService),
           ChangeNotifierProvider.value(value: SupabaseService()),
         ],
-        child: const MaterialApp(home: LeanHomeScreen()),
+        child: const MaterialApp(home: LeanAppShellScreen()),
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
-
-    expect(find.text('FIND ROUTES'), findsOneWidget);
-    expect(find.textContaining('Plan to destination'), findsNothing);
-    expect(find.text('4 ROUTES NEARBY'), findsOneWidget);
-    expect(find.text('NEARBY ROADS'), findsOneWidget);
-    expect(find.text('First Road'), findsOneWidget);
-    expect(find.text('Second Road'), findsOneWidget);
-    expect(find.text('Third Road'), findsOneWidget);
-    expect(find.text('Fourth Road'), findsNothing);
-    expect(find.text('SYNCED'), findsNothing);
-
-    await tester.tap(find.text('First Road'));
     await tester.pumpAndSettle();
 
-    // initialRouteId 진입은 요약 대신 포커스 상태로 열린다 — 화면 타입과
-    // 선택 루트로 내비게이션+포커스를 단언한다.
-    expect(find.byType(LeanRouteFinderScreen), findsOneWidget);
-    expect(routeService.selectedRoute?.id, 'route-1');
+    expect(find.text('Route reached. Start the drive?'), findsOneWidget);
   });
 
-  testWidgets('home digest shows placeholder and loading status correctly', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({});
-    final routeService = RouteService()..isLoading = true;
-
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(create: (_) => RunHistoryService()),
-          ChangeNotifierProvider(create: (_) => SettingsService()),
-          ChangeNotifierProvider<LocationService>.value(
-            value: _HomeLocationService(hasLocation: false),
-          ),
-          ChangeNotifierProvider<RouteService>.value(value: routeService),
-          ChangeNotifierProvider.value(value: SupabaseService()),
-        ],
-        child: const MaterialApp(home: LeanHomeScreen()),
-      ),
-    );
-    await tester.pump(const Duration(milliseconds: 100));
-
-    expect(find.text('Finding roads…'), findsOneWidget);
-    expect(find.text('0 ROUTES NEARBY'), findsNothing);
-    expect(find.text('Explore in Finder →'), findsOneWidget);
-  });
-
-  testWidgets('home digest recent run is one line and opens history', (
+  testWidgets('history tab carries the recent run one-line card', (
     tester,
   ) async {
     final runs = [
@@ -310,30 +310,29 @@ void main() {
           ChangeNotifierProvider<RunHistoryService>.value(value: history),
           ChangeNotifierProvider(create: (_) => SettingsService()),
           ChangeNotifierProvider<LocationService>.value(
-            value: _HomeLocationService(hasLocation: true),
+            value: _ShellLocationService(hasLocation: true),
           ),
+          ChangeNotifierProvider(create: (_) => WeatherService()),
           ChangeNotifierProvider(create: (_) => RouteService()),
           ChangeNotifierProvider.value(value: SupabaseService()),
         ],
-        child: const MaterialApp(home: LeanHomeScreen()),
+        child: const MaterialApp(home: LeanAppShellScreen()),
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
+    await tester.tap(find.text('History'));
+    await tester.pumpAndSettle();
 
     expect(
       find.textContaining('Last drive: Morning Pass · 12.4 km'),
       findsOneWidget,
     );
     expect(find.text('LAST DRIVE'), findsNothing);
-
-    await tester.tap(find.textContaining('Last drive: Morning Pass'));
-    await tester.pumpAndSettle();
-
     expect(find.text('HISTORY'), findsOneWidget);
     expect(find.text('Morning Pass'), findsWidgets);
   });
 
-  testWidgets('home utilities move language and voice controls to settings', (
+  testWidgets('settings tab keeps language voice controls and sync chip', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -352,12 +351,13 @@ void main() {
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
           ChangeNotifierProvider<LocationService>.value(
-            value: _HomeLocationService(hasLocation: true),
+            value: _ShellLocationService(hasLocation: true),
           ),
+          ChangeNotifierProvider(create: (_) => WeatherService()),
           ChangeNotifierProvider(create: (_) => RouteService()),
           ChangeNotifierProvider.value(value: supabase),
         ],
-        child: const MaterialApp(home: LeanHomeScreen()),
+        child: const MaterialApp(home: LeanAppShellScreen()),
       ),
     );
     await tester.pump(const Duration(milliseconds: 100));
@@ -1071,8 +1071,8 @@ RunTelemetryDetail _shareActionDetail() {
   );
 }
 
-class _HomeLocationService extends LocationService {
-  _HomeLocationService({required this.hasLocation}) {
+class _ShellLocationService extends LocationService {
+  _ShellLocationService({required this.hasLocation}) {
     hasPermission = hasLocation;
   }
 
@@ -1096,21 +1096,14 @@ class _HomeLocationService extends LocationService {
   }) async => bestKnownLatLng;
 }
 
-RevvRoute _homeRoute(String id, String name, double lng) {
-  return RevvRoute(
-    id: id,
-    name: name,
-    nodes: [LatLng(45.0, lng), LatLng(45.02, lng - 0.02)],
-    distanceKm: 8,
-    windingScore: 6,
-    starRating: 4,
-    sharpCurveCount: 8,
-    centerPoint: LatLng(45.01, lng - 0.01),
-    distanceFromUser: 5,
-    tightCurveKm: 1,
-    mediumCurveKm: 1,
-    maxContinuousKm: 1,
-    routeRankScore: 6,
-    flowScore: 1,
-  );
-}
+const _pendingRoute = RevvRoute(
+  id: 'pending-route',
+  name: 'Pending Pass',
+  nodes: [LatLng(45.0, -73.0), LatLng(45.01, -73.01)],
+  distanceKm: 4.2,
+  distanceFromUser: 0.1,
+  windingScore: 5.0,
+  starRating: 4,
+  sharpCurveCount: 5,
+  centerPoint: LatLng(45.0, -73.0),
+);
