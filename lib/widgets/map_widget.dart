@@ -98,6 +98,9 @@ class MapWidget extends StatefulWidget {
   /// 선택한 드라이빙 루트 (빨간 선)
   final List<LatLng>? routePolyline;
   final List<List<LatLng>>? routePolylines;
+
+  /// 정복 지도 — 달린 루트의 잔광 (은은한 레드, 선택 루트와 구분)
+  final List<List<LatLng>>? drivenPolylines;
   final bool curveHeatmap;
   final List<PlanMapMarker>? planMarkers;
   final List<RouteClusterMapMarker> clusterMarkers;
@@ -130,6 +133,7 @@ class MapWidget extends StatefulWidget {
     this.navPolylines,
     this.routePolyline,
     this.routePolylines,
+    this.drivenPolylines,
     this.curveHeatmap = true,
     this.planMarkers,
     this.clusterMarkers = const [],
@@ -289,6 +293,19 @@ class _MapWidgetState extends State<MapWidget> {
           color: colorArgb,
           width: width,
           opacity: 0.24,
+        ),
+      ];
+    }
+
+    if (id == 'driven') {
+      // 잔광: 앱을 지우면 사라질 "내 흔적" — 주인공(선택 루트)보다 한 발 뒤
+      return [
+        _LineLayerSpec(
+          id: '$id-core-layer',
+          sourceId: sourceId,
+          color: colorArgb,
+          width: 3.5,
+          opacity: 0.45,
         ),
       ];
     }
@@ -465,6 +482,17 @@ class _MapWidgetState extends State<MapWidget> {
           widget.routeFocusMode ? const [] : navParts,
           Colors.blue.toARGB32(),
           4.0,
+        );
+      }
+      if (!_samePolylineGroups(
+        oldWidget.drivenPolylines ?? const [],
+        widget.drivenPolylines ?? const [],
+      )) {
+        _drawPolylineParts(
+          'driven',
+          widget.drivenPolylines ?? const [],
+          AppColors.red.toARGB32(),
+          3.5,
         );
       }
       if (!_samePolylineGroups(
@@ -825,6 +853,15 @@ class _MapWidgetState extends State<MapWidget> {
     final routePoints = _routePolylinePoints;
     if (!widget.routeFocusMode && navParts.isNotEmpty) {
       await _drawPolylineParts('nav', navParts, Colors.blue.toARGB32(), 4.0);
+    }
+    final drivenParts = widget.drivenPolylines ?? const <List<LatLng>>[];
+    if (drivenParts.isNotEmpty) {
+      await _drawPolylineParts(
+        'driven',
+        drivenParts,
+        AppColors.red.toARGB32(),
+        3.5,
+      );
     }
     await _drawCurveFieldHeatmap(widget.curveHeatmapPolylines);
     await _drawDifficultyLines(widget.difficultyLines);

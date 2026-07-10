@@ -14,6 +14,7 @@ import '../services/external_nav.dart';
 import '../services/location_service.dart';
 import '../services/place_search_service.dart';
 import '../services/recommendation_log_service.dart';
+import '../services/driven_routes_service.dart';
 import '../services/region_photo_service.dart';
 import '../services/route_loading_policy.dart';
 import '../services/route_service.dart';
@@ -99,17 +100,44 @@ List<RegionRouteCluster> buildRouteClusters(List<RevvRoute> routes) {
   return clusters;
 }
 
-List<RevvRoute> todayRecommendedRoutes(List<RegionRouteCluster> clusters) {
+List<RevvRoute> todayRecommendedRoutes(
+  List<RegionRouteCluster> clusters, {
+  Set<String> exclude = const {},
+}) {
   final rankedClusters = [...clusters]
     ..sort(
       (a, b) => _routeFunScore(
         b.representative,
       ).compareTo(_routeFunScore(a.representative)),
     );
-  return rankedClusters
+  // 탐험 잔고: 이미 달린 대표 루트는 뒤로 — 전부 달렸으면 원래 순서 유지
+  final fresh = rankedClusters
+      .where((cluster) => !exclude.contains(cluster.representative.id))
+      .toList();
+  final driven = rankedClusters
+      .where((cluster) => exclude.contains(cluster.representative.id))
+      .toList();
+  return [...fresh, ...driven]
       .take(3)
       .map((cluster) => cluster.representative)
       .toList(growable: false);
+}
+
+/// 정복 지도 잔광: 보이는 클러스터에서 달린 루트의 coarse 노드 (상한 30개).
+List<List<LatLng>> _drivenGlowPolylines(
+  List<RegionRouteCluster> clusters,
+  DrivenRoutesService driven,
+) {
+  final parts = <List<LatLng>>[];
+  for (final cluster in clusters) {
+    for (final route in cluster.routes) {
+      if (parts.length >= 30) return parts;
+      if (driven.isDriven(route.id) && route.nodes.length >= 2) {
+        parts.add(route.nodes);
+      }
+    }
+  }
+  return parts;
 }
 
 List<RegionRouteCluster> visibleRouteClusters(
@@ -1082,6 +1110,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         ? buildRouteClusters(visibleRoutes)
         : const <RegionRouteCluster>[];
     final clusterBounds = _clusterBoundsForViewport(_mapCenterPoint, _mapZoom);
+    final drivenService = context.watch<DrivenRoutesService>();
     final visibleClusters = noDestination
         ? visibleRouteClusters(clusters, clusterBounds)
         : const <RegionRouteCluster>[];
@@ -1233,6 +1262,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                         for (final route in mapDisplayRoutes)
                           if (route.id != selected?.id) route.nodes,
                       ],
+                drivenPolylines: showingJourney
+                    ? null
+                    : _drivenGlowPolylines(visibleClusters, drivenService),
                 curveHeatmapPolylines: const [],
                 difficultyLines: showingJourney
                     ? const []
@@ -1349,7 +1381,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       routes: clusterRoutes,
                       clusters: visibleClusters,
                       selectedCluster: selectedCluster,
-                      recommendations: todayRecommendedRoutes(visibleClusters),
+                      recommendations: todayRecommendedRoutes(
+                        visibleClusters,
+                        exclude: drivenService.drivenRouteIds,
+                      ),
+                      drivenIds: drivenService.drivenRouteIds,
                       planning: _planning,
                       emptyTitle: stateKind != null
                           ? routeFinderStateTitle(stateKind, language)
@@ -1568,6 +1604,7 @@ class _RegionAnchoredRoutesSheet extends StatelessWidget {
   final List<RegionRouteCluster> clusters;
   final RegionRouteCluster? selectedCluster;
   final List<RevvRoute> recommendations;
+  final Set<String> drivenIds;
   final bool planning;
   final String emptyTitle;
   final String emptyBody;
@@ -1589,6 +1626,7 @@ class _RegionAnchoredRoutesSheet extends StatelessWidget {
     required this.clusters,
     required this.selectedCluster,
     required this.recommendations,
+    this.drivenIds = const {},
     required this.planning,
     required this.emptyTitle,
     required this.emptyBody,
@@ -1710,6 +1748,11 @@ class _RegionAnchoredRoutesSheet extends StatelessWidget {
           cluster: cluster,
           language: language,
           photoService: photoService,
+          drivenCount: drivenIds.isEmpty
+              ? 0
+              : cluster.routes
+                    .where((route) => drivenIds.contains(route.id))
+                    .length,
           onTap: () => onClusterTap(cluster),
         ),
         const SizedBox(height: 8),
@@ -1755,6 +1798,7 @@ class _RegionAnchoredRoutesSheet extends StatelessWidget {
             onNext: null,
             onGo: () => onGo(route),
             onDetails: () => onDetails(route),
+            driven: drivenIds.contains(route.id),
             mapSelected: route.id == selectedRouteId,
             chainMode: false,
             chainCount: chainSelection.length,
@@ -1828,12 +1872,14 @@ class _RegionClusterTile extends StatelessWidget {
   final RegionRouteCluster cluster;
   final AppLanguage language;
   final RegionPhotoService photoService;
+  final int drivenCount;
   final VoidCallback onTap;
 
   const _RegionClusterTile({
     required this.cluster,
     required this.language,
     required this.photoService,
+    this.drivenCount = 0,
     required this.onTap,
   });
 
@@ -1891,6 +1937,30 @@ class _RegionClusterTile extends StatelessWidget {
                 ],
               ),
             ),
+            if (drivenCount > 0) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.red.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: AppColors.red.withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Text(
+                  '$drivenCount/${cluster.routes.length}',
+                  style: AppText.technicalLabel(
+                    size: 10,
+                    color: AppColors.red,
+                    letterSpacing: 0.2,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
             const Icon(Icons.chevron_right_rounded, color: AppColors.stone),
           ],
         ),
@@ -2496,6 +2566,7 @@ class _LeanRouteTicket extends StatelessWidget {
   final VoidCallback onGo;
   final VoidCallback onDetails;
   final bool mapSelected;
+  final bool driven;
   final bool chainMode;
   final int chainCount;
   final bool chainSelected;
@@ -2510,6 +2581,7 @@ class _LeanRouteTicket extends StatelessWidget {
     required this.onGo,
     required this.onDetails,
     this.mapSelected = false,
+    this.driven = false,
     this.chainMode = false,
     this.chainCount = 0,
     this.chainSelected = false,
@@ -2592,6 +2664,22 @@ class _LeanRouteTicket extends StatelessWidget {
                         score: windingProfile.score,
                         label: windingProfile.title,
                       ),
+                      if (driven) ...[
+                        const SizedBox(width: 6),
+                        Tooltip(
+                          message: AppCopy.t(
+                            language,
+                            ko: '달린 길',
+                            en: 'Driven',
+                            fr: 'Parcourue',
+                          ),
+                          child: const Icon(
+                            Icons.check_circle_rounded,
+                            size: 16,
+                            color: AppColors.red,
+                          ),
+                        ),
+                      ],
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(

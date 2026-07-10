@@ -9,6 +9,7 @@ import 'services/location_service.dart';
 import 'services/weather_service.dart';
 import 'services/route_service.dart';
 import 'services/run_session_service.dart';
+import 'services/driven_routes_service.dart';
 import 'services/run_history_service.dart';
 import 'services/imu_service.dart';
 import 'services/settings_service.dart';
@@ -53,6 +54,10 @@ class RevvApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => RouteService()),
         ChangeNotifierProvider(create: (_) => RunSessionService()),
         ChangeNotifierProvider<RunHistoryService>.value(value: history),
+        // 정복 지도: runs를 파생한 "달린 루트" 뷰 (별도 저장 없음)
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: history),
+        ),
         ChangeNotifierProvider<SettingsService>.value(value: settings),
         ChangeNotifierProvider.value(value: SupabaseService()),
         ChangeNotifierProvider(create: (_) => ImuService()),

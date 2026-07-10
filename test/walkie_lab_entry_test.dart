@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:revv_app/services/driven_routes_service.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_app_shell_screen.dart';
 import 'package:revv_app/services/location_service.dart';
@@ -47,6 +48,12 @@ extension on WidgetTester {
     await pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
           ChangeNotifierProvider<LocationService>.value(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:revv_app/services/driven_routes_service.dart';
 import 'package:revv_app/core/storage_keys.dart';
 import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/models/revv_route.dart';
@@ -186,6 +187,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider<RunHistoryService>.value(value: history),
           ChangeNotifierProvider(create: (_) => SettingsService()),
           ChangeNotifierProvider<LocationService>.value(
@@ -220,6 +227,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
           ChangeNotifierProvider<LocationService>.value(
@@ -264,6 +277,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
           ChangeNotifierProvider<LocationService>.value(
@@ -307,6 +326,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider<RunHistoryService>.value(value: history),
           ChangeNotifierProvider(create: (_) => SettingsService()),
           ChangeNotifierProvider<LocationService>.value(
@@ -348,6 +373,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
           ChangeNotifierProvider<LocationService>.value(
@@ -460,6 +491,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
         ],
@@ -579,6 +616,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
         ],
@@ -651,6 +694,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
         ],
@@ -698,6 +747,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
         ],
@@ -804,6 +859,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider.value(value: history),
           ChangeNotifierProvider(create: (_) => SettingsService()),
         ],
@@ -885,6 +946,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
         ],
@@ -928,6 +995,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
         ],
@@ -962,6 +1035,12 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+        ChangeNotifierProvider(
+          create: (_) => DrivenRoutesService(history: RunHistoryService()),
+        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(create: (_) => RunHistoryService()),
           ChangeNotifierProvider(create: (_) => SettingsService()),
         ],

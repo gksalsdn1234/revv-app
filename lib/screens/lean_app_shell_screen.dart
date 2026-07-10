@@ -14,6 +14,7 @@ import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
+import '../services/driven_routes_service.dart';
 import '../services/run_history_service.dart';
 import '../services/settings_service.dart';
 import '../services/supabase_service.dart';
@@ -640,6 +641,7 @@ class _HistoryContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final history = context.watch<RunHistoryService>();
     final settings = context.watch<SettingsService>();
+    final driven = context.watch<DrivenRoutesService>();
     final runs = history.history;
     final bestRevv = runs.fold<int?>(
       null,
@@ -676,6 +678,25 @@ class _HistoryContent extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 2),
+        if (driven.totalDrivenRoutes > 0) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 4),
+            child: Text(
+              AppCopy.t(
+                settings.appLanguage,
+                ko: '달린 길 ${driven.totalDrivenRoutes}개 · 이번 달 새 길 ${driven.newRoutesThisMonth}개',
+                en: '${driven.totalDrivenRoutes} roads driven · ${driven.newRoutesThisMonth} new this month',
+                fr: '${driven.totalDrivenRoutes} routes parcourues · ${driven.newRoutesThisMonth} nouvelles ce mois',
+              ),
+              key: const Key('history-conquest-line'),
+              style: AppText.body(
+                size: 12,
+                weight: FontWeight.w800,
+                color: AppColors.red,
+              ),
+            ),
+          ),
+        ],
         Text(
           'Season log',
           style: AppText.display(
