@@ -1,147 +1,48 @@
-# REVV — Claude 컨텍스트
+# REVV Lean MVP — Claude 컨텍스트
 
-## 앱 개요
-드라이빙 루트 추천 + 주행 기록 앱. "숨겨진 이쁜 드라이빙 코스 발견 + 개인 주행 기록 성장"이 핵심 가치.
-캐나다 거주 사용자 기준 (T맵/카카오 불필요).
+**이 레포가 유일한 활성 작업 경로다** (`lean_mvp` 브랜치). `~/revv-app`(구버전)·`~/Documents/revv-app`(백업 + `route-selector-proto` 브랜치)은 참조용.
 
-## 중요 규칙
-- **앱스토어 심사 기준 준수**: 속도 자극적인 표현 금지. "퍼포먼스 주행" → "즐거운 드라이빙"
-- **안전 우선 언어**: 과속·법규 위반 조장 문구 절대 금지
-- **버전 관리**: pre-commit 훅이 `lib/widgets/hud_bar.dart` 버전 자동 동기화
-- **에뮬레이터**: Mapbox + Android Emulator GFXSTREAM 충돌 → 실기기 필요
-- **커뮤니케이션**: 한국어
-- **아이디어 제안**: 작업 중 UX 개선, 버그 예방, 성능 최적화 관련 좋은 아이디어가 떠오르면 민우에게 적극적으로 제안할 것. 단, 작업 흐름을 방해하지 않게 작업 완료 후 간략히 제안
-- **로컬 산출물 주의**: `REVV_guide.html` 같은 일회성 로드맵/export 파일은 커밋하지 않는다. 오래된 키나 구현 메모가 섞일 수 있다.
+## 앱 한 줄
+드라이빙 루트 추천 + 주행 기록. "좋은 길을 알려주고, 달리면 내 지도가 칠해진다." 캐나다 기준.
 
-## 현재 버전: v1.40 (2026-03-31)
+## 북극성 (모든 결정의 기준)
+`docs/2026-07-02-launch-plan.md` 0~2.6장 — V1 범위 잠금: 파인더(플래너 흡수) + 학습루프 DB + 출시. 새 아이디어는 V2+ 백로그로. 내비·계기판·만인용 여행앱은 안 만든다 (경량 코파일럿 안내는 예외 확정, 2026-07-09). 실주행 검증 없는 루트 기능 출고 금지.
 
-## 스택
-- Flutter 3.x + Dart
-- Mapbox (`mapbox_maps_flutter ^2.3.0`) — 커스텀 스타일 `mapbox://styles/mingwoo/cmmk93np3003301rzajll6msm`
-- Overpass API — 루트 탐색 (커브 분석)
-- Supabase — route/run/feedback cloud storage
-- Provider — 상태관리 (12개 서비스 등록)
-- shared_preferences — 경량 설정/캐시
-- flutter_secure_storage — Supabase session + pending telemetry 안전망
-- sensors_plus — IMU G포스 (ImuService, 50Hz)
+## 절대 규칙
+- **안전 언어**: 속도·기록 자극 표현 금지 (MAX/BEST/PK/신기록 등). 코파일럿 발화는 페이스노트 문법 — 방향+성격만, 기어·스로틀·속도 지시 금지
+- **화면 문자열은 한/영/불 3언어 세트**, v5 토큰(AppColors/AppText)
+- **push는 민우 승인 후만**. `PLAN.md`·`plans/`·`codex-build.sh` 커밋 금지
+- 커뮤니케이션: 한국어. 좋은 아이디어는 작업 완료 후 간략 제안
 
-## 핵심 파일 구조
-```
-lib/
-├── main.dart                         # Provider 등록 (12개 서비스)
-├── models/
-│   ├── revv_route.dart               # RevvRoute, LatLng, haversineKm
-│   ├── run_session.dart              # 주행 세션 (GPS 경로, 거리, 시간)
-│   ├── run_summary.dart              # 저장용 경량 런 요약
-│   ├── poi.dart                      # POI 모델 + PoiCategory enum
-│   └── nav_step.dart                 # 턴바이턴 NavStep (maneuver→한국어)
-├── services/
-│   ├── location_service.dart         # GPS 위치 추적
-│   ├── route_service.dart            # Overpass API 루트 탐색 + 커브 분석
-│   │                                 # fetchConnectingRoutes() — 체인 연결 루트
-│   ├── saved_route_service.dart      # 저장된 루트 관리
-│   ├── directions_service.dart       # Mapbox Directions API
-│   │                                 # getRouteWithSteps() → polyline + NavStep[]
-│   ├── turn_by_turn_service.dart     # TBT: 300m/80m 예고, 25m 스텝 전진, TTS
-│   ├── run_session_service.dart      # 주행 시작/종료/GPS 수집
-│   ├── run_history_service.dart      # 런 기록 저장/로드 (shared_preferences)
-│   ├── home_location_service.dart    # 집 위치 저장
-│   ├── poi_service.dart              # Overpass POI 검색
-│   ├── weather_service.dart          # 날씨
-│   ├── mapbox_service.dart           # Mapbox 토큰 + 스타일 URI
-│   ├── jarvis_service.dart           # Jarvis AI 패널
-│   ├── imu_service.dart              # 가속도계 → lateralG, longitudinalG (50Hz)
-│   ├── driving_context_service.dart  # 속도/G포스 → DriveMode (cruise/sport/attack)
-│   ├── obd_service.dart              # BLE OBD2 (VEEPEAK) — RPM/연료/스로틀/냉각수
-│   ├── waypoint_optimizer.dart       # 루트 경유지 최적화
-│   ├── route_builder_service.dart    # 루트 생성 도우미
-│   ├── audio_service.dart            # 오디오 — 싱글턴, mic_button에서 직접 사용
-│   ├── revv_ai_service.dart          # AI 분석 — 싱글턴, run_card/mic_button에서 직접 사용
-│   ├── stt_service.dart              # 음성인식 — 싱글턴, mic_button에서 직접 사용
-│   └── route_brief_service.dart      # 루트 브리핑 — routes_bottom_sheet에서 직접 사용
-├── screens/
-│   ├── cruise_screen.dart            # 메인 화면 — 왼쪽 56px 세로 레일
-│   │                                 # _LeftRail: 속도/날씨/루트/여정/OBD/기록/AI/GO/MIC
-│   ├── sprint_screen.dart            # 스프린트 모드 — TBT 배너 + G포스 미니 원형
-│   ├── routes_screen.dart            # 루트+여정 통합 화면 — ROUTES/TRIP 2탭
-│   │                                 # ROUTES탭: 루트 탐색·체인연결·flyTo
-│   │                                 # TRIP탭: POI 카테고리 검색 → Google Maps 내비
-│   │                                 # initialTab: 0=ROUTES(기본), 1=TRIP
-│   ├── obd_screen.dart               # OBD 전용 4탭 화면 (LIVE/DATA/G-FORCE/SETUP)
-│   ├── run_card_screen.dart          # 런 종료 결과 카드 (자동 저장)
-│   ├── route_wizard_screen.dart      # 루트 wizard
-│   └── trip_planner_screen.dart      # (deprecated — routes_screen TRIP탭으로 통합)
-├── widgets/
-│   ├── hud_bar.dart                  # 상단 HUD (버전 표시)
-│   ├── map_widget.dart               # Mapbox 지도 (navPolyline/routePolyline)
-│   ├── routes_bottom_sheet.dart      # 루트 선택 + CHAIN 체인 섹션
-│   ├── sprint_toggle.dart            # RedGlowButton
-│   ├── mic_button.dart               # 마이크 버튼
-│   └── jarvis_panel.dart             # Jarvis AI 패널 위젯
-└── theme/
-    └── colors.dart                   # AppColors
-```
+## 작업 체제 (Codex 핸드오프)
+- Claude = 플랜(`plans/X.md`)·리뷰·검증·커밋 / Codex = 구현: `./codex-build.sh plans/X.md < /dev/null > 로그 2>&1 &`
+  - **stdin 반드시 닫기** (`< /dev/null`) — 안 닫으면 "Reading additional input from stdin" 무한 대기 (로그 3줄 정지가 시그니처)
+  - **보이는 티커 태스크 필수** (로그 정지 감지 포함) — 무음 감시 루프 금지
+  - Codex 한도 시 Claude 직접 구현 허용 (민우 승인). CLI 400 "requires newer version" → `npm i -g @openai/codex`
+  - 대형 구조 웨이브는 상위 모델(-c model=…)+high, 중소형은 기본 모델 (한도 관리)
+- 매 웨이브 후 Claude 독립 검증: `/Users/minwoohan/flutter/bin/flutter analyze && flutter test` (Codex 샌드박스는 SDK 캐시 쓰기 불가 — 자체 검증 실패 보고는 정상)
+- **Codex 웨이브 후 실기기 빌드 전 `flutter pub get` 필수** (샌드박스가 pub 경로를 /private/tmp로 오염)
 
-## 구현된 주요 기능 (v1.34 기준)
-- **루트 탐색**: bearing rate 기반 커브 분석, curveRatio×√dist 밀도 점수, 반경 30/50/100km
-- **체인 연결**: 선택 루트 끝점 15km 반경 연결 루트 자동 탐색, 가로 스크롤 카드
-- **루트 카드 탭 → 지도 flyTo**: _lastFlownRouteId로 중복 이동 방지
-- **스프린트 모드**: 주행 시작 → GPS 실시간 수집 → 종료 → 런카드
-- **턴바이턴 음성 안내**: Mapbox steps + flutter_tts, 300m/80m 예고, 음소거 토글
-- **G포스 미니 원형**: SprintScreen 우하단, CustomPainter, ImuService 50Hz
-- **G포스 전용 탭**: OBD 화면 3번째 탭(_GForceTab) — LayoutBuilder 풀사이즈 _CarGforceMeter, 합성G 수치, MAX 배지, 리셋 버튼
-- **루트+여정 통합**: RoutesScreen ROUTES/TRIP 2탭 — 지도 공유, 탭 전환 시 POI 핀 전환
-- **Way Stitching**: 끝점 150m 이내 way 자동 체인 연결 → 연속 와인딩 루트
-- **루프 감지**: 시작~끝 3km 이내 = isLoop, ×1.25 보너스, 🔄 LOOP 배지
-- **거리 패널티**: 15km 이내 패널티 없음, 60km 초과 0.55배 하향
-- **DrivingContextService**: 속도/G포스 → cruise/sport/attack 모드 자동 전환
-- **OBD 연동**: VEEPEAK BLE OBD2, RPM/연료/스로틀/냉각수
-- **nav polyline**: 현재 위치 → 루트 시작점 파란 선
-- **런카드**: 거리/시간/날씨, 자동 저장, N회차 표시
-- **풀스크린 지도 + 슬라이드 메뉴**: Stack 레이아웃, AnimatedPositioned 왼쪽 레일 (기본 숨김, 햄버거 탭 시 슬라이드인)
-- **AppColors v2**: bg/panel/panel2/surface 레이어 체계 + textPrimary/Secondary/Hint 계층
-- **Firebase Firestore**: CloudSyncService — 익명 인증, users/{uid}/runs/{runId} 런 동기화
-- **share_plus v10**: SharePlus.instance.share(ShareParams) 런카드 공유
-- **RunSession 확장**: maxLateralG, maxLongG, peakDriveMode 필드 추가
-- **오프라인 루트 캐시**: route_service.dart — 마지막 검색 결과 shared_preferences 저장, 인터넷 끊기면 캐시 복원 + "오프라인 모드" 메시지
-- **RunSummary maxLateralG**: 런 요약에 최대 횡G 저장 → history_screen BEST G 스탯 표시
-- **집 위치 지도 핀 설정**: routes_screen TRIP탭 "집 설정" → 지도 중앙 핀 모드, getCameraState()로 좌표 읽어 setHome() 저장
-- **루트 이탈 감지**: sprint_screen — 루트 진입 후 노드들과 최소 거리 계산, 300m 초과 시 주황 이탈 경고 배너, 200m 복귀 시 해제
-- **첫 실행 권한 플로우**: loading_screen — permission_handler로 위치+마이크 권한 애니메이션 중 자동 요청
-- **SettingsService**: SharedPreferences 기반 설정 서비스 (TTS 음소거, 탐색 반경, 거리 단위, HUD, 이탈 경고)
-- **설정 화면**: 레일 → 설정 탭 → 전체 옵션 UI (토글/라디오 선택), 앱 정보 표시
-- **GO/MIC 겹침 수정**: cruise_screen — Column으로 묶어 버튼 간격 보장
-- **스프린트 음소거 상시 버튼**: sprint_screen 하단 바 — 항상 표시, SettingsService 연동, TBT 초기값 동기화
-- **루트 카드 UI 리디자인**: routes_bottom_sheet — 난이도 컬러 밴드(SCENIC~EXTREME), 와인딩 밀도 스코어바, TIGHT/MED 커브 칩, LOOP 배지, 북마크 내장
-- **루트 헤더 개선**: ROUTES 수 표시 + 점수순/거리순 정렬 토글 + 반경 선택 한 줄
-- **선택 패널 _StatPill**: 거리/소요시간/집거리 칩 + 난이도 배지 + AI 타이핑 브리핑 + 저장 버튼
-- **CHAIN 누적 거리**: 선택 루트 + 연결 루트 합산 총 NNkm 배지 표시
-- **RevvRoute 헬퍼 getter**: difficultyLabel, difficultyLevel, windingDensityPct, distanceFromUserDisplay 추가
+## 빌드·배포
+- 실기기: `flutter build ios --release --dart-define-from-file=.env --dart-define=REVV_WALKIE_LAB=true` → `xcrun devicectl device install app --device <id> build/ios/iphoneos/Runner.app` → `devicectl device process launch --device <id> com.revv.revvApp`
+  - 민우폰 `00008120-000621623E90A01E` · Geon폰 `00008120-00162D5C3C70201E`(USB) · flutter run 무선 launch는 자주 실패 — devicectl이 안정적
+- `.env`: SUPABASE_URL/ANON_KEY + MAPBOX_ACCESS_TOKEN (커밋 금지). Mapbox secret: `~/.mapbox_secret` (스타일 편집용, rotate 예정)
+- 심사 빌드는 `REVV_WALKIE_LAB` **제외** (워키는 V2 랩 기능)
+- 시뮬레이터: debug만 지원, `xcrun simctl location <id> set 45.5017,-73.5673` + `simctl io <id> screenshot`으로 무권한 캡처 가능 (부트=파인더라 첫 화면 검수 용이)
 
-## 미구현 (다음 작업 우선순위)
-1. **실기기 테스트** — G포스/TBT/DrivingContext/NavPolyline/CloudSync/GForceTab/루트이탈 에뮬레이터 미검증
-2. **Firebase 보안 규칙** — users/{uid}/runs 오너 전용 read/write 설정 (Firebase Console)
-3. **런카드 공유 실기기 테스트** — share_plus v10 ShareParams 실기기에서 검증
+## 현재 아키텍처 (2026-07-10)
+- **부트 → 파인더** (홈 소멸): 탭 = 지도/기록/설정 (`lean_app_shell_screen`)
+- **파인더 = 루트 셀렉터**: 지도 라인이 피커 — 탭=프리뷰 카드(상세·➕체인)→상세, 무번호 리스트 시트, 상단은 목적지 필 하나. 정복 잔광(달린 길 레드)·생추천(free-roam)
+- **여정 시트** `widgets/journey_sheet.dart`: 옵션·타임라인·기본vs REVV 비교·드라이브 시작·외부내비(entry+key1~2+exit)
+- **코파일럿**: 랠리 페이스노트 단일 음성("300, 우측 갈림길 — 바로 좌 타이트"), enhanced 보이스, 이탈 재계산(60s 쿨다운), 구글 핸드오프↔복귀 자동 재개(pending_drive)
+- **워키토키**(랩 플래그): Supabase Realtime PCM16 — 배칭·지터버퍼·자동재연결·반이중·보이스웨이브
+- **지도**: REVV Signature v1 `mapbox://styles/mingwoo/cmrd3w7yt005f01qo8l1f4anc` (도로 위계 반전 다크). 스프린트는 navigation-night. 런치 이미지는 브랜드 레드
+- **DB (전부 라이브)**: curvy_roads(83k 읽기전용) · runs/run_details · route_feedback · recommendation_logs(shown/chosen) · telemetry_summary(급제동·급조작·부드러움) · photo_spots·route_scores(V2/V3 그릇) · user_preferences(빈 그릇) · crew_channels/members
+- **마이그레이션 규칙**: 파일은 `supabase/migrations/`, `test/supabase_migrations_security_test.dart`에 등록 필수(fail-closed RLS 패턴). 라이브 적용은 Claude가 Supabase MCP로
 
-## 싱글턴 서비스 (Provider 불필요, 정상 동작 중)
-ChangeNotifier를 extend하지 않는 서비스 — Provider 등록 없이 직접 호출 방식으로 사용 중
-- **AudioService** → mic_button.dart에서 `AudioService().playBeep()` 직접 사용
-- **SttService** → mic_button.dart에서 `SttService().startListening/stopListening()` 직접 사용
-- **RevvAiService** → run_card_screen.dart, mic_button.dart에서 직접 사용
-- **RouteBriefService** → routes_bottom_sheet.dart에서 직접 사용
-
-## Cloud/Supabase 서비스 구조
-- **SupabaseService**: `lib/services/supabase_service.dart` — route catalog, run summary/detail, feedback upload
-- **RunHistoryService**: cloud-primary run storage. Local detail은 pending upload 안전망으로만 유지
-- **SecureSessionStore**: Supabase session을 secure storage로 보관
-- **주의**: user data table은 RLS + `auth.uid()` 기준으로만 접근 가능해야 한다
-
-## Mapbox 설정
-- Public Token은 `MAPBOX_ACCESS_TOKEN` dart-define/.env로 주입한다. 토큰 원문을 커밋하지 않는다.
-- 지도 렌더링: `lib/widgets/map_widget.dart`
-- route geometry matching: `lib/services/route_geometry_matcher.dart`
-- 커브길 field 표시/선택 UX는 lean MVP의 핵심이다.
+## 릴리즈 블로커/보류
+- `assets/sounds/beep.mp3` = F1 방송 클립 — 제출 전 교체 (오리지널: `git show b8abd21:assets/sounds/beep.mp3`). 민우 결정: 테스트 중엔 유지
+- 잔여 수동 항목: `docs/prelaunch_remaining_manual.md`
 
 ## GitHub
-- Repo: https://github.com/gksalsdn1234/revv-app (Private)
-- 작업 후 commit + push 할 것
+- Repo: https://github.com/gksalsdn1234/revv-app (Private) — push는 승인 후
