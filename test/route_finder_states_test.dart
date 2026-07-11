@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:revv_app/models/drive_plan.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_route_finder_screen.dart';
+import 'package:revv_app/screens/lean_route_detail_screen.dart';
 import 'package:revv_app/services/drive_planner_service.dart';
 import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/place_search_service.dart';
@@ -274,7 +275,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.textContaining('Loop Road 일대'));
+    await tester.tap(find.byKey(const Key('route-list-button')));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
       find.text('One Way Road'),
@@ -286,9 +287,12 @@ void main() {
     expect(find.text('Loop Road'), findsOneWidget);
     expect(find.text('One Way Road'), findsOneWidget);
 
+    await tester.tap(find.byIcon(Icons.close_rounded).last);
+    await tester.pumpAndSettle();
+
     await tester.tap(find.text('루프만'));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('Loop Road 일대'));
+    await tester.tap(find.byKey(const Key('route-list-button')));
     await tester.pumpAndSettle();
 
     expect(find.text('Loop Road'), findsOneWidget);
@@ -643,7 +647,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('오늘의 추천'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('route-list-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('루트 선택'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('finder-free-roam-button')));
     await tester.pumpAndSettle();
@@ -654,7 +660,55 @@ void main() {
     expect(log.shown.single['routeIds'], ['free-a']);
   });
 
-  testWidgets('long press enables chain drive into planner initial plan', (
+  testWidgets('list row and map line hand off to route detail', (tester) async {
+    await useTallSurface(tester);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final route = _finderRoute(
+      id: 'detail-route',
+      name: 'Detail Road',
+      lng: -73.00,
+    );
+    final routeService = RouteService()
+      ..routes = [route]
+      ..mapVisualRoutes = [route];
+    final driven = _DrivenStub({'detail-route'});
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<DrivenRoutesService>.value(value: driven),
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: const MaterialApp(home: LeanRouteFinderScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('route-list-button')));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('route-list-row-detail-route')));
+    await tester.pumpAndSettle();
+    expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
+
+    tester.state<NavigatorState>(find.byType(Navigator)).pop();
+    await tester.pumpAndSettle();
+    final map = tester.widget<MapWidget>(find.byType(MapWidget));
+    map.onRouteLineTap?.call('detail-route');
+    await tester.pumpAndSettle();
+    expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
+  });
+
+  testWidgets('list add buttons build a chain drive planner plan', (
     tester,
   ) async {
     await useTallSurface(tester);
@@ -691,9 +745,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.textContaining('First Road 일대'));
+    await tester.tap(find.byKey(const Key('route-list-button')));
     await tester.pumpAndSettle();
-    await tester.longPress(find.text('First Road'));
+    await tester.tap(find.byKey(const ValueKey('chain-toggle-first')));
     await tester.pumpAndSettle();
 
     expect(find.text('1개 루트 · 총 ~8km'), findsOneWidget);
@@ -705,7 +759,7 @@ void main() {
       scrollable: find.byType(Scrollable).last,
     );
     await tester.pumpAndSettle();
-    await tester.longPress(find.text('Second Road'));
+    await tester.tap(find.byKey(const ValueKey('chain-toggle-second')));
     await tester.pumpAndSettle();
 
     expect(find.text('2개 루트 · 총 ~16km'), findsOneWidget);
@@ -755,18 +809,14 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.textContaining('First Road 일대'));
+    await tester.tap(find.byKey(const Key('route-list-button')));
     await tester.pumpAndSettle();
-    expect(
-      find.byKey(const Key('chain-toggle-button')),
-      findsAtLeastNWidgets(1),
-    );
-    expect(find.text('이어달리기 추가'), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('chain-toggle-first')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chain-toggle-second')), findsOneWidget);
 
-    await tester.tap(find.byKey(const Key('chain-toggle-button')).first);
+    await tester.tap(find.byKey(const ValueKey('chain-toggle-first')));
     await tester.pumpAndSettle();
 
-    expect(find.text('추가됨 1'), findsOneWidget);
     expect(find.text('1개 루트 · 총 ~8km'), findsOneWidget);
     expect(find.text('1개 더 고르세요'), findsOneWidget);
     expect(find.text('◀▶로 다른 루트를 보고 추가하세요'), findsOneWidget);
@@ -777,10 +827,9 @@ void main() {
       scrollable: find.byType(Scrollable).last,
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('chain-toggle-button')).last);
+    await tester.tap(find.byKey(const ValueKey('chain-toggle-second')));
     await tester.pumpAndSettle();
 
-    expect(find.text('추가됨 2'), findsWidgets);
     expect(find.text('2개 루트 · 총 ~16km'), findsOneWidget);
     expect(find.text('이어달리기'), findsOneWidget);
 
@@ -788,7 +837,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('2개 루트 · 총 ~16km'), findsNothing);
-    expect(find.text('이어달리기 추가'), findsWidgets);
+    await tester.tap(find.byKey(const Key('route-list-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('chain-toggle-first')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chain-toggle-second')), findsOneWidget);
   });
 
   test('buildJourneyPlanMapMarkers creates markers for each winding leg', () {
@@ -879,24 +931,6 @@ void main() {
     final recommendations = todayRecommendedRoutes(buildRouteClusters(routes));
 
     expect(recommendations.map((route) => route.id), ['a2', 'b1', 'c1']);
-  });
-
-  test('encodePolyline5 matches the documented Google example', () {
-    // https://developers.google.com/maps/documentation/utilities/polylinealgorithm
-    final encoded = encodePolyline5([
-      (38.5, -120.2),
-      (40.7, -120.95),
-      (43.252, -126.453),
-    ]);
-    expect(encoded, '_p~iF~ps|U_ulLnnqC_mqNvxq`@');
-  });
-
-  test('regionMiniMapUrl is null without a mapbox token', () {
-    final cluster = buildRouteClusters([
-      _finderRoute(id: 'a', name: 'A', lng: -73.0),
-    ]).single;
-    // 테스트 환경은 MAPBOX_ACCESS_TOKEN 미설정 → 폴백 경로
-    expect(regionMiniMapUrl(cluster), isNull);
   });
 
   test('todayRecommendedRoutes prefers routes not driven yet', () {
@@ -1031,6 +1065,18 @@ class _ReadyLocationService extends LocationService {
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
   }) async => const LatLng(45.0, -73.0);
+}
+
+class _DrivenStub extends DrivenRoutesService {
+  final Set<String> ids;
+
+  _DrivenStub(this.ids) : super(history: RunHistoryService());
+
+  @override
+  Set<String> get drivenRouteIds => ids;
+
+  @override
+  bool isDriven(String? routeId) => ids.contains(routeId);
 }
 
 class _FakePlaceSearch extends PlaceSearchService {
