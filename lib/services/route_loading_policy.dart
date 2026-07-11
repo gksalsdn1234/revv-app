@@ -33,7 +33,13 @@ enum RouteFilterStrength { precise, balanced, broad }
 enum DriveBudget { any, short, medium, long }
 
 const routeCoverageRadiusKm = 150.0;
-const routeCoverageCenters = <LatLng>[LatLng(45.5017, -73.5673)];
+const routeCoverageCenters = <LatLng>[
+  LatLng(45.5017, -73.5673),  // Montreal
+  LatLng(46.8139, -71.2080),  // Quebec City
+  LatLng(43.6532, -79.3832),  // Toronto
+  LatLng(49.2827, -123.1207), // Vancouver
+  LatLng(51.0447, -114.0719), // Calgary
+];
 
 class RegionRequestGrid {
   final double latRounded;

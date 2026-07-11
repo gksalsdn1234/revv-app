@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
@@ -77,22 +75,32 @@ RevvRoute _chainRoute(String id, LatLng start, LatLng end) {
 }
 
 void main() {
-  test('coverage includes Montreal and the exact 150km boundary', () {
-    const montreal = LatLng(45.5017, -73.5673);
-    final boundaryLat =
-        montreal.lat + routeCoverageRadiusKm / 6371.0 * 180 / math.pi;
-    final boundary = LatLng(boundaryLat, montreal.lng);
+  test('coverage includes all five supported city centers', () {
+    const cityCenters = <LatLng>[
+      LatLng(45.5017, -73.5673),
+      LatLng(46.8139, -71.2080),
+      LatLng(43.6532, -79.3832),
+      LatLng(49.2827, -123.1207),
+      LatLng(51.0447, -114.0719),
+    ];
 
-    expect(isPointInsideRouteCoverage(montreal), isTrue);
-    expect(isPointInsideRouteCoverage(boundary), isTrue);
+    for (final cityCenter in cityCenters) {
+      expect(isPointInsideRouteCoverage(cityCenter), isTrue);
+    }
   });
 
-  test('coverage excludes cities outside the Montreal operating area', () {
-    const toronto = LatLng(43.6532, -79.3832);
-    const vancouver = LatLng(49.2827, -123.1207);
+  test('coverage includes Trois-Rivieres between Montreal and Quebec City', () {
+    const troisRivieres = LatLng(46.34, -72.54);
 
-    expect(isPointInsideRouteCoverage(toronto), isFalse);
-    expect(isPointInsideRouteCoverage(vancouver), isFalse);
+    expect(isPointInsideRouteCoverage(troisRivieres), isTrue);
+  });
+
+  test('coverage excludes Winnipeg and Halifax', () {
+    const winnipeg = LatLng(49.90, -97.14);
+    const halifax = LatLng(44.65, -63.57);
+
+    expect(isPointInsideRouteCoverage(winnipeg), isFalse);
+    expect(isPointInsideRouteCoverage(halifax), isFalse);
   });
 
   test('region request grid rounds coordinates to one decimal place', () {

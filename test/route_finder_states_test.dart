@@ -1043,7 +1043,7 @@ class _OutsideCoverageLocationService extends LocationService {
   @override
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
-  }) async => const LatLng(43.6532, -79.3832);
+  }) async => const LatLng(49.90, -97.14);
 }
 
 class _ReadyLocationService extends LocationService {
