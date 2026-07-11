@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../core/app_language.dart';
 import '../models/revv_route.dart';
@@ -134,6 +135,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       setState(() => _elapsed = DateTime.now().difference(_startedAt!));
     });
     _session?.startSession(widget.route);
+    unawaited(WakelockPlus.enable());
     if (widget.simulated) {
       _startSimulation();
     } else {
@@ -414,6 +416,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       maxLateralG: widget.simulated ? _simMaxLateralG : (imu?.maxLateralG ?? 0),
       maxLonG: widget.simulated ? _simMaxLongitudinalG : (imu?.maxLonG ?? 0),
     );
+    unawaited(WakelockPlus.disable());
     if (!widget.simulated) {
       imu?.resetMaxG();
     }
@@ -431,6 +434,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     _location?.removeListener(_onLocation);
     _imuService?.removeListener(_onImu);
     _voice.dispose();
+    unawaited(WakelockPlus.disable());
     super.dispose();
   }
 

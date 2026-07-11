@@ -16,6 +16,158 @@ class SharpCorner {
     this.driveMode = 'cruise',
     required this.time,
   });
+
+  Map<String, dynamic> toJson() => {
+    'lat': position.lat,
+    'lng': position.lng,
+    'lateralG': lateralG,
+    'speedKmh': speedKmh,
+    'driveMode': driveMode,
+    'time': time.toIso8601String(),
+  };
+
+  factory SharpCorner.fromJson(Map<String, dynamic> json) {
+    return SharpCorner(
+      position: LatLng(
+        (json['lat'] as num).toDouble(),
+        (json['lng'] as num).toDouble(),
+      ),
+      lateralG: (json['lateralG'] as num).toDouble(),
+      speedKmh: (json['speedKmh'] as num?)?.toDouble() ?? 0,
+      driveMode: json['driveMode'] as String? ?? 'cruise',
+      time: DateTime.parse(json['time'] as String),
+    );
+  }
+}
+
+class RunRecoverySnapshot {
+  final DateTime startTime;
+  final String? routeId;
+  final String? routeName;
+  final List<LatLng> gpsPath;
+  final double distanceKm;
+  final double maxSpeedKmh;
+  final double totalSpeedSum;
+  final int speedSamples;
+  final Map<String, int> driveModeSeconds;
+  final List<SharpCorner> sharpCorners;
+  final List<TelemetrySample> telemetrySamples;
+  final String weatherEmoji;
+  final String tempDisplay;
+  final String weatherDesc;
+  final DateTime lastSampleTime;
+
+  const RunRecoverySnapshot({
+    required this.startTime,
+    this.routeId,
+    this.routeName,
+    required this.gpsPath,
+    required this.distanceKm,
+    required this.maxSpeedKmh,
+    required this.totalSpeedSum,
+    required this.speedSamples,
+    required this.driveModeSeconds,
+    required this.sharpCorners,
+    required this.telemetrySamples,
+    required this.weatherEmoji,
+    required this.tempDisplay,
+    required this.weatherDesc,
+    required this.lastSampleTime,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'startTime': startTime.toIso8601String(),
+    if (routeId != null) 'routeId': routeId,
+    if (routeName != null) 'routeName': routeName,
+    'gpsPath': gpsPath
+        .map((point) => {'lat': point.lat, 'lng': point.lng})
+        .toList(),
+    'distanceKm': distanceKm,
+    'maxSpeedKmh': maxSpeedKmh,
+    'totalSpeedSum': totalSpeedSum,
+    'speedSamples': speedSamples,
+    'driveModeSeconds': driveModeSeconds,
+    'sharpCorners': sharpCorners.map((corner) => corner.toJson()).toList(),
+    'telemetrySamples': telemetrySamples
+        .map((sample) => sample.toJson())
+        .toList(),
+    'weatherEmoji': weatherEmoji,
+    'tempDisplay': tempDisplay,
+    'weatherDesc': weatherDesc,
+    'lastSampleTime': lastSampleTime.toIso8601String(),
+  };
+
+  factory RunRecoverySnapshot.fromJson(Map<String, dynamic> json) {
+    return RunRecoverySnapshot(
+      startTime: DateTime.parse(json['startTime'] as String),
+      routeId: json['routeId'] as String?,
+      routeName: json['routeName'] as String?,
+      gpsPath: (json['gpsPath'] as List)
+          .map(
+            (item) => LatLng(
+              ((item as Map)['lat'] as num).toDouble(),
+              (item['lng'] as num).toDouble(),
+            ),
+          )
+          .toList(),
+      distanceKm: (json['distanceKm'] as num).toDouble(),
+      maxSpeedKmh: (json['maxSpeedKmh'] as num).toDouble(),
+      totalSpeedSum: (json['totalSpeedSum'] as num).toDouble(),
+      speedSamples: (json['speedSamples'] as num).toInt(),
+      driveModeSeconds: (json['driveModeSeconds'] as Map).map(
+        (key, value) => MapEntry(key.toString(), (value as num).toInt()),
+      ),
+      sharpCorners: (json['sharpCorners'] as List)
+          .map(
+            (item) =>
+                SharpCorner.fromJson((item as Map).cast<String, dynamic>()),
+          )
+          .toList(),
+      telemetrySamples: (json['telemetrySamples'] as List)
+          .map(
+            (item) =>
+                TelemetrySample.fromJson((item as Map).cast<String, dynamic>()),
+          )
+          .toList(),
+      weatherEmoji: json['weatherEmoji'] as String,
+      tempDisplay: json['tempDisplay'] as String,
+      weatherDesc: json['weatherDesc'] as String,
+      lastSampleTime: DateTime.parse(json['lastSampleTime'] as String),
+    );
+  }
+
+  RunSession toRunSession() {
+    final id = routeId;
+    final name = routeName;
+    final route = id == null && name == null
+        ? null
+        : RevvRoute(
+            id: id ?? '',
+            name: name ?? '',
+            nodes: gpsPath,
+            distanceKm: 0,
+            windingScore: 0,
+            starRating: 0,
+            sharpCurveCount: 0,
+            centerPoint: gpsPath.isEmpty ? const LatLng(0, 0) : gpsPath.first,
+            distanceFromUser: 0,
+          );
+    return RunSession(
+      startTime: startTime,
+      endTime: lastSampleTime,
+      maxSpeedKmh: maxSpeedKmh,
+      avgSpeedKmh: speedSamples == 0 ? 0 : totalSpeedSum / speedSamples,
+      distanceKm: distanceKm,
+      gpsPath: List.unmodifiable(gpsPath),
+      route: route,
+      weatherEmoji: weatherEmoji,
+      tempDisplay: tempDisplay,
+      weatherDesc: weatherDesc,
+      driveModeSeconds: Map.unmodifiable(driveModeSeconds),
+      sharpCorners: List.unmodifiable(sharpCorners),
+      telemetrySamples: List.unmodifiable(telemetrySamples),
+    );
+  }
 }
 
 class RunSession {

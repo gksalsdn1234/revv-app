@@ -16,6 +16,8 @@ import '../services/location_service.dart';
 import '../services/route_service.dart';
 import '../services/driven_routes_service.dart';
 import '../services/run_history_service.dart';
+import '../services/run_recovery_store.dart';
+import '../services/run_session_service.dart';
 import '../services/settings_service.dart';
 import '../services/supabase_service.dart';
 import '../theme/colors.dart';
@@ -33,10 +35,12 @@ class LeanAppShellScreen extends StatefulWidget {
     super.key,
     this.walkieLabEntryEnabled = _revvWalkieLabEnabled,
     this.walkieLabBuilder,
+    this.recoveryStore,
   });
 
   final bool walkieLabEntryEnabled;
   final WidgetBuilder? walkieLabBuilder;
+  final RunRecoveryStore? recoveryStore;
 
   @override
   State<LeanAppShellScreen> createState() => _LeanAppShellScreenState();
@@ -46,13 +50,24 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     with WidgetsBindingObserver {
   bool _checkingGuideReturn = false;
   bool _guidePromptShown = false;
+  late final RunRecoveryStore _recoveryStore;
+  late final Future<void> _recoveryHandled;
   _RaceTab _currentTab = _RaceTab.map;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    unawaited(_primeLocation());
+    _recoveryStore = widget.recoveryStore ?? RunRecoveryStore();
+    var recoveryEnabled = false;
+    try {
+      context.read<RunSessionService>().configureRecoveryStore(_recoveryStore);
+      recoveryEnabled = true;
+    } on ProviderNotFoundException {
+      // Some isolated shell widget tests do not mount the drive providers.
+    }
+    _recoveryHandled = recoveryEnabled ? _checkRunRecovery() : Future.value();
+    unawaited(_primeLocationAfterRecovery());
   }
 
   @override
@@ -64,8 +79,56 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      unawaited(_checkPendingGuideReturn());
+      unawaited(_checkPendingAfterRecovery());
     }
+  }
+
+  Future<void> _primeLocationAfterRecovery() async {
+    await _recoveryHandled;
+    if (!mounted) return;
+    await _primeLocation();
+  }
+
+  Future<void> _checkPendingAfterRecovery() async {
+    await _recoveryHandled;
+    if (!mounted) return;
+    await _checkPendingGuideReturn();
+  }
+
+  Future<void> _checkRunRecovery() async {
+    final snapshot = await _recoveryStore.readSnapshot();
+    if (!mounted || snapshot == null) return;
+    if (snapshot.distanceKm < 0.5 || snapshot.gpsPath.length < 10) {
+      await _recoveryStore.clear();
+      return;
+    }
+    final language = context.read<SettingsService>().appLanguage;
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.panel,
+        title: Text(
+          AppCopy.recoverRunTitle(language),
+          style: AppText.body(size: 20, weight: FontWeight.w900),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(AppCopy.discardRun(language)),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(AppCopy.saveRun(language)),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (shouldSave == true) {
+      await context.read<RunHistoryService>().save(snapshot.toRunSession());
+    }
+    await _recoveryStore.clear();
   }
 
   Future<void> _primeLocation() async {

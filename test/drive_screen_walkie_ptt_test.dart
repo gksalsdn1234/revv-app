@@ -13,6 +13,9 @@ import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/services/voice_briefing_service.dart';
 import 'package:revv_app/theme/text_styles.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+// ignore: depend_on_referenced_packages
+import 'package:wakelock_plus_platform_interface/wakelock_plus_platform_interface.dart';
 
 class _FakeCrew extends CrewChannelService {
   _FakeCrew({required this.joined});
@@ -123,6 +126,24 @@ Future<void> _pump(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets('drive screen enables and disables wakelock', (tester) async {
+    final platform = _RecordingWakelockPlatform();
+    final previous = wakelockPlusPlatformInstance;
+    wakelockPlusPlatformInstance = platform;
+    addTearDown(() => wakelockPlusPlatformInstance = previous);
+
+    await _pump(tester, enabled: false, joined: false);
+    await tester.pump();
+    expect(platform.toggles, contains(true));
+
+    await tester.tap(find.text('End'));
+    await tester.pumpAndSettle();
+    expect(
+      platform.toggles.where((value) => !value).length,
+      greaterThanOrEqualTo(2),
+    );
+  });
 
   testWidgets('no PTT button when the walkie flag is off', (tester) async {
     await _pump(tester, enabled: false, joined: true);
@@ -259,4 +280,14 @@ void main() {
 
     expect(loadCount, 0);
   });
+}
+
+class _RecordingWakelockPlatform extends WakelockPlusPlatformInterface {
+  final List<bool> toggles = [];
+
+  @override
+  Future<void> toggle({required bool enable}) async => toggles.add(enable);
+
+  @override
+  Future<bool> get enabled async => toggles.isNotEmpty && toggles.last;
 }

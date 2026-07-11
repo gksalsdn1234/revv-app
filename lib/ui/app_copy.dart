@@ -108,6 +108,19 @@ class AppCopy {
   static String cancel(AppLanguage language) =>
       t(language, ko: '취소', en: 'Cancel', fr: 'Annuler');
 
+  static String recoverRunTitle(AppLanguage language) => t(
+    language,
+    ko: '지난 주행 기록이 남아 있어요. 저장할까요?',
+    en: 'A previous drive is still available. Save it?',
+    fr: 'Un trajet précédent est encore disponible. L’enregistrer ?',
+  );
+
+  static String saveRun(AppLanguage language) =>
+      t(language, ko: '저장', en: 'Save', fr: 'Enregistrer');
+
+  static String discardRun(AppLanguage language) =>
+      t(language, ko: '버리기', en: 'Discard', fr: 'Ignorer');
+
   static String delete(AppLanguage language) =>
       t(language, ko: '삭제', en: 'Delete', fr: 'Effacer');
 

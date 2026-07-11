@@ -1,16 +1,42 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import '../models/run_session.dart';
 import '../models/revv_route.dart';
 import '../models/run_telemetry_detail.dart';
 import 'drive_dynamics_tracker.dart';
+import 'run_recovery_store.dart';
 // SharpCorner는 run_session.dart에 정의됨
 
 class RunSessionService extends ChangeNotifier {
-  RunSessionService({DateTime Function()? clock})
-    : _clock = clock ?? DateTime.now;
+  RunSessionService({
+    DateTime Function()? clock,
+    RunRecoveryStore? recoveryStore,
+  }) : _clock = clock ?? DateTime.now,
+       _recoveryStore = recoveryStore;
 
   final DateTime Function() _clock;
+  RunRecoveryStore? _recoveryStore;
+  DateTime? _lastSnapshotTime;
+  Future<void> _recoveryWrites = Future.value();
+
+  void configureRecoveryStore(RunRecoveryStore recoveryStore) {
+    _recoveryStore ??= recoveryStore;
+  }
+
+  void _enqueueRecoveryWrite(Future<void> Function(RunRecoveryStore) action) {
+    final store = _recoveryStore;
+    if (store == null) return;
+    _recoveryWrites = _recoveryWrites.then((_) => action(store)).catchError((
+      Object error,
+    ) {
+      if (kDebugMode) {
+        debugPrint('Run recovery snapshot failed: $error');
+      }
+    });
+    unawaited(_recoveryWrites);
+  }
 
   // ── post-frame 안전 notify ────────────────────────────────────
   // recordPosition()은 LocationService post-frame callback 안에서 호출됨.
@@ -69,7 +95,9 @@ class RunSessionService extends ChangeNotifier {
     String weatherDesc = '',
   }) {
     final now = _clock();
+    _enqueueRecoveryWrite((store) => store.clear());
     _startTime = now;
+    _lastSnapshotTime = now;
     isRecording = true;
     _maxSpeedKmh = 0;
     _totalSpeedSum = 0;
@@ -125,7 +153,42 @@ class RunSessionService extends ChangeNotifier {
       longitudinalG: longitudinalG,
       elapsed: currentDuration,
     );
+    _writeSnapshotIfDue();
     _scheduleNotify();
+  }
+
+  void _writeSnapshotIfDue() {
+    final startTime = _startTime;
+    final lastSnapshotTime = _lastSnapshotTime;
+    if (startTime == null || lastSnapshotTime == null) return;
+    final now = _clock();
+    if (now.difference(lastSnapshotTime) < const Duration(seconds: 30)) return;
+    _lastSnapshotTime = now;
+    final modeSeconds = Map<String, int>.of(_driveModeSeconds);
+    final modeStart = _currentModeStart;
+    if (modeStart != null) {
+      modeSeconds[_currentMode] =
+          (modeSeconds[_currentMode] ?? 0) +
+          now.difference(modeStart).inSeconds;
+    }
+    final snapshot = RunRecoverySnapshot(
+      startTime: startTime,
+      routeId: _route?.id,
+      routeName: _route?.name,
+      gpsPath: List.of(_gpsPath),
+      distanceKm: _distanceKm,
+      maxSpeedKmh: _maxSpeedKmh,
+      totalSpeedSum: _totalSpeedSum,
+      speedSamples: _speedSamples,
+      driveModeSeconds: modeSeconds,
+      sharpCorners: List.of(_sharpCorners),
+      telemetrySamples: List.of(_telemetrySamples),
+      weatherEmoji: _weatherEmoji,
+      tempDisplay: _tempDisplay,
+      weatherDesc: _weatherDesc,
+      lastSampleTime: now,
+    );
+    _enqueueRecoveryWrite((store) => store.writeSnapshot(snapshot));
   }
 
   void _recordTelemetrySample(
@@ -234,6 +297,7 @@ class RunSessionService extends ChangeNotifier {
       sharpCorners: List.unmodifiable(List.of(_sharpCorners)),
       telemetrySamples: List.unmodifiable(List.of(_telemetrySamples)),
     );
+    _enqueueRecoveryWrite((store) => store.clear());
     _scheduleNotify();
     return session;
   }
