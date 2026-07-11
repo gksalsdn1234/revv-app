@@ -244,7 +244,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   final bool _curveRoadView = false;
   bool _coverageRequestInProgress = false;
   DriveBudget _driveBudget = DriveBudget.any;
-  bool _loopOnly = false;
   String? _selectedRegionKey;
   LatLng? _coverageRequestPoint;
   final Map<String, RevvRoute> _chainSelection = {};
@@ -898,11 +897,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     });
   }
 
-  void _setLoopOnly(bool value) {
-    setState(() {
-      _loopOnly = value;
-    });
-  }
 
   void _showRouteDetails(RevvRoute route) {
     Navigator.push(
@@ -1000,9 +994,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final service = context.watch<RouteService>();
     final location = context.watch<LocationService>();
     final routes = service.routes;
-    final loopFilteredRoutes = _loopOnly
-        ? routes.where((route) => route.isLoop).toList()
-        : routes;
+    final loopFilteredRoutes = routes;
     final lensRoutes = _rankRoutes(_filterRoutes(loopFilteredRoutes, _lens));
     final visibleRoutes = routesForDriveBudget(
       lensRoutes,
@@ -1023,9 +1015,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final clusterPool = routesForDriveBudget(
       _rankRoutes(
         _filterRoutes(
-          _loopOnly
-              ? clusterPoolSource.where((route) => route.isLoop).toList()
-              : clusterPoolSource,
+          clusterPoolSource,
           _lens,
         ),
       ),
@@ -1189,13 +1179,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                           : _clearDestination,
                       onRecenter: () => setState(() => _recenterSignal++),
                     ),
-                    const SizedBox(height: 8),
-                    FinderFilterStrip(
-                      budget: _driveBudget,
-                      loopOnly: _loopOnly,
-                      onChanged: _setDriveBudget,
-                      onLoopOnlyChanged: _setLoopOnly,
-                    ),
+                    // 필터 스트립 제거 (민우 2026-07-10): 지도는 셀렉터에만
+                    // 집중한다. 예산은 여정 시트의 옵션 칩이 담당.
                     if (_chainMode) ...[
                       const SizedBox(height: 8),
                       _RouteChainBar(
@@ -2387,55 +2372,6 @@ class _LeanToast extends StatelessWidget {
   }
 }
 
-class FinderFilterStrip extends StatelessWidget {
-  final DriveBudget budget;
-  final bool loopOnly;
-  final ValueChanged<DriveBudget> onChanged;
-  final ValueChanged<bool> onLoopOnlyChanged;
-
-  const FinderFilterStrip({
-    super.key,
-    required this.budget,
-    required this.loopOnly,
-    required this.onChanged,
-    required this.onLoopOnlyChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final language = context.watch<SettingsService>().appLanguage;
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
-      child: Row(
-        children: [
-          for (final item in const [
-            DriveBudget.short,
-            DriveBudget.medium,
-            DriveBudget.long,
-          ]) ...[
-            _BudgetChip(
-              label: driveBudgetLabel(item, language),
-              selected: budget == item,
-              onTap: () => onChanged(item),
-            ),
-            const SizedBox(width: 8),
-          ],
-          _BudgetChip(
-            label: AppCopy.t(
-              language,
-              ko: '루프만',
-              en: 'Loops only',
-              fr: 'Boucles',
-            ),
-            selected: loopOnly,
-            onTap: () => onLoopOnlyChanged(!loopOnly),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class DriveBudgetChoiceStrip extends StatelessWidget {
   final DriveBudget budget;

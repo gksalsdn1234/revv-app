@@ -218,86 +218,6 @@ void main() {
     },
   );
 
-  testWidgets('loop-only chip filters the finder route list', (tester) async {
-    await useTallSurface(tester);
-    SharedPreferences.setMockInitialValues({});
-    final settings = SettingsService();
-    await settings.setAppLanguage(AppLanguage.korean);
-    final loop = RevvRoute(
-      id: 'loop',
-      name: 'Loop Road',
-      nodes: const [LatLng(45.0, -73.0), LatLng(45.02, -73.02)],
-      distanceKm: 30,
-      windingScore: 5.6,
-      starRating: 4,
-      sharpCurveCount: 12,
-      centerPoint: const LatLng(45.01, -73.01),
-      distanceFromUser: 40,
-      tightCurveKm: 0.2,
-      mediumCurveKm: 3.0,
-      maxContinuousKm: 1.8,
-      isLoop: true,
-    );
-    final oneWay = RevvRoute(
-      id: 'one-way',
-      name: 'One Way Road',
-      nodes: const [LatLng(45.1, -73.0), LatLng(45.12, -73.02)],
-      distanceKm: 30,
-      windingScore: 5.6,
-      starRating: 4,
-      sharpCurveCount: 12,
-      centerPoint: const LatLng(45.11, -73.01),
-      distanceFromUser: 40,
-      tightCurveKm: 0.2,
-      mediumCurveKm: 3.0,
-      maxContinuousKm: 1.8,
-    );
-    final routeService = RouteService()
-      ..routes = [loop, oneWay]
-      ..mapVisualRoutes = [loop, oneWay];
-
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
-          ChangeNotifierProvider(
-            create: (_) => DrivenRoutesService(history: RunHistoryService()),
-          ),
-          ChangeNotifierProvider<SettingsService>.value(value: settings),
-          ChangeNotifierProvider<RouteService>.value(value: routeService),
-          ChangeNotifierProvider<LocationService>.value(
-            value: _DeniedLocationService(),
-          ),
-        ],
-        child: const MaterialApp(home: LeanRouteFinderScreen()),
-      ),
-    );
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('route-list-button')));
-    await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.text('One Way Road'),
-      300,
-      scrollable: find.byType(Scrollable).last,
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Loop Road'), findsOneWidget);
-    expect(find.text('One Way Road'), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.close_rounded).last);
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('루프만'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('route-list-button')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Loop Road'), findsOneWidget);
-    expect(find.text('One Way Road'), findsNothing);
-  });
 
   testWidgets('route duration meta renders estimate and chain segment count', (
     tester,
@@ -1020,18 +940,6 @@ void main() {
   });
 }
 
-class _DeniedLocationService extends LocationService {
-  @override
-  Future<void> requestPermission() async {}
-
-  @override
-  Future<void> startTracking() async {}
-
-  @override
-  Future<LatLng?> ensureLiveLocation({
-    Duration timeout = const Duration(seconds: 6),
-  }) async => null;
-}
 
 class _OutsideCoverageLocationService extends LocationService {
   _OutsideCoverageLocationService() {
