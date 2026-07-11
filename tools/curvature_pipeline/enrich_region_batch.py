@@ -164,17 +164,27 @@ def enrich_routes(
         tile_size_deg=tile_size_deg,
         cache_dir=tile_cache_dir,
     )
-    enriched = [
-        enrich_record(
-            dict(route),
-            padding_deg,
-            timeout_seconds,
-            cache,
-            version,
-            source,
+    if not routes:
+        print("[stop-control] 스킵 (대상 0)", flush=True)
+        return [], cache
+
+    print(f"[stop-control] 시작 — 대상 {len(routes)}루트", flush=True)
+    enriched = []
+    for index, route in enumerate(routes, start=1):
+        print(
+            f"[stop-control {index}/{len(routes)} {index * 100 // len(routes)}%] "
+            f"{str(route.get('id', ''))[:12]}",
+            flush=True,
         )
-        for route in routes
-    ]
+        enriched.append(
+            _safe_enrich(
+                lambda route=route: enrich_record(
+                    dict(route), padding_deg, timeout_seconds, cache, version, source,
+                ),
+                route,
+                "stop-control",
+            )
+        )
     return enriched, cache
 
 
@@ -270,20 +280,30 @@ def main(argv: list[str] | None = None) -> int:
         tile_size_deg=args.tile_size_deg,
         cache_dir=(Path(args.tile_cache_dir) / "residential") if args.tile_cache_dir else None,
     )
-    residential_enriched_routes = [
-        _safe_enrich(
-            lambda route=route: enrich_residential_record(
-                stop_enriched_by_id.get(str(route.get("id")), dict(route)),
-                args.padding_deg,
-                args.timeout_seconds,
-                residential_cache,
-                args.residential_version,
-            ),
-            route,
-            "residential",
+    if not residential_to_update:
+        print("[residential] 스킵 (대상 0)", flush=True)
+    else:
+        print(f"[residential] 시작 — 대상 {len(residential_to_update)}루트", flush=True)
+    residential_enriched_routes = []
+    for index, route in enumerate(residential_to_update, start=1):
+        print(
+            f"[residential {index}/{len(residential_to_update)} "
+            f"{index * 100 // len(residential_to_update)}%] {str(route.get('id', ''))[:12]}",
+            flush=True,
         )
-        for route in residential_to_update
-    ]
+        residential_enriched_routes.append(
+            _safe_enrich(
+                lambda route=route: enrich_residential_record(
+                    stop_enriched_by_id.get(str(route.get("id")), dict(route)),
+                    args.padding_deg,
+                    args.timeout_seconds,
+                    residential_cache,
+                    args.residential_version,
+                ),
+                route,
+                "residential",
+            )
+        )
     residential_enriched_by_id = {
         str(route.get("id")): route for route in residential_enriched_routes if route.get("id")
     }
@@ -291,23 +311,33 @@ def main(argv: list[str] | None = None) -> int:
         tile_size_deg=args.tile_size_deg,
         cache_dir=(Path(args.tile_cache_dir) / "route_context") if args.tile_cache_dir else None,
     )
-    context_enriched_routes = [
-        _safe_enrich(
-            lambda route=route: enrich_context_record(
-                residential_enriched_by_id.get(
-                    str(route.get("id")),
-                    stop_enriched_by_id.get(str(route.get("id")), dict(route)),
-                ),
-                args.padding_deg,
-                args.timeout_seconds,
-                context_cache,
-                args.context_version,
-            ),
-            route,
-            "context",
+    if not context_to_update:
+        print("[context] 스킵 (대상 0)", flush=True)
+    else:
+        print(f"[context] 시작 — 대상 {len(context_to_update)}루트", flush=True)
+    context_enriched_routes = []
+    for index, route in enumerate(context_to_update, start=1):
+        print(
+            f"[context {index}/{len(context_to_update)} {index * 100 // len(context_to_update)}%] "
+            f"{str(route.get('id', ''))[:12]}",
+            flush=True,
         )
-        for route in context_to_update
-    ]
+        context_enriched_routes.append(
+            _safe_enrich(
+                lambda route=route: enrich_context_record(
+                    residential_enriched_by_id.get(
+                        str(route.get("id")),
+                        stop_enriched_by_id.get(str(route.get("id")), dict(route)),
+                    ),
+                    args.padding_deg,
+                    args.timeout_seconds,
+                    context_cache,
+                    args.context_version,
+                ),
+                route,
+                "context",
+            )
+        )
     context_enriched_by_id = {
         str(route.get("id")): route for route in context_enriched_routes if route.get("id")
     }
@@ -351,6 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if not args.no_upload and final_updates_by_id:
+        print(f"[upload] {len(final_updates_by_id)}루트 업로드 시작", flush=True)
         upload_records(list(final_updates_by_id.values()), client=client)
 
     summary = {
@@ -374,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
         "subset_path": str(subset_path),
         "enriched_path": str(enriched_path),
     }
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
     return 0
 
 
