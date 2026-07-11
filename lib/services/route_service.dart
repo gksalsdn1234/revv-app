@@ -35,6 +35,7 @@ class RouteService extends ChangeNotifier {
   int lastCloudCandidateCount = 0;
   int lastFilteredRouteCount = 0;
   int lastUsableCloudRouteCount = 0;
+  int routeFieldGeneration = 0;
   int searchRadiusKm = routeFieldRadiusKm;
   int visibleRouteLimit = defaultVisibleRoutes;
   RouteFilterStrength filterStrength = RouteFilterStrength.balanced;
@@ -93,6 +94,7 @@ class RouteService extends ChangeNotifier {
   ) async {
     visibleRouteLimit = limit.clamp(4, 32);
     _rebuildRecommendations();
+    routeFieldGeneration++;
     notifyListeners();
   }
 
@@ -103,6 +105,7 @@ class RouteService extends ChangeNotifier {
   ) async {
     filterStrength = strength;
     _rebuildRecommendations();
+    routeFieldGeneration++;
     routeSuggestionMessage = _routeSuggestionForCount(routes.length);
     routeDataStatusTitle = rawCandidateRoutes.isEmpty ? '루트 후보 없음' : '추천 후보 갱신';
     routeDataStatusBody = rawCandidateRoutes.isEmpty
@@ -409,6 +412,7 @@ class RouteService extends ChangeNotifier {
     routeFieldFetchedAt = null;
     routeFieldFromCache = false;
     routeDataSourceLabel = '초기화됨';
+    routeFieldGeneration++;
     notifyListeners();
   }
 
@@ -443,6 +447,7 @@ class RouteService extends ChangeNotifier {
     routeFieldFetchedAt = fetchedAt;
     routeFieldFromCache = fromCache;
     routeDataSourceLabel = sourceLabel;
+    routeFieldGeneration++;
   }
 
   void _rebuildRecommendations() {
@@ -494,6 +499,7 @@ class RouteService extends ChangeNotifier {
     routes = [
       for (final item in routes) item.id == hydrated.id ? hydrated : item,
     ];
+    routeFieldGeneration++;
     notifyListeners();
   }
 

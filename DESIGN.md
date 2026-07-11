@@ -38,7 +38,7 @@ REVV Lean MVP is a mobile driving companion for finding winding roads, running a
 - `RevvGlassCard`: dark or cream panel with thin outline, used for single repeated items or tool panels.
 - `RevvPill`: compact filter/status chip.
 - `RevvPrimaryButton`: red filled command button for primary driving action.
-- Route ticket: selected route card with rank, route type, map glyph, distance/curves/start metrics, and primary preview/start command.
+- Route selector: show several route lines on the map at once, with no rank or persistent selected-route card. A compact map action opens an unnumbered route list; choosing either a line or list row hands off to route detail. Keep the primary Start drive command on route detail only.
 - Result metric row: two-column table with mono label and bold result value.
 - History row: route glyph, route metadata, peak G/date column.
 

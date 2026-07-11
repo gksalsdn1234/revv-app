@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import '../core/app_language.dart';
+
 class LatLng {
   final double lat;
   final double lng;
@@ -115,8 +117,17 @@ class RevvRoute {
 
   /// 집에서 거리 표시
   String get distanceFromUserDisplay {
+    return distanceFromUserDisplayFor(AppLanguage.korean);
+  }
+
+  String distanceFromUserDisplayFor(AppLanguage language) {
     if (distanceFromUser < 1.0) return '${(distanceFromUser * 1000).round()}m';
-    return '${distanceFromUser.toStringAsFixed(0)}km 거리';
+    final distance = '${distanceFromUser.toStringAsFixed(0)} km';
+    return switch (language) {
+      AppLanguage.korean => '$distance 거리',
+      AppLanguage.english => '$distance to start',
+      AppLanguage.french => '$distance jusqu’au départ',
+    };
   }
 
   /// 난이도 레이블 (windingScore 기반)

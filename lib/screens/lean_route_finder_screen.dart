@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 
 import '../core/app_language.dart';
 import '../models/revv_route.dart';
-import '../services/drive_planner_service.dart';
 import '../services/location_service.dart';
 import '../services/route_loading_policy.dart';
 import '../services/route_service.dart';
@@ -15,19 +14,17 @@ import '../services/supabase_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
-import '../ui/copilot_briefing.dart';
 import '../ui/route_difficulty_profile.dart';
 import '../ui/route_quality_profile.dart';
 import '../ui/winding_experience.dart';
-import '../widgets/copilot_start_sheet.dart';
 import '../widgets/map_widget.dart';
-import 'lean_drive_planner_screen.dart';
-import 'lean_drive_screen.dart';
 import 'lean_route_detail_screen.dart';
 
 enum _RouteLens { all, nearby, sweeper, tight, flow, loop }
 
 enum _RouteMapMode { wide, balanced, close }
+
+const _routeFinderDefaultVisibleRoutes = 32;
 
 enum RouteFinderStateKind {
   temporaryLocationDenied,
@@ -65,31 +62,25 @@ const _routeRegionPresets = [
 ];
 
 class LeanRouteFinderScreen extends StatefulWidget {
-  final DrivePlannerService? planner;
-
-  const LeanRouteFinderScreen({super.key, this.planner});
+  const LeanRouteFinderScreen({super.key});
 
   @override
   State<LeanRouteFinderScreen> createState() => _LeanRouteFinderScreenState();
 }
 
 class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
-  int _selectedIndex = 0;
   int _recenterSignal = 0;
+  int _fitRoutesSignal = 0;
+  bool _visibleLimitChanged = false;
   _RouteLens _lens = _RouteLens.all;
   LatLng? _mapCenterPoint;
   String? _localStatusMessage;
   double _mapZoom = 11.0;
   bool _curveRoadView = false;
-  bool _hasUserSelectedRoute = false;
   bool _coverageRequestInProgress = false;
   DriveBudget _driveBudget = DriveBudget.any;
-  RevvRoute? _selectedRouteOverride;
   String? _selectedRegionKey;
   LatLng? _coverageRequestPoint;
-  final Map<String, RevvRoute> _chainSelection = {};
-
-  bool get _chainMode => _chainSelection.isNotEmpty;
 
   @override
   void initState() {
@@ -142,15 +133,12 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final settings = context.read<SettingsService>();
     final routes = context.read<RouteService>();
     routes.filterStrength = settings.routeFilterStrength;
-    if (routes.visibleRouteLimit < 32) {
-      routes.visibleRouteLimit = 32;
+    if (routes.visibleRouteLimit < _routeFinderDefaultVisibleRoutes) {
+      routes.visibleRouteLimit = _routeFinderDefaultVisibleRoutes;
     }
     if (!isPointInsideRouteCoverage(point)) {
       setState(() {
         _lens = _RouteLens.all;
-        _selectedIndex = 0;
-        _hasUserSelectedRoute = false;
-        _selectedRouteOverride = null;
         _localStatusMessage = null;
         _selectedRegionKey = regionKey;
         _mapCenterPoint = point;
@@ -167,9 +155,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     if (!mounted) return;
     setState(() {
       _lens = _RouteLens.all;
-      _selectedIndex = 0;
-      _hasUserSelectedRoute = false;
-      _selectedRouteOverride = null;
+      _fitRoutesSignal++;
       _localStatusMessage = null;
       _selectedRegionKey = regionKey;
       _coverageRequestPoint = null;
@@ -263,7 +249,10 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
     await service.changeVisibleRouteLimit(selected, 0, 0);
     if (!mounted) return;
-    _resetVisibleSelection(service.routes);
+    setState(
+      () => _visibleLimitChanged = selected != _routeFinderDefaultVisibleRoutes,
+    );
+    _resetVisibleSelection();
   }
 
   Future<void> _openRouteFilters(List<RevvRoute> routes) async {
@@ -298,104 +287,68 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     await settings.setRouteFilterStrength(strength);
     await service.changeFilterStrength(strength, 0, 0);
     if (!mounted) return;
-    _resetVisibleSelection(service.routes);
+    _resetVisibleSelection();
   }
 
-  void _resetVisibleSelection(List<RevvRoute> routes) {
+  void _resetVisibleSelection() {
     setState(() {
       _lens = _RouteLens.all;
-      _selectedIndex = 0;
-      _hasUserSelectedRoute = false;
-      _selectedRouteOverride = null;
+      _fitRoutesSignal++;
     });
-  }
-
-  void _selectIndex(List<RevvRoute> routes, int nextIndex) {
-    if (routes.isEmpty) return;
-    final clamped = nextIndex.clamp(0, routes.length - 1);
-    setState(() {
-      _selectedIndex = clamped;
-      _hasUserSelectedRoute = true;
-      _selectedRouteOverride = null;
-    });
-    context.read<RouteService>().selectRoute(routes[clamped]);
-  }
-
-  void _toggleChainRoute(RevvRoute route) {
-    setState(() {
-      if (_chainSelection.containsKey(route.id)) {
-        _chainSelection.remove(route.id);
-      } else {
-        _chainSelection[route.id] = route;
-      }
-    });
-  }
-
-  void _clearChainSelection() {
-    setState(_chainSelection.clear);
-  }
-
-  Future<void> _startChainDrive() async {
-    if (_chainSelection.length < 2) return;
-    final origin = await _resolveSearchPoint();
-    if (!mounted || origin == null) return;
-    final selectedRoutes = _chainSelection.values.toList();
-    final planner = widget.planner ?? DrivePlannerService();
-    final plan = await planner.buildPlanFromRoutes(
-      origin: origin,
-      routes: selectedRoutes,
-    );
-    if (!mounted) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => LeanDrivePlannerScreen(
-          planner: planner,
-          initialPlan: plan,
-          initialRoutes: selectedRoutes,
-          initialOrigin: origin,
-          initialDestination: plan.waypoints.last,
-          initialDestinationName: AppCopy.t(
-            context.read<SettingsService>().appLanguage,
-            ko: '선택 루트 끝점',
-            en: 'Selected route end',
-            fr: 'Fin des routes choisies',
-          ),
-        ),
-      ),
-    );
   }
 
   void _setLens(_RouteLens lens) {
     setState(() {
       _lens = lens;
-      _selectedIndex = 0;
-      _hasUserSelectedRoute = false;
-      _selectedRouteOverride = null;
+      _fitRoutesSignal++;
     });
   }
 
   void _setDriveBudget(DriveBudget budget) {
     setState(() {
       _driveBudget = budget;
-      _selectedIndex = 0;
-      _hasUserSelectedRoute = false;
-      _selectedRouteOverride = null;
+      _fitRoutesSignal++;
     });
   }
 
-  Future<void> _startDrive(RevvRoute route) async {
-    final startChoice = await showCopilotStartSheet(context, route: route);
-    if (!mounted || startChoice == null) return;
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => LeanDriveScreen(
-          route: route,
-          simulated: startChoice == CopilotStartChoice.simulate,
-        ),
-      ),
+  int _fitDifficultySignal(int routeFieldGeneration) {
+    return (Object.hash(_fitRoutesSignal, routeFieldGeneration) & 0x3fffffff) +
+        1;
+  }
+
+  Future<void> _openRouteList(List<RevvRoute> routes) async {
+    if (routes.isEmpty) return;
+    final language = context.read<SettingsService>().appLanguage;
+    final selectedRouteId = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _RouteListSheet(routes: routes, language: language),
     );
+    if (!mounted || selectedRouteId == null) return;
+    final currentRoutes = _visibleRoutesFor(
+      context.read<RouteService>().routes,
+    );
+    final selected = currentRoutes
+        .where((route) => route.id == selectedRouteId)
+        .firstOrNull;
+    if (selected == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppCopy.t(
+              language,
+              ko: '루트 목록이 갱신됐어요. 다시 골라 주세요.',
+              en: 'The route list changed. Choose a route again.',
+              fr: 'La liste a changé. Choisissez à nouveau.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    context.read<RouteService>().selectRoute(selected);
+    _showRouteDetails(selected);
   }
 
   void _showRouteDetails(RevvRoute route) {
@@ -433,7 +386,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final visibleRoutes = _visibleRoutesFor(service.routes);
     final index = visibleRoutes.indexWhere((route) => route.id == routeId);
     if (index >= 0) {
-      _selectIndex(visibleRoutes, index);
+      final route = visibleRoutes[index];
+      service.selectRoute(route);
+      _showRouteDetails(route);
       return;
     }
 
@@ -442,12 +397,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     );
     if (visualIndex < 0) return;
     final route = service.mapVisualRoutes[visualIndex];
-    setState(() {
-      _hasUserSelectedRoute = true;
-      _selectedRouteOverride = route;
-      _selectedIndex = 0;
-    });
     service.selectRoute(route);
+    _showRouteDetails(route);
   }
 
   List<RevvRoute> _visibleRoutesFor(List<RevvRoute> routes) {
@@ -465,21 +416,12 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       lensRoutes,
       budget: _driveBudget,
     );
-    final mapSourceRoutes = _driveBudget == DriveBudget.any
-        ? service.mapVisualRoutes
-        : visibleRoutes;
+    final mapSourceRoutes = visibleRoutes;
     final mapDisplayRoutes = _routesForViewport(
       mapSourceRoutes.isNotEmpty ? mapSourceRoutes : visibleRoutes,
       _mapCenterPoint,
       _mapZoom,
     );
-    final effectiveIndex = visibleRoutes.isEmpty
-        ? 0
-        : _selectedIndex.clamp(0, visibleRoutes.length - 1);
-    final selected = !_hasUserSelectedRoute
-        ? null
-        : _selectedRouteOverride ??
-              (visibleRoutes.isEmpty ? null : visibleRoutes[effectiveIndex]);
     final filterEmpty =
         routes.isNotEmpty && lensRoutes.isEmpty && visibleRoutes.isEmpty;
     final budgetEmpty =
@@ -501,7 +443,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         settings.hasRequestedRegion(coverageGrid.gridKey);
     final localStatus = _localizedInlineStatus(_localStatusMessage, language);
     final cacheStatus = service.routeFieldFromCache
-        ? _cacheInlineStatus(service, language)
+        ? _cacheInlineStatus(visibleRoutes.length, language)
         : null;
     final serviceStatus = _localizedInlineStatus(
       service.errorMessage ??
@@ -540,7 +482,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final activeFilterCount = _activeFilterCount(
       lens: _lens,
       filterStrength: service.filterStrength,
-      visibleLimit: service.visibleRouteLimit,
+      visibleLimitChanged: _visibleLimitChanged,
       selectedRegionKey: _selectedRegionKey,
       curveRoadView: _curveRoadView,
     );
@@ -590,10 +532,12 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
           children: [
             Positioned.fill(
               child: MapWidget(
-                routePolyline: selected?.nodes,
                 candidatePolylines: const [],
                 curveHeatmapPolylines: const [],
-                difficultyLines: _difficultyLines(mapDisplayRoutes, selected),
+                difficultyLines: _difficultyLines(mapDisplayRoutes, null),
+                fitDifficultySignal: _fitDifficultySignal(
+                  service.routeFieldGeneration,
+                ),
                 strongCurveFieldHeatmap: _curveRoadView,
                 routeFocusMode: false,
                 recenterSignal: _recenterSignal,
@@ -612,6 +556,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       activeFilterCount: activeFilterCount,
                       onBack: () => Navigator.pop(context),
                       onSearch: _searchHere,
+                      onList: visibleRoutes.isEmpty
+                          ? null
+                          : () => unawaited(_openRouteList(visibleRoutes)),
                       onFilters: () => _openRouteFilters(routes),
                       onRecenter: () => setState(() => _recenterSignal++),
                     ),
@@ -621,17 +568,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       routes: lensRoutes,
                       onChanged: _setDriveBudget,
                     ),
-                    if (_chainMode) ...[
-                      const SizedBox(height: 8),
-                      _RouteChainBar(
-                        language: language,
-                        count: _chainSelection.length,
-                        onCancel: _clearChainSelection,
-                        onChain: _chainSelection.length >= 2
-                            ? () => unawaited(_startChainDrive())
-                            : null,
-                      ),
-                    ],
                     const SizedBox(height: 8),
                     if (_curveRoadView) const _CurveHeatLegend(),
                   ],
@@ -645,138 +581,89 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                 right: 24,
                 child: _LeanToast(message: status, busy: service.isLoading),
               ),
-            Positioned(
-              left: 14,
-              right: 14,
-              bottom: MediaQuery.paddingOf(context).bottom + 14,
-              child: coverageGrid != null
-                  ? RouteCoverageBoundaryCard(
-                      language: language,
-                      requested: coverageRequested,
-                      requesting: _coverageRequestInProgress,
-                      onRequest: () =>
-                          _requestCoverageNotification(coverageGrid),
-                      onBrowseMontreal: _selectRegionPreset,
-                    )
-                  : selected == null
-                  ? _LeanEmptyTicket(
-                      title: stateKind != null
-                          ? routeFinderStateTitle(stateKind, language)
-                          : visibleRoutes.isNotEmpty
-                          ? AppCopy.t(
-                              language,
-                              ko: '지도에서 커브길을 눌러 선택',
-                              en: 'Tap a curvy road on the map',
-                              fr: 'Touchez une route sinueuse',
-                            )
-                          : emptyTitle,
-                      body: stateKind != null
-                          ? routeFinderStateBody(stateKind, language)
-                          : visibleRoutes.isNotEmpty
-                          ? AppCopy.t(
-                              language,
-                              ko: '노랑은 완만, 주황은 와인딩, 빨강은 타이트 구간이에요. 원하는 길을 탭하면 상세 카드가 열립니다.',
-                              en: 'Yellow is gentle, orange is winding, red is tight. Tap a road to open its card.',
-                              fr: 'Jaune doux, orange sinueux, rouge serré. Touchez une route pour ouvrir sa carte.',
-                            )
-                          : emptyBody,
-                      actionIcon: stateKind != null
-                          ? routeFinderStateActionIcon(stateKind)
-                          : visibleRoutes.isNotEmpty
-                          ? Icons.route_rounded
-                          : budgetEmpty
-                          ? Icons.schedule_rounded
-                          : filterEmpty
-                          ? Icons.layers_rounded
-                          : canBroadenStrength
-                          ? Icons.tune_rounded
-                          : Icons.refresh_rounded,
-                      actionLabel: stateKind != null
-                          ? routeFinderStateActionLabel(stateKind, language)
-                          : visibleRoutes.isNotEmpty
-                          ? AppCopy.t(
-                              language,
-                              ko: '추천 보기',
-                              en: 'Show picks',
-                              fr: 'Voir options',
-                            )
-                          : budgetEmpty
-                          ? AppCopy.t(
-                              language,
-                              ko: '전체 분량',
-                              en: 'Any duration',
-                              fr: 'Toute durée',
-                            )
-                          : filterEmpty
-                          ? AppCopy.t(
-                              language,
-                              ko: '전체로 보기',
-                              en: 'Show all',
-                              fr: 'Tout voir',
-                            )
-                          : canBroadenStrength
-                          ? AppCopy.t(
-                              language,
-                              ko: '넓게 보기',
-                              en: 'Broaden',
-                              fr: 'Élargir',
-                            )
-                          : AppCopy.t(
-                              language,
-                              ko: '다시 찾기',
-                              en: 'Retry',
-                              fr: 'Réessayer',
-                            ),
-                      onAction: stateKind != null
-                          ? switch (stateKind) {
-                              RouteFinderStateKind.temporaryLocationDenied =>
-                                _searchCurrentLocation,
-                              RouteFinderStateKind.permanentlyLocationDenied =>
-                                _openLocationSettings,
-                              RouteFinderStateKind.emptyRoutes =>
-                                _selectRegionPreset,
-                              RouteFinderStateKind.loadFailed => _searchHere,
-                              RouteFinderStateKind.cachedRoutes =>
-                                visibleRoutes.isNotEmpty
-                                    ? () => _selectIndex(visibleRoutes, 0)
-                                    : _searchHere,
-                            }
-                          : visibleRoutes.isNotEmpty
-                          ? () => _selectIndex(visibleRoutes, 0)
-                          : budgetEmpty
-                          ? () => _setDriveBudget(DriveBudget.any)
-                          : filterEmpty
-                          ? () => _setLens(_RouteLens.all)
-                          : canBroadenStrength
-                          ? () =>
-                                _applyFilterStrength(RouteFilterStrength.broad)
-                          : _searchHere,
-                    )
-                  : _LeanRouteTicket(
-                      route: selected,
-                      index: effectiveIndex,
-                      total: _selectedRouteOverride == null
-                          ? visibleRoutes.length
-                          : service.mapVisualRoutes.length,
-                      onPrev:
-                          _selectedRouteOverride == null && effectiveIndex > 0
-                          ? () =>
-                                _selectIndex(visibleRoutes, effectiveIndex - 1)
-                          : null,
-                      onNext:
-                          _selectedRouteOverride == null &&
-                              effectiveIndex < visibleRoutes.length - 1
-                          ? () =>
-                                _selectIndex(visibleRoutes, effectiveIndex + 1)
-                          : null,
-                      onGo: () => unawaited(_startDrive(selected)),
-                      onDetails: () => _showRouteDetails(selected),
-                      mapSelected: _selectedRouteOverride != null,
-                      chainMode: _chainMode,
-                      chainSelected: _chainSelection.containsKey(selected.id),
-                      onToggleChain: () => _toggleChainRoute(selected),
-                    ),
-            ),
+            if (coverageGrid != null || visibleRoutes.isEmpty)
+              Positioned(
+                left: 14,
+                right: 14,
+                bottom: MediaQuery.paddingOf(context).bottom + 14,
+                child: coverageGrid != null
+                    ? RouteCoverageBoundaryCard(
+                        language: language,
+                        requested: coverageRequested,
+                        requesting: _coverageRequestInProgress,
+                        onRequest: () =>
+                            _requestCoverageNotification(coverageGrid),
+                        onBrowseMontreal: _selectRegionPreset,
+                      )
+                    : _LeanEmptyTicket(
+                        title: stateKind != null
+                            ? routeFinderStateTitle(stateKind, language)
+                            : emptyTitle,
+                        body: stateKind != null
+                            ? routeFinderStateBody(stateKind, language)
+                            : emptyBody,
+                        actionIcon: stateKind != null
+                            ? routeFinderStateActionIcon(stateKind)
+                            : budgetEmpty
+                            ? Icons.schedule_rounded
+                            : filterEmpty
+                            ? Icons.layers_rounded
+                            : canBroadenStrength
+                            ? Icons.tune_rounded
+                            : Icons.refresh_rounded,
+                        actionLabel: stateKind != null
+                            ? routeFinderStateActionLabel(stateKind, language)
+                            : budgetEmpty
+                            ? AppCopy.t(
+                                language,
+                                ko: '전체 분량',
+                                en: 'Any duration',
+                                fr: 'Toute durée',
+                              )
+                            : filterEmpty
+                            ? AppCopy.t(
+                                language,
+                                ko: '전체로 보기',
+                                en: 'Show all',
+                                fr: 'Tout voir',
+                              )
+                            : canBroadenStrength
+                            ? AppCopy.t(
+                                language,
+                                ko: '넓게 보기',
+                                en: 'Broaden',
+                                fr: 'Élargir',
+                              )
+                            : AppCopy.t(
+                                language,
+                                ko: '다시 찾기',
+                                en: 'Retry',
+                                fr: 'Réessayer',
+                              ),
+                        onAction: stateKind != null
+                            ? switch (stateKind) {
+                                RouteFinderStateKind.temporaryLocationDenied =>
+                                  _searchCurrentLocation,
+                                RouteFinderStateKind
+                                    .permanentlyLocationDenied =>
+                                  _openLocationSettings,
+                                RouteFinderStateKind.emptyRoutes =>
+                                  _selectRegionPreset,
+                                RouteFinderStateKind.loadFailed => _searchHere,
+                                RouteFinderStateKind.cachedRoutes =>
+                                  _searchHere,
+                              }
+                            : budgetEmpty
+                            ? () => _setDriveBudget(DriveBudget.any)
+                            : filterEmpty
+                            ? () => _setLens(_RouteLens.all)
+                            : canBroadenStrength
+                            ? () => _applyFilterStrength(
+                                RouteFilterStrength.broad,
+                              )
+                            : _searchHere,
+                      ),
+              ),
           ],
         ),
       ),
@@ -912,6 +799,7 @@ class _LeanRouteTopBar extends StatelessWidget {
   final int activeFilterCount;
   final VoidCallback onBack;
   final VoidCallback onSearch;
+  final VoidCallback? onList;
   final VoidCallback onFilters;
   final VoidCallback onRecenter;
 
@@ -920,6 +808,7 @@ class _LeanRouteTopBar extends StatelessWidget {
     required this.activeFilterCount,
     required this.onBack,
     required this.onSearch,
+    required this.onList,
     required this.onFilters,
     required this.onRecenter,
   });
@@ -931,76 +820,224 @@ class _LeanRouteTopBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
       child: Row(
         children: [
-          _LeanCircleButton(icon: Icons.arrow_back_rounded, onTap: onBack),
+          _LeanCircleButton(
+            icon: Icons.arrow_back_rounded,
+            tooltip: AppCopy.t(language, ko: '뒤로', en: 'Back', fr: 'Retour'),
+            onTap: onBack,
+          ),
           const SizedBox(width: 6),
           Expanded(
             child: _LeanSearchButton(
               label: AppCopy.t(
                 language,
-                ko: '이 지역 검색',
-                en: 'Search this area',
-                fr: 'Chercher ici',
+                ko: '여기 검색',
+                en: 'Search here',
+                fr: 'Ici',
               ),
               onTap: busy ? null : onSearch,
             ),
           ),
           const SizedBox(width: 6),
+          _LeanCircleButton(
+            icon: Icons.format_list_bulleted_rounded,
+            tooltip: AppCopy.t(
+              language,
+              ko: '루트 목록',
+              en: 'Route list',
+              fr: 'Liste des routes',
+            ),
+            onTap: onList,
+          ),
+          const SizedBox(width: 6),
           _LeanFilterButton(
             key: const Key('route-finder-filter-button'),
             activeCount: activeFilterCount,
+            tooltip: AppCopy.t(
+              language,
+              ko: '필터',
+              en: 'Filters',
+              fr: 'Filtres',
+            ),
             onTap: onFilters,
           ),
           const SizedBox(width: 6),
-          _LeanCircleButton(icon: Icons.gps_fixed_rounded, onTap: onRecenter),
+          _LeanCircleButton(
+            icon: Icons.gps_fixed_rounded,
+            tooltip: AppCopy.t(
+              language,
+              ko: '내 위치',
+              en: 'My location',
+              fr: 'Ma position',
+            ),
+            onTap: onRecenter,
+          ),
         ],
       ),
     );
   }
 }
 
-class _RouteChainBar extends StatelessWidget {
+class _RouteListSheet extends StatelessWidget {
+  final List<RevvRoute> routes;
   final AppLanguage language;
-  final int count;
-  final VoidCallback onCancel;
-  final VoidCallback? onChain;
 
-  const _RouteChainBar({
-    required this.language,
-    required this.count,
-    required this.onCancel,
-    required this.onChain,
-  });
+  const _RouteListSheet({required this.routes, required this.language});
 
   @override
   Widget build(BuildContext context) {
-    return _LeanGlass(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              _selectedCountLabel(count, language),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppText.body(
-                size: 13,
-                weight: FontWeight.w900,
-                color: AppColors.textPrimary,
+    return FractionallySizedBox(
+      heightFactor: 0.88,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: AppColors.bg,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              const _SheetHandle(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 12, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            AppCopy.t(
+                              language,
+                              ko: '루트 선택',
+                              en: 'Choose a route',
+                              fr: 'Choisir une route',
+                            ),
+                            style: AppText.body(
+                              size: 22,
+                              weight: FontWeight.w900,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            AppCopy.t(
+                              language,
+                              ko: '선택 가능한 루트 ${routes.length}개',
+                              en: '${routes.length} routes available',
+                              fr: '${routes.length} routes disponibles',
+                            ),
+                            style: AppText.body(
+                              size: 12,
+                              weight: FontWeight.w700,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _LeanCircleButton(
+                      icon: Icons.close_rounded,
+                      tooltip: AppCopy.cancel(language),
+                      onTap: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
               ),
-            ),
+              Divider(
+                height: 1,
+                color: AppColors.outlineVariant.withValues(alpha: 0.24),
+              ),
+              Expanded(
+                child: ListView.separated(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.paddingOf(context).bottom + 12,
+                  ),
+                  itemCount: routes.length,
+                  separatorBuilder: (_, _) => Divider(
+                    height: 1,
+                    indent: 72,
+                    color: AppColors.outlineVariant.withValues(alpha: 0.18),
+                  ),
+                  itemBuilder: (context, index) {
+                    final route = routes[index];
+                    final profile = RouteDifficultyProfile.fromRoute(route);
+                    return InkWell(
+                      onTap: () => Navigator.pop(context, route.id),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 13, 14, 13),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 4,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                color: Color(profile.colorArgb),
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    routeDisplayName(route, language: language),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppText.body(
+                                      size: 15,
+                                      weight: FontWeight.w800,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _routeListMeta(route, language),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AppText.mono(
+                                      size: 10,
+                                      weight: FontWeight.w700,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            const Icon(
+                              Icons.chevron_right_rounded,
+                              color: AppColors.textHint,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-          _LeanTextButton(
-            label: AppCopy.cancel(language),
-            icon: Icons.close_rounded,
-            onTap: onCancel,
-          ),
-          const SizedBox(width: 8),
-          _LeanTextButton(
-            label: _chainDriveLabel(language),
-            icon: Icons.route_rounded,
-            onTap: onChain,
-          ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Container(
+        width: 42,
+        height: 4,
+        decoration: BoxDecoration(
+          color: AppColors.outlineVariant.withValues(alpha: 0.45),
+          borderRadius: BorderRadius.circular(999),
+        ),
       ),
     );
   }
@@ -1445,346 +1482,6 @@ class _RouteStrengthTile extends StatelessWidget {
   }
 }
 
-class _LeanRouteTicket extends StatelessWidget {
-  final RevvRoute route;
-  final int index;
-  final int total;
-  final VoidCallback? onPrev;
-  final VoidCallback? onNext;
-  final VoidCallback onGo;
-  final VoidCallback onDetails;
-  final bool mapSelected;
-  final bool chainMode;
-  final bool chainSelected;
-  final VoidCallback onToggleChain;
-
-  const _LeanRouteTicket({
-    required this.route,
-    required this.index,
-    required this.total,
-    required this.onPrev,
-    required this.onNext,
-    required this.onGo,
-    required this.onDetails,
-    this.mapSelected = false,
-    this.chainMode = false,
-    this.chainSelected = false,
-    required this.onToggleChain,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final language = context.watch<SettingsService>().appLanguage;
-    final profile = RouteQualityProfile.fromRoute(route, language: language);
-    final windingProfile = WindingExperienceProfile.fromRoute(route);
-    final briefing = CopilotRouteBriefing.fromRoute(
-      route,
-      profile: profile,
-      startDistanceKm: route.distanceFromUser,
-      language: language,
-    );
-    return GestureDetector(
-      onTap: chainMode ? onToggleChain : null,
-      onLongPress: onToggleChain,
-      onHorizontalDragEnd: (details) {
-        final dx = details.primaryVelocity ?? 0;
-        if (dx < -160) {
-          onNext?.call();
-        } else if (dx > 160) {
-          onPrev?.call();
-        }
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.creamRaised,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 28,
-              offset: const Offset(0, 14),
-            ),
-          ],
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Checkered top stripe
-            SizedBox(
-              height: 8,
-              width: double.infinity,
-              child: CustomPaint(
-                painter: _CheckeredTicketPainter(
-                  tileSize: 8,
-                  lightColor: AppColors.creamRaised,
-                  darkColor: AppColors.ink,
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 42,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: AppColors.ink.withValues(alpha: 0.18),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _RouteQualityBadge(
-                        score: windingProfile.score,
-                        label: windingProfile.title,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              mapSelected
-                                  ? AppCopy.t(
-                                      language,
-                                      ko: '지도에서 선택한 커브길',
-                                      en: 'Map-picked curve road',
-                                      fr: 'Route choisie sur carte',
-                                    )
-                                  : '${AppCopy.t(language, ko: '후보', en: 'Pick', fr: 'Option')} ${index + 1} / $total',
-                              style: AppText.technicalLabel(
-                                size: 10,
-                                color: AppColors.primaryContainer,
-                                letterSpacing: 1.6,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              routeDisplayName(route, language: language),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.label(
-                                size: 18,
-                                weight: FontWeight.w800,
-                                color: AppColors.ink,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            RouteDurationMeta(route: route, language: language),
-                            const SizedBox(height: 3),
-                            Text(
-                              '${windingProfile.rhythm} · ${briefing.primaryAdvice}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.mono(
-                                size: 11,
-                                weight: FontWeight.w700,
-                                color: AppColors.stone,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      if (chainMode)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: Icon(
-                            chainSelected
-                                ? Icons.check_circle_rounded
-                                : Icons.radio_button_unchecked_rounded,
-                            color: chainSelected
-                                ? AppColors.primaryContainer
-                                : AppColors.stone,
-                            size: 24,
-                          ),
-                        ),
-                      _LeanCircleButton(
-                        icon: Icons.info_outline_rounded,
-                        onTap: onDetails,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      for (final metric in windingProfile.metrics) ...[
-                        Expanded(
-                          child: _Metric(
-                            label: metric.label,
-                            value: metric.value,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      Expanded(
-                        child: _Metric(
-                          label: AppCopy.t(
-                            language,
-                            ko: '시작점',
-                            en: 'Start',
-                            fr: 'Départ',
-                          ),
-                          value: route.distanceFromUserDisplay,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      _LeanCircleButton(
-                        icon: Icons.chevron_left_rounded,
-                        onTap: onPrev,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: SizedBox(
-                          height: 48,
-                          child: FilledButton.icon(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppColors.primaryContainer,
-                              foregroundColor: AppColors.onPrimary,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                            onPressed: onGo,
-                            icon: const Icon(
-                              Icons.play_arrow_rounded,
-                              size: 20,
-                            ),
-                            label: Text(
-                              AppCopy.t(
-                                language,
-                                ko: '주행 시작',
-                                en: 'Start drive',
-                                fr: 'Démarrer',
-                              ),
-                              style: AppText.label(
-                                size: 14,
-                                weight: FontWeight.w800,
-                                color: AppColors.onPrimary,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      _LeanCircleButton(
-                        icon: Icons.chevron_right_rounded,
-                        onTap: onNext,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class RouteDurationMeta extends StatelessWidget {
-  final RevvRoute route;
-  final AppLanguage language;
-
-  const RouteDurationMeta({
-    super.key,
-    required this.route,
-    required this.language,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final segments = routeChainSegmentCount(route);
-    final segmentLabel = segments > 1
-        ? AppCopy.t(
-            language,
-            ko: '$segments개 코스 연결',
-            en: '$segments linked routes',
-            fr: '$segments routes reliées',
-          )
-        : AppCopy.t(
-            language,
-            ko: '단일 코스',
-            en: 'Single route',
-            fr: 'Route seule',
-          );
-    return Text(
-      '${driveMinutesLabel(route, language)} · $segmentLabel',
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: AppText.mono(
-        size: 10,
-        weight: FontWeight.w800,
-        color: AppColors.primaryContainer,
-      ),
-    );
-  }
-}
-
-class _RouteQualityBadge extends StatelessWidget {
-  final int score;
-  final String label;
-
-  const _RouteQualityBadge({required this.score, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 58,
-      height: 58,
-      decoration: BoxDecoration(
-        color: AppColors.primaryContainer,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryContainer.withValues(alpha: 0.24),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            '$score',
-            style: AppText.mono(
-              size: 19,
-              weight: FontWeight.w900,
-              color: AppColors.onPrimary,
-            ),
-          ),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppText.body(
-              size: 9,
-              weight: FontWeight.w900,
-              color: AppColors.onPrimary.withValues(alpha: 0.82),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _LeanEmptyTicket extends StatelessWidget {
   final String title;
   final String body;
@@ -2187,64 +1884,22 @@ class _HeatDot extends StatelessWidget {
   }
 }
 
-class _Metric extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _Metric({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-      decoration: BoxDecoration(
-        color: AppColors.creamMuted,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppText.mono(
-              size: 8,
-              weight: FontWeight.w700,
-              color: AppColors.stone,
-              letterSpacing: 0.8,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppText.mono(
-              size: 12,
-              weight: FontWeight.w700,
-              color: AppColors.ink,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _LeanCircleButton extends StatelessWidget {
   final IconData icon;
+  final String? tooltip;
   final VoidCallback? onTap;
 
-  const _LeanCircleButton({required this.icon, required this.onTap});
+  const _LeanCircleButton({
+    required this.icon,
+    this.tooltip,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: onTap,
+      tooltip: tooltip,
       icon: Icon(icon),
       color: onTap == null ? AppColors.textHint : AppColors.textPrimary,
       style: IconButton.styleFrom(
@@ -2336,11 +1991,13 @@ class _LeanSearchButton extends StatelessWidget {
 
 class _LeanFilterButton extends StatelessWidget {
   final int activeCount;
+  final String tooltip;
   final VoidCallback? onTap;
 
   const _LeanFilterButton({
     super.key,
     required this.activeCount,
+    required this.tooltip,
     required this.onTap,
   });
 
@@ -2350,7 +2007,11 @@ class _LeanFilterButton extends StatelessWidget {
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        _LeanCircleButton(icon: Icons.tune_rounded, onTap: onTap),
+        _LeanCircleButton(
+          icon: Icons.tune_rounded,
+          tooltip: tooltip,
+          onTap: onTap,
+        ),
         if (activeCount > 0)
           Positioned(
             top: -3,
@@ -2551,14 +2212,14 @@ String _lensLabel(_RouteLens lens, AppLanguage language) {
 int _activeFilterCount({
   required _RouteLens lens,
   required RouteFilterStrength filterStrength,
-  required int visibleLimit,
+  required bool visibleLimitChanged,
   required String? selectedRegionKey,
   required bool curveRoadView,
 }) {
   var count = 0;
   if (lens != _RouteLens.all) count++;
   if (filterStrength != RouteFilterStrength.balanced) count++;
-  if (visibleLimit != defaultVisibleRoutes) count++;
+  if (visibleLimitChanged) count++;
   if (selectedRegionKey != null) count++;
   if (curveRoadView) count++;
   return count;
@@ -2583,41 +2244,16 @@ String driveBudgetLabel(DriveBudget budget, AppLanguage language) {
   };
 }
 
-String driveMinutesLabel(RevvRoute route, AppLanguage language) {
+String _routeListMeta(RevvRoute route, AppLanguage language) {
   final minutes = estimatedDriveMinutes(route);
+  final distance = route.distanceFromUser >= 10
+      ? route.distanceFromUser.round().toString()
+      : route.distanceFromUser.toStringAsFixed(1);
   return AppCopy.t(
     language,
-    ko: '~$minutes분',
-    en: '~$minutes min',
-    fr: '~$minutes min',
-  );
-}
-
-int routeChainSegmentCount(RevvRoute route) {
-  if (!route.id.startsWith('combo:')) return 1;
-  final count = route.id.split(':').where((part) => part.isNotEmpty).length - 1;
-  return count.clamp(1, 3).toInt();
-}
-
-List<String> routeChainSegmentNames(RevvRoute route) {
-  if (routeChainSegmentCount(route) <= 1) return const [];
-  return route.name
-      .split(' + ')
-      .map((name) => name.trim())
-      .where((name) => name.isNotEmpty)
-      .toList(growable: false);
-}
-
-String _chainDriveLabel(AppLanguage language) {
-  return AppCopy.t(language, ko: '이어달리기', en: 'Chain drive', fr: 'Enchaîner');
-}
-
-String _selectedCountLabel(int count, AppLanguage language) {
-  return AppCopy.t(
-    language,
-    ko: '$count개 선택',
-    en: '$count selected',
-    fr: '$count sélectionnés',
+    ko: '~$minutes분 · 시작점까지 ${distance}km',
+    en: '~$minutes min · $distance km to start',
+    fr: '~$minutes min · départ à $distance km',
   );
 }
 
@@ -2909,12 +2545,11 @@ IconData routeFinderStateActionIcon(RouteFinderStateKind kind) {
   };
 }
 
-String _cacheInlineStatus(RouteService service, AppLanguage language) {
-  final count = service.mapVisualRoutes.length;
+String _cacheInlineStatus(int count, AppLanguage language) {
   return AppCopy.t(
     language,
-    ko: '저장된 커브길 $count개를 먼저 표시하고 있어요.',
-    en: 'Showing $count saved curvy roads first.',
+    ko: '선택할 수 있는 저장 루트 $count개를 표시하고 있어요.',
+    en: 'Showing $count saved routes to choose from.',
     fr: '$count routes enregistrées affichées.',
   );
 }
@@ -3170,39 +2805,4 @@ String _strengthDescription(
       fr: 'Garde les filtres de sécurité et montre plus de variété.',
     ),
   };
-}
-
-class _CheckeredTicketPainter extends CustomPainter {
-  final double tileSize;
-  final Color lightColor;
-  final Color darkColor;
-
-  const _CheckeredTicketPainter({
-    required this.tileSize,
-    required this.lightColor,
-    required this.darkColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paintLight = Paint()..color = lightColor;
-    final paintDark = Paint()..color = darkColor;
-    final cols = (size.width / tileSize).ceil() + 1;
-    final rows = (size.height / tileSize).ceil() + 1;
-    for (int row = 0; row < rows; row++) {
-      for (int col = 0; col < cols; col++) {
-        final isLight = (row + col) % 2 == 0;
-        canvas.drawRect(
-          Rect.fromLTWH(col * tileSize, row * tileSize, tileSize, tileSize),
-          isLight ? paintLight : paintDark,
-        );
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_CheckeredTicketPainter old) =>
-      old.tileSize != tileSize ||
-      old.lightColor != lightColor ||
-      old.darkColor != darkColor;
 }

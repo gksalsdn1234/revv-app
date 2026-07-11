@@ -93,7 +93,7 @@ class RouteQualityProfile {
         ),
         RouteQuickMetric(
           _label(language, '시작점', 'Start', 'Départ'),
-          route.distanceFromUserDisplay,
+          route.distanceFromUserDisplayFor(language ?? AppLanguage.korean),
         ),
         RouteQuickMetric(
           _label(language, '정지', 'Stops', 'Stops'),
@@ -268,9 +268,9 @@ String _reasonLabel(
   if (route.distanceFromUser <= 18 || route.distanceKm <= 10) {
     return _label(
       language,
-      '시작점 ${route.distanceFromUserDisplay} · 바로 비교하기 좋은 근거리 후보',
-      'Start ${route.distanceFromUserDisplay} · Easy nearby comparison',
-      'Départ ${route.distanceFromUserDisplay} · Option proche à comparer',
+      '시작점 ${route.distanceFromUserDisplayFor(AppLanguage.korean)} · 바로 비교하기 좋은 근거리 후보',
+      'Start ${route.distanceFromUserDisplayFor(AppLanguage.english)} · Easy nearby comparison',
+      'Départ ${route.distanceFromUserDisplayFor(AppLanguage.french)} · Option proche à comparer',
     );
   }
   if (route.curveStyle == 'SWITCHBACK' || route.tightCurveKm >= 1.2) {

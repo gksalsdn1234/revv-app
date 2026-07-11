@@ -145,6 +145,35 @@ void main() {
     );
   });
 
+  testWidgets(
+    'route detail shares a drive invite through the injected presenter',
+    (tester) async {
+      String? sharedText;
+      final settings = SettingsService();
+
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ChangeNotifierProvider<SettingsService>.value(
+          value: settings,
+          child: MaterialApp(
+            home: LeanRouteDetailScreen(
+              route: _route(sharpCurveCount: 7),
+              routeInvitePresenter: (text) async => sharedText = text,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Share route'));
+      await tester.pump();
+
+      expect(sharedText, contains('Open in Google Maps:'));
+      expect(sharedText, contains('Detail Route'));
+    },
+  );
+
   testWidgets('route detail hides enrichment sections when data is empty', (
     tester,
   ) async {

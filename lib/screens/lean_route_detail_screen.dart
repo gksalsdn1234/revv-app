@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/revv_route.dart';
 import '../core/app_language.dart';
@@ -13,14 +14,26 @@ import '../ui/app_copy.dart';
 import '../ui/copilot_briefing.dart';
 import '../ui/route_detail_copy.dart';
 import '../ui/route_drive_cue.dart';
+import '../ui/route_invite.dart';
 import '../ui/route_quality_profile.dart';
 import '../widgets/copilot_start_sheet.dart';
 import 'lean_drive_screen.dart';
 
+typedef RouteInvitePresenter = Future<void> Function(String text);
+
+Future<void> _presentRouteInvite(String text) {
+  return SharePlus.instance.share(ShareParams(text: text));
+}
+
 class LeanRouteDetailScreen extends StatelessWidget {
   final RevvRoute route;
+  final RouteInvitePresenter routeInvitePresenter;
 
-  const LeanRouteDetailScreen({super.key, required this.route});
+  const LeanRouteDetailScreen({
+    super.key,
+    required this.route,
+    this.routeInvitePresenter = _presentRouteInvite,
+  });
 
   Future<void> _startDrive(BuildContext context) async {
     final startChoice = await showCopilotStartSheet(context, route: route);
@@ -34,6 +47,26 @@ class LeanRouteDetailScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _shareRoute(BuildContext context, AppLanguage language) async {
+    try {
+      await routeInvitePresenter(buildRouteInviteText(route, language));
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppCopy.t(
+              language,
+              ko: '루트를 공유하지 못했어요. 다시 시도해 주세요.',
+              en: 'Could not share this route. Try again.',
+              fr: 'Impossible de partager cette route. Réessayez.',
+            ),
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -95,6 +128,47 @@ class LeanRouteDetailScreen extends StatelessWidget {
                                 letterSpacing: 2.0,
                               ),
                             ),
+                            const Spacer(),
+                            Tooltip(
+                              message: AppCopy.t(
+                                language,
+                                ko: '루트 공유',
+                                en: 'Share route',
+                                fr: 'Partager la route',
+                              ),
+                              child: TextButton.icon(
+                                onPressed: () => _shareRoute(context, language),
+                                icon: const Icon(
+                                  Icons.ios_share_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  AppCopy.t(
+                                    language,
+                                    ko: '초대',
+                                    en: 'Invite',
+                                    fr: 'Inviter',
+                                  ),
+                                  style: AppText.mono(
+                                    size: 10,
+                                    weight: FontWeight.w800,
+                                    color: AppColors.ink,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppColors.ink,
+                                  backgroundColor: AppColors.creamMuted,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 18),
@@ -143,7 +217,7 @@ class LeanRouteDetailScreen extends StatelessWidget {
                           language: language,
                         ),
                         SizedBox(
-                          height: MediaQuery.paddingOf(context).bottom + 86,
+                          height: MediaQuery.paddingOf(context).bottom + 112,
                         ),
                       ],
                     ),
@@ -236,7 +310,7 @@ class _QuickStatRow extends StatelessWidget {
                 child: _QuickStatTile(
                   icon: Icons.flag_rounded,
                   label: AppCopy.t(language, ko: '집', en: 'Home', fr: 'Maison'),
-                  value: route.distanceFromUserDisplay,
+                  value: route.distanceFromUserDisplayFor(language),
                   accent: isFar
                       ? AppColors.warning
                       : AppColors.primaryContainer,
@@ -1117,7 +1191,7 @@ class _RouteShapeHero extends StatelessWidget {
             bottom: 4,
             child: _HeroBadge(
               label: AppCopy.t(language, ko: '시작점', en: 'START', fr: 'DÉPART'),
-              value: route.distanceFromUserDisplay,
+              value: route.distanceFromUserDisplayFor(language),
             ),
           ),
           Positioned(

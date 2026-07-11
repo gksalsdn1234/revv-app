@@ -25,6 +25,21 @@ Uri buildGoogleMapsAppUri({
   );
 }
 
+Uri buildGoogleMapsShareUri({
+  required LatLng origin,
+  required LatLng destination,
+  required List<LatLng> waypoints,
+}) {
+  return Uri.https('www.google.com', '/maps/dir/', {
+    'api': '1',
+    'origin': googleMapsCoord(origin),
+    'destination': googleMapsCoord(destination),
+    if (waypoints.isNotEmpty)
+      'waypoints': waypoints.map(googleMapsCoord).join('|'),
+    'travelmode': 'driving',
+  });
+}
+
 List<LatLng> selectHandoffWaypoints({required List<DrivePlanLeg> legs}) {
   final windingLegs = legs
       .where((leg) => leg.kind == DrivePlanLegKind.winding)

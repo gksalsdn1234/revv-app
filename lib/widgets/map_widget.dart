@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -77,6 +78,7 @@ class MapWidget extends StatefulWidget {
   final List<List<LatLng>> candidatePolylines;
   final List<List<LatLng>> curveHeatmapPolylines;
   final List<RouteDifficultyLine> difficultyLines;
+  final int fitDifficultySignal;
   final bool strongCurveFieldHeatmap;
 
   /// 커브 밀도 히트맵 모드 (파랑→초록→노랑→주황→빨강)
@@ -103,6 +105,7 @@ class MapWidget extends StatefulWidget {
     this.candidatePolylines = const [],
     this.curveHeatmapPolylines = const [],
     this.difficultyLines = const [],
+    this.fitDifficultySignal = 0,
     this.strongCurveFieldHeatmap = false,
     this.showCurveHeatmap = false,
     this.routeFocusMode = false,
@@ -135,6 +138,7 @@ class _MapWidgetState extends State<MapWidget> {
 
   mbx.MapboxMap? _mapController;
   bool _styleLoaded = false;
+  int _lastFocusedDifficultySignal = 0;
   bool _locationPuckEnabled = false;
   LocationService? _locationService;
 
@@ -452,6 +456,10 @@ class _MapWidgetState extends State<MapWidget> {
         widget.difficultyLines,
       )) {
         _drawDifficultyLines(widget.difficultyLines);
+      }
+      if (oldWidget.fitDifficultySignal != widget.fitDifficultySignal &&
+          widget.routePolyline?.isNotEmpty != true) {
+        _consumeDifficultyFitSignal();
       }
       if (oldWidget.routePolyline != widget.routePolyline ||
           oldWidget.showCurveHeatmap != widget.showCurveHeatmap ||
@@ -778,6 +786,7 @@ class _MapWidgetState extends State<MapWidget> {
     }
     await _drawCurveFieldHeatmap(widget.curveHeatmapPolylines);
     await _drawDifficultyLines(widget.difficultyLines);
+    _consumeDifficultyFitSignal(immediate: true);
     await _drawCandidatePolylines(widget.candidatePolylines);
     if (widget.routePolyline?.isNotEmpty == true) {
       if (_shouldDrawCurveHeatmap) {
@@ -847,10 +856,7 @@ class _MapWidgetState extends State<MapWidget> {
     return true;
   }
 
-  static bool _samePlanMarkers(
-    List<PlanMapMarker>? a,
-    List<PlanMapMarker>? b,
-  ) {
+  static bool _samePlanMarkers(List<PlanMapMarker>? a, List<PlanMapMarker>? b) {
     if (identical(a, b)) return true;
     final left = a ?? const <PlanMapMarker>[];
     final right = b ?? const <PlanMapMarker>[];
@@ -1212,7 +1218,11 @@ class _MapWidgetState extends State<MapWidget> {
         mbx.CircleLayer(
           id: 'plan-marker-origin-layer',
           sourceId: sourceId,
-          filter: const ['==', ['get', 'kind'], 'origin'],
+          filter: const [
+            '==',
+            ['get', 'kind'],
+            'origin',
+          ],
           circleColor: 0xFF3B82F6,
           circleRadius: 6.2,
           circleStrokeColor: 0xFFFFFFFF,
@@ -1223,7 +1233,11 @@ class _MapWidgetState extends State<MapWidget> {
         mbx.CircleLayer(
           id: 'plan-marker-destination-layer',
           sourceId: sourceId,
-          filter: const ['==', ['get', 'kind'], 'destination'],
+          filter: const [
+            '==',
+            ['get', 'kind'],
+            'destination',
+          ],
           circleColor: AppColors.red.toARGB32(),
           circleRadius: 7.8,
           circleStrokeColor: 0xFFFFFFFF,
@@ -1234,7 +1248,11 @@ class _MapWidgetState extends State<MapWidget> {
         mbx.CircleLayer(
           id: 'plan-marker-winding-start-layer',
           sourceId: sourceId,
-          filter: const ['==', ['get', 'kind'], 'windingStart'],
+          filter: const [
+            '==',
+            ['get', 'kind'],
+            'windingStart',
+          ],
           circleColor: AppColors.red.toARGB32(),
           circleRadius: 5.6,
           circleStrokeColor: 0xFFFFFFFF,
@@ -1245,7 +1263,11 @@ class _MapWidgetState extends State<MapWidget> {
         mbx.CircleLayer(
           id: 'plan-marker-winding-end-underlay-layer',
           sourceId: sourceId,
-          filter: const ['==', ['get', 'kind'], 'windingEnd'],
+          filter: const [
+            '==',
+            ['get', 'kind'],
+            'windingEnd',
+          ],
           circleColor: 0x00E2231A,
           circleRadius: 5.8,
           circleStrokeColor: 0xFFFFFFFF,
@@ -1256,7 +1278,11 @@ class _MapWidgetState extends State<MapWidget> {
         mbx.CircleLayer(
           id: 'plan-marker-winding-end-layer',
           sourceId: sourceId,
-          filter: const ['==', ['get', 'kind'], 'windingEnd'],
+          filter: const [
+            '==',
+            ['get', 'kind'],
+            'windingEnd',
+          ],
           circleColor: 0x00E2231A,
           circleRadius: 5.8,
           circleStrokeColor: AppColors.red.toARGB32(),
@@ -1730,6 +1756,7 @@ class _MapWidgetState extends State<MapWidget> {
   Future<void> _focusRoutePolyline(
     List<LatLng> polyline, {
     bool immediate = false,
+    double bottomPadding = 250,
   }) async {
     final map = _mapController;
     if (!_styleLoaded || map == null || polyline.isEmpty) return;
@@ -1760,7 +1787,7 @@ class _MapWidgetState extends State<MapWidget> {
       final camera = await map.cameraForCoordinatesPadding(
         coordinates,
         mbx.CameraOptions(pitch: 0.0, bearing: 0.0),
-        mbx.MbxEdgeInsets(top: 180, left: 42, bottom: 250, right: 42),
+        mbx.MbxEdgeInsets(top: 180, left: 42, bottom: bottomPadding, right: 42),
         13.8,
         null,
       );
@@ -1772,6 +1799,52 @@ class _MapWidgetState extends State<MapWidget> {
     } catch (_) {
       // Camera fitting is best-effort; route rendering should never fail because of it.
     }
+  }
+
+  Future<void> _focusDifficultyLines(
+    List<RouteDifficultyLine> lines, {
+    bool immediate = false,
+  }) async {
+    LatLng? southWest;
+    LatLng? northEast;
+    for (final line in lines) {
+      if (line.points.isEmpty) continue;
+      for (final point in line.points) {
+        final currentSouthWest = southWest;
+        final currentNorthEast = northEast;
+        southWest = currentSouthWest == null
+            ? point
+            : LatLng(
+                math.min(currentSouthWest.lat, point.lat),
+                math.min(currentSouthWest.lng, point.lng),
+              );
+        northEast = currentNorthEast == null
+            ? point
+            : LatLng(
+                math.max(currentNorthEast.lat, point.lat),
+                math.max(currentNorthEast.lng, point.lng),
+              );
+      }
+    }
+    if (southWest == null || northEast == null) return;
+    await _focusRoutePolyline(
+      [southWest, northEast],
+      immediate: immediate,
+      bottomPadding: 120,
+    );
+  }
+
+  void _consumeDifficultyFitSignal({bool immediate = false}) {
+    final signal = widget.fitDifficultySignal;
+    if (!_styleLoaded ||
+        signal == _lastFocusedDifficultySignal ||
+        widget.routePolyline?.isNotEmpty == true) {
+      return;
+    }
+    _lastFocusedDifficultySignal = signal;
+    unawaited(
+      _focusDifficultyLines(widget.difficultyLines, immediate: immediate),
+    );
   }
 
   @override

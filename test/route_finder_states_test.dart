@@ -2,15 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/app_language.dart';
 import 'package:provider/provider.dart';
-import 'package:revv_app/models/drive_plan.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_route_finder_screen.dart';
-import 'package:revv_app/services/drive_planner_service.dart';
 import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
 import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/services/supabase_service.dart';
+import 'package:revv_app/widgets/map_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -222,6 +221,7 @@ void main() {
       maxContinuousKm: 1.8,
     );
     final routeService = RouteService()
+      ..rawCandidateRoutes = [route]
       ..routes = [route]
       ..mapVisualRoutes = [route];
 
@@ -259,32 +259,16 @@ void main() {
       ),
       findsOneWidget,
     );
-  });
 
-  testWidgets('route duration meta renders estimate and chain segment count', (
-    tester,
-  ) async {
-    final route = RevvRoute(
-      id: 'combo:a:b',
-      name: 'North + Valley',
-      nodes: const [LatLng(45.0, -73.0), LatLng(45.02, -73.02)],
-      distanceKm: 36,
-      windingScore: 6.2,
-      starRating: 4,
-      sharpCurveCount: 10,
-      centerPoint: const LatLng(45.01, -73.01),
-      distanceFromUser: 8,
-      tightCurveKm: 2,
-      mediumCurveKm: 2,
-      maxContinuousKm: 1.4,
-    );
+    await tester.ensureVisible(find.text('8'));
+    await tester.tap(find.text('8'));
+    await tester.pump();
+    expect(find.byKey(const Key('route-finder-filter-badge')), findsOneWidget);
 
-    await pumpWithSettings(
-      tester,
-      RouteDurationMeta(route: route, language: AppLanguage.korean),
-    );
-
-    expect(find.text('~46분 · 2개 코스 연결'), findsOneWidget);
+    await tester.ensureVisible(find.text('32'));
+    await tester.tap(find.text('32'));
+    await tester.pump();
+    expect(find.byKey(const Key('route-finder-filter-badge')), findsNothing);
   });
 
   testWidgets('drive budget empty card nudges other duration or radius', (
@@ -336,7 +320,49 @@ void main() {
     expect(find.textContaining('알림 신청을 저장하지 못했어요'), findsOneWidget);
   });
 
-  testWidgets('long press enables chain drive into planner initial plan', (
+  testWidgets('map route opens details without a numbered route ticket', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final first = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
+    final routeService = RouteService()
+      ..routes = [first]
+      ..mapVisualRoutes = [first];
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _DeniedLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: const MaterialApp(home: LeanRouteFinderScreen()),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.textContaining('후보 1'), findsNothing);
+    expect(find.textContaining('Pick 1'), findsNothing);
+    expect(find.text('주행 시작'), findsNothing);
+
+    final map = tester.widget<MapWidget>(find.byType(MapWidget));
+    expect(map.routePolyline, isNull);
+    expect(map.difficultyLines.map((line) => line.routeId), contains('first'));
+    map.onRouteLineTap?.call('first');
+    await tester.pumpAndSettle();
+
+    expect(find.text('루트 상세'), findsOneWidget);
+    expect(find.text('First Road'), findsWidgets);
+  });
+
+  testWidgets('route list shows unnumbered rows and opens details', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -347,7 +373,6 @@ void main() {
     final routeService = RouteService()
       ..routes = [first, second]
       ..mapVisualRoutes = [first, second];
-    final planner = _ChainPlanner();
 
     await tester.pumpWidget(
       MultiProvider(
@@ -355,38 +380,31 @@ void main() {
           ChangeNotifierProvider<SettingsService>.value(value: settings),
           ChangeNotifierProvider<RouteService>.value(value: routeService),
           ChangeNotifierProvider<LocationService>.value(
-            value: _ReadyLocationService(),
+            value: _DeniedLocationService(),
           ),
           ChangeNotifierProvider<SupabaseService>.value(
             value: SupabaseService(),
           ),
         ],
-        child: MaterialApp(home: LeanRouteFinderScreen(planner: planner)),
+        child: const MaterialApp(home: LeanRouteFinderScreen()),
       ),
     );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(Icons.format_list_bulleted_rounded));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('추천 보기'));
-    await tester.pumpAndSettle();
-    await tester.longPress(find.text('First Road'));
-    await tester.pumpAndSettle();
+    expect(find.text('루트 선택'), findsOneWidget);
+    expect(find.text('선택 가능한 루트 2개'), findsOneWidget);
+    expect(find.textContaining('후보'), findsNothing);
+    expect(find.text('First Road'), findsOneWidget);
+    expect(find.text('Second Road'), findsOneWidget);
 
-    expect(find.text('1개 선택'), findsOneWidget);
-    expect(find.text('이어달리기'), findsOneWidget);
-
-    await tester.tap(find.byIcon(Icons.chevron_right_rounded));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Second Road'));
     await tester.pumpAndSettle();
 
-    expect(find.text('2개 선택'), findsOneWidget);
-
-    await tester.tap(find.text('이어달리기'));
-    await tester.pumpAndSettle();
-
-    expect(planner.lastRouteIds, ['first', 'second']);
-    expect(find.text('First Road 12분'), findsOneWidget);
-    expect(find.text('Second Road 12분'), findsOneWidget);
+    expect(find.text('루트 상세'), findsOneWidget);
+    expect(find.text('Second Road'), findsWidgets);
   });
 }
 
@@ -418,83 +436,6 @@ class _OutsideCoverageLocationService extends LocationService {
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
   }) async => const LatLng(43.6532, -79.3832);
-}
-
-class _ReadyLocationService extends LocationService {
-  _ReadyLocationService() {
-    hasPermission = true;
-  }
-
-  @override
-  Future<void> requestPermission() async {}
-
-  @override
-  Future<void> startTracking() async {}
-
-  @override
-  Future<LatLng?> ensureLiveLocation({
-    Duration timeout = const Duration(seconds: 6),
-  }) async => const LatLng(45.0, -73.0);
-}
-
-class _ChainPlanner extends DrivePlannerService {
-  List<String> lastRouteIds = const [];
-
-  _ChainPlanner()
-    : super(
-        candidateLoader: (_, _) async => const [],
-        transitLegLoader: (_) async => const [],
-      );
-
-  @override
-  Future<DrivePlan> buildPlanFromRoutes({
-    required LatLng origin,
-    required List<RevvRoute> routes,
-    LatLng? destination,
-  }) async {
-    lastRouteIds = routes.map((route) => route.id).toList();
-    final waypoints = <LatLng>[origin];
-    final legs = <DrivePlanLeg>[];
-    for (final route in routes) {
-      legs.add(
-        DrivePlanLeg(
-          kind: DrivePlanLegKind.transit,
-          nodes: [waypoints.last, route.nodes.first],
-          distanceKm: 1,
-          estimatedMinutes: 3,
-        ),
-      );
-      legs.add(
-        DrivePlanLeg(
-          kind: DrivePlanLegKind.winding,
-          nodes: route.nodes,
-          distanceKm: route.distanceKm,
-          estimatedMinutes: 12,
-          route: route,
-        ),
-      );
-      waypoints
-        ..add(route.nodes.first)
-        ..add(route.nodes.last);
-    }
-    final end = destination ?? waypoints.last;
-    legs.add(
-      DrivePlanLeg(
-        kind: DrivePlanLegKind.transit,
-        nodes: [waypoints.last, end],
-        distanceKm: 1,
-        estimatedMinutes: 3,
-      ),
-    );
-    waypoints.add(end);
-    return DrivePlan(
-      legs: legs,
-      totalMinutes: routes.length * 15 + 3,
-      windingMinutes: routes.length * 12,
-      transitMinutes: routes.length * 3 + 3,
-      waypoints: waypoints,
-    );
-  }
 }
 
 RevvRoute _finderRoute({
