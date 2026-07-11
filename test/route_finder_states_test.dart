@@ -364,6 +364,11 @@ void main() {
     expect(find.text('First Road 12분'), findsOneWidget);
     expect(log.shown.single['mode'], 'destination');
     expect(log.shown.single['routeIds'], ['first']);
+
+    final map = tester.widget<MapWidget>(find.byType(MapWidget));
+    map.onRouteLineTap?.call('first');
+    await tester.pumpAndSettle();
+    expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
   });
 
   testWidgets('finder journey shows direct comparison and switches options', (
@@ -580,7 +585,7 @@ void main() {
     expect(log.shown.single['routeIds'], ['free-a']);
   });
 
-  testWidgets('list row and map line hand off to route detail', (tester) async {
+  testWidgets('route taps preview before opening route detail', (tester) async {
     await useTallSurface(tester);
     SharedPreferences.setMockInitialValues({});
     final settings = SettingsService();
@@ -618,6 +623,12 @@ void main() {
     expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('route-list-row-detail-route')));
     await tester.pumpAndSettle();
+    expect(find.text('루트 선택'), findsNothing);
+    expect(find.byKey(const Key('route-preview-card')), findsOneWidget);
+    expect(find.byType(LeanRouteDetailScreen), findsNothing);
+
+    await tester.tap(find.text('상세'));
+    await tester.pumpAndSettle();
     expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
 
     tester.state<NavigatorState>(find.byType(Navigator)).pop();
@@ -625,8 +636,85 @@ void main() {
     final map = tester.widget<MapWidget>(find.byType(MapWidget));
     map.onRouteLineTap?.call('detail-route');
     await tester.pumpAndSettle();
-    expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
+    expect(find.byKey(const Key('route-preview-card')), findsOneWidget);
+    expect(find.byType(LeanRouteDetailScreen), findsNothing);
   });
+
+  testWidgets(
+    'preview preserves chain selection, swaps, and dismisses on map',
+    (tester) async {
+      await useTallSurface(tester);
+      SharedPreferences.setMockInitialValues({});
+      final settings = SettingsService();
+      await settings.setAppLanguage(AppLanguage.korean);
+      final first = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
+      final second = _finderRoute(
+        id: 'second',
+        name: 'Second Road',
+        lng: -73.02,
+      );
+      final routeService = RouteService()
+        ..routes = [first, second]
+        ..mapVisualRoutes = [first, second];
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(
+              create: (_) => DrivenRoutesService(history: RunHistoryService()),
+            ),
+            ChangeNotifierProvider<SettingsService>.value(value: settings),
+            ChangeNotifierProvider<RouteService>.value(value: routeService),
+            ChangeNotifierProvider<LocationService>.value(
+              value: _ReadyLocationService(),
+            ),
+            ChangeNotifierProvider<SupabaseService>.value(
+              value: SupabaseService(),
+            ),
+          ],
+          child: const MaterialApp(home: LeanRouteFinderScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      var map = tester.widget<MapWidget>(find.byType(MapWidget));
+      map.onRouteLineTap?.call('first');
+      await tester.pumpAndSettle();
+      expect(find.text('First Road'), findsOneWidget);
+      expect(routeService.selectedRoute?.id, 'first');
+      map = tester.widget<MapWidget>(find.byType(MapWidget));
+      expect(map.routePolyline, first.nodes);
+      await tester.tap(
+        find.byKey(const ValueKey('preview-chain-toggle-first')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('route-preview-card')), findsOneWidget);
+      expect(find.text('1개 루트 · 총 ~8km'), findsOneWidget);
+
+      map = tester.widget<MapWidget>(find.byType(MapWidget));
+      map.onRouteLineTap?.call('second');
+      await tester.pumpAndSettle();
+      expect(find.text('Second Road'), findsOneWidget);
+      expect(find.text('First Road'), findsNothing);
+      await tester.tap(
+        find.byKey(const ValueKey('preview-chain-toggle-second')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('2개 루트 · 총 ~16km'), findsOneWidget);
+      expect(find.text('이어달리기'), findsOneWidget);
+      expect(find.byKey(const Key('route-preview-card')), findsOneWidget);
+
+      await tester.tapAt(
+        tester.getTopLeft(
+              find.byKey(const Key('route-map-interaction-surface')),
+            ) +
+            const Offset(24, 300),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('route-preview-card')), findsNothing);
+      expect(routeService.selectedRoute, isNull);
+    },
+  );
 
   testWidgets('list add buttons build a chain drive planner plan', (
     tester,

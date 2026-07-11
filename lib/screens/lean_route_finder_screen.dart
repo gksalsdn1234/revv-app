@@ -246,6 +246,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   DriveBudget _driveBudget = DriveBudget.any;
   String? _selectedRegionKey;
   LatLng? _coverageRequestPoint;
+  RevvRoute? _previewRoute;
   final Map<String, RevvRoute> _chainSelection = {};
   late final DrivePlannerService _planner =
       widget.planner ?? DrivePlannerService();
@@ -267,6 +268,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   String? _lastShownSignature;
   bool _initialRouteFocused = false;
   Timer? _cameraDebounce;
+  int? _mapTapPointer;
+  Offset? _mapTapOrigin;
+  bool _mapTapMoved = false;
 
   bool get _chainMode => _chainSelection.isNotEmpty;
 
@@ -489,6 +493,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   Future<void> _openDestinationSearch() async {
+    _dismissRoutePreview();
     final language = context.read<SettingsService>().appLanguage;
     final result = await showModalBottomSheet<Object>(
       context: context,
@@ -587,6 +592,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
   Future<void> _buildFreeRoamJourney() async {
     if (_planning) return;
+    _dismissRoutePreview();
     final origin = await _resolveSearchPoint();
     if (!mounted || origin == null) return;
     final language = context.read<SettingsService>().appLanguage;
@@ -716,6 +722,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
   Future<void> _startChainDrive() async {
     if (_chainSelection.length < 2) return;
+    _dismissRoutePreview();
     final origin = await _resolveSearchPoint();
     if (!mounted || origin == null) return;
     final selectedRoutes = _chainSelection.values.toList();
@@ -905,6 +912,49 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     );
   }
 
+  void _showRoutePreview(RevvRoute route) {
+    setState(() {
+      _previewRoute = route;
+      _mapCenterPoint = route.centerPoint;
+      _mapFocusSignal++;
+    });
+    context.read<RouteService>().selectRoute(route);
+  }
+
+  void _dismissRoutePreview() {
+    if (_previewRoute == null) return;
+    setState(() => _previewRoute = null);
+    context.read<RouteService>().deselectRoute();
+  }
+
+  void _handleMapPointerDown(PointerDownEvent event) {
+    if (_previewRoute == null || _mapTapPointer != null) return;
+    _mapTapPointer = event.pointer;
+    _mapTapOrigin = event.position;
+    _mapTapMoved = false;
+  }
+
+  void _handleMapPointerMove(PointerMoveEvent event) {
+    if (event.pointer != _mapTapPointer || _mapTapOrigin == null) return;
+    if ((event.position - _mapTapOrigin!).distance > 8) _mapTapMoved = true;
+  }
+
+  void _handleMapPointerUp(PointerUpEvent event) {
+    if (event.pointer != _mapTapPointer) return;
+    final shouldDismiss = !_mapTapMoved;
+    _mapTapPointer = null;
+    _mapTapOrigin = null;
+    _mapTapMoved = false;
+    if (shouldDismiss) _dismissRoutePreview();
+  }
+
+  void _handleMapPointerCancel(PointerCancelEvent event) {
+    if (event.pointer != _mapTapPointer) return;
+    _mapTapPointer = null;
+    _mapTapOrigin = null;
+    _mapTapMoved = false;
+  }
+
   void _openRouteList(
     List<RevvRoute> routes,
     AppLanguage language,
@@ -921,7 +971,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         chainSelection: _chainSelection,
         onRouteTap: (route) {
           Navigator.pop(sheetContext);
-          _showRouteDetails(route);
+          _showRoutePreview(route);
         },
         onToggleChain: _toggleChainRoute,
         onFreeRoam: () {
@@ -953,7 +1003,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final service = context.read<RouteService>();
     for (final route in [...service.routes, ...service.mapVisualRoutes]) {
       if (route.id == routeId) {
-        _showRouteDetails(route);
+        if (_destination == null && _journeyMode == null) {
+          _showRoutePreview(route);
+        } else {
+          _showRouteDetails(route);
+        }
         return;
       }
     }
@@ -1135,30 +1189,44 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
           children: [
             const Positioned.fill(child: _FinderColdStartBackground()),
             Positioned.fill(
-              child: MapWidget(
-                navPolylines: showingJourney ? _transitPolylines : null,
-                routePolyline: null,
-                routePolylines: showingJourney ? _windingPolylines : null,
-                curveHeatmap: !showingJourney,
-                planMarkers: showingJourney ? _planMarkers : null,
-                clusterMarkers: const [],
-                candidatePolylines: showingJourney
-                    ? const []
-                    : [for (final route in mapDisplayRoutes) route.nodes],
-                drivenPolylines: showingJourney
+              child: Listener(
+                key: const Key('route-map-interaction-surface'),
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: showingJourney
                     ? null
-                    : _drivenGlowPolylines(visibleClusters, drivenService),
-                curveHeatmapPolylines: const [],
-                difficultyLines: showingJourney
-                    ? const []
-                    : _difficultyLines(mapDisplayRoutes, null),
-                strongCurveFieldHeatmap: _curveRoadView,
-                routeFocusMode: false,
-                recenterSignal: _recenterSignal,
-                cameraTarget: _mapCenterPoint,
-                cameraTargetSignal: _mapFocusSignal,
-                onCameraViewportChanged: _handleCameraViewportChanged,
-                onRouteLineTap: _handleRouteLineTap,
+                    : _handleMapPointerDown,
+                onPointerMove: showingJourney
+                    ? null
+                    : _handleMapPointerMove,
+                onPointerUp: showingJourney ? null : _handleMapPointerUp,
+                onPointerCancel: showingJourney
+                    ? null
+                    : _handleMapPointerCancel,
+                child: MapWidget(
+                  navPolylines: showingJourney ? _transitPolylines : null,
+                  routePolyline: showingJourney ? null : _previewRoute?.nodes,
+                  routePolylines: showingJourney ? _windingPolylines : null,
+                  curveHeatmap: !showingJourney,
+                  planMarkers: showingJourney ? _planMarkers : null,
+                  clusterMarkers: const [],
+                  candidatePolylines: showingJourney
+                      ? const []
+                      : [for (final route in mapDisplayRoutes) route.nodes],
+                  drivenPolylines: showingJourney
+                      ? null
+                      : _drivenGlowPolylines(visibleClusters, drivenService),
+                  curveHeatmapPolylines: const [],
+                  difficultyLines: showingJourney
+                      ? const []
+                      : _difficultyLines(mapDisplayRoutes, null),
+                  strongCurveFieldHeatmap: _curveRoadView,
+                  routeFocusMode: false,
+                  recenterSignal: _recenterSignal,
+                  cameraTarget: _mapCenterPoint,
+                  cameraTargetSignal: _mapFocusSignal,
+                  onCameraViewportChanged: _handleCameraViewportChanged,
+                  onRouteLineTap: _handleRouteLineTap,
+                ),
               ),
             ),
             SafeArea(
@@ -1286,6 +1354,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                             }
                           : _searchHere,
                           )
+                        : _previewRoute != null
+                        ? const SizedBox.shrink()
                         : Align(
                             alignment: Alignment.bottomCenter,
                             child: Padding(
@@ -1353,6 +1423,28 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       onToggleChain: _toggleChainRoute,
                     ),
             ),
+            if (_previewRoute != null && noDestination && !showingJourney)
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    14,
+                    0,
+                    14,
+                    MediaQuery.paddingOf(context).bottom + 14,
+                  ),
+                  child: _RoutePreviewCard(
+                    route: _previewRoute!,
+                    language: language,
+                    driven: drivenService.isDriven(_previewRoute!.id),
+                    chainSelected: _chainSelection.containsKey(
+                      _previewRoute!.id,
+                    ),
+                    onDetails: () => _showRouteDetails(_previewRoute!),
+                    onToggleChain: () => _toggleChainRoute(_previewRoute!),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -1478,6 +1570,129 @@ class RouteCoverageBoundaryCard extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _RoutePreviewCard extends StatelessWidget {
+  final RevvRoute route;
+  final AppLanguage language;
+  final bool driven;
+  final bool chainSelected;
+  final VoidCallback onDetails;
+  final VoidCallback onToggleChain;
+
+  const _RoutePreviewCard({
+    required this.route,
+    required this.language,
+    required this.driven,
+    required this.chainSelected,
+    required this.onDetails,
+    required this.onToggleChain,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      key: const Key('route-preview-card'),
+      color: AppColors.surfaceDim,
+      elevation: 8,
+      shadowColor: AppColors.surfaceLowest,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 10, 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: InkWell(
+                onTap: onDetails,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          if (driven) ...[
+                            const Icon(
+                              Icons.check_circle_rounded,
+                              size: 15,
+                              color: AppColors.red,
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          Expanded(
+                            child: Text(
+                              routeDisplayName(route, language: language),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.body(
+                                size: 16,
+                                weight: FontWeight.w800,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        _routeListMeta(route, language),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.mono(
+                          size: 10,
+                          weight: FontWeight.w700,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        AppCopy.t(
+                          language,
+                          ko: '상세',
+                          en: 'Details',
+                          fr: 'Détails',
+                        ),
+                        style: AppText.label(
+                          size: 12,
+                          weight: FontWeight.w800,
+                          color: AppColors.red,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            IconButton(
+              key: ValueKey('preview-chain-toggle-${route.id}'),
+              tooltip: chainSelected
+                  ? AppCopy.t(
+                      language,
+                      ko: '이어달리기에서 빼기',
+                      en: 'Remove from chain',
+                      fr: 'Retirer de l’enchaînement',
+                    )
+                  : AppCopy.t(
+                      language,
+                      ko: '이어달리기 추가',
+                      en: 'Add to chain',
+                      fr: 'Ajouter à l’enchaînement',
+                    ),
+              onPressed: onToggleChain,
+              icon: Icon(
+                chainSelected ? Icons.check_rounded : Icons.add_rounded,
+                color: chainSelected
+                    ? AppColors.success
+                    : AppColors.textPrimary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
