@@ -3,9 +3,11 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
 import 'package:provider/provider.dart';
 import '../models/revv_route.dart';
+import '../services/camera_follow_interpolator.dart';
 import '../services/location_service.dart';
 import '../services/mapbox_service.dart';
 import '../services/settings_service.dart';
@@ -157,7 +159,8 @@ class MapWidget extends StatefulWidget {
   State<MapWidget> createState() => _MapWidgetState();
 }
 
-class _MapWidgetState extends State<MapWidget> {
+class _MapWidgetState extends State<MapWidget>
+    with SingleTickerProviderStateMixin {
   static const bool _disableMapbox = bool.fromEnvironment(
     'REVV_DISABLE_MAPBOX',
   );
@@ -182,6 +185,12 @@ class _MapWidgetState extends State<MapWidget> {
 
   // ── 카메라 업데이트 1-프레임 격리 (viewport 비활성 구간 fallback) ──
   bool _cameraPending = false;
+  final CameraFollowInterpolator _cameraInterpolator =
+      CameraFollowInterpolator();
+  final Stopwatch _cameraClock = Stopwatch();
+  late final Ticker _cameraTicker;
+  bool _cameraUpdatePending = false;
+  Duration? _cameraUpdateStartedAt;
   final Map<String, Object?> _originalLayerVisibility = {};
   bool _routeFocusApplied = false;
   LatLng? _lastReportedCameraCenter;
@@ -382,6 +391,8 @@ class _MapWidgetState extends State<MapWidget> {
   @override
   void initState() {
     super.initState();
+    _cameraClock.start();
+    _cameraTicker = createTicker(_onCameraTick);
     if (MapboxService.isConfigured) {
       mbx.MapboxOptions.setAccessToken(MapboxService.accessToken);
     } else {
@@ -412,6 +423,9 @@ class _MapWidgetState extends State<MapWidget> {
     // → _styleLoaded를 false로 초기화해야 _onStyleLoaded 재호출 대기
     if (oldWidget.isSprintMode != widget.isSprintMode ||
         oldWidget.strongCurveFieldHeatmap != widget.strongCurveFieldHeatmap) {
+      if (oldWidget.isSprintMode != widget.isSprintMode) {
+        _cameraTicker.stop();
+      }
       _styleLoaded = false;
       _locationPuckEnabled = false;
       _viewportState = null; // 스타일 재로드 후 _onStyleLoaded에서 재활성화
@@ -441,22 +455,21 @@ class _MapWidgetState extends State<MapWidget> {
       if (oldWidget.simulatedPosition != widget.simulatedPosition) {
         _drawSimulationMarker(widget.simulatedPosition);
         if (widget.isSprintMode && widget.simulatedPosition != null) {
-          _moveCameraToPoint(
-            widget.simulatedPosition!,
-            zoom: 16.3,
-            pitch: 22.0,
-            bearing: widget.navigationBearing,
+          _moveCamera(
+            widget.simulatedPosition!.lat,
+            widget.simulatedPosition!.lng,
+            heading: widget.navigationBearing,
           );
         }
       }
-      if (oldWidget.navigationBearing != widget.navigationBearing &&
+      if (oldWidget.simulatedPosition == widget.simulatedPosition &&
+          oldWidget.navigationBearing != widget.navigationBearing &&
           widget.isSprintMode &&
           widget.simulatedPosition != null) {
-        _moveCameraToPoint(
-          widget.simulatedPosition!,
-          zoom: 16.3,
-          pitch: 22.0,
-          bearing: widget.navigationBearing,
+        _moveCamera(
+          widget.simulatedPosition!.lat,
+          widget.simulatedPosition!.lng,
+          heading: widget.navigationBearing,
         );
       }
       if (oldWidget.routeFocusMode != widget.routeFocusMode) {
@@ -563,7 +576,52 @@ class _MapWidgetState extends State<MapWidget> {
   @override
   void dispose() {
     _locationService?.removeListener(_onLocationChanged);
+    _cameraTicker.stop();
+    _cameraTicker.dispose();
+    _cameraClock.stop();
     super.dispose();
+  }
+
+  void _onCameraTick(Duration _) async {
+    if (!widget.isSprintMode) {
+      _cameraTicker.stop();
+      return;
+    }
+    if (_cameraUpdatePending) {
+      final updateStartedAt = _cameraUpdateStartedAt;
+      if (updateStartedAt != null &&
+          _cameraClock.elapsed - updateStartedAt >=
+              const Duration(milliseconds: 1500)) {
+        _cameraTicker.stop();
+      }
+      return;
+    }
+    final frame = _cameraInterpolator.sample(_cameraClock.elapsed);
+    if (frame == null) {
+      _cameraTicker.stop();
+      return;
+    }
+    final map = _mapController;
+    if (!_styleLoaded || map == null) return;
+    _cameraUpdatePending = true;
+    _cameraUpdateStartedAt = _cameraClock.elapsed;
+    try {
+      await map.setCamera(
+        mbx.CameraOptions(
+          center: mbx.Point(
+            coordinates: mbx.Position(frame.center.lng, frame.center.lat),
+          ),
+          padding: _driveCameraPadding,
+          zoom: 16.5,
+          pitch: 22.0,
+          bearing: frame.bearing,
+        ),
+      );
+    } catch (_) {
+    } finally {
+      _cameraUpdatePending = false;
+      _cameraUpdateStartedAt = null;
+    }
   }
 
   void _onLocationChanged() {
@@ -797,6 +855,12 @@ class _MapWidgetState extends State<MapWidget> {
       _viewportState = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_styleLoaded) return;
+        _cameraTicker.stop();
+        _cameraInterpolator.reset(
+          target: simulated,
+          bearing: widget.navigationBearing,
+          now: _cameraClock.elapsed,
+        );
         _moveCameraToPoint(
           simulated,
           zoom: 16.3,
@@ -1891,17 +1955,22 @@ class _MapWidgetState extends State<MapWidget> {
 
     if (immediate) {
       // 즉각 이동 (스타일 로드 시 초기 위치)
+      _cameraTicker.stop();
+      _cameraInterpolator.reset(
+        target: LatLng(lat, lng),
+        bearing: heading,
+        now: _cameraClock.elapsed,
+      );
       try {
         await _mapController!.setCamera(cameraOpts);
       } catch (_) {}
     } else if (widget.isSprintMode) {
-      // Sprint 모드: 부드럽고 빠른 카메라 추적 (easeTo)
-      try {
-        await _mapController!.easeTo(
-          cameraOpts,
-          mbx.MapAnimationOptions(duration: 300),
-        );
-      } catch (_) {}
+      _cameraInterpolator.retarget(
+        target: LatLng(lat, lng),
+        targetBearing: heading,
+        now: _cameraClock.elapsed,
+      );
+      if (!_cameraTicker.isActive) _cameraTicker.start();
     } else {
       // Cruise 모드: flyTo (느린 이동 OK)
       try {
