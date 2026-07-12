@@ -28,6 +28,8 @@ void main() {
       'supabase/migrations/20260707200000_v2_data_shells.sql';
   const telemetrySummaryMigration =
       'supabase/migrations/20260707220000_telemetry_summary.sql';
+  const findCurvyRoadsSlimMigration =
+      'supabase/migrations/20260712100000_find_curvy_roads_slim.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -42,6 +44,7 @@ void main() {
     learningLoopMigration,
     v2DataShellsMigration,
     telemetrySummaryMigration,
+    findCurvyRoadsSlimMigration,
   ];
 
   const userTables = [
@@ -85,6 +88,19 @@ void main() {
           ..sort();
 
     expect(migrationFiles, activeMigrations);
+  });
+
+  test('slim find_curvy_roads migration keeps explicit function grants', () {
+    final sql = _readLower(findCurvyRoadsSlimMigration);
+
+    expect(sql, contains('revoke all on function find_curvy_roads'));
+    expect(sql, contains('grant execute on function find_curvy_roads'));
+    expect(sql, contains('to anon, authenticated, service_role'));
+    expect(
+      sql,
+      isNot(contains('security definer')),
+      reason: 'find_curvy_roads must stay invoker-rights (plain sql).',
+    );
   });
 
   test('every created public table has RLS enabled in active migrations', () {
