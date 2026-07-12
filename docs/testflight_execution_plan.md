@@ -55,7 +55,7 @@ flutter build ios --release --no-codesign --dart-define-from-file=.env
 - [x] `Info.plist`에 `ITSAppUsesNonExemptEncryption=false` 포함
 - [x] `PrivacyInfo.xcprivacy` Runner 리소스 포함
 - [x] `.env.example` 필수 키 정리: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `MAPBOX_ACCESS_TOKEN`
-- [x] 버전: `1.38.0+42`
+- [x] 버전: `1.38.0+43`
 - [x] Bundle ID: `com.revv.revvApp`
 - [x] Apple Team: `BMG2X5W7V9`
 - [x] 릴리즈 후보 커밋/푸시
@@ -217,7 +217,7 @@ flutter run --release --dart-define-from-file=.env -d 00008120-000621623E90A01E
 빌드 명령:
 
 ```sh
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=42
+flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=43
 ```
 
 업로드 방법:

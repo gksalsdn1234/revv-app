@@ -68,7 +68,7 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 flutter clean
 flutter pub get
 cd ios && pod install && cd ..
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=42
+flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=43
 ```
 
 - [ ] `build/ios/ipa/*.ipa`가 생성된다.
