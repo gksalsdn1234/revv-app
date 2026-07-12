@@ -602,9 +602,9 @@ DriveRhythmBrief _rhythmForOnRoute(DriveCurveCue? cue, AppLanguage? language) {
       ),
       advice: _driveText(
         language,
-        '1.0km 흐름 구간',
-        '1.0km flow section',
-        '1.0km fluide',
+        '직선 구간',
+        'Straight section',
+        'Section droite',
       ),
       horizonText: 'CLEAR',
       severity: 0,

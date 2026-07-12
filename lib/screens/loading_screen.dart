@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import '../services/location_service.dart';
 import '../services/settings_service.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
@@ -17,17 +18,22 @@ class LoadingScreen extends StatefulWidget {
 }
 
 class _LoadingScreenState extends State<LoadingScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   late AnimationController _logoCtrl;
   late AnimationController _contentCtrl;
 
   late Animation<double> _logoFade;
   late Animation<double> _logoScale;
   late Animation<double> _contentFade;
+  PermissionStatus? _locationPermission;
+  bool _gpsReady = false;
+  bool _gpsChecked = false;
+  Completer<void>? _permissionDecision;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _logoCtrl = AnimationController(
       vsync: this,
@@ -52,6 +58,13 @@ class _LoadingScreenState extends State<LoadingScreen>
       await _requestPermissions();
       if (!mounted) return;
 
+      if (_locationPermission?.isPermanentlyDenied ?? false) {
+        _permissionDecision = Completer<void>();
+        await _permissionDecision!.future;
+        _permissionDecision = null;
+      }
+      if (!mounted) return;
+
       await Future.delayed(const Duration(milliseconds: 700));
       if (mounted) {
         Navigator.pushReplacement(
@@ -64,6 +77,23 @@ class _LoadingScreenState extends State<LoadingScreen>
 
   Future<void> _requestPermissions() async {
     final statuses = await [Permission.locationWhenInUse].request();
+    if (mounted) {
+      setState(() {
+        _locationPermission = statuses[Permission.locationWhenInUse];
+      });
+    }
+    if (!mounted) return;
+    if (_locationPermission?.isGranted ?? false) {
+      final fix = await context.read<LocationService>().ensureLiveLocation(
+        timeout: const Duration(seconds: 3),
+      );
+      if (mounted) {
+        setState(() {
+          _gpsReady = fix != null;
+          _gpsChecked = true;
+        });
+      }
+    }
     if (kDebugMode) {
       for (final e in statuses.entries) {
         debugPrint('[LoadingScreen] ${e.key} → ${e.value}');
@@ -73,14 +103,55 @@ class _LoadingScreenState extends State<LoadingScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _logoCtrl.dispose();
     _contentCtrl.dispose();
     super.dispose();
   }
 
+  Future<void> _openLocationSettings() async {
+    await openAppSettings();
+    await _refreshPermissionAfterSettings();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshPermissionAfterSettings());
+    }
+  }
+
+  Future<void> _refreshPermissionAfterSettings() async {
+    final status = await Permission.locationWhenInUse.status;
+    if (!mounted) return;
+    setState(() => _locationPermission = status);
+    if (status.isGranted) {
+      _permissionDecision?.complete();
+    }
+  }
+
+  void _continueAfterPermissionNotice() {
+    if (!(_permissionDecision?.isCompleted ?? true)) {
+      _permissionDecision!.complete();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final language = context.watch<SettingsService>().appLanguage;
+    final locationPermission = _locationPermission;
+    final locationReady = locationPermission?.isGranted ?? false;
+    final locationStatus = locationPermission == null
+        ? AppCopy.loadingScanning(language)
+        : locationReady
+        ? AppCopy.loadingReady(language)
+        : AppCopy.permissionNeeded(language);
+    final gpsStatus = !locationReady
+        ? locationStatus
+        : _gpsChecked && _gpsReady
+        ? AppCopy.loadingReady(language)
+        : AppCopy.loadingScanning(language);
+    final permanentlyDenied = locationPermission?.isPermanentlyDenied ?? false;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
@@ -205,19 +276,31 @@ class _LoadingScreenState extends State<LoadingScreen>
                         children: [
                           _CheckRow(
                             label: AppCopy.loadingGps(language),
-                            status: AppCopy.loadingScanning(language),
+                            status: gpsStatus,
+                            ok: _gpsReady,
                           ),
                           SizedBox(height: compact ? 8 : 10),
                           _CheckRow(
                             label: AppCopy.loadingImu(language),
-                            status: AppCopy.loadingReady(language),
-                            ok: true,
+                            status: AppCopy.loadingScanning(language),
                           ),
                           SizedBox(height: compact ? 8 : 10),
                           _CheckRow(
                             label: AppCopy.loadingLocation(language),
-                            status: AppCopy.loadingScanning(language),
+                            status: locationStatus,
+                            ok: locationReady,
                           ),
+                          if (permanentlyDenied) ...[
+                            SizedBox(height: compact ? 8 : 10),
+                            TextButton(
+                              onPressed: _openLocationSettings,
+                              child: Text(AppCopy.openSettings(language)),
+                            ),
+                            TextButton(
+                              onPressed: _continueAfterPermissionNotice,
+                              child: Text(AppCopy.continueAnyway(language)),
+                            ),
+                          ],
                         ],
                       ),
                     ),

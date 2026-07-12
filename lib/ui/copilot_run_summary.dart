@@ -30,14 +30,10 @@ class CopilotRunSummaryCopy {
   }) {
     final routeName = session.routeName;
     final sharpCount = session.sharpCorners.length;
-    final peakG = session.maxLateralG.abs() >= session.maxLonG.abs()
-        ? session.maxLateralG.abs()
-        : session.maxLonG.abs();
-
     return CopilotRunSummaryCopy(
-      headline: _headline(session, sharpCount, peakG, language),
+      headline: _headline(session, sharpCount, language),
       summaryLine: _summaryLine(session, routeName, sharpCount, language),
-      nextSuggestion: _nextSuggestion(session, sharpCount, peakG, language),
+      nextSuggestion: _nextSuggestion(session, sharpCount, language),
       notableStats: [
         CopilotRunStat(
           AppCopy.t(
@@ -79,7 +75,6 @@ class CopilotRunSummaryCopy {
 String _headline(
   RunSession session,
   int sharpCount,
-  double peakG,
   AppLanguage? language,
 ) {
   final lang = language ?? AppLanguage.korean;
@@ -105,14 +100,6 @@ String _headline(
       ko: '오늘 루트 리듬을 기록했어요.',
       en: 'Today’s route rhythm was saved.',
       fr: 'Rythme de route enregistré.',
-    );
-  }
-  if (peakG >= 0.45) {
-    return AppCopy.t(
-      lang,
-      ko: '짧지만 반응이 선명한 주행이었어요.',
-      en: 'Short drive, clear response.',
-      fr: 'Court trajet, réponse nette.',
     );
   }
   return AppCopy.t(
@@ -167,7 +154,6 @@ String _summaryLine(
 String _nextSuggestion(
   RunSession session,
   int sharpCount,
-  double peakG,
   AppLanguage? language,
 ) {
   final lang = language ?? AppLanguage.korean;
@@ -187,7 +173,7 @@ String _nextSuggestion(
       fr: 'Une partie seulement a été roulée. Essayez depuis le départ.',
     );
   }
-  if (sharpCount >= 3 || peakG >= 0.45) {
+  if (sharpCount >= 3) {
     return AppCopy.t(
       lang,
       ko: '다음 추천에서는 비슷한 리듬의 후보를 우선 비교해볼 수 있어요.',
@@ -197,7 +183,7 @@ String _nextSuggestion(
   }
   return AppCopy.t(
     lang,
-    ko: '다음엔 이 루트와 비슷하지만 조금 더 긴 흐름 후보를 비교해보세요.',
+    ko: '다음엔 이 루트와 비슷한 추천 후보 중 더 긴 흐름을 비교해보세요.',
     en: 'Next, compare a similar route with a longer flow section.',
     fr: 'Comparez ensuite une route similaire avec plus de rythme.',
   );

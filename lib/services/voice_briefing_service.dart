@@ -187,8 +187,8 @@ class VoiceBriefingService {
       ),
       (_, DriveRouteStatus.offRoute) => _t(
         language,
-        ko: '루트 아웃 — ${_rejoinSide(language, rejoinBearing)}에서 재진입',
-        en: 'route out — rejoin from the ${_rejoinSide(language, rejoinBearing)}',
+        ko: '루트 이탈 — ${_rejoinSide(language, rejoinBearing)}에서 재진입',
+        en: 'off route — rejoin from the ${_rejoinSide(language, rejoinBearing)}',
         fr: 'hors route — reprise par la ${_rejoinSide(language, rejoinBearing)}',
       ),
       _ => null,

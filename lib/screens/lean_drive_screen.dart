@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -73,6 +74,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   DateTime? _startedAt;
   Timer? _clock;
   Timer? _simulationTimer;
+  Timer? _gpsWatchdog;
   Duration _elapsed = Duration.zero;
   int _simulationIndex = 0;
   double _simMaxLateralG = 0;
@@ -94,6 +96,8 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   DriveRouteStatus _routeStatus = DriveRouteStatus.approachingStart;
   String? _routeEventMessage;
   DateTime? _routeEventUntil;
+  DateTime? _lastGpsUpdateAt;
+  bool _gpsWeak = false;
 
   @override
   void initState() {
@@ -121,7 +125,10 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   Future<void> _startDrive() async {
     if (!widget.simulated) {
       await _location?.requestPermission();
+      if (!mounted) return;
+      _startGpsWatchdog();
       await _location?.startTracking();
+      if (!mounted) return;
     }
     final language = _settings?.appLanguage ?? AppLanguage.korean;
     _voice.announceStart(language, muted: _settings?.ttsMuted ?? true);
@@ -191,6 +198,10 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     final loc = _location;
     if (!mounted || loc == null) return;
     final position = loc.bestKnownLatLng;
+    final timestamp = loc.currentPosition?.timestamp;
+    if (timestamp != null) {
+      _lastGpsUpdateAt = timestamp;
+    }
     final speed = loc.speedKmh.clamp(0.0, 260.0);
     _imuService?.updateSpeedKmh(speed);
     if (position != null) {
@@ -205,6 +216,24 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       return;
     }
     setState(() => _speedKmh = speed);
+  }
+
+  void _startGpsWatchdog() {
+    _gpsWatchdog?.cancel();
+    _lastGpsUpdateAt = _location?.currentPosition?.timestamp ?? DateTime.now();
+    final permanentlyDenied =
+        _location?.permissionStatus.isPermanentlyDenied ?? false;
+    if (mounted && _gpsWeak != permanentlyDenied) {
+      setState(() => _gpsWeak = permanentlyDenied);
+    }
+    _gpsWatchdog = Timer.periodic(const Duration(seconds: 1), (_) {
+      final lastUpdate = _lastGpsUpdateAt;
+      final weak = lastUpdate == null ||
+          DateTime.now().difference(lastUpdate) >= const Duration(seconds: 8);
+      if (mounted && weak != _gpsWeak) {
+        setState(() => _gpsWeak = weak);
+      }
+    });
   }
 
   void _applyDriveSample(
@@ -409,6 +438,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
 
   void _endDrive() {
     _simulationTimer?.cancel();
+    _gpsWatchdog?.cancel();
     _location?.removeListener(_onLocation);
     _imuService?.removeListener(_onImu);
     final imu = _imuService;
@@ -431,6 +461,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   void dispose() {
     _clock?.cancel();
     _simulationTimer?.cancel();
+    _gpsWatchdog?.cancel();
     _location?.removeListener(_onLocation);
     _imuService?.removeListener(_onImu);
     _voice.dispose();
@@ -486,6 +517,15 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                     language: language,
                   ),
                   const SizedBox(height: 8),
+                  if (_gpsWeak)
+                    _GpsStatusBanner(
+                      language: language,
+                      permanentlyDenied:
+                          _location?.permissionStatus.isPermanentlyDenied ??
+                          false,
+                      onOpenSettings: () => openAppSettings(),
+                    ),
+                  if (_gpsWeak) const SizedBox(height: 8),
                   _NextCurveBanner(
                     cue: cue,
                     rhythmBrief: _rhythmBrief,
@@ -502,7 +542,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _CompactSpeedPill(speedKmh: _speedKmh),
+                      _CompactSpeedPill(speedKmh: _speedKmh, language: language),
                       RepaintBoundary(
                         child: widget.simulated
                             ? _CompactGInstrument(
@@ -814,8 +854,8 @@ String? _routeEventFor(
   if (next == DriveRouteStatus.offRoute) {
     return AppCopy.t(
       language,
-      ko: '루트 아웃',
-      en: 'Route out',
+      ko: '루트 이탈',
+      en: 'Off route',
       fr: 'Hors route',
     );
   }
@@ -923,6 +963,63 @@ class _DriveTopBar extends StatelessWidget {
               color: AppColors.primaryContainer,
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GpsStatusBanner extends StatelessWidget {
+  final AppLanguage language;
+  final bool permanentlyDenied;
+  final VoidCallback onOpenSettings;
+
+  const _GpsStatusBanner({
+    required this.language,
+    required this.permanentlyDenied,
+    required this.onOpenSettings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.warning.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.gps_not_fixed_rounded, size: 18, color: AppColors.ink),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              AppCopy.t(
+                language,
+                ko: permanentlyDenied ? 'GPS 권한이 꺼져 있습니다' : 'GPS 신호 약함',
+                en: permanentlyDenied ? 'GPS permission is off' : 'GPS signal weak',
+                fr: permanentlyDenied ? 'Autorisation GPS désactivée' : 'Signal GPS faible',
+              ),
+              style: AppText.body(
+                size: 12,
+                weight: FontWeight.w900,
+                color: AppColors.ink,
+              ),
+            ),
+          ),
+          if (permanentlyDenied)
+            TextButton(
+              onPressed: onOpenSettings,
+              child: Text(
+                AppCopy.t(language, ko: '설정', en: 'Settings', fr: 'Réglages'),
+                style: AppText.body(
+                  size: 12,
+                  weight: FontWeight.w900,
+                  color: AppColors.ink,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1210,9 +1307,9 @@ _FallbackCue _fallbackCue(DriveRouteStatus status, AppLanguage language) {
         ),
         detail: AppCopy.t(
           language,
-          ko: '1.0km 흐름 구간',
-          en: '1.0km flow section',
-          fr: '1,0km fluide',
+          ko: '직선 구간',
+          en: 'Straight section',
+          fr: 'Section droite',
         ),
         icon: Icons.timeline_rounded,
         distance: 'CLEAR',
@@ -1222,8 +1319,9 @@ _FallbackCue _fallbackCue(DriveRouteStatus status, AppLanguage language) {
 
 class _CompactSpeedPill extends StatelessWidget {
   final double speedKmh;
+  final AppLanguage language;
 
-  const _CompactSpeedPill({required this.speedKmh});
+  const _CompactSpeedPill({required this.speedKmh, required this.language});
 
   @override
   Widget build(BuildContext context) {
@@ -1232,7 +1330,7 @@ class _CompactSpeedPill extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'SPEED',
+            AppCopy.t(language, ko: '속도', en: 'SPEED', fr: 'VITESSE'),
             style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
           ),
           const SizedBox(height: 3),
@@ -1252,7 +1350,7 @@ class _CompactSpeedPill extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.clip,
                     style: AppText.display(
-                      size: 30,
+                      size: 40,
                       height: 0.9,
                       color: AppColors.primaryContainer,
                     ),
@@ -1463,27 +1561,127 @@ class _DriveControlStrip extends StatelessWidget {
           ),
           SizedBox(
             height: 48,
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: AppColors.danger,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(17),
-                ),
-              ),
-              onPressed: onEnd,
-              icon: const Icon(Icons.stop_rounded, size: 20),
-              label: Text(
-                AppCopy.t(language, ko: '종료', en: 'End', fr: 'Terminer'),
-                style: AppText.body(
-                  size: 15,
-                  weight: FontWeight.w900,
-                  color: Colors.white,
-                ),
-              ),
-            ),
+            child: _HoldToEndButton(onEnd: onEnd, language: language),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _HoldToEndButton extends StatefulWidget {
+  final VoidCallback onEnd;
+  final AppLanguage language;
+
+  const _HoldToEndButton({required this.onEnd, required this.language});
+
+  @override
+  State<_HoldToEndButton> createState() => _HoldToEndButtonState();
+}
+
+class _HoldToEndButtonState extends State<_HoldToEndButton> {
+  static const _holdDuration = Duration(milliseconds: 1500);
+
+  Timer? _holdTimer;
+  Timer? _hintTimer;
+  bool _holding = false;
+  bool _showHint = false;
+
+  void _startHold(TapDownDetails _) {
+    if (_holdTimer != null) return;
+    setState(() {
+      _holding = true;
+      _showHint = false;
+    });
+    _holdTimer = Timer(_holdDuration, () {
+      _holdTimer = null;
+      if (!mounted) return;
+      widget.onEnd();
+    });
+  }
+
+  void _stopHold() {
+    final wasHolding = _holdTimer != null;
+    _holdTimer?.cancel();
+    _holdTimer = null;
+    if (!mounted) return;
+    setState(() {
+      _holding = false;
+      _showHint = wasHolding;
+    });
+    if (wasHolding) {
+      _hintTimer?.cancel();
+      _hintTimer = Timer(const Duration(milliseconds: 1500), () {
+        if (mounted) setState(() => _showHint = false);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _holdTimer?.cancel();
+    _hintTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = _showHint
+        ? AppCopy.t(
+            widget.language,
+            ko: '길게 눌러 종료',
+            en: 'Hold to end',
+            fr: 'Maintenez pour finir',
+          )
+        : AppCopy.t(widget.language, ko: '종료', en: 'End', fr: 'Terminer');
+    return GestureDetector(
+      onTapDown: _startHold,
+      onTapUp: (_) => _stopHold(),
+      onTapCancel: _stopHold,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: AppColors.danger,
+          borderRadius: BorderRadius.circular(17),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (_holding)
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: 1),
+                duration: _holdDuration,
+                builder: (context, value, _) => Align(
+                  alignment: Alignment.centerLeft,
+                  child: FractionallySizedBox(
+                    widthFactor: value,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppColors.cream.withValues(alpha: 0.24),
+                        borderRadius: BorderRadius.circular(17),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.stop_rounded, size: 20, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: AppText.body(
+                      size: 15,
+                      weight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1503,13 +1701,13 @@ class _StripMetric extends StatelessWidget {
       children: [
         Text(
           label,
-          style: AppText.technicalLabel(size: 9, color: AppColors.textHint),
+          style: AppText.technicalLabel(size: 11, color: AppColors.textHint),
         ),
         const SizedBox(height: 4),
         Text(
           value,
           style: AppText.body(
-            size: 15,
+            size: 20,
             weight: FontWeight.w900,
             color: AppColors.textPrimary,
           ),

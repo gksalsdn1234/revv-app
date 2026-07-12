@@ -813,7 +813,12 @@ class _HistoryContent extends StatelessWidget {
         _MiniDistanceChart(runs: runs.take(8).toList()),
         const SizedBox(height: 22),
         Text(
-          'Recent',
+          AppCopy.t(
+            settings.appLanguage,
+            ko: '최근 주행',
+            en: 'Recent',
+            fr: 'Récent',
+          ),
           style: AppText.label(
             size: 18,
             weight: FontWeight.w900,
@@ -823,7 +828,12 @@ class _HistoryContent extends StatelessWidget {
         const SizedBox(height: 8),
         if (runs.isEmpty)
           Text(
-            'No runs yet',
+            AppCopy.t(
+              settings.appLanguage,
+              ko: '아직 주행 기록이 없어요',
+              en: 'No runs yet',
+              fr: 'Aucun trajet pour le moment',
+            ),
             style: AppText.body(
               size: 15,
               weight: FontWeight.w700,
@@ -938,7 +948,12 @@ class _MiniDistanceChart extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'DISTANCE · LAST RUNS',
+            AppCopy.t(
+              context.watch<SettingsService>().appLanguage,
+              ko: '거리 · 최근 주행',
+              en: 'DISTANCE · LAST RUNS',
+              fr: 'DISTANCE · DERNIERS TRAJETS',
+            ),
             style: AppText.technicalLabel(
               size: 9,
               letterSpacing: 1.2,
@@ -946,31 +961,45 @@ class _MiniDistanceChart extends StatelessWidget {
             ),
           ),
           const Spacer(),
-          SizedBox(
-            height: 52,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                for (final value
-                    in values.isEmpty ? const [0.4, 0.7, 0.5] : values)
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: FractionallySizedBox(
-                        heightFactor: (value / maxValue).clamp(0.16, 1.0),
-                        alignment: Alignment.bottomCenter,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryContainer,
-                            borderRadius: BorderRadius.circular(3),
+          if (values.isEmpty)
+            Text(
+              AppCopy.t(
+                context.watch<SettingsService>().appLanguage,
+                ko: '주행 기록이 쌓이면 거리 흐름이 표시됩니다',
+                en: 'Distance trend appears after your first run',
+                fr: 'La tendance de distance apparaît après votre premier trajet',
+              ),
+              style: AppText.body(
+                size: 11,
+                weight: FontWeight.w700,
+                color: AppColors.stone,
+              ),
+            )
+          else
+            SizedBox(
+              height: 52,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (final value in values)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: FractionallySizedBox(
+                          heightFactor: (value / maxValue).clamp(0.16, 1.0),
+                          alignment: Alignment.bottomCenter,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.primaryContainer,
+                              borderRadius: BorderRadius.circular(3),
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -1248,7 +1277,7 @@ class _SettingsSheet extends StatelessWidget {
                           ),
                         ),
                       ),
-                      _CloudStatusChip(supabase: supabase),
+                      _CloudStatusChip(supabase: supabase, language: language),
                     ],
                   ),
                 ),
@@ -1377,12 +1406,6 @@ class _SettingsSheet extends StatelessWidget {
                   active: !settings.ttsMuted,
                   onTap: () => settings.setTtsMuted(!settings.ttsMuted),
                 ),
-                _SettingsToggleRow(
-                  label: AppCopy.settingsCurveAlerts(language),
-                  detail: AppCopy.curveAlertsDetail(language),
-                  active: true,
-                  onTap: () {},
-                ),
                 const SizedBox(height: 10),
                 _SettingsGroupLabel(
                   label: AppCopy.settingsData(language).toUpperCase(),
@@ -1428,21 +1451,34 @@ class _SettingsSheet extends StatelessWidget {
 
 class _CloudStatusChip extends StatelessWidget {
   final SupabaseService supabase;
+  final AppLanguage language;
 
-  const _CloudStatusChip({required this.supabase});
+  const _CloudStatusChip({required this.supabase, required this.language});
 
   @override
   Widget build(BuildContext context) {
     if (supabase.status == SyncStatus.error) {
-      return const _LeanStatusDot(active: false, label: 'SYNC ERROR');
+      return _LeanStatusDot(
+        active: false,
+        label: AppCopy.t(language, ko: '동기화 오류', en: 'SYNC ERROR', fr: 'ERREUR SYNC'),
+      );
     }
     if (supabase.status == SyncStatus.syncing) {
-      return const _LeanStatusDot(active: false, label: 'SYNCING');
+      return _LeanStatusDot(
+        active: false,
+        label: AppCopy.t(language, ko: '동기화 중', en: 'SYNCING', fr: 'SYNCHRONISATION'),
+      );
     }
     if (supabase.isCloudAvailable) {
-      return const _LeanStatusDot(active: true, label: 'SYNCED');
+      return _LeanStatusDot(
+        active: true,
+        label: AppCopy.t(language, ko: '동기화됨', en: 'SYNCED', fr: 'SYNCHRONISÉ'),
+      );
     }
-    return const _LeanStatusDot(active: false, label: 'LOCAL');
+    return _LeanStatusDot(
+      active: false,
+      label: AppCopy.t(language, ko: '로컬', en: 'LOCAL', fr: 'LOCAL'),
+    );
   }
 }
 

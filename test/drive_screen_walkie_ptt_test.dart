@@ -138,6 +138,14 @@ void main() {
     expect(platform.toggles, contains(true));
 
     await tester.tap(find.text('End'));
+    await tester.pump();
+    expect(find.text('Hold to end'), findsOneWidget);
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('Hold to end')),
+    );
+    await tester.pump(const Duration(milliseconds: 1500));
+    await gesture.up();
     await tester.pumpAndSettle();
     expect(
       platform.toggles.where((value) => !value).length,

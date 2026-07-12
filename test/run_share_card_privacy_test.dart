@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/models/revv_route.dart';
+import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/models/run_summary.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
+import 'package:revv_app/ui/copilot_run_summary.dart';
 import 'package:revv_app/ui/run_share_card_content.dart';
 
 void main() {
@@ -54,7 +56,60 @@ void main() {
       }
     }
   });
+
+  test('public run copy avoids record and limit language', () {
+    // Given: a completed run with rich telemetry.
+    final summary = _summary();
+    final session = RunSession(
+      startTime: summary.date.subtract(const Duration(minutes: 12)),
+      endTime: summary.date,
+      maxSpeedKmh: summary.maxSpeedKmh,
+      avgSpeedKmh: summary.avgSpeedKmh,
+      distanceKm: summary.distanceKm,
+      gpsPath: const [LatLng(45, -73), LatLng(45.1, -73.1)],
+      route: const RevvRoute(
+        id: 'route-private',
+        name: 'Rhythm Loop',
+        nodes: [LatLng(45, -73), LatLng(45.1, -73.1)],
+        distanceKm: 12.3,
+        windingScore: 0,
+        starRating: 0,
+        sharpCurveCount: 0,
+        centerPoint: LatLng(45, -73),
+        distanceFromUser: 0,
+      ),
+      weatherEmoji: summary.weatherEmoji,
+      tempDisplay: summary.tempDisplay,
+      weatherDesc: 'clear',
+      maxLateralG: 0.71,
+      maxLonG: -0.66,
+    );
+    final copy = CopilotRunSummaryCopy.fromSession(session);
+    final card = buildRunShareCardContent(
+      preset: ShareCardPreset.square,
+      summary: summary,
+      detail: _detail(),
+      session: session,
+    );
+
+    // When: all public run copy is collected.
+    final visibleText = [
+      ...card.visibleText,
+      copy.headline,
+      copy.summaryLine,
+      copy.nextSuggestion,
+      ...copy.notableStats.expand((stat) => [stat.label, stat.value]),
+    ].join(' | ');
+
+    // Then: record, limit, and attack framing stays out of public copy.
+    expect(visibleText, isNot(matches(_forbiddenSafetyCopy)));
+  });
 }
+
+final _forbiddenSafetyCopy = RegExp(
+  r'\b(MAX|BEST|PEAK|PK|RECORD)\b|GRIP LIMIT|Attack|어택|최고|최대|신기록|0\.45G',
+  caseSensitive: false,
+);
 
 const _coordinateSentinels = [
   '45.123456',

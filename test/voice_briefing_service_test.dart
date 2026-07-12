@@ -275,7 +275,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken, ['루트 아웃 — 우측에서 재진입', '온 루트']);
+    expect(spoken, ['루트 이탈 — 우측에서 재진입', '온 루트']);
   });
 
   test('phrases avoid forbidden performance language in all languages', () {

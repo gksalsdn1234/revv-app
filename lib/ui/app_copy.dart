@@ -101,7 +101,7 @@ class AppCopy {
   static String deleteRunsBody(AppLanguage language) => t(
     language,
     ko: '로컬 캐시와 클라우드 주행 기록, 텔레메트리 상세, 피드백을 삭제합니다.',
-    en: 'This deletes local cache plus cloud drive records, telemetry details, and feedback.',
+    en: 'This deletes local cache plus cloud drive history, telemetry details, and feedback.',
     fr: 'Cela supprime le cache local, les trajets cloud, les détails télémétriques et les retours.',
   );
 
@@ -213,7 +213,7 @@ class AppCopy {
   static String locationBlockedBody(AppLanguage language) => t(
     language,
     ko: '루트 탐색은 위치 권한이 있을 때 가장 잘 동작합니다. 설정에서 위치를 켜주세요.',
-    en: 'Route discovery works best with location permission. Turn it on in Settings to search nearby roads.',
+    en: 'Route discovery uses location permission. Turn it on in Settings to search nearby roads.',
     fr: 'La recherche de routes fonctionne mieux avec la position. Activez-la dans Réglages pour chercher près de vous.',
   );
 

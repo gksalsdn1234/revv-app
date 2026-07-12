@@ -82,7 +82,7 @@ void main() {
     expect(state.status, DriveRouteStatus.onRoute);
     expect(state.cue, isNull);
     expect(state.rhythmBrief.rhythmLabel, '흐름 구간');
-    expect(state.rhythmBrief.advice, '1.0km 흐름 구간');
+    expect(state.rhythmBrief.advice, '직선 구간');
   });
 
   test('drive cue supports English and French copy', () {

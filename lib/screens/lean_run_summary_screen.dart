@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -158,27 +159,40 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
     final destination = homeLat == null || homeLng == null
         ? null
         : LatLng(homeLat, homeLng);
-    final appUri = destination == null
-        ? Uri.parse('comgooglemaps://')
-        : Uri(
-            scheme: 'comgooglemapsurl',
-            host: 'www.google.com',
-            path: '/maps/dir/',
-            queryParameters: {
-              'api': '1',
-              if (current != null) 'saddr': googleMapsCoord(current),
-              'daddr': googleMapsCoord(destination),
-              'directionsmode': 'driving',
-            },
-          );
-    final webUri = destination == null
-        ? Uri.https('www.google.com', '/maps')
-        : Uri.https('www.google.com', '/maps/dir/', {
-            'api': '1',
-            if (current != null) 'origin': googleMapsCoord(current),
-            'destination': googleMapsCoord(destination),
-            'travelmode': 'driving',
-          });
+    if (destination == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppCopy.t(
+                language,
+                ko: '집 위치를 먼저 설정하세요',
+                en: 'Set your home location first',
+                fr: 'Définissez d’abord votre domicile',
+              ),
+            ),
+          ),
+        );
+      }
+      return;
+    }
+    final appUri = Uri(
+      scheme: 'comgooglemapsurl',
+      host: 'www.google.com',
+      path: '/maps/dir/',
+      queryParameters: {
+        'api': '1',
+        if (current != null) 'saddr': googleMapsCoord(current),
+        'daddr': googleMapsCoord(destination),
+        'directionsmode': 'driving',
+      },
+    );
+    final webUri = Uri.https('www.google.com', '/maps/dir/', {
+      'api': '1',
+      if (current != null) 'origin': googleMapsCoord(current),
+      'destination': googleMapsCoord(destination),
+      'travelmode': 'driving',
+    });
     var launched = false;
     try {
       launched = await launchUrl(appUri, mode: LaunchMode.externalApplication);
@@ -359,7 +373,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                                           ? 'RUN COMPLETE'
                                           : 'RUN REPORT',
                                       fr: summary == null
-                                          ? 'RUN COMPLET'
+                                          ? 'Course terminée'
                                           : 'RAPPORT',
                                     ),
                                     style: AppText.mono(
@@ -389,7 +403,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                                   const SizedBox(height: 8),
                                   Text(
                                     session == null
-                                        ? historySummaryLine(summary)
+                                        ? historySummaryLine(summary, language)
                                         : copy?.summaryLine ?? '',
                                     style: AppText.mono(
                                       size: 11,
@@ -417,6 +431,14 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                                 ],
                               ),
                             ),
+
+                            if (session != null || summary != null) ...[
+                              const SizedBox(height: 14),
+                              _RunHeadlineStats(
+                                metrics: shareMetrics,
+                                language: language,
+                              ),
+                            ],
 
                             // ── 상세 스탯 ──
                             if (session != null || summary != null) ...[
@@ -977,6 +999,78 @@ class _MapReplaySection extends StatelessWidget {
 
 // ── 상세 스탯 섹션 ────────────────────────────────────────
 
+class _RunHeadlineStats extends StatelessWidget {
+  final RunShareMetrics metrics;
+  final AppLanguage language;
+
+  const _RunHeadlineStats({required this.metrics, required this.language});
+
+  @override
+  Widget build(BuildContext context) {
+    final displayed = {
+      for (final metric in metrics.defaultShareMetrics) metric.id: metric.value,
+    };
+    return Row(
+      children: [
+        Expanded(
+          child: _HeadlineStat(
+            label: AppCopy.shareMetricLabel(language, 'distance'),
+            value: displayed['distance'] ?? '0.0 km',
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _HeadlineStat(
+            label: AppCopy.shareMetricLabel(language, 'duration'),
+            value: displayed['duration'] ?? '0s',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HeadlineStat extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _HeadlineStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
+      decoration: BoxDecoration(
+        color: AppColors.creamRaised,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: AppText.mono(
+              size: 9,
+              letterSpacing: 1.2,
+              color: AppColors.stone,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: AppText.label(
+              size: 27,
+              weight: FontWeight.w900,
+              color: AppColors.ink,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _RevvRecapSection extends StatelessWidget {
   final RunShareMetrics metrics;
   final AppLanguage language;
@@ -1138,26 +1232,44 @@ class _SavedRunReportSection extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          _SavedRunReportRow(
-            label: 'DETAIL DATA',
-            value: detail == null ? 'Summary only' : 'Detail loaded',
-          ),
-          _SavedRunReportRow(label: 'SAMPLES', value: '$sampleCount'),
-          if (gpsPointCount != null)
-            _SavedRunReportRow(label: 'GPS POINTS', value: '$gpsPointCount'),
+          if (kDebugMode) ...[
+            _SavedRunReportRow(
+              label: 'DETAIL DATA',
+              value: AppCopy.t(
+                language,
+                ko: detail == null ? '요약만 있음' : '상세 불러옴',
+                en: detail == null ? 'Summary only' : 'Detail loaded',
+                fr: detail == null ? 'Résumé seul' : 'Détail chargé',
+              ),
+            ),
+            _SavedRunReportRow(label: 'SAMPLES', value: '$sampleCount'),
+            if (gpsPointCount != null)
+              _SavedRunReportRow(label: 'GPS POINTS', value: '$gpsPointCount'),
+          ],
           _SavedRunReportRow(
             label: 'BRAKE / ACCEL',
             value:
                 '${summary.brakingEventCount} / ${summary.accelerationEventCount}',
           ),
           _SavedRunReportRow(
-            label: 'PUBLIC DEFAULT',
-            value: 'Private speed data hidden',
+            label: AppCopy.t(
+              language,
+              ko: '공개 기본값',
+              en: 'PUBLIC DEFAULT',
+              fr: 'PUBLIC PAR DÉFAUT',
+            ),
+            value: AppCopy.t(
+              language,
+              ko: '비공개 속도 데이터 숨김',
+              en: 'Private speed data hidden',
+              fr: 'Données de vitesse masquées',
+            ),
           ),
-          _SavedRunReportRow(
-            label: 'REPORT METRICS',
-            value: '${metrics.defaultShareMetrics.length}',
-          ),
+          if (kDebugMode)
+            _SavedRunReportRow(
+              label: 'REPORT METRICS',
+              value: '${metrics.defaultShareMetrics.length}',
+            ),
         ],
       ),
     );
@@ -1517,7 +1629,6 @@ List<_SessionLogGroup> _sessionLogGroups({
       _analyticsDouble(analytics, 'windingSamplePct') ??
       summary?.windingSamplePct ??
       0;
-  final peakG = _analyticsDouble(analytics, 'peakG') ?? summary?.peakG ?? 0;
   final routeCompletionPct =
       _analyticsDouble(analytics, 'routeCompletionPct') ??
       summary?.routeCompletionPct?.toDouble();
@@ -1558,24 +1669,26 @@ List<_SessionLogGroup> _sessionLogGroups({
           AppCopy.t(language, ko: '평균 속도', en: 'AVG SPEED', fr: 'MOYENNE'),
           displayed['avgSpeed'] ?? '—',
         ),
-        _SessionLogRow(
-          AppCopy.t(
-            language,
-            ko: 'GPS 포인트',
-            en: 'GPS POINTS',
-            fr: 'POINTS GPS',
+        if (kDebugMode)
+          _SessionLogRow(
+            AppCopy.t(
+              language,
+              ko: 'GPS 포인트',
+              en: 'GPS POINTS',
+              fr: 'POINTS GPS',
+            ),
+            '$gpsPointCount',
           ),
-          '$gpsPointCount',
-        ),
-        _SessionLogRow(
-          AppCopy.t(
-            language,
-            ko: '텔레메트리 샘플',
-            en: 'TELEMETRY',
-            fr: 'TÉLÉMÉTRIE',
+        if (kDebugMode)
+          _SessionLogRow(
+            AppCopy.t(
+              language,
+              ko: '텔레메트리 샘플',
+              en: 'TELEMETRY',
+              fr: 'TÉLÉMÉTRIE',
+            ),
+            '$sampleCount',
           ),
-          '$sampleCount',
-        ),
       ],
     ),
     _SessionLogGroup(
@@ -1676,7 +1789,7 @@ List<_SessionLogGroup> _sessionLogGroups({
               en: '${session.sharpCorners.length} corner events',
               fr: '${session.sharpCorners.length} événements',
             ),
-      accent: peakG >= 0.4 ? AppColors.warning : AppColors.gold,
+      accent: AppColors.gold,
       rows: [
         _SessionLogRow(
           AppCopy.t(
@@ -1756,8 +1869,8 @@ List<_SessionLogGroup> _sessionLogGroups({
                 AppCopy.t(
                   language,
                   ko: '특별한 코너 이벤트가 기록되지 않았습니다.',
-                  en: 'No notable corner events recorded.',
-                  fr: 'Aucun événement notable enregistré.',
+                  en: 'No notable corner events were detected.',
+                  fr: 'Aucun événement notable détecté.',
                 ),
               ),
             ]
@@ -1786,10 +1899,11 @@ List<_SessionLogGroup> _sessionLogGroups({
           AppCopy.t(language, ko: '루트', en: 'ROUTE', fr: 'ROUTE'),
           route?.name ?? session.routeName,
         ),
-        _SessionLogRow(
-          AppCopy.t(language, ko: '루트 ID', en: 'ROUTE ID', fr: 'ID ROUTE'),
-          route?.id ?? '—',
-        ),
+        if (kDebugMode)
+          _SessionLogRow(
+            AppCopy.t(language, ko: '루트 ID', en: 'ROUTE ID', fr: 'ID ROUTE'),
+            route?.id ?? '—',
+          ),
         _SessionLogRow(
           AppCopy.t(
             language,
@@ -1862,50 +1976,71 @@ List<_SessionLogGroup> _sessionLogGroups({
         ),
       ],
     ),
-    _SessionLogGroup(
-      key: 'quality',
-      icon: Icons.sensors_rounded,
-      title: AppCopy.t(
-        language,
-        ko: '수집 품질',
-        en: 'Collection quality',
-        fr: 'Qualité collecte',
-      ),
-      summary: '$sampleCount samples · $gpsPointCount GPS',
-      accent: AppColors.primaryContainer,
-      rows: [
-        _SessionLogRow(
-          AppCopy.t(language, ko: '샘플', en: 'SAMPLES', fr: 'ÉCHANT.'),
-          '$sampleCount',
+    if (kDebugMode)
+      _SessionLogGroup(
+        key: 'quality',
+        icon: Icons.sensors_rounded,
+        title: AppCopy.t(
+          language,
+          ko: '수집 품질',
+          en: 'Collection quality',
+          fr: 'Qualité collecte',
         ),
-        _SessionLogRow(
-          AppCopy.t(
-            language,
-            ko: 'GPS 포인트',
-            en: 'GPS POINTS',
-            fr: 'POINTS GPS',
+        summary: '$sampleCount samples · $gpsPointCount GPS',
+        accent: AppColors.primaryContainer,
+        rows: [
+          _SessionLogRow(
+            AppCopy.t(language, ko: '샘플', en: 'SAMPLES', fr: 'ÉCHANT.'),
+            '$sampleCount',
           ),
-          '$gpsPointCount',
-        ),
-        _SessionLogRow(
-          AppCopy.t(language, ko: '상세 데이터', en: 'DETAIL DATA', fr: 'DÉTAIL'),
-          detail == null ? 'Summary only' : 'Loaded',
-        ),
-        _SessionLogRow(
-          AppCopy.t(language, ko: '저장 상태', en: 'SAVE STATE', fr: 'ÉTAT'),
-          waiting
-              ? AppCopy.t(language, ko: '저장 중', en: 'Saving', fr: 'Sauvegarde')
-              : summary == null
-              ? AppCopy.t(
-                  language,
-                  ko: '요약 없음',
-                  en: 'No summary',
-                  fr: 'Sans résumé',
-                )
-              : AppCopy.t(language, ko: '저장 완료', en: 'Saved', fr: 'Sauvegardé'),
-        ),
-      ],
-    ),
+          _SessionLogRow(
+            AppCopy.t(
+              language,
+              ko: 'GPS 포인트',
+              en: 'GPS POINTS',
+              fr: 'POINTS GPS',
+            ),
+            '$gpsPointCount',
+          ),
+          _SessionLogRow(
+            AppCopy.t(
+              language,
+              ko: '상세 데이터',
+              en: 'DETAIL DATA',
+              fr: 'DÉTAIL',
+            ),
+            AppCopy.t(
+              language,
+              ko: detail == null ? '요약만 있음' : '불러옴',
+              en: detail == null ? 'Summary only' : 'Loaded',
+              fr: detail == null ? 'Résumé seul' : 'Chargé',
+            ),
+          ),
+          _SessionLogRow(
+            AppCopy.t(language, ko: '저장 상태', en: 'SAVE STATE', fr: 'ÉTAT'),
+            waiting
+                ? AppCopy.t(
+                    language,
+                    ko: '저장 중',
+                    en: 'Saving',
+                    fr: 'Sauvegarde',
+                  )
+                : summary == null
+                ? AppCopy.t(
+                    language,
+                    ko: '요약 없음',
+                    en: 'No summary',
+                    fr: 'Sans résumé',
+                  )
+                : AppCopy.t(
+                    language,
+                    ko: '저장 완료',
+                    en: 'Saved',
+                    fr: 'Sauvegardé',
+                  ),
+          ),
+        ],
+      ),
     _SessionLogGroup(
       key: 'privacy',
       icon: Icons.lock_outline_rounded,
@@ -1929,15 +2064,30 @@ List<_SessionLogGroup> _sessionLogGroups({
       rows: [
         _SessionLogRow(
           AppCopy.t(language, ko: '공개 기본값', en: 'PUBLIC DEFAULT', fr: 'PUBLIC'),
-          'Private speed data hidden',
+          AppCopy.t(
+            language,
+            ko: '비공개 속도 데이터 숨김',
+            en: 'Private speed data hidden',
+            fr: 'Données de vitesse masquées',
+          ),
         ),
         _SessionLogRow(
           AppCopy.t(language, ko: '좌표', en: 'COORDINATES', fr: 'COORD.'),
-          'Raw coordinates hidden',
+          AppCopy.t(
+            language,
+            ko: '원본 좌표 숨김',
+            en: 'Raw coordinates hidden',
+            fr: 'Coordonnées brutes masquées',
+          ),
         ),
         _SessionLogRow(
           AppCopy.t(language, ko: '루트 노드', en: 'ROUTE NODES', fr: 'NOEUDS'),
-          'Route nodes hidden',
+          AppCopy.t(
+            language,
+            ko: '루트 노드 숨김',
+            en: 'Route nodes hidden',
+            fr: 'Nœuds de route masqués',
+          ),
         ),
         _SessionLogRow(
           AppCopy.t(
@@ -2043,8 +2193,15 @@ String _formatClock(DateTime value) {
   return '$hour:$minute:$second';
 }
 
-String historySummaryLine(RunSummary? summary) {
-  if (summary == null) return 'Session ended before it was created.';
+String historySummaryLine(RunSummary? summary, AppLanguage language) {
+  if (summary == null) {
+    return AppCopy.t(
+      language,
+      ko: '저장되기 전에 세션이 종료되었습니다.',
+      en: 'Session ended before it was created.',
+      fr: 'La session s’est terminée avant sa création.',
+    );
+  }
   final date =
       '${summary.date.year}-${summary.date.month.toString().padLeft(2, '0')}-${summary.date.day.toString().padLeft(2, '0')}';
   return '$date · ${summary.distanceKm.toStringAsFixed(1)} km · ${summary.durationDisplay}';
@@ -2462,8 +2619,8 @@ class _SaveStateCard extends StatelessWidget {
         ? AppCopy.t(
             language,
             ko: '주행 데이터가 없어서 기록을 만들지 않았습니다.',
-            en: 'No drive data was available, so no record was created.',
-            fr: 'Aucune donnée de trajet, aucun historique créé.',
+            en: 'No drive data was available, so no summary was created.',
+            fr: 'Aucune donnée de trajet, aucun résumé créé.',
           )
         : AppCopy.t(
             language,
