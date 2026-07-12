@@ -2,12 +2,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/revv_route.dart';
 import '../core/app_language.dart';
 import '../services/external_nav.dart';
+import '../services/route_invite_native_share.dart';
 import '../services/route_loading_policy.dart';
 import '../services/settings_service.dart';
 import '../theme/colors.dart';
@@ -18,6 +18,7 @@ import '../ui/route_detail_copy.dart';
 import '../ui/route_drive_cue.dart';
 import '../ui/route_quality_profile.dart';
 import '../ui/route_share_card_content.dart';
+import '../ui/route_share_card_widget.dart';
 import '../widgets/copilot_start_sheet.dart';
 import '../widgets/route_invite_preview_sheet.dart';
 import 'lean_drive_screen.dart';
@@ -26,7 +27,7 @@ typedef RouteDetailUrlLauncher =
     Future<bool> Function(Uri url, {LaunchMode mode});
 
 typedef RouteInvitePresenter =
-    Future<void> Function(String text, DriveInviteDraft draft);
+    Future<RouteInviteShareOutcome> Function(RouteInviteSharePayload payload);
 
 class StreetViewTarget {
   final LatLng point;
@@ -63,30 +64,44 @@ Uri buildStreetViewWebUri(StreetViewTarget target) {
   });
 }
 
-Future<void> _presentRouteInvite(String text, DriveInviteDraft _) {
-  return SharePlus.instance.share(ShareParams(text: text));
+Future<RouteInviteShareOutcome> _presentRouteInvite(
+  RouteInviteSharePayload payload,
+) {
+  return RouteInviteNativeShare().share(payload);
 }
 
-class LeanRouteDetailScreen extends StatelessWidget {
+class LeanRouteDetailScreen extends StatefulWidget {
   final RevvRoute route;
   final RouteDetailUrlLauncher? urlLauncher;
   final RouteInvitePresenter routeInvitePresenter;
+  final RouteInviteCardExporter routeInviteCardExporter;
 
   const LeanRouteDetailScreen({
     super.key,
     required this.route,
     this.urlLauncher,
     this.routeInvitePresenter = _presentRouteInvite,
+    this.routeInviteCardExporter = exportRouteShareCardPngBytes,
   });
 
+  @override
+  State<LeanRouteDetailScreen> createState() => _LeanRouteDetailScreenState();
+}
+
+class _LeanRouteDetailScreenState extends State<LeanRouteDetailScreen> {
+  bool _sharingInvite = false;
+
   Future<void> _startDrive(BuildContext context) async {
-    final startChoice = await showCopilotStartSheet(context, route: route);
+    final startChoice = await showCopilotStartSheet(
+      context,
+      route: widget.route,
+    );
     if (!context.mounted || startChoice == null) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => LeanDriveScreen(
-          route: route,
+          route: widget.route,
           simulated: startChoice == CopilotStartChoice.simulate,
         ),
       ),
@@ -95,8 +110,8 @@ class LeanRouteDetailScreen extends StatelessWidget {
 
   Future<void> _openStreetView(BuildContext context) async {
     final language = context.read<SettingsService>().appLanguage;
-    final target = streetViewTargetForRoute(route);
-    final launcher = urlLauncher ?? launchUrl;
+    final target = streetViewTargetForRoute(widget.route);
+    final launcher = widget.urlLauncher ?? launchUrl;
     var launched = false;
     try {
       launched = await launcher(
@@ -128,17 +143,42 @@ class LeanRouteDetailScreen extends StatelessWidget {
   }
 
   Future<void> _shareRoute(BuildContext context, AppLanguage language) async {
-    final draft = await showRouteInvitePreviewSheet(
-      context,
-      route: route,
-      language: language,
-    );
-    if (!context.mounted || draft == null) return;
-
+    if (_sharingInvite) return;
+    setState(() => _sharingInvite = true);
     try {
-      await routeInvitePresenter(
-        _buildRouteInviteText(route, draft, language),
-        draft,
+      final preview = await showRouteInvitePreviewSheet(
+        context,
+        route: widget.route,
+        language: language,
+        cardExporter: widget.routeInviteCardExporter,
+      );
+      if (!context.mounted || preview == null) return;
+
+      final outcome = await widget.routeInvitePresenter(
+        RouteInviteSharePayload(
+          text: _buildRouteInviteText(widget.route, preview.draft, language),
+          cardPng: preview.cardPng,
+        ),
+      );
+      if (!context.mounted || outcome == RouteInviteShareOutcome.shared) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            outcome == RouteInviteShareOutcome.cancelled
+                ? AppCopy.t(
+                    language,
+                    ko: '초대 공유를 취소했어요.',
+                    en: 'Invite sharing was cancelled.',
+                    fr: 'Partage de l’invitation annulé.',
+                  )
+                : AppCopy.t(
+                    language,
+                    ko: '이 기기에서는 초대를 공유할 수 없어요.',
+                    en: 'Invite sharing is unavailable on this device.',
+                    fr: 'Le partage de l’invitation n’est pas disponible sur cet appareil.',
+                  ),
+          ),
+        ),
       );
     } catch (_) {
       if (!context.mounted) return;
@@ -154,11 +194,14 @@ class LeanRouteDetailScreen extends StatelessWidget {
           ),
         ),
       );
+    } finally {
+      if (mounted) setState(() => _sharingInvite = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final route = widget.route;
     final language = context.watch<SettingsService>().appLanguage;
     final copy = RouteDetailCopy.fromRoute(
       route,
@@ -225,7 +268,9 @@ class LeanRouteDetailScreen extends StatelessWidget {
                                 fr: 'Partager la route',
                               ),
                               child: TextButton.icon(
-                                onPressed: () => _shareRoute(context, language),
+                                onPressed: _sharingInvite
+                                    ? null
+                                    : () => _shareRoute(context, language),
                                 icon: const Icon(
                                   Icons.ios_share_rounded,
                                   size: 18,

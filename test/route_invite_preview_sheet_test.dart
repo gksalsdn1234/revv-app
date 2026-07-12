@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -32,14 +34,16 @@ void main() {
   testWidgets('opens a safe default card and returns the default draft', (
     tester,
   ) async {
-    DriveInviteDraft? sharedDraft;
+    RouteInvitePreviewResult? sharedInvite;
     await _pumpLauncher(
       tester,
       onOpen: () async {
-        sharedDraft = await showRouteInvitePreviewSheet(
+        sharedInvite = await showRouteInvitePreviewSheet(
           tester.element(find.byType(ElevatedButton)),
           route: _route,
           language: AppLanguage.english,
+          cardExporter: (_) async =>
+              Uint8List.fromList(const [137, 80, 78, 71]),
         );
       },
     );
@@ -55,6 +59,15 @@ void main() {
       find.byKey(const ValueKey('route-invite-card-preview')),
       findsOneWidget,
     );
+    expect(
+      tester.getSize(
+        find.descendant(
+          of: find.byKey(const ValueKey('route-invite-card-preview')),
+          matching: find.byType(RepaintBoundary),
+        ),
+      ),
+      const Size(360, 450),
+    );
     expect(find.text('This weekend · time TBD'), findsOneWidget);
     expect(find.text('No meeting area'), findsOneWidget);
     expect(find.text('Share invite'), findsOneWidget);
@@ -62,22 +75,25 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('share-invite-draft')));
     await tester.pumpAndSettle();
 
-    expect(sharedDraft, isNotNull);
-    expect(sharedDraft!.meetingArea, isNull);
-    expect(sharedDraft!.schedule, 'This weekend · time TBD');
+    expect(sharedInvite, isNotNull);
+    expect(sharedInvite!.draft.meetingArea, isNull);
+    expect(sharedInvite!.draft.schedule, 'This weekend · time TBD');
+    expect(sharedInvite!.cardPng, orderedEquals(const [137, 80, 78, 71]));
   });
 
   testWidgets('switches the optional meeting area before sharing', (
     tester,
   ) async {
-    DriveInviteDraft? sharedDraft;
+    RouteInvitePreviewResult? sharedInvite;
     await _pumpLauncher(
       tester,
       onOpen: () async {
-        sharedDraft = await showRouteInvitePreviewSheet(
+        sharedInvite = await showRouteInvitePreviewSheet(
           tester.element(find.byType(ElevatedButton)),
           route: _route,
           language: AppLanguage.english,
+          cardExporter: (_) async =>
+              Uint8List.fromList(const [137, 80, 78, 71]),
         );
       },
     );
@@ -95,20 +111,20 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('share-invite-draft')));
     await tester.pumpAndSettle();
 
-    expect(sharedDraft!.meetingArea, DriveInviteMeetingArea.oldPort);
+    expect(sharedInvite!.draft.meetingArea, DriveInviteMeetingArea.oldPort);
   });
 
   testWidgets('dismisses without returning a draft', (tester) async {
-    DriveInviteDraft? returnedDraft = DriveInviteDraft.forLanguage(
-      AppLanguage.english,
-    );
+    RouteInvitePreviewResult? returnedInvite;
     await _pumpLauncher(
       tester,
       onOpen: () async {
-        returnedDraft = await showRouteInvitePreviewSheet(
+        returnedInvite = await showRouteInvitePreviewSheet(
           tester.element(find.byType(ElevatedButton)),
           route: _route,
           language: AppLanguage.english,
+          cardExporter: (_) async =>
+              Uint8List.fromList(const [137, 80, 78, 71]),
         );
       },
     );
@@ -118,7 +134,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('dismiss-invite-preview')));
     await tester.pumpAndSettle();
 
-    expect(returnedDraft, isNull);
+    expect(returnedInvite, isNull);
     expect(
       find.byKey(const ValueKey('route-invite-preview-sheet')),
       findsNothing,

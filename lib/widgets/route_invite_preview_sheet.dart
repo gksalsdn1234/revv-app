@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../core/app_language.dart';
@@ -8,33 +10,53 @@ import '../ui/app_copy.dart';
 import '../ui/route_share_card_content.dart';
 import '../ui/route_share_card_widget.dart';
 
+typedef RouteInviteCardExporter =
+    Future<Uint8List> Function(GlobalKey repaintKey);
+
+/// The preview's approved draft and its matching full-resolution card.
+///
+/// Keeping the bytes alongside the submitted draft ensures the user reviews the
+/// exact visual attachment that the route-detail flow will deliver.
+class RouteInvitePreviewResult {
+  final DriveInviteDraft draft;
+  final Uint8List cardPng;
+
+  const RouteInvitePreviewResult({required this.draft, required this.cardPng});
+}
+
 /// Opens the sender-only check before an invite leaves the device.
 ///
-/// The returned draft is deliberately narrow: it contains only the default
-/// schedule and one optional, pre-approved meeting area. Delivery stays with
-/// the route-detail flow so it can later attach the rendered card without
-/// changing this UI contract.
-Future<DriveInviteDraft?> showRouteInvitePreviewSheet(
+/// The returned result contains a deliberately narrow draft plus the
+/// full-resolution card rendered from it. Delivery stays with the route-detail
+/// flow, which can attach that already-reviewed card without route metadata.
+Future<RouteInvitePreviewResult?> showRouteInvitePreviewSheet(
   BuildContext context, {
   required RevvRoute route,
   required AppLanguage language,
+  RouteInviteCardExporter cardExporter = exportRouteShareCardPngBytes,
 }) {
-  return showModalBottomSheet<DriveInviteDraft>(
+  return showModalBottomSheet<RouteInvitePreviewResult>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => RouteInvitePreviewSheet(route: route, language: language),
+    builder: (_) => RouteInvitePreviewSheet(
+      route: route,
+      language: language,
+      cardExporter: cardExporter,
+    ),
   );
 }
 
 class RouteInvitePreviewSheet extends StatefulWidget {
   final RevvRoute route;
   final AppLanguage language;
+  final RouteInviteCardExporter cardExporter;
 
   const RouteInvitePreviewSheet({
     super.key,
     required this.route,
     required this.language,
+    required this.cardExporter,
   });
 
   @override
@@ -44,11 +66,32 @@ class RouteInvitePreviewSheet extends StatefulWidget {
 
 class _RouteInvitePreviewSheetState extends State<RouteInvitePreviewSheet> {
   late DriveInviteDraft _draft;
+  final GlobalKey _repaintKey = GlobalKey();
+  bool _exporting = false;
 
   @override
   void initState() {
     super.initState();
     _draft = DriveInviteDraft.forLanguage(widget.language);
+  }
+
+  Future<void> _shareDraft() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final cardPng = await widget.cardExporter(_repaintKey);
+      if (!mounted) return;
+      Navigator.of(
+        context,
+      ).pop(RouteInvitePreviewResult(draft: _draft, cardPng: cardPng));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_exportFailureLabel(widget.language))),
+      );
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 
   @override
@@ -135,15 +178,23 @@ class _RouteInvitePreviewSheetState extends State<RouteInvitePreviewSheet> {
                 ),
                 const SizedBox(height: 14),
                 Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 194),
-                    child: Semantics(
-                      label: _cardPreviewLabel(widget.language),
-                      child: ExcludeSemantics(
-                        child: SizedBox(
-                          key: const ValueKey('route-invite-card-preview'),
-                          width: 194,
-                          child: RouteShareCardWidget(content: content),
+                  child: Semantics(
+                    label: _cardPreviewLabel(widget.language),
+                    child: ExcludeSemantics(
+                      child: SizedBox(
+                        key: const ValueKey('route-invite-card-preview'),
+                        width: 194,
+                        height: 242.5,
+                        child: FittedBox(
+                          fit: BoxFit.contain,
+                          child: SizedBox(
+                            width: RouteShareCardWidget.logicalWidth,
+                            height: RouteShareCardWidget.logicalHeight,
+                            child: RepaintBoundary(
+                              key: _repaintKey,
+                              child: RouteShareCardWidget(content: content),
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -208,8 +259,14 @@ class _RouteInvitePreviewSheetState extends State<RouteInvitePreviewSheet> {
                   width: double.infinity,
                   child: FilledButton.icon(
                     key: const ValueKey('share-invite-draft'),
-                    onPressed: () => Navigator.of(context).pop(_draft),
-                    icon: const Icon(Icons.ios_share_rounded, size: 18),
+                    onPressed: _exporting ? null : _shareDraft,
+                    icon: _exporting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.ios_share_rounded, size: 18),
                     label: Text(
                       _shareLabel(widget.language),
                       style: AppText.body(
@@ -277,6 +334,13 @@ String _shareLabel(AppLanguage language) => AppCopy.t(
   ko: '초대 공유하기',
   en: 'Share invite',
   fr: 'Partager l’invitation',
+);
+
+String _exportFailureLabel(AppLanguage language) => AppCopy.t(
+  language,
+  ko: '공유 카드를 만들지 못했어요. 다시 시도해 주세요.',
+  en: 'Could not prepare the invite card. Try again.',
+  fr: 'Impossible de préparer la carte. Réessayez.',
 );
 
 String _dismissLabel(AppLanguage language) => AppCopy.t(
