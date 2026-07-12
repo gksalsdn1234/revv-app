@@ -1,8 +1,12 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_route_detail_screen.dart';
+import 'package:revv_app/services/route_invite_native_share.dart';
 import 'package:revv_app/services/settings_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -189,6 +193,222 @@ void main() {
     );
   });
 
+  testWidgets(
+    'route detail checks an invite draft before sharing it through the presenter',
+    (tester) async {
+      RouteInviteSharePayload? sharedInvite;
+      final settings = SettingsService();
+
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ChangeNotifierProvider<SettingsService>.value(
+          value: settings,
+          child: MaterialApp(
+            home: LeanRouteDetailScreen(
+              route: _route(
+                sharpCurveCount: 7,
+                roadNames: const ['Private Road'],
+                nearbyPoiNames: const ['Private POI'],
+              ),
+              routeInviteCardExporter: (_) async =>
+                  Uint8List.fromList(const [137, 80, 78, 71]),
+              routeInvitePresenter: (invite) async {
+                sharedInvite = invite;
+                return RouteInviteShareOutcome.shared;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Share route'));
+      await tester.pumpAndSettle();
+
+      expect(sharedInvite, isNull);
+      expect(find.text('Share invite'), findsOneWidget);
+      expect(find.text('This weekend · time TBD'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey('invite-meeting-area-selector')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Near Old Port').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('share-invite-draft')));
+      await tester.pumpAndSettle();
+
+      expect(sharedInvite!.text, contains('Open in Google Maps:'));
+      expect(sharedInvite!.text, contains('REVV route'));
+      expect(sharedInvite!.text, isNot(contains('Near Old Port')));
+      expect(sharedInvite!.text, isNot(contains('Detail Route')));
+      expect(sharedInvite!.text, isNot(contains('Private Road')));
+      expect(sharedInvite!.text, isNot(contains('Private POI')));
+      expect(sharedInvite!.cardPng, orderedEquals(const [137, 80, 78, 71]));
+      final mapsMatch = RegExp(
+        r'https://[^\s]+',
+      ).firstMatch(sharedInvite!.text);
+      expect(mapsMatch, isNotNull);
+      final mapsUri = Uri.parse(mapsMatch!.group(0)!);
+      expect(mapsUri.host, 'www.google.com');
+      expect(mapsUri.path, '/maps/dir/');
+      expect(
+        mapsUri.queryParameters.values.join('|'),
+        isNot(contains('Near Old Port')),
+      );
+      expect(
+        sharedInvite!.text.substring(0, mapsMatch.start),
+        isNot(contains('45.000000')),
+      );
+      expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'route detail does not share when the invite preview is dismissed',
+    (tester) async {
+      var presenterCalls = 0;
+      final settings = SettingsService();
+
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ChangeNotifierProvider<SettingsService>.value(
+          value: settings,
+          child: MaterialApp(
+            home: LeanRouteDetailScreen(
+              route: _route(sharpCurveCount: 7),
+              routeInviteCardExporter: (_) async =>
+                  Uint8List.fromList(const [137, 80, 78, 71]),
+              routeInvitePresenter: (_) async {
+                presenterCalls++;
+                return RouteInviteShareOutcome.shared;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Share route'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('dismiss-invite-preview')));
+      await tester.pumpAndSettle();
+
+      expect(presenterCalls, 0);
+      expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'route detail keeps the drive in place when invite sharing fails',
+    (tester) async {
+      final settings = SettingsService();
+
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ChangeNotifierProvider<SettingsService>.value(
+          value: settings,
+          child: MaterialApp(
+            home: LeanRouteDetailScreen(
+              route: _route(sharpCurveCount: 7),
+              routeInviteCardExporter: (_) async =>
+                  Uint8List.fromList(const [137, 80, 78, 71]),
+              routeInvitePresenter: (_) async => throw StateError('share'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Share route'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('share-invite-draft')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Could not share this route. Try again.'),
+        findsOneWidget,
+      );
+      expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
+    },
+  );
+
+  testWidgets('route detail explains when native invite sharing is cancelled', (
+    tester,
+  ) async {
+    final settings = SettingsService();
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<SettingsService>.value(
+        value: settings,
+        child: MaterialApp(
+          home: LeanRouteDetailScreen(
+            route: _route(),
+            routeInviteCardExporter: (_) async =>
+                Uint8List.fromList(const [137, 80, 78, 71]),
+            routeInvitePresenter: (_) async =>
+                RouteInviteShareOutcome.cancelled,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Share route'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('share-invite-draft')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Invite sharing was cancelled.'), findsOneWidget);
+    expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
+  });
+
+  testWidgets('route detail disables a second invite while one is pending', (
+    tester,
+  ) async {
+    final shareCompleter = Completer<RouteInviteShareOutcome>();
+    var presenterCalls = 0;
+    final settings = SettingsService();
+
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<SettingsService>.value(
+        value: settings,
+        child: MaterialApp(
+          home: LeanRouteDetailScreen(
+            route: _route(),
+            routeInviteCardExporter: (_) async =>
+                Uint8List.fromList(const [137, 80, 78, 71]),
+            routeInvitePresenter: (_) {
+              presenterCalls++;
+              return shareCompleter.future;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Share route'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('share-invite-draft')));
+    await tester.pump();
+
+    expect(presenterCalls, 1);
+    expect(
+      tester.widget<TextButton>(find.byType(TextButton)).onPressed,
+      isNull,
+    );
+
+    shareCompleter.complete(RouteInviteShareOutcome.shared);
+    await tester.pumpAndSettle();
+  });
   testWidgets('route detail hides enrichment sections when data is empty', (
     tester,
   ) async {

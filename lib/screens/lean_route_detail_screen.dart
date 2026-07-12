@@ -6,6 +6,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/revv_route.dart';
 import '../core/app_language.dart';
+import '../services/external_nav.dart';
+import '../services/route_invite_native_share.dart';
 import '../services/route_loading_policy.dart';
 import '../services/settings_service.dart';
 import '../theme/colors.dart';
@@ -15,11 +17,17 @@ import '../ui/copilot_briefing.dart';
 import '../ui/route_detail_copy.dart';
 import '../ui/route_drive_cue.dart';
 import '../ui/route_quality_profile.dart';
+import '../ui/route_share_card_content.dart';
+import '../ui/route_share_card_widget.dart';
 import '../widgets/copilot_start_sheet.dart';
+import '../widgets/route_invite_preview_sheet.dart';
 import 'lean_drive_screen.dart';
 
 typedef RouteDetailUrlLauncher =
     Future<bool> Function(Uri url, {LaunchMode mode});
+
+typedef RouteInvitePresenter =
+    Future<RouteInviteShareOutcome> Function(RouteInviteSharePayload payload);
 
 class StreetViewTarget {
   final LatLng point;
@@ -56,24 +64,44 @@ Uri buildStreetViewWebUri(StreetViewTarget target) {
   });
 }
 
-class LeanRouteDetailScreen extends StatelessWidget {
+Future<RouteInviteShareOutcome> _presentRouteInvite(
+  RouteInviteSharePayload payload,
+) {
+  return RouteInviteNativeShare().share(payload);
+}
+
+class LeanRouteDetailScreen extends StatefulWidget {
   final RevvRoute route;
   final RouteDetailUrlLauncher? urlLauncher;
+  final RouteInvitePresenter routeInvitePresenter;
+  final RouteInviteCardExporter routeInviteCardExporter;
 
   const LeanRouteDetailScreen({
     super.key,
     required this.route,
     this.urlLauncher,
+    this.routeInvitePresenter = _presentRouteInvite,
+    this.routeInviteCardExporter = exportRouteShareCardPngBytes,
   });
 
+  @override
+  State<LeanRouteDetailScreen> createState() => _LeanRouteDetailScreenState();
+}
+
+class _LeanRouteDetailScreenState extends State<LeanRouteDetailScreen> {
+  bool _sharingInvite = false;
+
   Future<void> _startDrive(BuildContext context) async {
-    final startChoice = await showCopilotStartSheet(context, route: route);
+    final startChoice = await showCopilotStartSheet(
+      context,
+      route: widget.route,
+    );
     if (!context.mounted || startChoice == null) return;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (_) => LeanDriveScreen(
-          route: route,
+          route: widget.route,
           simulated: startChoice == CopilotStartChoice.simulate,
         ),
       ),
@@ -82,8 +110,8 @@ class LeanRouteDetailScreen extends StatelessWidget {
 
   Future<void> _openStreetView(BuildContext context) async {
     final language = context.read<SettingsService>().appLanguage;
-    final target = streetViewTargetForRoute(route);
-    final launcher = urlLauncher ?? launchUrl;
+    final target = streetViewTargetForRoute(widget.route);
+    final launcher = widget.urlLauncher ?? launchUrl;
     var launched = false;
     try {
       launched = await launcher(
@@ -114,8 +142,66 @@ class LeanRouteDetailScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _shareRoute(BuildContext context, AppLanguage language) async {
+    if (_sharingInvite) return;
+    setState(() => _sharingInvite = true);
+    try {
+      final preview = await showRouteInvitePreviewSheet(
+        context,
+        route: widget.route,
+        language: language,
+        cardExporter: widget.routeInviteCardExporter,
+      );
+      if (!context.mounted || preview == null) return;
+
+      final outcome = await widget.routeInvitePresenter(
+        RouteInviteSharePayload(
+          text: _buildRouteInviteText(widget.route, preview.draft, language),
+          cardPng: preview.cardPng,
+        ),
+      );
+      if (!context.mounted || outcome == RouteInviteShareOutcome.shared) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            outcome == RouteInviteShareOutcome.cancelled
+                ? AppCopy.t(
+                    language,
+                    ko: '초대 공유를 취소했어요.',
+                    en: 'Invite sharing was cancelled.',
+                    fr: 'Partage de l’invitation annulé.',
+                  )
+                : AppCopy.t(
+                    language,
+                    ko: '이 기기에서는 초대를 공유할 수 없어요.',
+                    en: 'Invite sharing is unavailable on this device.',
+                    fr: 'Le partage de l’invitation n’est pas disponible sur cet appareil.',
+                  ),
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppCopy.t(
+              language,
+              ko: '루트를 공유하지 못했어요. 다시 시도해 주세요.',
+              en: 'Could not share this route. Try again.',
+              fr: 'Impossible de partager cette route. Réessayez.',
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _sharingInvite = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final route = widget.route;
     final language = context.watch<SettingsService>().appLanguage;
     final copy = RouteDetailCopy.fromRoute(
       route,
@@ -171,6 +257,49 @@ class LeanRouteDetailScreen extends StatelessWidget {
                                 size: 11,
                                 color: AppColors.primaryContainer,
                                 letterSpacing: 2.0,
+                              ),
+                            ),
+                            const Spacer(),
+                            Tooltip(
+                              message: AppCopy.t(
+                                language,
+                                ko: '루트 공유',
+                                en: 'Share route',
+                                fr: 'Partager la route',
+                              ),
+                              child: TextButton.icon(
+                                onPressed: _sharingInvite
+                                    ? null
+                                    : () => _shareRoute(context, language),
+                                icon: const Icon(
+                                  Icons.ios_share_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  AppCopy.t(
+                                    language,
+                                    ko: '초대',
+                                    en: 'Invite',
+                                    fr: 'Inviter',
+                                  ),
+                                  style: AppText.mono(
+                                    size: 10,
+                                    weight: FontWeight.w800,
+                                    color: AppColors.ink,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppColors.ink,
+                                  backgroundColor: AppColors.creamMuted,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 12,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -1753,6 +1882,52 @@ double _bearingDegrees(LatLng from, LatLng to) {
       math.cos(fromLat) * math.sin(toLat) -
       math.sin(fromLat) * math.cos(toLat) * math.cos(deltaLng);
   return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
+}
+
+String _buildRouteInviteText(
+  RevvRoute route,
+  DriveInviteDraft draft,
+  AppLanguage language,
+) {
+  // Route geometry is allowed only in the navigation URI below. The public
+  // invitation copy uses the card-content allowlist and never includes the
+  // optional meeting area, raw route name, road, POI, or telemetry fields.
+  final content = buildRouteShareCardContent(
+    route: route,
+    draft: draft,
+    language: language,
+  );
+  final details = [
+    content.distanceLabel,
+    content.durationLabel,
+    content.schedule,
+  ].join(' · ');
+  final mapsLabel = AppCopy.t(
+    language,
+    ko: 'Google Maps에서 열기',
+    en: 'Open in Google Maps',
+    fr: 'Ouvrir dans Google Maps',
+  );
+  return '${content.headline}\n\n${content.routeName}\n$details\n\n$mapsLabel:\n${_routeInviteNavigationUri(route)}\n\n${content.footer}';
+}
+
+Uri _routeInviteNavigationUri(RevvRoute route) {
+  // This is the approved, navigation-only geometry exception. In particular,
+  // meeting areas are not encoded into the Google Maps URL.
+  final points = selectRouteHandoffPoints(route.nodes);
+  final origin = points.isEmpty ? route.centerPoint : points.first;
+  final destination = points.length < 2 ? route.centerPoint : points.last;
+  return Uri.https('www.google.com', '/maps/dir/', {
+    'api': '1',
+    'origin': googleMapsCoord(origin),
+    'destination': googleMapsCoord(destination),
+    if (points.length > 2)
+      'waypoints': points
+          .sublist(1, points.length - 1)
+          .map(googleMapsCoord)
+          .join('|'),
+    'travelmode': 'driving',
+  });
 }
 
 String? _cautionBody(RouteDetailCopy copy) {
