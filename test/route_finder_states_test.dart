@@ -1054,7 +1054,164 @@ void main() {
     expect(find.textContaining('추천'), findsOneWidget);
     expect(find.text('Ridge Sweep 45분'), findsOneWidget);
   });
+
+  Future<_QuietRouteService> pumpRegionSwitcherFinder(
+    WidgetTester tester, {
+    SupabaseService? supabase,
+  }) async {
+    await useTallSurface(tester);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final route = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
+    final routeService = _QuietRouteService()
+      ..routes = [route]
+      ..mapVisualRoutes = [route];
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: supabase ?? SupabaseService(),
+          ),
+        ],
+        child: MaterialApp(
+          home: LeanRouteFinderScreen(
+            planner: _FinderPlanner(route),
+            placeSearch: _FakePlaceSearch(const []),
+            recommendationLogService: _FakeRecommendationLogService(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    return routeService;
+  }
+
+  test('search area offer requires a 30km camera drift', () {
+    const anchor = LatLng(45.5017, -73.5673);
+    expect(shouldOfferSearchArea(null, anchor), isFalse);
+    expect(shouldOfferSearchArea(anchor, null), isFalse);
+    expect(
+      shouldOfferSearchArea(anchor, const LatLng(45.6017, -73.5673)),
+      isFalse, // ~11km
+    );
+    expect(
+      shouldOfferSearchArea(anchor, const LatLng(45.9017, -73.5673)),
+      isTrue, // ~44km
+    );
+  });
+
+  testWidgets('camera drift past 30km reveals search-area pill and searches', (
+    tester,
+  ) async {
+    final routeService = await pumpRegionSwitcherFinder(tester);
+    final baseline = routeService.prefetched.length;
+
+    // 지역 점프로 마지막 검색 중심을 만든다.
+    await tester.tap(find.byKey(const ValueKey('finder-region-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Toronto'));
+    await tester.pumpAndSettle();
+    expect(routeService.prefetched, hasLength(baseline + 1));
+    expect(
+      find.byKey(const ValueKey('finder-search-area-button')),
+      findsNothing,
+    );
+
+    final map = tester.widget<MapWidget>(find.byType(MapWidget));
+    map.onCameraViewportChanged?.call(
+      const RouteMapViewport(center: LatLng(44.15, -79.3832), zoom: 11),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('finder-search-area-button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('finder-search-area-button')));
+    await tester.pumpAndSettle();
+    expect(routeService.prefetched, hasLength(baseline + 2));
+    expect(routeService.prefetched.last.lat, closeTo(44.15, 0.001));
+    expect(
+      find.byKey(const ValueKey('finder-search-area-button')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('camera drift under 30km keeps search-area pill hidden', (
+    tester,
+  ) async {
+    await pumpRegionSwitcherFinder(tester);
+
+    await tester.tap(find.byKey(const ValueKey('finder-region-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Toronto'));
+    await tester.pumpAndSettle();
+
+    final map = tester.widget<MapWidget>(find.byType(MapWidget));
+    map.onCameraViewportChanged?.call(
+      const RouteMapViewport(center: LatLng(43.75, -79.3832), zoom: 11),
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('finder-search-area-button')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('region chip opens presets including Quebec City', (
+    tester,
+  ) async {
+    await pumpRegionSwitcherFinder(tester);
+
+    expect(find.byKey(const ValueKey('finder-region-chip')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('finder-region-chip')));
+    await tester.pumpAndSettle();
+    expect(find.text('지역 프리셋'), findsOneWidget);
+    expect(find.text('Quebec City'), findsOneWidget);
+    expect(find.text('내 지역이 없나요?'), findsOneWidget);
+  });
+
+  testWidgets('preset sheet footer invokes the region request flow', (
+    tester,
+  ) async {
+    await pumpRegionSwitcherFinder(tester);
+
+    await tester.tap(find.byKey(const ValueKey('finder-region-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('내 지역이 없나요?'));
+    await tester.pumpAndSettle();
+
+    // Supabase 미설정 환경이라 요청은 실패 경로로 빠진다 — 실패 스낵바가
+    // 뜨는 것 자체가 footer가 지역 요청 플로우를 호출했다는 증거다.
+    expect(find.textContaining('알림 신청을 저장하지 못했어요'), findsOneWidget);
+  });
 }
+
+class _QuietRouteService extends RouteService {
+  final List<LatLng> prefetched = [];
+
+  @override
+  Future<void> prefetchRouteField(
+    double lat,
+    double lng, {
+    bool forceRefresh = false,
+  }) async {
+    prefetched.add(LatLng(lat, lng));
+  }
+}
+
 
 
 class _OutsideCoverageLocationService extends LocationService {

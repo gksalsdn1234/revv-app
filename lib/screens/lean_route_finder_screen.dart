@@ -187,12 +187,30 @@ enum RouteFinderStateKind {
   cachedRoutes,
 }
 
+/// 카메라가 마지막 검색 중심에서 이만큼 벗어나면 "이 지역에서 찾기"를 띄운다.
+const double searchAreaOfferThresholdKm = 30.0;
+
+/// 이 거리 안에 프리셋 도시가 있으면 지역 칩에 그 도시명을 쓴다.
+const double regionChipMatchRadiusKm = 150.0;
+
+bool shouldOfferSearchArea(LatLng? lastSearchCenter, LatLng? cameraCenter) {
+  if (lastSearchCenter == null || cameraCenter == null) return false;
+  return RevvRoute.haversineKm(lastSearchCenter, cameraCenter) >=
+      searchAreaOfferThresholdKm;
+}
+
 const _routeRegionPresets = [
   _RouteRegion(
     'montreal',
     'Montreal',
     '45.5017, -73.5673',
     LatLng(45.5017, -73.5673),
+  ),
+  _RouteRegion(
+    'quebec_city',
+    'Quebec City',
+    '46.8139, -71.2080',
+    LatLng(46.8139, -71.2080),
   ),
   _RouteRegion(
     'toronto',
@@ -239,6 +257,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   int _mapFocusSignal = 0;
   _RouteLens _lens = _RouteLens.all;
   LatLng? _mapCenterPoint;
+  LatLng? _lastSearchCenter;
+  bool _searchAreaShown = false;
   String? _localStatusMessage;
   double _mapZoom = 11.0;
   final bool _curveRoadView = false;
@@ -345,6 +365,30 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     await _fetchAtPoint(point, forceRefresh: true, regionKey: null);
   }
 
+  Future<void> _searchThisArea() async {
+    setState(() => _searchAreaShown = false);
+    await _searchHere();
+  }
+
+  String _currentRegionLabel(AppLanguage language) {
+    final anchor = _mapCenterPoint ?? _lastSearchCenter;
+    if (anchor != null) {
+      _RouteRegion? nearest;
+      var nearestKm = double.infinity;
+      for (final region in _routeRegionPresets) {
+        final km = RevvRoute.haversineKm(anchor, region.point);
+        if (km < nearestKm) {
+          nearestKm = km;
+          nearest = region;
+        }
+      }
+      if (nearest != null && nearestKm <= regionChipMatchRadiusKm) {
+        return nearest.title;
+      }
+    }
+    return AppCopy.t(language, ko: '내 위치', en: 'My area', fr: 'Ma zone');
+  }
+
   Future<void> _searchCurrentLocation() async {
     final point = await _resolveSearchPoint();
     if (!mounted || point == null) return;
@@ -395,6 +439,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         _mapCenterPoint = point;
         _mapZoom = 11.0;
         _coverageRequestPoint = point;
+        _lastSearchCenter = point;
+        _searchAreaShown = false;
       });
       return;
     }
@@ -409,6 +455,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _localStatusMessage = null;
       _selectedRegionKey = regionKey;
       _coverageRequestPoint = null;
+      _lastSearchCenter = point;
+      _searchAreaShown = false;
       if (regionKey != null) {
         _mapCenterPoint = point;
         _mapZoom = 11.0;
@@ -477,9 +525,47 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
               _routeRegionPresets[i].subtitle,
             ),
         ],
+        footer: _RouteOption(
+          -1,
+          AppCopy.t(
+            language,
+            ko: '내 지역이 없나요?',
+            en: "Don't see your area?",
+            fr: 'Votre région n’y est pas ?',
+          ),
+          AppCopy.t(
+            language,
+            ko: '열리면 알려드릴게요',
+            en: 'Get notified when it opens',
+            fr: 'Soyez averti à l’ouverture',
+          ),
+        ),
       ),
     );
     if (!mounted || selected == null) return;
+    if (selected == -1) {
+      final anchor = _mapCenterPoint ?? _lastSearchCenter;
+      if (anchor == null) return;
+      final grid = regionRequestGridFor(anchor);
+      await _requestCoverageNotification(grid);
+      if (!mounted) return;
+      final settings = context.read<SettingsService>();
+      if (settings.hasRequestedRegion(grid.gridKey)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppCopy.t(
+                settings.appLanguage,
+                ko: '이 지역이 열리면 알려드릴게요.',
+                en: "We'll let you know when this area opens.",
+                fr: 'Nous vous avertirons à l’ouverture de cette zone.',
+              ),
+            ),
+          ),
+        );
+      }
+      return;
+    }
     await _selectRegionPresetValue(selected);
   }
 
@@ -1031,7 +1117,13 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     _cameraDebounce?.cancel();
     _cameraDebounce = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
-      if (shouldRefreshMarkers) setState(() {});
+      final offerSearchArea = shouldOfferSearchArea(
+        _lastSearchCenter,
+        _mapCenterPoint,
+      );
+      if (shouldRefreshMarkers || offerSearchArea != _searchAreaShown) {
+        setState(() => _searchAreaShown = offerSearchArea);
+      }
     });
   }
 
@@ -1282,6 +1374,27 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                     ),
                     // 필터 스트립 제거 (민우 2026-07-10): 지도는 셀렉터에만
                     // 집중한다. 예산은 여정 시트의 옵션 칩이 담당.
+                    if (!showingJourney) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          _RegionJumpChip(
+                            key: const ValueKey('finder-region-chip'),
+                            label: _currentRegionLabel(language),
+                            onTap: () => unawaited(_selectRegionPreset()),
+                          ),
+                          const Spacer(),
+                          if (_searchAreaShown)
+                            _SearchAreaPill(
+                              key: const ValueKey(
+                                'finder-search-area-button',
+                              ),
+                              language: language,
+                              onTap: () => unawaited(_searchThisArea()),
+                            ),
+                        ],
+                      ),
+                    ],
                     if (_chainMode) ...[
                       const SizedBox(height: 8),
                       _RouteChainBar(
@@ -2394,15 +2507,118 @@ class _RouteRegion {
   const _RouteRegion(this.key, this.title, this.subtitle, this.point);
 }
 
+class _RegionJumpChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _RegionJumpChip({super.key, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 44),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.surface.withValues(alpha: 0.86),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: AppColors.outlineVariant.withValues(alpha: 0.32),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.location_on_rounded,
+              size: 16,
+              color: AppColors.textSecondary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: AppText.body(
+                size: 13,
+                weight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(width: 3),
+            const Icon(
+              Icons.expand_more_rounded,
+              size: 17,
+              color: AppColors.textSecondary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchAreaPill extends StatelessWidget {
+  final AppLanguage language;
+  final VoidCallback onTap;
+
+  const _SearchAreaPill({
+    super.key,
+    required this.language,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 44),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.primaryContainer.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(
+            color: AppColors.primaryContainer.withValues(alpha: 0.6),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.search_rounded, size: 16, color: Colors.black),
+            const SizedBox(width: 6),
+            Text(
+              AppCopy.t(
+                language,
+                ko: '이 지역에서 찾기',
+                en: 'Search this area',
+                fr: 'Chercher dans cette zone',
+              ),
+              style: AppText.body(
+                size: 13,
+                weight: FontWeight.w800,
+                color: Colors.black,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _RouteOptionSheet extends StatelessWidget {
   final String title;
   final int selectedValue;
   final List<_RouteOption> options;
+  final _RouteOption? footer;
 
   const _RouteOptionSheet({
     required this.title,
     required this.selectedValue,
     required this.options,
+    this.footer,
   });
 
   @override
@@ -2431,6 +2647,8 @@ class _RouteOptionSheet extends StatelessWidget {
                   option: option,
                   selected: option.value == selectedValue,
                 ),
+              if (footer != null)
+                _RouteOptionTile(option: footer!, selected: false),
             ],
           ),
         ),
