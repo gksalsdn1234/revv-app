@@ -88,6 +88,34 @@ void main() {
     }
   }
 
+  test('route service status keys localize without Korean fallback', () {
+    final routeLoadFailureTitle = routeFinderStatusTitleFor(
+      '루트 로드 실패',
+      AppLanguage.english,
+    );
+    final routeLoadFailureBody = routeFinderStatusBodyFor(
+      '루트 로드 실패',
+      AppLanguage.french,
+    );
+    final unknownEnglish = routeFinderStatusTitleFor(
+      '알 수 없는 상태',
+      AppLanguage.english,
+    );
+    final unknownFrench = routeFinderStatusBodyFor(
+      '알 수 없는 상태',
+      AppLanguage.french,
+    );
+
+    expect(routeLoadFailureTitle, 'Route load failed');
+    expect(routeLoadFailureBody, 'Vérifiez votre connexion, puis réessayez.');
+    expect(unknownEnglish, 'Route status is unavailable.');
+    expect(unknownFrench, 'Route status is unavailable. Try again.');
+    expect(routeLoadFailureTitle, isNot(contains(RegExp(r'[가-힣]'))));
+    expect(routeLoadFailureBody, isNot(contains(RegExp(r'[가-힣]'))));
+    expect(unknownEnglish, isNot(contains(RegExp(r'[가-힣]'))));
+    expect(unknownFrench, isNot(contains(RegExp(r'[가-힣]'))));
+  });
+
   testWidgets('temporary location denial renders retry permission action', (
     tester,
   ) async {

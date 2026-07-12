@@ -225,15 +225,6 @@ class LeanRouteDetailScreen extends StatelessWidget {
                           turnPlan: turnPlan,
                           language: language,
                         ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Photo: Wikimedia Commons',
-                          style: AppText.mono(
-                            size: 10,
-                            weight: FontWeight.w800,
-                            color: AppColors.stone,
-                          ),
-                        ),
                         SizedBox(
                           height: MediaQuery.paddingOf(context).bottom + 86,
                         ),

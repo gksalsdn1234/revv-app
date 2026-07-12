@@ -492,6 +492,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     );
   }
 
+  Future<void> _browseMontreal() => _selectRegionPresetValue(0);
+
   Future<void> _openDestinationSearch() async {
     _dismissRoutePreview();
     final language = context.read<SettingsService>().appLanguage;
@@ -575,7 +577,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         unawaited(_logShownOnce(mode: 'destination', options: options));
         _snapSheetOpen();
       }
-    } catch (_) {
+    } on TimeoutException {
       if (!mounted) return;
       setState(() {
         _localStatusMessage = AppCopy.t(
@@ -583,6 +585,16 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
           ko: '여정 계산이 오래 걸려 중단했어요. 다시 시도해 주세요.',
           en: 'Planning took too long. Try again.',
           fr: 'Le calcul a pris trop de temps. Réessayez.',
+        );
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _localStatusMessage = AppCopy.t(
+          language,
+          ko: '여정을 불러오지 못했어요. 네트워크를 확인해 주세요.',
+          en: 'Could not load the journey. Check your network connection.',
+          fr: 'Impossible de charger le trajet. Vérifiez votre connexion réseau.',
         );
       });
     } finally {
@@ -626,7 +638,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         unawaited(_logShownOnce(mode: 'free', freeRoamOptions: options));
         _snapSheetOpen();
       }
-    } catch (_) {
+    } on TimeoutException {
       if (!mounted) return;
       setState(() {
         _localStatusMessage = AppCopy.t(
@@ -634,6 +646,16 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
           ko: '여정 계산이 오래 걸려 중단했어요. 다시 시도해 주세요.',
           en: 'Planning took too long. Try again.',
           fr: 'Le calcul a pris trop de temps. Réessayez.',
+        );
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _localStatusMessage = AppCopy.t(
+          language,
+          ko: '여정을 불러오지 못했어요. 네트워크를 확인해 주세요.',
+          en: 'Could not load the journey. Check your network connection.',
+          fr: 'Impossible de charger le trajet. Vérifiez votre connexion réseau.',
         );
       });
     } finally {
@@ -921,6 +943,20 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     context.read<RouteService>().selectRoute(route);
   }
 
+  Future<void> _startPreviewDrive(RevvRoute route) async {
+    final startChoice = await showCopilotStartSheet(context, route: route);
+    if (!mounted || startChoice == null) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LeanDriveScreen(
+          route: route,
+          simulated: startChoice == CopilotStartChoice.simulate,
+        ),
+      ),
+    );
+  }
+
   void _dismissRoutePreview() {
     if (_previewRoute == null) return;
     setState(() => _previewRoute = null);
@@ -1105,16 +1141,13 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final coverageRequested =
         coverageGrid != null &&
         settings.hasRequestedRegion(coverageGrid.gridKey);
-    final localStatus = _localizedInlineStatus(_localStatusMessage, language);
+    final localStatus = _localStatusMessage;
     final cacheStatus = service.routeFieldFromCache
         ? _cacheInlineStatus(service, language)
         : null;
-    final serviceStatus = _localizedInlineStatus(
-      service.errorMessage ??
-          service.routeSuggestionMessage ??
-          service.backgroundStatusMessage,
-      language,
-    );
+    final serviceStatus = service.routeDataStatusTitle == null
+        ? null
+        : routeFinderStatusBodyFor(service.routeDataStatusTitle, language);
     final status = service.isLoading
         ? AppCopy.t(
             language,
@@ -1294,7 +1327,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                           requesting: _coverageRequestInProgress,
                           onRequest: () =>
                               _requestCoverageNotification(coverageGrid),
-                          onBrowseMontreal: _selectRegionPreset,
+                          onBrowseMontreal: _browseMontreal,
                         ),
                       ),
                     )
@@ -1324,35 +1357,42 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                   : noDestination
                   ? visibleRoutes.isEmpty
                         ? _LeanEmptyTicket(
-                            title: stateKind != null
-                          ? routeFinderStateTitle(stateKind, language)
-                          : emptyTitle,
-                            body: stateKind != null
-                          ? routeFinderStateBody(stateKind, language)
-                          : emptyBody,
-                            actionLabel: AppCopy.t(
-                              language,
-                              ko: '다시 찾기',
-                              en: 'Retry',
-                              fr: 'Réessayer',
-                            ),
-                            actionIcon: Icons.refresh_rounded,
-                            onAction: stateKind != null
-                          ? switch (stateKind) {
+                            title: stateKind == null
+                                ? emptyTitle
+                                : routeFinderStateTitle(stateKind, language),
+                            body: stateKind == null
+                                ? emptyBody
+                                : routeFinderStateBody(stateKind, language),
+                            actionLabel: stateKind == null
+                                ? AppCopy.t(
+                                    language,
+                                    ko: '다시 찾기',
+                                    en: 'Retry',
+                                    fr: 'Réessayer',
+                                  )
+                                : routeFinderStateActionLabel(
+                                    stateKind,
+                                    language,
+                                  ),
+                            actionIcon: stateKind == null
+                                ? Icons.refresh_rounded
+                                : routeFinderStateActionIcon(stateKind),
+                            onAction: stateKind == null
+                                ? _searchHere
+                                : switch (stateKind) {
                                     RouteFinderStateKind
                                         .temporaryLocationDenied =>
-                                _searchCurrentLocation,
+                                      _searchCurrentLocation,
                                     RouteFinderStateKind
                                         .permanentlyLocationDenied =>
-                                _openLocationSettings,
-                              RouteFinderStateKind.emptyRoutes =>
-                                _selectRegionPreset,
+                                      _openLocationSettings,
+                                    RouteFinderStateKind.emptyRoutes =>
+                                      _selectRegionPreset,
                                     RouteFinderStateKind.loadFailed =>
                                       _searchHere,
                                     RouteFinderStateKind.cachedRoutes =>
                                       _searchHere,
-                            }
-                          : _searchHere,
+                                  },
                           )
                         : _previewRoute != null
                         ? const SizedBox.shrink()
@@ -1396,6 +1436,17 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       emptyBody: stateKind != null
                           ? routeFinderStateBody(stateKind, language)
                           : emptyBody,
+                      emptyActionLabel: stateKind != null
+                          ? routeFinderStateActionLabel(stateKind, language)
+                          : AppCopy.t(
+                              language,
+                              ko: '다시 찾기',
+                              en: 'Retry',
+                              fr: 'Réessayer',
+                            ),
+                      emptyActionIcon: stateKind != null
+                          ? routeFinderStateActionIcon(stateKind)
+                          : Icons.refresh_rounded,
                       onEmptyAction: stateKind != null
                           ? switch (stateKind) {
                               RouteFinderStateKind.temporaryLocationDenied =>
@@ -1441,6 +1492,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       _previewRoute!.id,
                     ),
                     onDetails: () => _showRouteDetails(_previewRoute!),
+                    onStart: () => _startPreviewDrive(_previewRoute!),
                     onToggleChain: () => _toggleChainRoute(_previewRoute!),
                   ),
                 ),
@@ -1581,6 +1633,7 @@ class _RoutePreviewCard extends StatelessWidget {
   final bool driven;
   final bool chainSelected;
   final VoidCallback onDetails;
+  final VoidCallback onStart;
   final VoidCallback onToggleChain;
 
   const _RoutePreviewCard({
@@ -1589,6 +1642,7 @@ class _RoutePreviewCard extends StatelessWidget {
     required this.driven,
     required this.chainSelected,
     required this.onDetails,
+    required this.onStart,
     required this.onToggleChain,
   });
 
@@ -1602,93 +1656,116 @@ class _RoutePreviewCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 10, 10),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: InkWell(
-                onTap: onDetails,
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+            Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: onDetails,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (driven) ...[
-                            const Icon(
-                              Icons.check_circle_rounded,
-                              size: 15,
-                              color: AppColors.red,
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          Expanded(
-                            child: Text(
-                              routeDisplayName(route, language: language),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.body(
-                                size: 16,
-                                weight: FontWeight.w800,
-                                color: AppColors.textPrimary,
+                          Row(
+                            children: [
+                              if (driven) ...[
+                                const Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 15,
+                                  color: AppColors.red,
+                                ),
+                                const SizedBox(width: 6),
+                              ],
+                              Expanded(
+                                child: Text(
+                                  routeDisplayName(route, language: language),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppText.body(
+                                    size: 16,
+                                    weight: FontWeight.w800,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
                               ),
+                            ],
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            _routeListMeta(route, language),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppText.mono(
+                              size: 10,
+                              weight: FontWeight.w700,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            AppCopy.t(
+                              language,
+                              ko: '상세',
+                              en: 'Details',
+                              fr: 'Détails',
+                            ),
+                            style: AppText.label(
+                              size: 12,
+                              weight: FontWeight.w800,
+                              color: AppColors.red,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 5),
-                      Text(
-                        _routeListMeta(route, language),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppText.mono(
-                          size: 10,
-                          weight: FontWeight.w700,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        AppCopy.t(
-                          language,
-                          ko: '상세',
-                          en: 'Details',
-                          fr: 'Détails',
-                        ),
-                        style: AppText.label(
-                          size: 12,
-                          weight: FontWeight.w800,
-                          color: AppColors.red,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
+                IconButton(
+                  key: ValueKey('preview-chain-toggle-${route.id}'),
+                  tooltip: chainSelected
+                      ? AppCopy.t(
+                          language,
+                          ko: '이어달리기에서 빼기',
+                          en: 'Remove from chain',
+                          fr: 'Retirer de l’enchaînement',
+                        )
+                      : AppCopy.t(
+                          language,
+                          ko: '이어달리기 추가',
+                          en: 'Add to chain',
+                          fr: 'Ajouter à l’enchaînement',
+                        ),
+                  onPressed: onToggleChain,
+                  icon: Icon(
+                    chainSelected ? Icons.check_rounded : Icons.add_rounded,
+                    color: chainSelected
+                        ? AppColors.success
+                        : AppColors.textPrimary,
+                  ),
+                ),
+              ],
             ),
-            IconButton(
-              key: ValueKey('preview-chain-toggle-${route.id}'),
-              tooltip: chainSelected
-                  ? AppCopy.t(
-                      language,
-                      ko: '이어달리기에서 빼기',
-                      en: 'Remove from chain',
-                      fr: 'Retirer de l’enchaînement',
-                    )
-                  : AppCopy.t(
-                      language,
-                      ko: '이어달리기 추가',
-                      en: 'Add to chain',
-                      fr: 'Ajouter à l’enchaînement',
-                    ),
-              onPressed: onToggleChain,
-              icon: Icon(
-                chainSelected ? Icons.check_rounded : Icons.add_rounded,
-                color: chainSelected
-                    ? AppColors.success
-                    : AppColors.textPrimary,
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: FilledButton.icon(
+                key: ValueKey('preview-start-drive-${route.id}'),
+                onPressed: onStart,
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: Text(
+                  AppCopy.t(
+                    language,
+                    ko: '주행 시작',
+                    en: 'Start drive',
+                    fr: 'Démarrer',
+                  ),
+                ),
               ),
             ),
           ],
@@ -1929,6 +2006,8 @@ class _FinderRoutesSheet extends StatelessWidget {
   final bool planning;
   final String emptyTitle;
   final String emptyBody;
+  final String emptyActionLabel;
+  final IconData emptyActionIcon;
   final VoidCallback onEmptyAction;
   final VoidCallback? onFreeRoam;
   final Map<String, RevvRoute> chainSelection;
@@ -1942,6 +2021,8 @@ class _FinderRoutesSheet extends StatelessWidget {
     required this.planning,
     required this.emptyTitle,
     required this.emptyBody,
+    required this.emptyActionLabel,
+    required this.emptyActionIcon,
     required this.onEmptyAction,
     required this.onFreeRoam,
     required this.chainSelection,
@@ -1989,13 +2070,8 @@ class _FinderRoutesSheet extends StatelessWidget {
                 _LeanEmptyTicket(
                   title: emptyTitle,
                   body: emptyBody,
-                  actionLabel: AppCopy.t(
-                    language,
-                    ko: '다시 찾기',
-                    en: 'Retry',
-                    fr: 'Réessayer',
-                  ),
-                  actionIcon: Icons.refresh_rounded,
+                  actionLabel: emptyActionLabel,
+                  actionIcon: emptyActionIcon,
                   onAction: onEmptyAction,
                 )
               else ...[
@@ -3371,205 +3447,102 @@ String _cacheInlineStatus(RouteService service, AppLanguage language) {
 }
 
 String _emptyRouteBody(RouteService service, AppLanguage language) {
-  final base =
-      _localizedRouteStatusBody(service, language) ??
+  return _localizedRouteStatusBody(service, language) ??
       AppCopy.t(
         language,
         ko: '현재 위치와 연결 상태를 확인한 뒤 다시 시도해 주세요.',
         en: 'Check location and connection, then try again.',
         fr: 'Vérifiez la position et la connexion, puis réessayez.',
       );
-  if (service.lastCloudCandidateCount == 0 &&
-      service.lastFilteredRouteCount == 0) {
-    return base;
-  }
-  return AppCopy.t(
-    language,
-    ko: '$base · 원본 ${service.lastCloudCandidateCount}개 / 필터 ${service.lastFilteredRouteCount}개 / 추천 ${service.lastUsableCloudRouteCount}개',
-    en: '$base · raw ${service.lastCloudCandidateCount} / filtered ${service.lastFilteredRouteCount} / picks ${service.lastUsableCloudRouteCount}',
-    fr: '$base · brut ${service.lastCloudCandidateCount} / filtré ${service.lastFilteredRouteCount} / choix ${service.lastUsableCloudRouteCount}',
-  );
 }
 
-String? _localizedInlineStatus(String? raw, AppLanguage language) {
-  if (raw == null || raw.isEmpty) return raw;
-  if (language == AppLanguage.korean) return raw;
-  if (raw.contains('후보가 적어요') && raw.contains('필터')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Few picks. Try the broad filter.',
-      fr: 'Peu d’options. Essayez le filtre large.',
-    );
-  }
-  if (raw.contains('후보가 적어요')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Few picks. Move the map and reload this area.',
-      fr: 'Peu d’options. Déplacez la carte et rechargez la zone.',
-    );
-  }
-  if (raw.contains('루트 데이터를 연결') || raw.contains('클라우드 설정')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Route data connection needed.',
-      fr: 'Connexion aux données requise.',
-    );
-  }
-  if (raw.contains('네트워크')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Check your network connection.',
-      fr: 'Vérifiez la connexion réseau.',
-    );
-  }
-  if (raw.contains('위치')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Location permission or signal is needed.',
-      fr: 'Position ou autorisation requise.',
-    );
-  }
-  if (raw.contains('커브길') || raw.contains('루트')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Loading route field.',
-      fr: 'Chargement des routes.',
-    );
-  }
-  return raw;
+enum _RouteServiceStatusKey {
+  noCandidates,
+  picksRefreshed,
+  fieldLoading,
+  usingCache,
+  findingRoutes,
+  dataConnectionNeeded,
+  loadFailed,
+  routesReady,
+  noCurveRoads,
+  keepingCache,
+  fieldReady,
+  unknown,
 }
 
-String? _localizedRouteStatusTitle(RouteService service, AppLanguage language) {
-  final raw = service.routeDataStatusTitle;
-  if (raw == null || raw.isEmpty) return raw;
-  if (language == AppLanguage.korean) return raw;
-  return switch (raw) {
-    '루트 후보 없음' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'No route picks',
-      fr: 'Aucune option',
-    ),
-    '추천 후보 갱신' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Picks refreshed',
-      fr: 'Options actualisées',
-    ),
-    '커브길 필드 로딩 중' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Loading curve field',
-      fr: 'Chargement des routes',
-    ),
-    '캐시 사용 중' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Using cached routes',
-      fr: 'Routes en cache',
-    ),
-    '루트 탐색 중' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Finding routes',
-      fr: 'Recherche de routes',
-    ),
-    '루트 데이터 연결 필요' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Route data connection needed',
-      fr: 'Connexion aux données requise',
-    ),
-    '클라우드 설정 없음' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Route data connection needed',
-      fr: 'Connexion aux données requise',
-    ),
-    '루트 로드 실패' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Route load failed',
-      fr: 'Échec du chargement',
-    ),
-    '루트 준비 완료' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Routes ready',
-      fr: 'Routes prêtes',
-    ),
-    '커브길 없음' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'No curve roads',
-      fr: 'Aucune route sinueuse',
-    ),
-    '캐시 유지 중' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Keeping cached routes',
-      fr: 'Cache conservé',
-    ),
-    '커브길 준비 완료' => AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Curve field ready',
-      fr: 'Routes prêtes',
-    ),
-    _ => _localizedInlineStatus(raw, language),
+_RouteServiceStatusKey _routeServiceStatusKeyFor(String? title) {
+  return switch (title) {
+    '루트 후보 없음' => _RouteServiceStatusKey.noCandidates,
+    '추천 후보 갱신' => _RouteServiceStatusKey.picksRefreshed,
+    '커브길 필드 로딩 중' => _RouteServiceStatusKey.fieldLoading,
+    '캐시 사용 중' => _RouteServiceStatusKey.usingCache,
+    '루트 탐색 중' => _RouteServiceStatusKey.findingRoutes,
+    '루트 데이터 연결 필요' || '클라우드 설정 없음' =>
+      _RouteServiceStatusKey.dataConnectionNeeded,
+    '루트 로드 실패' => _RouteServiceStatusKey.loadFailed,
+    '루트 준비 완료' => _RouteServiceStatusKey.routesReady,
+    '커브길 없음' => _RouteServiceStatusKey.noCurveRoads,
+    '캐시 유지 중' => _RouteServiceStatusKey.keepingCache,
+    '커브길 준비 완료' => _RouteServiceStatusKey.fieldReady,
+    _ => _RouteServiceStatusKey.unknown,
   };
 }
 
+String routeFinderStatusTitleFor(String? title, AppLanguage language) {
+  return switch (_routeServiceStatusKeyFor(title)) {
+    _RouteServiceStatusKey.noCandidates =>
+      AppCopy.t(language, ko: '루트 후보 없음', en: 'No route picks', fr: 'Aucune option'),
+    _RouteServiceStatusKey.picksRefreshed =>
+      AppCopy.t(language, ko: '추천 후보 갱신', en: 'Picks refreshed', fr: 'Options actualisées'),
+    _RouteServiceStatusKey.fieldLoading =>
+      AppCopy.t(language, ko: '커브길 필드 로딩 중', en: 'Loading curve field', fr: 'Chargement des routes'),
+    _RouteServiceStatusKey.usingCache =>
+      AppCopy.t(language, ko: '캐시 사용 중', en: 'Using cached routes', fr: 'Routes en cache'),
+    _RouteServiceStatusKey.findingRoutes =>
+      AppCopy.t(language, ko: '루트 탐색 중', en: 'Finding routes', fr: 'Recherche de routes'),
+    _RouteServiceStatusKey.dataConnectionNeeded =>
+      AppCopy.t(language, ko: '루트 데이터 연결 필요', en: 'Route data connection needed', fr: 'Connexion aux données requise'),
+    _RouteServiceStatusKey.loadFailed =>
+      AppCopy.t(language, ko: '루트 로드 실패', en: 'Route load failed', fr: 'Échec du chargement'),
+    _RouteServiceStatusKey.routesReady =>
+      AppCopy.t(language, ko: '루트 준비 완료', en: 'Routes ready', fr: 'Routes prêtes'),
+    _RouteServiceStatusKey.noCurveRoads =>
+      AppCopy.t(language, ko: '커브길 없음', en: 'No curve roads', fr: 'Aucune route sinueuse'),
+    _RouteServiceStatusKey.keepingCache =>
+      AppCopy.t(language, ko: '캐시 유지 중', en: 'Keeping cached routes', fr: 'Cache conservé'),
+    _RouteServiceStatusKey.fieldReady =>
+      AppCopy.t(language, ko: '커브길 준비 완료', en: 'Curve field ready', fr: 'Routes prêtes'),
+    _RouteServiceStatusKey.unknown => 'Route status is unavailable.',
+  };
+}
+
+String routeFinderStatusBodyFor(String? title, AppLanguage language) {
+  return switch (_routeServiceStatusKeyFor(title)) {
+    _RouteServiceStatusKey.noCandidates || _RouteServiceStatusKey.noCurveRoads =>
+      AppCopy.t(language, ko: '지도 영역을 옮겨 다시 불러와 보세요.', en: 'Move the map and reload this area.', fr: 'Déplacez la carte et rechargez la zone.'),
+    _RouteServiceStatusKey.dataConnectionNeeded =>
+      AppCopy.t(language, ko: '루트 데이터 연결을 확인한 뒤 다시 시도해 주세요.', en: 'Check the route data connection, then try again.', fr: 'Vérifiez la connexion aux données, puis réessayez.'),
+    _RouteServiceStatusKey.loadFailed =>
+      AppCopy.t(language, ko: '연결 상태를 확인한 뒤 다시 시도해 주세요.', en: 'Check your connection and try again.', fr: 'Vérifiez votre connexion, puis réessayez.'),
+    _RouteServiceStatusKey.usingCache || _RouteServiceStatusKey.keepingCache =>
+      AppCopy.t(language, ko: '저장된 커브길을 표시하고 있어요.', en: 'Showing saved curvy roads.', fr: 'Affichage des routes sinueuses enregistrées.'),
+    _RouteServiceStatusKey.fieldLoading || _RouteServiceStatusKey.findingRoutes =>
+      AppCopy.t(language, ko: '주변 루트를 불러오고 있어요.', en: 'Loading nearby routes.', fr: 'Chargement des routes à proximité.'),
+    _RouteServiceStatusKey.picksRefreshed || _RouteServiceStatusKey.routesReady || _RouteServiceStatusKey.fieldReady =>
+      AppCopy.t(language, ko: '루트를 지도에서 확인해 보세요.', en: 'Check the routes on the map.', fr: 'Consultez les routes sur la carte.'),
+    _RouteServiceStatusKey.unknown => 'Route status is unavailable. Try again.',
+  };
+}
+
+String? _localizedRouteStatusTitle(RouteService service, AppLanguage language) {
+  final title = service.routeDataStatusTitle;
+  if (title == null || title.isEmpty) return title;
+  return routeFinderStatusTitleFor(title, language);
+}
+
 String? _localizedRouteStatusBody(RouteService service, AppLanguage language) {
-  final raw = service.routeDataStatusBody;
-  if (raw == null || raw.isEmpty) return raw;
-  if (language == AppLanguage.korean) return raw;
-  final rawCount = service.lastCloudCandidateCount;
-  final filtered = service.lastFilteredRouteCount;
-  final picks = service.lastUsableCloudRouteCount;
-  final mapCount = service.mapVisualRoutes.length;
-  if (raw.contains('루트 데이터 연결') || raw.contains('클라우드')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Check the route data connection, then try again.',
-      fr: 'Vérifiez la connexion aux données, puis réessayez.',
-    );
-  }
-  if (raw.contains('네트워크') || raw.contains('요청이 실패')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'The cloud request failed. Check connection and retry.',
-      fr: 'La requête cloud a échoué. Vérifiez la connexion.',
-    );
-  }
-  if (raw.contains('지도 영역')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Move the map and reload this area.',
-      fr: 'Déplacez la carte et rechargez la zone.',
-    );
-  }
-  if (raw.contains('캐시')) {
-    return AppCopy.t(
-      language,
-      ko: raw,
-      en: 'Showing cached curve roads while fresh data loads.',
-      fr: 'Affichage du cache pendant le chargement.',
-    );
-  }
-  return AppCopy.t(
-    language,
-    ko: raw,
-    en: 'Raw $rawCount / filtered $filtered / picks $picks. Showing $mapCount curve roads on the map.',
-    fr: 'Brut $rawCount / filtré $filtered / options $picks. $mapCount routes sur la carte.',
-  );
+  final body = service.routeDataStatusBody;
+  if (body == null || body.isEmpty) return body;
+  return routeFinderStatusBodyFor(service.routeDataStatusTitle, language);
 }
