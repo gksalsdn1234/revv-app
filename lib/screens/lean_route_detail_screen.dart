@@ -16,12 +16,15 @@ import '../ui/route_detail_copy.dart';
 import '../ui/route_drive_cue.dart';
 import '../ui/route_invite.dart';
 import '../ui/route_quality_profile.dart';
+import '../ui/route_share_card_content.dart';
 import '../widgets/copilot_start_sheet.dart';
+import '../widgets/route_invite_preview_sheet.dart';
 import 'lean_drive_screen.dart';
 
-typedef RouteInvitePresenter = Future<void> Function(String text);
+typedef RouteInvitePresenter =
+    Future<void> Function(String text, DriveInviteDraft draft);
 
-Future<void> _presentRouteInvite(String text) {
+Future<void> _presentRouteInvite(String text, DriveInviteDraft _) {
   return SharePlus.instance.share(ShareParams(text: text));
 }
 
@@ -50,8 +53,15 @@ class LeanRouteDetailScreen extends StatelessWidget {
   }
 
   Future<void> _shareRoute(BuildContext context, AppLanguage language) async {
+    final draft = await showRouteInvitePreviewSheet(
+      context,
+      route: route,
+      language: language,
+    );
+    if (!context.mounted || draft == null) return;
+
     try {
-      await routeInvitePresenter(buildRouteInviteText(route, language));
+      await routeInvitePresenter(buildRouteInviteText(route, language), draft);
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

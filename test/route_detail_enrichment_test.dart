@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/screens/lean_route_detail_screen.dart';
 import 'package:revv_app/services/settings_service.dart';
+import 'package:revv_app/ui/route_share_card_content.dart';
 
 RevvRoute _route({
   List<double>? elevationProfile,
@@ -146,9 +147,10 @@ void main() {
   });
 
   testWidgets(
-    'route detail shares a drive invite through the injected presenter',
+    'route detail checks an invite draft before sharing it through the presenter',
     (tester) async {
       String? sharedText;
+      DriveInviteDraft? sharedDraft;
       final settings = SettingsService();
 
       await tester.binding.setSurfaceSize(const Size(390, 844));
@@ -159,7 +161,10 @@ void main() {
           child: MaterialApp(
             home: LeanRouteDetailScreen(
               route: _route(sharpCurveCount: 7),
-              routeInvitePresenter: (text) async => sharedText = text,
+              routeInvitePresenter: (text, draft) async {
+                sharedText = text;
+                sharedDraft = draft;
+              },
             ),
           ),
         ),
@@ -167,10 +172,53 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(find.byTooltip('Share route'));
-      await tester.pump();
+      await tester.pumpAndSettle();
+
+      expect(sharedText, isNull);
+      expect(find.text('Share invite'), findsOneWidget);
+      expect(find.text('This weekend · time TBD'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('share-invite-draft')));
+      await tester.pumpAndSettle();
 
       expect(sharedText, contains('Open in Google Maps:'));
       expect(sharedText, contains('Detail Route'));
+      expect(sharedDraft, isNotNull);
+      expect(sharedDraft!.meetingArea, isNull);
+      expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'route detail keeps the drive in place when invite sharing fails',
+    (tester) async {
+      final settings = SettingsService();
+
+      await tester.binding.setSurfaceSize(const Size(390, 844));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        ChangeNotifierProvider<SettingsService>.value(
+          value: settings,
+          child: MaterialApp(
+            home: LeanRouteDetailScreen(
+              route: _route(sharpCurveCount: 7),
+              routeInvitePresenter: (_, _) async => throw StateError('share'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Share route'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('share-invite-draft')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Could not share this route. Try again.'),
+        findsOneWidget,
+      );
+      expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
     },
   );
 
