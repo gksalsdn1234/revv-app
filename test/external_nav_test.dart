@@ -41,6 +41,28 @@ void main() {
       expect(points.last.lat, 56.0);
     },
   );
+
+  test('waypoints avoid hairpin apexes and snap to straighter nodes', () {
+    // 직선(위도 0) 위 12개 노드, 1/3 앵커(인덱스 4)에 헤어핀 꼭짓점을 심는다.
+    final nodes = [
+      for (var i = 0; i < 12; i++)
+        i == 4 ? const LatLng(0.6, 4) : LatLng(0, i.toDouble()),
+    ];
+
+    final points = selectRouteHandoffPoints(nodes);
+
+    // 경유지가 꼭짓점(0.6, 4)이 아니라 주변 직선 노드로 옮겨 찍혀야 한다.
+    final middles = points.sublist(1, points.length - 1);
+    expect(middles, isNotEmpty);
+    expect(middles.every((p) => p.lat == 0), isTrue);
+  });
+
+  test('smoothest index keeps the anchor on a fully straight polyline', () {
+    final straight = [for (var i = 0; i < 12; i++) LatLng(0, i.toDouble())];
+
+    expect(smoothestIndexNear(straight, 4), 4);
+    expect(smoothestIndexNear(straight, 8), 8);
+  });
 }
 
 DrivePlanLeg _windingLeg(List<LatLng> nodes) {

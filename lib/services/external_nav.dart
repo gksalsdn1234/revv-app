@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../models/drive_plan.dart';
 import '../models/revv_route.dart';
 
@@ -58,19 +60,59 @@ List<LatLng> selectRouteHandoffPoints(List<LatLng> nodes) {
 
 LatLng? _middleNode(List<LatLng> nodes) {
   if (nodes.length <= 2) return null;
-  return nodes[nodes.length ~/ 2];
+  return nodes[smoothestIndexNear(nodes, nodes.length ~/ 2)];
 }
 
 List<LatLng> _routeMiddleNodes(List<LatLng> nodes) {
   final middle = nodes.sublist(1, nodes.length - 1);
   if (middle.length <= 2) return middle;
-  final firstIndex = (nodes.length / 3).round().clamp(1, nodes.length - 2);
-  final secondIndex = ((nodes.length * 2) / 3).round().clamp(
-    1,
-    nodes.length - 2,
+  final firstIndex = smoothestIndexNear(nodes, (nodes.length / 3).round());
+  final secondIndex = smoothestIndexNear(
+    nodes,
+    ((nodes.length * 2) / 3).round(),
   );
   if (firstIndex == secondIndex) return [nodes[firstIndex]];
   return [nodes[firstIndex], nodes[secondIndex]];
+}
+
+/// 앵커 주변 창에서 국소 방향 변화가 가장 작은(가장 직선인) 노드를 고른다.
+/// 외부 내비가 경유지를 도로에 스냅할 때 교차로·헤어핀 꼭짓점에 찍히면
+/// 옆길로 들어갔다 나오는 스퍼가 생기므로, 직선 구간의 점으로 옮겨 찍는다.
+/// 동률이면 앵커를 유지해 직선 폴리라인에서는 기존 선택과 동일하다.
+int smoothestIndexNear(List<LatLng> nodes, int anchor, {int? window}) {
+  final lastInner = nodes.length - 2;
+  if (lastInner < 1) return anchor.clamp(0, nodes.length - 1);
+  final base = anchor.clamp(1, lastInner);
+  final w = window ?? math.max(2, nodes.length ~/ 10);
+  var best = base;
+  var bestTurn = _turnAtDeg(nodes, base);
+  for (var i = math.max(1, base - w); i <= math.min(lastInner, base + w); i++) {
+    final turn = _turnAtDeg(nodes, i);
+    if (turn < bestTurn) {
+      bestTurn = turn;
+      best = i;
+    }
+  }
+  return best;
+}
+
+double _turnAtDeg(List<LatLng> nodes, int i) {
+  final before = _bearingDeg(nodes[i - 1], nodes[i]);
+  final after = _bearingDeg(nodes[i], nodes[i + 1]);
+  var diff = (after - before).abs();
+  if (diff > 180) diff = 360 - diff;
+  return diff;
+}
+
+double _bearingDeg(LatLng a, LatLng b) {
+  final lat1 = a.lat * math.pi / 180;
+  final lat2 = b.lat * math.pi / 180;
+  final dLng = (b.lng - a.lng) * math.pi / 180;
+  final y = math.sin(dLng) * math.cos(lat2);
+  final x =
+      math.cos(lat1) * math.sin(lat2) -
+      math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+  return math.atan2(y, x) * 180 / math.pi;
 }
 
 void _addPoint(List<LatLng> points, LatLng point) {
