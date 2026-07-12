@@ -1,0 +1,254 @@
+-- find_curvy_roads v2: 응답에서 미사용 지오메트리 제거 (route_line 38% + center_point)
+-- 앱은 nodes(JSONB)만 사용 — route_line/center_point는 전송·TOAST 읽기 순수 낭비 (2026-07-12 실측 1.89MB→~1.1MB)
+-- 반환 타입이 바뀌므로 DROP 후 재생성.
+
+DROP FUNCTION IF EXISTS find_curvy_roads(DOUBLE PRECISION, DOUBLE PRECISION, INTEGER, DOUBLE PRECISION, INTEGER);
+
+CREATE OR REPLACE FUNCTION find_curvy_roads(
+  user_lat DOUBLE PRECISION,
+  user_lng DOUBLE PRECISION,
+  radius_m INTEGER DEFAULT 50000,
+  min_score DOUBLE PRECISION DEFAULT 0,
+  max_results INTEGER DEFAULT 30
+)
+RETURNS TABLE (
+  id TEXT,
+  name TEXT,
+  center_lat DOUBLE PRECISION,
+  center_lng DOUBLE PRECISION,
+  nodes JSONB,
+  distance_km DOUBLE PRECISION,
+  curvature_score DOUBLE PRECISION,
+  winding_score DOUBLE PRECISION,
+  star_rating SMALLINT,
+  sharp_curve_count INTEGER,
+  tight_curve_km DOUBLE PRECISION,
+  medium_curve_km DOUBLE PRECISION,
+  max_continuous_km DOUBLE PRECISION,
+  is_loop BOOLEAN,
+  elevation_delta DOUBLE PRECISION,
+  geohash4 TEXT,
+  region TEXT,
+  source TEXT,
+  run_count INTEGER,
+  published_by UUID,
+  created_at TIMESTAMPTZ,
+  stop_sign_count INTEGER,
+  traffic_signal_count INTEGER,
+  stop_control_density DOUBLE PRECISION,
+  flow_score DOUBLE PRECISION,
+  fun_score DOUBLE PRECISION,
+  driveability_penalty DOUBLE PRECISION,
+  road_class_bucket TEXT,
+  is_named BOOLEAN,
+  is_facility_like BOOLEAN,
+  is_bridge_like BOOLEAN,
+  is_connector_like BOOLEAN,
+  is_major_road_like BOOLEAN,
+  is_private_like BOOLEAN,
+  residential_ratio DOUBLE PRECISION,
+  service_ratio DOUBLE PRECISION,
+  local_road_ratio DOUBLE PRECISION,
+  intersection_density DOUBLE PRECISION,
+  building_density DOUBLE PRECISION,
+  housing_proximity_score DOUBLE PRECISION,
+  urban_friction_score DOUBLE PRECISION,
+  residential_penalty DOUBLE PRECISION,
+  residential_version TEXT,
+  residential_enriched_at TIMESTAMPTZ,
+  quality_label TEXT,
+  quality_reject_reason TEXT,
+  route_character TEXT,
+  primary_reason TEXT,
+  caution_note TEXT,
+  quality_version TEXT,
+  quality_enriched_at TIMESTAMPTZ,
+  elevation_profile JSONB,
+  road_names JSONB,
+  surface_summary TEXT,
+  speed_limit_summary TEXT,
+  nearby_pois JSONB,
+  route_context JSONB,
+  context_version TEXT,
+  context_enriched_at TIMESTAMPTZ,
+  distance_from_user_km DOUBLE PRECISION,
+  route_rank_score DOUBLE PRECISION
+)
+LANGUAGE sql
+STABLE
+AS $$
+  WITH base_routes AS (
+    SELECT
+      curvy_roads.*,
+      ST_Distance(
+        center_point,
+        ST_SetSRID(ST_MakePoint(user_lng, user_lat), 4326)::geography
+      ) / 1000.0 AS distance_from_user_km,
+      COALESCE(
+        NULLIF(fun_score, 0),
+        winding_score
+        * (1.0 + LEAST((tight_curve_km + medium_curve_km) / GREATEST(distance_km, 1.0), 0.45))
+        * (1.0 + LEAST(max_continuous_km / 12.0, 0.18))
+        * CASE WHEN is_loop THEN 1.05 ELSE 1.0 END
+        * CASE WHEN elevation_delta >= 40 THEN LEAST(1.0 + elevation_delta / 250.0, 1.14) ELSE 1.0 END
+      ) AS computed_fun_score,
+      COALESCE(
+        NULLIF(flow_score, 0),
+        GREATEST(
+          0.15,
+          LEAST(
+            1.0,
+            1.0 - (
+              (
+                COALESCE(stop_sign_count, 0)
+                + COALESCE(traffic_signal_count, 0) * 1.5
+              ) / GREATEST(distance_km, 1.0)
+            ) * 0.35
+            + CASE WHEN max_continuous_km >= 1.5 THEN 0.08 ELSE 0.0 END
+          )
+        )
+      ) AS computed_flow_score,
+      COALESCE(
+        NULLIF(driveability_penalty, 0),
+        GREATEST(
+          0.05,
+          LEAST(
+            1.0,
+            CASE WHEN COALESCE(is_named, TRUE) THEN 1.0 ELSE 0.78 END
+            * CASE WHEN COALESCE(is_facility_like, FALSE) THEN 0.08 ELSE 1.0 END
+            * CASE WHEN COALESCE(is_connector_like, FALSE) THEN 0.18 ELSE 1.0 END
+            * CASE WHEN COALESCE(is_bridge_like, FALSE) THEN 0.28 ELSE 1.0 END
+            * CASE WHEN COALESCE(is_major_road_like, FALSE) THEN 0.55 ELSE 1.0 END
+            * CASE WHEN COALESCE(is_private_like, FALSE) THEN 0.18 ELSE 1.0 END
+            * CASE WHEN name ~ '^[\d\-\s_]+$' THEN 0.48 ELSE 1.0 END
+          )
+        )
+      ) AS computed_driveability_penalty
+    FROM curvy_roads
+    WHERE ST_DWithin(
+            center_point,
+            ST_SetSRID(ST_MakePoint(user_lng, user_lat), 4326)::geography,
+            radius_m
+          )
+      AND winding_score >= min_score
+      AND distance_km >= 4.0
+  ),
+  scored_routes AS (
+    SELECT
+      base_routes.*,
+      GREATEST(
+        0.05,
+        LEAST(
+          1.0,
+          CASE
+            WHEN distance_km < 8.0 THEN 0.82
+            ELSE 1.0
+          END
+          * CASE
+              WHEN distance_from_user_km <= 15.0 THEN 1.0
+              WHEN distance_from_user_km >= 80.0 THEN 0.45
+              ELSE 1.0 - ((distance_from_user_km - 15.0) / 65.0) * 0.55
+            END
+          * CASE
+              WHEN stop_sign_count >= 5 AND distance_km < 12.0 THEN 0.15
+              WHEN stop_control_density >= 0.65 AND max_continuous_km < 1.2 THEN 0.20
+              ELSE 1.0
+            END
+          * COALESCE(NULLIF(residential_penalty, 0), 1.0)
+        )
+      ) AS context_adjustment
+    FROM base_routes
+    WHERE NOT COALESCE(is_facility_like, FALSE)
+      AND NOT COALESCE(is_connector_like, FALSE)
+      AND NOT (
+        stop_sign_count >= 5
+        AND distance_km < 12.0
+      )
+      AND NOT (
+        stop_control_density >= 0.65
+        AND max_continuous_km < 1.2
+      )
+      AND NOT (
+        name ~ '^[\d\-\s_]+$'
+        AND distance_km < 8.0
+      )
+  )
+  SELECT
+    scored_routes.id,
+    scored_routes.name,
+    scored_routes.center_lat,
+    scored_routes.center_lng,
+    scored_routes.nodes,
+    scored_routes.distance_km,
+    scored_routes.curvature_score,
+    scored_routes.winding_score,
+    scored_routes.star_rating,
+    scored_routes.sharp_curve_count,
+    scored_routes.tight_curve_km,
+    scored_routes.medium_curve_km,
+    scored_routes.max_continuous_km,
+    scored_routes.is_loop,
+    scored_routes.elevation_delta,
+    scored_routes.geohash4,
+    scored_routes.region,
+    scored_routes.source,
+    scored_routes.run_count,
+    scored_routes.published_by,
+    scored_routes.created_at,
+    scored_routes.stop_sign_count,
+    scored_routes.traffic_signal_count,
+    scored_routes.stop_control_density,
+    scored_routes.computed_flow_score AS flow_score,
+    scored_routes.computed_fun_score AS fun_score,
+    scored_routes.computed_driveability_penalty AS driveability_penalty,
+    scored_routes.road_class_bucket,
+    scored_routes.is_named,
+    scored_routes.is_facility_like,
+    scored_routes.is_bridge_like,
+    scored_routes.is_connector_like,
+    scored_routes.is_major_road_like,
+    scored_routes.is_private_like,
+    scored_routes.residential_ratio,
+    scored_routes.service_ratio,
+    scored_routes.local_road_ratio,
+    scored_routes.intersection_density,
+    scored_routes.building_density,
+    scored_routes.housing_proximity_score,
+    scored_routes.urban_friction_score,
+    scored_routes.residential_penalty,
+    scored_routes.residential_version,
+    scored_routes.residential_enriched_at,
+    scored_routes.quality_label,
+    scored_routes.quality_reject_reason,
+    scored_routes.route_character,
+    scored_routes.primary_reason,
+    scored_routes.caution_note,
+    scored_routes.quality_version,
+    scored_routes.quality_enriched_at,
+    scored_routes.elevation_profile,
+    scored_routes.road_names,
+    scored_routes.surface_summary,
+    scored_routes.speed_limit_summary,
+    scored_routes.nearby_pois,
+    scored_routes.route_context,
+    scored_routes.context_version,
+    scored_routes.context_enriched_at,
+    scored_routes.distance_from_user_km,
+    (
+      scored_routes.computed_fun_score
+      * scored_routes.computed_flow_score
+      * scored_routes.computed_driveability_penalty
+      * scored_routes.context_adjustment
+    ) AS route_rank_score
+  FROM scored_routes
+  ORDER BY
+    route_rank_score DESC,
+    distance_from_user_km ASC
+  LIMIT max_results;
+$$;
+
+REVOKE ALL ON FUNCTION find_curvy_roads(DOUBLE PRECISION, DOUBLE PRECISION, INTEGER, DOUBLE PRECISION, INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION find_curvy_roads(DOUBLE PRECISION, DOUBLE PRECISION, INTEGER, DOUBLE PRECISION, INTEGER)
+  TO anon, authenticated, service_role;
+
+NOTIFY pgrst, 'reload schema';
