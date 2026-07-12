@@ -1012,7 +1012,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     });
   }
 
-
   void _showRouteDetails(RevvRoute route) {
     Navigator.push(
       context,
@@ -1195,12 +1194,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         ? service.mapVisualRoutes
         : routes;
     final clusterPool = routesForDriveBudget(
-      _rankRoutes(
-        _filterRoutes(
-          clusterPoolSource,
-          _lens,
-        ),
-      ),
+      _rankRoutes(_filterRoutes(clusterPoolSource, _lens)),
       budget: _driveBudget,
     );
     final clusters = buildRouteClusters(clusterPool);
@@ -1317,12 +1311,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
               child: Listener(
                 key: const Key('route-map-interaction-surface'),
                 behavior: HitTestBehavior.translucent,
-                onPointerDown: showingJourney
-                    ? null
-                    : _handleMapPointerDown,
-                onPointerMove: showingJourney
-                    ? null
-                    : _handleMapPointerMove,
+                onPointerDown: showingJourney ? null : _handleMapPointerDown,
+                onPointerMove: showingJourney ? null : _handleMapPointerMove,
                 onPointerUp: showingJourney ? null : _handleMapPointerUp,
                 onPointerCancel: showingJourney
                     ? null
@@ -1386,9 +1376,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                           const Spacer(),
                           if (_searchAreaShown)
                             _SearchAreaPill(
-                              key: const ValueKey(
-                                'finder-search-area-button',
-                              ),
+                              key: const ValueKey('finder-search-area-button'),
                               language: language,
                               onTap: () => unawaited(_searchThisArea()),
                             ),
@@ -1469,43 +1457,57 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                     )
                   : noDestination
                   ? visibleRoutes.isEmpty
-                        ? _LeanEmptyTicket(
-                            title: stateKind == null
-                                ? emptyTitle
-                                : routeFinderStateTitle(stateKind, language),
-                            body: stateKind == null
-                                ? emptyBody
-                                : routeFinderStateBody(stateKind, language),
-                            actionLabel: stateKind == null
-                                ? AppCopy.t(
-                                    language,
-                                    ko: '다시 찾기',
-                                    en: 'Retry',
-                                    fr: 'Réessayer',
-                                  )
-                                : routeFinderStateActionLabel(
-                                    stateKind,
-                                    language,
-                                  ),
-                            actionIcon: stateKind == null
-                                ? Icons.refresh_rounded
-                                : routeFinderStateActionIcon(stateKind),
-                            onAction: stateKind == null
-                                ? _searchHere
-                                : switch (stateKind) {
-                                    RouteFinderStateKind
-                                        .temporaryLocationDenied =>
-                                      _searchCurrentLocation,
-                                    RouteFinderStateKind
-                                        .permanentlyLocationDenied =>
-                                      _openLocationSettings,
-                                    RouteFinderStateKind.emptyRoutes =>
-                                      _selectRegionPreset,
-                                    RouteFinderStateKind.loadFailed =>
-                                      _searchHere,
-                                    RouteFinderStateKind.cachedRoutes =>
-                                      _searchHere,
-                                  },
+                        ? Align(
+                            alignment: Alignment.bottomCenter,
+                            child: Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                14,
+                                0,
+                                14,
+                                MediaQuery.paddingOf(context).bottom + 14,
+                              ),
+                              child: _LeanEmptyTicket(
+                                title: stateKind == null
+                                    ? emptyTitle
+                                    : routeFinderStateTitle(
+                                        stateKind,
+                                        language,
+                                      ),
+                                body: stateKind == null
+                                    ? emptyBody
+                                    : routeFinderStateBody(stateKind, language),
+                                actionLabel: stateKind == null
+                                    ? AppCopy.t(
+                                        language,
+                                        ko: '다시 찾기',
+                                        en: 'Retry',
+                                        fr: 'Réessayer',
+                                      )
+                                    : routeFinderStateActionLabel(
+                                        stateKind,
+                                        language,
+                                      ),
+                                actionIcon: stateKind == null
+                                    ? Icons.refresh_rounded
+                                    : routeFinderStateActionIcon(stateKind),
+                                onAction: stateKind == null
+                                    ? _searchHere
+                                    : switch (stateKind) {
+                                        RouteFinderStateKind
+                                            .temporaryLocationDenied =>
+                                          _searchCurrentLocation,
+                                        RouteFinderStateKind
+                                            .permanentlyLocationDenied =>
+                                          _openLocationSettings,
+                                        RouteFinderStateKind.emptyRoutes =>
+                                          _selectRegionPreset,
+                                        RouteFinderStateKind.loadFailed =>
+                                          _searchHere,
+                                        RouteFinderStateKind.cachedRoutes =>
+                                          _searchHere,
+                                      },
+                              ),
+                            ),
                           )
                         : _previewRoute != null
                         ? const SizedBox.shrink()
@@ -1537,7 +1539,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                                 ),
                               ),
                             ),
-                    )
+                          )
                   : _FinderRoutesSheet(
                       language: language,
                       routes: visibleRoutes,
@@ -2041,40 +2043,40 @@ class _RouteListRow extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 12, 8, 12),
         child: Row(
-            children: [
+          children: [
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-      Row(
-        children: [
+                  Row(
+                    children: [
                       if (driven) ...[
                         const Icon(
                           Icons.check_circle_rounded,
                           size: 15,
                           color: AppColors.red,
-          ),
+                        ),
                         const SizedBox(width: 6),
                       ],
-          Expanded(
-            child: Text(
+                      Expanded(
+                        child: Text(
                           routeDisplayName(route, language: language),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppText.body(
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppText.body(
                             size: 15,
                             weight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
-          ),
-        ],
-      ),
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     _routeListMeta(route, language),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: AppText.mono(
                       size: 10,
                       weight: FontWeight.w700,
@@ -2098,12 +2100,12 @@ class _RouteListRow extends StatelessWidget {
                       ko: '이어달리기 추가',
                       en: 'Add to chain',
                       fr: 'Ajouter à l’enchaînement',
-                ),
+                    ),
               onPressed: onToggleChain,
               icon: Icon(
                 chainSelected ? Icons.check_rounded : Icons.add_rounded,
-                  ),
-                ),
+              ),
+            ),
             const Icon(Icons.chevron_right_rounded, color: AppColors.textHint),
           ],
         ),
@@ -2221,7 +2223,7 @@ class _FinderRoutesSheet extends StatelessWidget {
                     driven: false,
                     chainSelected: chainSelection.containsKey(route.id),
                     onTap: () => onRouteTap(route),
-                      onToggleChain: () => onToggleChain(route),
+                    onToggleChain: () => onToggleChain(route),
                   ),
                   const SizedBox(height: 10),
                 ],
@@ -2880,7 +2882,6 @@ class _LeanToast extends StatelessWidget {
     );
   }
 }
-
 
 class DriveBudgetChoiceStrip extends StatelessWidget {
   final DriveBudget budget;
@@ -3696,8 +3697,8 @@ _RouteServiceStatusKey _routeServiceStatusKeyFor(String? title) {
     '커브길 필드 로딩 중' => _RouteServiceStatusKey.fieldLoading,
     '캐시 사용 중' => _RouteServiceStatusKey.usingCache,
     '루트 탐색 중' => _RouteServiceStatusKey.findingRoutes,
-    '루트 데이터 연결 필요' || '클라우드 설정 없음' =>
-      _RouteServiceStatusKey.dataConnectionNeeded,
+    '루트 데이터 연결 필요' ||
+    '클라우드 설정 없음' => _RouteServiceStatusKey.dataConnectionNeeded,
     '루트 로드 실패' => _RouteServiceStatusKey.loadFailed,
     '루트 준비 완료' => _RouteServiceStatusKey.routesReady,
     '커브길 없음' => _RouteServiceStatusKey.noCurveRoads,
@@ -3709,46 +3710,119 @@ _RouteServiceStatusKey _routeServiceStatusKeyFor(String? title) {
 
 String routeFinderStatusTitleFor(String? title, AppLanguage language) {
   return switch (_routeServiceStatusKeyFor(title)) {
-    _RouteServiceStatusKey.noCandidates =>
-      AppCopy.t(language, ko: '루트 후보 없음', en: 'No route picks', fr: 'Aucune option'),
-    _RouteServiceStatusKey.picksRefreshed =>
-      AppCopy.t(language, ko: '추천 후보 갱신', en: 'Picks refreshed', fr: 'Options actualisées'),
-    _RouteServiceStatusKey.fieldLoading =>
-      AppCopy.t(language, ko: '커브길 필드 로딩 중', en: 'Loading curve field', fr: 'Chargement des routes'),
-    _RouteServiceStatusKey.usingCache =>
-      AppCopy.t(language, ko: '캐시 사용 중', en: 'Using cached routes', fr: 'Routes en cache'),
-    _RouteServiceStatusKey.findingRoutes =>
-      AppCopy.t(language, ko: '루트 탐색 중', en: 'Finding routes', fr: 'Recherche de routes'),
-    _RouteServiceStatusKey.dataConnectionNeeded =>
-      AppCopy.t(language, ko: '루트 데이터 연결 필요', en: 'Route data connection needed', fr: 'Connexion aux données requise'),
-    _RouteServiceStatusKey.loadFailed =>
-      AppCopy.t(language, ko: '루트 로드 실패', en: 'Route load failed', fr: 'Échec du chargement'),
-    _RouteServiceStatusKey.routesReady =>
-      AppCopy.t(language, ko: '루트 준비 완료', en: 'Routes ready', fr: 'Routes prêtes'),
-    _RouteServiceStatusKey.noCurveRoads =>
-      AppCopy.t(language, ko: '커브길 없음', en: 'No curve roads', fr: 'Aucune route sinueuse'),
-    _RouteServiceStatusKey.keepingCache =>
-      AppCopy.t(language, ko: '캐시 유지 중', en: 'Keeping cached routes', fr: 'Cache conservé'),
-    _RouteServiceStatusKey.fieldReady =>
-      AppCopy.t(language, ko: '커브길 준비 완료', en: 'Curve field ready', fr: 'Routes prêtes'),
+    _RouteServiceStatusKey.noCandidates => AppCopy.t(
+      language,
+      ko: '루트 후보 없음',
+      en: 'No route picks',
+      fr: 'Aucune option',
+    ),
+    _RouteServiceStatusKey.picksRefreshed => AppCopy.t(
+      language,
+      ko: '추천 후보 갱신',
+      en: 'Picks refreshed',
+      fr: 'Options actualisées',
+    ),
+    _RouteServiceStatusKey.fieldLoading => AppCopy.t(
+      language,
+      ko: '커브길 필드 로딩 중',
+      en: 'Loading curve field',
+      fr: 'Chargement des routes',
+    ),
+    _RouteServiceStatusKey.usingCache => AppCopy.t(
+      language,
+      ko: '캐시 사용 중',
+      en: 'Using cached routes',
+      fr: 'Routes en cache',
+    ),
+    _RouteServiceStatusKey.findingRoutes => AppCopy.t(
+      language,
+      ko: '루트 탐색 중',
+      en: 'Finding routes',
+      fr: 'Recherche de routes',
+    ),
+    _RouteServiceStatusKey.dataConnectionNeeded => AppCopy.t(
+      language,
+      ko: '루트 데이터 연결 필요',
+      en: 'Route data connection needed',
+      fr: 'Connexion aux données requise',
+    ),
+    _RouteServiceStatusKey.loadFailed => AppCopy.t(
+      language,
+      ko: '루트 로드 실패',
+      en: 'Route load failed',
+      fr: 'Échec du chargement',
+    ),
+    _RouteServiceStatusKey.routesReady => AppCopy.t(
+      language,
+      ko: '루트 준비 완료',
+      en: 'Routes ready',
+      fr: 'Routes prêtes',
+    ),
+    _RouteServiceStatusKey.noCurveRoads => AppCopy.t(
+      language,
+      ko: '커브길 없음',
+      en: 'No curve roads',
+      fr: 'Aucune route sinueuse',
+    ),
+    _RouteServiceStatusKey.keepingCache => AppCopy.t(
+      language,
+      ko: '캐시 유지 중',
+      en: 'Keeping cached routes',
+      fr: 'Cache conservé',
+    ),
+    _RouteServiceStatusKey.fieldReady => AppCopy.t(
+      language,
+      ko: '커브길 준비 완료',
+      en: 'Curve field ready',
+      fr: 'Routes prêtes',
+    ),
     _RouteServiceStatusKey.unknown => 'Route status is unavailable.',
   };
 }
 
 String routeFinderStatusBodyFor(String? title, AppLanguage language) {
   return switch (_routeServiceStatusKeyFor(title)) {
-    _RouteServiceStatusKey.noCandidates || _RouteServiceStatusKey.noCurveRoads =>
-      AppCopy.t(language, ko: '지도 영역을 옮겨 다시 불러와 보세요.', en: 'Move the map and reload this area.', fr: 'Déplacez la carte et rechargez la zone.'),
-    _RouteServiceStatusKey.dataConnectionNeeded =>
-      AppCopy.t(language, ko: '루트 데이터 연결을 확인한 뒤 다시 시도해 주세요.', en: 'Check the route data connection, then try again.', fr: 'Vérifiez la connexion aux données, puis réessayez.'),
-    _RouteServiceStatusKey.loadFailed =>
-      AppCopy.t(language, ko: '연결 상태를 확인한 뒤 다시 시도해 주세요.', en: 'Check your connection and try again.', fr: 'Vérifiez votre connexion, puis réessayez.'),
-    _RouteServiceStatusKey.usingCache || _RouteServiceStatusKey.keepingCache =>
-      AppCopy.t(language, ko: '저장된 커브길을 표시하고 있어요.', en: 'Showing saved curvy roads.', fr: 'Affichage des routes sinueuses enregistrées.'),
-    _RouteServiceStatusKey.fieldLoading || _RouteServiceStatusKey.findingRoutes =>
-      AppCopy.t(language, ko: '주변 루트를 불러오고 있어요.', en: 'Loading nearby routes.', fr: 'Chargement des routes à proximité.'),
-    _RouteServiceStatusKey.picksRefreshed || _RouteServiceStatusKey.routesReady || _RouteServiceStatusKey.fieldReady =>
-      AppCopy.t(language, ko: '루트를 지도에서 확인해 보세요.', en: 'Check the routes on the map.', fr: 'Consultez les routes sur la carte.'),
+    _RouteServiceStatusKey.noCandidates ||
+    _RouteServiceStatusKey.noCurveRoads => AppCopy.t(
+      language,
+      ko: '지도 영역을 옮겨 다시 불러와 보세요.',
+      en: 'Move the map and reload this area.',
+      fr: 'Déplacez la carte et rechargez la zone.',
+    ),
+    _RouteServiceStatusKey.dataConnectionNeeded => AppCopy.t(
+      language,
+      ko: '루트 데이터 연결을 확인한 뒤 다시 시도해 주세요.',
+      en: 'Check the route data connection, then try again.',
+      fr: 'Vérifiez la connexion aux données, puis réessayez.',
+    ),
+    _RouteServiceStatusKey.loadFailed => AppCopy.t(
+      language,
+      ko: '연결 상태를 확인한 뒤 다시 시도해 주세요.',
+      en: 'Check your connection and try again.',
+      fr: 'Vérifiez votre connexion, puis réessayez.',
+    ),
+    _RouteServiceStatusKey.usingCache ||
+    _RouteServiceStatusKey.keepingCache => AppCopy.t(
+      language,
+      ko: '저장된 커브길을 표시하고 있어요.',
+      en: 'Showing saved curvy roads.',
+      fr: 'Affichage des routes sinueuses enregistrées.',
+    ),
+    _RouteServiceStatusKey.fieldLoading ||
+    _RouteServiceStatusKey.findingRoutes => AppCopy.t(
+      language,
+      ko: '주변 루트를 불러오고 있어요.',
+      en: 'Loading nearby routes.',
+      fr: 'Chargement des routes à proximité.',
+    ),
+    _RouteServiceStatusKey.picksRefreshed ||
+    _RouteServiceStatusKey.routesReady ||
+    _RouteServiceStatusKey.fieldReady => AppCopy.t(
+      language,
+      ko: '루트를 지도에서 확인해 보세요.',
+      en: 'Check the routes on the map.',
+      fr: 'Consultez les routes sur la carte.',
+    ),
     _RouteServiceStatusKey.unknown => 'Route status is unavailable. Try again.',
   };
 }
