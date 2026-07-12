@@ -1889,6 +1889,9 @@ String _buildRouteInviteText(
   DriveInviteDraft draft,
   AppLanguage language,
 ) {
+  // Route geometry is allowed only in the navigation URI below. The public
+  // invitation copy uses the card-content allowlist and never includes the
+  // optional meeting area, raw route name, road, POI, or telemetry fields.
   final content = buildRouteShareCardContent(
     route: route,
     draft: draft,
@@ -1909,6 +1912,8 @@ String _buildRouteInviteText(
 }
 
 Uri _routeInviteNavigationUri(RevvRoute route) {
+  // This is the approved, navigation-only geometry exception. In particular,
+  // meeting areas are not encoded into the Google Maps URL.
   final points = selectRouteHandoffPoints(route.nodes);
   final origin = points.isEmpty ? route.centerPoint : points.first;
   final destination = points.length < 2 ? route.centerPoint : points.last;

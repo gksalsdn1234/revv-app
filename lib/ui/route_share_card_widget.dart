@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../core/app_language.dart';
 import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import 'route_share_card_content.dart';
@@ -122,6 +123,7 @@ class _RouteShareCardLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final tags = content.tags.take(2).toList(growable: false);
     final meetingArea = content.meetingAreaLabel?.trim();
+    final labels = _labelsFor(content.language);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -177,6 +179,8 @@ class _RouteShareCardLayout extends StatelessWidget {
         _Metrics(
           distance: content.distanceLabel,
           duration: content.durationLabel,
+          distanceLabel: labels.distance,
+          durationLabel: labels.duration,
           scale: scale,
         ),
         SizedBox(height: 12 * scale),
@@ -184,7 +188,11 @@ class _RouteShareCardLayout extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Expanded(
-              child: _MeetingArea(areaLabel: meetingArea, scale: scale),
+              child: _MeetingArea(
+                areaLabel: meetingArea,
+                openInviteLabel: labels.openInvite,
+                scale: scale,
+              ),
             ),
             SizedBox(width: 12 * scale),
             Text(
@@ -275,11 +283,15 @@ class _Tag extends StatelessWidget {
 class _Metrics extends StatelessWidget {
   final String distance;
   final String duration;
+  final String distanceLabel;
+  final String durationLabel;
   final double scale;
 
   const _Metrics({
     required this.distance,
     required this.duration,
+    required this.distanceLabel,
+    required this.durationLabel,
     required this.scale,
   });
 
@@ -288,7 +300,7 @@ class _Metrics extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: _Metric(label: 'DISTANCE', value: distance, scale: scale),
+          child: _Metric(label: distanceLabel, value: distance, scale: scale),
         ),
         Container(
           height: 31 * scale,
@@ -296,7 +308,7 @@ class _Metrics extends StatelessWidget {
           color: AppColors.ink.withValues(alpha: 0.12),
         ),
         Expanded(
-          child: _Metric(label: 'DRIVE TIME', value: duration, scale: scale),
+          child: _Metric(label: durationLabel, value: duration, scale: scale),
         ),
       ],
     );
@@ -352,16 +364,21 @@ class _Metric extends StatelessWidget {
 
 class _MeetingArea extends StatelessWidget {
   final String? areaLabel;
+  final String openInviteLabel;
   final double scale;
 
-  const _MeetingArea({required this.areaLabel, required this.scale});
+  const _MeetingArea({
+    required this.areaLabel,
+    required this.openInviteLabel,
+    required this.scale,
+  });
 
   @override
   Widget build(BuildContext context) {
     final visibleArea = areaLabel;
     if (visibleArea == null || visibleArea.isEmpty) {
       return Text(
-        'OPEN INVITE',
+        openInviteLabel,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: AppText.technicalLabel(
@@ -383,6 +400,38 @@ class _MeetingArea extends StatelessWidget {
       ),
     );
   }
+}
+
+class _RouteShareCardLabels {
+  final String distance;
+  final String duration;
+  final String openInvite;
+
+  const _RouteShareCardLabels({
+    required this.distance,
+    required this.duration,
+    required this.openInvite,
+  });
+}
+
+_RouteShareCardLabels _labelsFor(AppLanguage language) {
+  return switch (language) {
+    AppLanguage.korean => const _RouteShareCardLabels(
+      distance: '거리',
+      duration: '주행 시간',
+      openInvite: '공개 초대',
+    ),
+    AppLanguage.english => const _RouteShareCardLabels(
+      distance: 'DISTANCE',
+      duration: 'DRIVE TIME',
+      openInvite: 'OPEN INVITE',
+    ),
+    AppLanguage.french => const _RouteShareCardLabels(
+      distance: 'DISTANCE',
+      duration: 'DURÉE DE CONDUITE',
+      openInvite: 'INVITATION OUVERTE',
+    ),
+  };
 }
 
 class _PaperGrain extends StatelessWidget {

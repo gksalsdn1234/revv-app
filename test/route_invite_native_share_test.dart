@@ -68,6 +68,37 @@ void main() {
     expect(await sharedFile!.exists(), isFalse);
   });
 
+  test('deletes a partial temporary PNG when writing it fails', () async {
+    final temporaryDirectory = await Directory.systemTemp.createTemp(
+      'revv-route-invite-test-',
+    );
+    addTearDown(() => temporaryDirectory.delete(recursive: true));
+    File? attemptedFile;
+    final share = RouteInviteNativeShare(
+      temporaryDirectory: () async => temporaryDirectory,
+      cardWriter: (file, bytes) async {
+        attemptedFile = file;
+        await file.writeAsBytes(bytes.take(2).toList(), flush: true);
+        throw StateError('PNG write failed');
+      },
+      systemShare: (_) async {
+        fail('A failed write must not open the native share sheet.');
+      },
+    );
+
+    await expectLater(
+      () => share.share(
+        RouteInviteSharePayload(
+          text: 'Safe route invite',
+          cardPng: Uint8List.fromList(const [137, 80, 78, 71]),
+        ),
+      ),
+      throwsStateError,
+    );
+
+    expect(await attemptedFile!.exists(), isFalse);
+  });
+
   test(
     'keeps the temporary PNG until a cancelled native share completes',
     () async {

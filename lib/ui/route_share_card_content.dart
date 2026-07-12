@@ -52,6 +52,7 @@ class RouteShareCardPathPoint {
 /// This type intentionally has no route ids, user location, raw geometry,
 /// navigation links, drive telemetry, or mutable draft state.
 class RouteShareCardContent {
+  final AppLanguage language;
   final String headline;
   final String routeName;
   final String distanceLabel;
@@ -64,6 +65,7 @@ class RouteShareCardContent {
   final String footer;
 
   const RouteShareCardContent._({
+    required this.language,
     required this.headline,
     required this.routeName,
     required this.distanceLabel,
@@ -99,6 +101,7 @@ RouteShareCardContent buildRouteShareCardContent({
 }) {
   final inviteDraft = draft ?? DriveInviteDraft.forLanguage(language);
   return RouteShareCardContent._(
+    language: language,
     headline: _headline(language),
     routeName: _neutralRouteTitle(language),
     distanceLabel: _distanceLabel(route.distanceKm),

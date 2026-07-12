@@ -47,6 +47,42 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('route invite card localizes every visible static label', (
+    tester,
+  ) async {
+    // Given: every supported card language without a selected meeting area.
+    const labels = {
+      AppLanguage.korean: ('거리', '주행 시간', '공개 초대'),
+      AppLanguage.english: ('DISTANCE', 'DRIVE TIME', 'OPEN INVITE'),
+      AppLanguage.french: (
+        'DISTANCE',
+        'DURÉE DE CONDUITE',
+        'INVITATION OUVERTE',
+      ),
+    };
+
+    // When: each language is rendered through the card content contract.
+    for (final language in AppLanguage.values) {
+      final content = _content(language: language, meetingArea: null);
+      await tester.pumpWidget(
+        _TestHost(
+          child: SizedBox(
+            width: RouteShareCardWidget.logicalWidth,
+            height: RouteShareCardWidget.logicalHeight,
+            child: RouteShareCardWidget(content: content),
+          ),
+        ),
+      );
+
+      // Then: every static, visible label matches the card language.
+      final (distance, duration, openInvite) = labels[language]!;
+      expect(find.text(distance), findsOneWidget);
+      expect(find.text(duration), findsOneWidget);
+      expect(find.text(openInvite), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets('route invite card stays intact when constrained and localized', (
     tester,
   ) async {
@@ -106,8 +142,11 @@ void main() {
       orderedEquals(const <int>[137, 80, 78, 71, 13, 10, 26, 10]),
     );
     final evidenceWritten = await tester.runAsync(() async {
-      final evidence = File('.omo/evidence/task-4-drive-invite-share-card.png');
-      await evidence.parent.create(recursive: true);
+      final evidenceDirectory = await Directory.systemTemp.createTemp(
+        'revv-route-share-card-',
+      );
+      addTearDown(() => evidenceDirectory.delete(recursive: true));
+      final evidence = File('${evidenceDirectory.path}/route-share-card.png');
       await evidence.writeAsBytes(png, flush: true);
       return evidence.exists();
     });

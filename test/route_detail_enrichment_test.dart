@@ -246,6 +246,21 @@ void main() {
       expect(sharedInvite!.text, isNot(contains('Private Road')));
       expect(sharedInvite!.text, isNot(contains('Private POI')));
       expect(sharedInvite!.cardPng, orderedEquals(const [137, 80, 78, 71]));
+      final mapsMatch = RegExp(
+        r'https://[^\s]+',
+      ).firstMatch(sharedInvite!.text);
+      expect(mapsMatch, isNotNull);
+      final mapsUri = Uri.parse(mapsMatch!.group(0)!);
+      expect(mapsUri.host, 'www.google.com');
+      expect(mapsUri.path, '/maps/dir/');
+      expect(
+        mapsUri.queryParameters.values.join('|'),
+        isNot(contains('Near Old Port')),
+      );
+      expect(
+        sharedInvite!.text.substring(0, mapsMatch.start),
+        isNot(contains('45.000000')),
+      );
       expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
     },
   );
