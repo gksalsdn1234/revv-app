@@ -459,7 +459,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _searchAreaShown = false;
       if (regionKey != null) {
         _mapCenterPoint = point;
-        _mapZoom = 11.0;
+        // 도시 점프 시 커브 필드가 보이게 광역 줌으로 (도심 20km 시야였던
+        // 줌 11에선 토론토처럼 근교 루트가 적은 도시가 텅 비어 보였다).
+        _mapZoom = 9.0;
       }
     });
   }

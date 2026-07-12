@@ -51,11 +51,17 @@ class RegionRequestGrid {
       '${latRounded.toStringAsFixed(1)},${lngRounded.toStringAsFixed(1)}';
 }
 
+/// 테스트 빌드에서 커버리지 게이트를 전면 개방한다.
+/// `flutter build/run --dart-define=REVV_COVERAGE_ALL=true` — 기본 false(심사/릴리즈).
+const bool routeCoverageOpenAll = bool.fromEnvironment('REVV_COVERAGE_ALL');
+
 bool isPointInsideRouteCoverage(
   LatLng point, {
   Iterable<LatLng> centers = routeCoverageCenters,
   double radiusKm = routeCoverageRadiusKm,
+  bool openAll = routeCoverageOpenAll,
 }) {
+  if (openAll) return true;
   return centers.any(
     (center) => RevvRoute.haversineKm(point, center) <= radiusKm,
   );

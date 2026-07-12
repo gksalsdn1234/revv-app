@@ -103,6 +103,13 @@ void main() {
     expect(isPointInsideRouteCoverage(halifax), isFalse);
   });
 
+  test('coverage open-all override admits any point (test builds)', () {
+    const winnipeg = LatLng(49.90, -97.14);
+
+    expect(isPointInsideRouteCoverage(winnipeg, openAll: true), isTrue);
+    expect(isPointInsideRouteCoverage(winnipeg, openAll: false), isFalse);
+  });
+
   test('region request grid rounds coordinates to one decimal place', () {
     final grid = regionRequestGridFor(const LatLng(43.6532, -79.3832));
 
