@@ -35,8 +35,9 @@ void main() {
 
     final uri = launched.single;
     expect(uri.scheme, 'comgooglemapsurl');
-    expect(uri.queryParameters['saddr'], '45.0000,-73.0000');
-    expect(uri.queryParameters['daddr'], '45.1300,-73.1300');
+    expect(uri.queryParameters['origin'], '45.0000,-73.0000');
+    expect(uri.queryParameters['destination'], '45.1300,-73.1300');
+    expect(uri.queryParameters['travelmode'], 'driving');
     final waypoints = uri.queryParameters['waypoints']!.split('|');
     expect(waypoints, hasLength(lessThanOrEqualTo(2)));
     expect(waypoints.first, isNot('45.0000,-73.0000'));

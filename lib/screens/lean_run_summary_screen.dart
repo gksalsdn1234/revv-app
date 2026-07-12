@@ -182,9 +182,9 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
       path: '/maps/dir/',
       queryParameters: {
         'api': '1',
-        if (current != null) 'saddr': googleMapsCoord(current),
-        'daddr': googleMapsCoord(destination),
-        'directionsmode': 'driving',
+        if (current != null) 'origin': googleMapsCoord(current),
+        'destination': googleMapsCoord(destination),
+        'travelmode': 'driving',
       },
     );
     final webUri = Uri.https('www.google.com', '/maps/dir/', {

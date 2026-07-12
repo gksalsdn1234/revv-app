@@ -10,17 +10,21 @@ Uri buildGoogleMapsAppUri({
   required LatLng destination,
   required List<LatLng> waypoints,
 }) {
+  // comgooglemapsurl://는 구글맵 앱에 "이 웹 URL을 열어라"로 전달되므로
+  // Maps URLs API 규격(origin/destination/travelmode)을 써야 한다.
+  // saddr/daddr는 구형 comgooglemaps:// 스킴 전용이라 여기선 무시되어
+  // 출발·도착 없이 waypoints만 찍히는 깨진 경로가 됐다 (2026-07-12).
   return Uri(
     scheme: 'comgooglemapsurl',
     host: 'www.google.com',
     path: '/maps/dir/',
     queryParameters: {
       'api': '1',
-      'saddr': googleMapsCoord(origin),
-      'daddr': googleMapsCoord(destination),
+      'origin': googleMapsCoord(origin),
+      'destination': googleMapsCoord(destination),
       if (waypoints.isNotEmpty)
         'waypoints': waypoints.map(googleMapsCoord).join('|'),
-      'directionsmode': 'driving',
+      'travelmode': 'driving',
     },
   );
 }
