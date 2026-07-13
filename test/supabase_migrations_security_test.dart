@@ -30,6 +30,8 @@ void main() {
       'supabase/migrations/20260707220000_telemetry_summary.sql';
   const findCurvyRoadsSlimMigration =
       'supabase/migrations/20260712100000_find_curvy_roads_slim.sql';
+  const exploredCellsMigration =
+      'supabase/migrations/20260712201817_explored_cells.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -45,6 +47,7 @@ void main() {
     v2DataShellsMigration,
     telemetrySummaryMigration,
     findCurvyRoadsSlimMigration,
+    exploredCellsMigration,
   ];
 
   const userTables = [
@@ -100,6 +103,29 @@ void main() {
       sql,
       isNot(contains('security definer')),
       reason: 'find_curvy_roads must stay invoker-rights (plain sql).',
+    );
+  });
+
+  test('explored cells are owner scoped and anonymous Data API is revoked', () {
+    final sql = _readLower(exploredCellsMigration);
+
+    expect(sql, contains('create table if not exists public.explored_cells'));
+    expect(
+      sql,
+      contains('alter table public.explored_cells enable row level security'),
+    );
+    expect(sql, contains('primary key (user_id, cell_id)'));
+    expect(sql, contains('using ((select auth.uid()) = user_id)'));
+    expect(sql, contains('with check ((select auth.uid()) = user_id)'));
+    expect(
+      sql,
+      contains('revoke all on table public.explored_cells from anon'),
+    );
+    expect(
+      sql,
+      contains(
+        'grant select, insert, update, delete on table public.explored_cells to authenticated',
+      ),
     );
   });
 

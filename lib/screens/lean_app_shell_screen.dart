@@ -14,6 +14,8 @@ import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
 import '../services/location_service.dart';
 import '../services/route_service.dart';
+import '../services/route_auto_record_service.dart';
+import '../services/exploration_service.dart';
 import '../services/driven_routes_service.dart';
 import '../services/run_history_service.dart';
 import '../services/run_recovery_store.dart';
@@ -50,6 +52,9 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     with WidgetsBindingObserver {
   bool _checkingGuideReturn = false;
   bool _guidePromptShown = false;
+  bool _appResumed = true;
+  bool _autoDriveOpening = false;
+  RouteAutoRecordService? _autoRecord;
   late final RunRecoveryStore _recoveryStore;
   late final Future<void> _recoveryHandled;
   _RaceTab _currentTab = _RaceTab.map;
@@ -71,16 +76,71 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    try {
+      final service = context.read<RouteAutoRecordService>();
+      if (!identical(service, _autoRecord)) {
+        _autoRecord?.removeListener(_onAutoRecordChanged);
+        _autoRecord = service..addListener(_onAutoRecordChanged);
+      }
+    } on ProviderNotFoundException {
+      _autoRecord = null;
+    }
+  }
+
+  @override
   void dispose() {
+    _autoRecord?.removeListener(_onAutoRecordChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appResumed = state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) {
       unawaited(_checkPendingAfterRecovery());
+      _syncExplorationProgress();
+      _onAutoRecordChanged();
     }
+  }
+
+  void _syncExplorationProgress() {
+    try {
+      unawaited(context.read<ExplorationService>().syncWithCloud());
+    } on ProviderNotFoundException {
+      // Widget tests and local-only embeds may omit exploration persistence.
+    }
+  }
+
+  void _onAutoRecordChanged() {
+    final service = _autoRecord;
+    if (!_appResumed ||
+        !mounted ||
+        _autoDriveOpening ||
+        service?.state != AutoRecordState.recording) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_openAutoRecordedDrive());
+    });
+  }
+
+  Future<void> _openAutoRecordedDrive() async {
+    final service = _autoRecord;
+    final route = service?.activeRoute;
+    if (_autoDriveOpening ||
+        service?.state != AutoRecordState.recording ||
+        route == null) {
+      return;
+    }
+    _autoDriveOpening = true;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => LeanDriveScreen(route: route)),
+    );
+    _autoDriveOpening = false;
   }
 
   Future<void> _primeLocationAfterRecovery() async {
@@ -146,6 +206,11 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     if (route == null) return;
     if (!routes.hasFreshPendingGuide) {
       routes.clearGuideToStart();
+      return;
+    }
+    final autoRecord = _autoRecord;
+    if (autoRecord != null) {
+      autoRecord.refreshArmedRoute();
       return;
     }
 
@@ -330,10 +395,16 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     final start = route.nodes.isNotEmpty
         ? route.nodes.first
         : route.centerPoint;
-    await _launchExternalNavigation(appUri(start), webUri(start));
+    final launched = await _launchExternalNavigation(
+      appUri(start),
+      webUri(start),
+    );
+    if (!launched && ctx.mounted) {
+      ctx.read<RouteService>().clearGuideToStart();
+    }
   }
 
-  Future<void> _launchExternalNavigation(Uri appUri, Uri webUri) async {
+  Future<bool> _launchExternalNavigation(Uri appUri, Uri webUri) async {
     final messenger = ScaffoldMessenger.of(context);
     final language = context.read<SettingsService>().appLanguage;
     var launched = false;
@@ -348,10 +419,11 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     } catch (_) {
       launched = false;
     }
-    if (launched) return;
+    if (launched) return true;
     messenger.showSnackBar(
       SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
     );
+    return false;
   }
 
   void _openWalkieLab(BuildContext ctx) {
@@ -1460,13 +1532,23 @@ class _CloudStatusChip extends StatelessWidget {
     if (supabase.status == SyncStatus.error) {
       return _LeanStatusDot(
         active: false,
-        label: AppCopy.t(language, ko: '동기화 오류', en: 'SYNC ERROR', fr: 'ERREUR SYNC'),
+        label: AppCopy.t(
+          language,
+          ko: '동기화 오류',
+          en: 'SYNC ERROR',
+          fr: 'ERREUR SYNC',
+        ),
       );
     }
     if (supabase.status == SyncStatus.syncing) {
       return _LeanStatusDot(
         active: false,
-        label: AppCopy.t(language, ko: '동기화 중', en: 'SYNCING', fr: 'SYNCHRONISATION'),
+        label: AppCopy.t(
+          language,
+          ko: '동기화 중',
+          en: 'SYNCING',
+          fr: 'SYNCHRONISATION',
+        ),
       );
     }
     if (supabase.isCloudAvailable) {

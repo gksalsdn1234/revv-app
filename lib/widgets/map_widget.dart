@@ -7,6 +7,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
 import 'package:provider/provider.dart';
 import '../models/revv_route.dart';
+import '../models/exploration_cell.dart';
 import '../services/camera_follow_interpolator.dart';
 import '../services/location_service.dart';
 import '../services/mapbox_service.dart';
@@ -90,6 +91,28 @@ String buildPolylineGeoJson(List<List<LatLng>> polylines) {
   });
 }
 
+String buildExplorationFogGeoJson(List<ExplorationCell> cells) {
+  return jsonEncode({
+    'type': 'FeatureCollection',
+    'features': [
+      for (final cell in cells)
+        {
+          'type': 'Feature',
+          'id': cell.id,
+          'properties': {'cellId': cell.id},
+          'geometry': {
+            'type': 'Polygon',
+            'coordinates': [
+              [
+                for (final point in cell.bounds.polygon) [point.lng, point.lat],
+              ],
+            ],
+          },
+        },
+    ],
+  });
+}
+
 class MapWidget extends StatefulWidget {
   final bool isSprintMode;
 
@@ -112,6 +135,7 @@ class MapWidget extends StatefulWidget {
   final List<List<LatLng>> candidatePolylines;
   final List<List<LatLng>> curveHeatmapPolylines;
   final List<RouteDifficultyLine> difficultyLines;
+  final List<ExplorationCell> explorationFogCells;
   final bool strongCurveFieldHeatmap;
 
   /// 커브 밀도 히트맵 모드 (파랑→초록→노랑→주황→빨강)
@@ -142,6 +166,7 @@ class MapWidget extends StatefulWidget {
     this.candidatePolylines = const [],
     this.curveHeatmapPolylines = const [],
     this.difficultyLines = const [],
+    this.explorationFogCells = const [],
     this.strongCurveFieldHeatmap = false,
     this.showCurveHeatmap = false,
     this.routeFocusMode = false,
@@ -198,6 +223,7 @@ class _MapWidgetState extends State<MapWidget>
   Uint8List? _puckTopImage;
   Uint8List? _puckBearingImage;
   Uint8List? _puckShadowImage;
+  Future<void> _fogDraws = Future.value();
 
   bool get _shouldDrawCurveHeatmap =>
       widget.curveHeatmap && widget.showCurveHeatmap;
@@ -540,6 +566,12 @@ class _MapWidgetState extends State<MapWidget>
         widget.difficultyLines,
       )) {
         _drawDifficultyLines(widget.difficultyLines);
+      }
+      if (!_sameExplorationCells(
+        oldWidget.explorationFogCells,
+        widget.explorationFogCells,
+      )) {
+        _scheduleExplorationFog(widget.explorationFogCells);
       }
       if (!_samePolylineGroups(oldRouteParts, routeParts) ||
           oldWidget.showCurveHeatmap != widget.showCurveHeatmap ||
@@ -928,6 +960,7 @@ class _MapWidgetState extends State<MapWidget>
       );
     }
     await _drawCurveFieldHeatmap(widget.curveHeatmapPolylines);
+    await _scheduleExplorationFog(widget.explorationFogCells);
     await _drawDifficultyLines(widget.difficultyLines);
     await _drawCandidatePolylines(widget.candidatePolylines);
     if (routeParts.isNotEmpty) {
@@ -969,6 +1002,18 @@ class _MapWidgetState extends State<MapWidget>
           return false;
         }
       }
+    }
+    return true;
+  }
+
+  static bool _sameExplorationCells(
+    List<ExplorationCell> a,
+    List<ExplorationCell> b,
+  ) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var index = 0; index < a.length; index++) {
+      if (a[index].id != b[index].id) return false;
     }
     return true;
   }
@@ -1230,6 +1275,78 @@ class _MapWidgetState extends State<MapWidget>
       colorArgb,
       width,
     );
+  }
+
+  Future<void> _scheduleExplorationFog(List<ExplorationCell> cells) {
+    final snapshot = List<ExplorationCell>.of(cells);
+    _fogDraws = _fogDraws.then((_) => _drawExplorationFog(snapshot));
+    return _fogDraws;
+  }
+
+  Future<mbx.LayerPosition?> _explorationFogPosition() async {
+    final map = _mapController;
+    if (map == null) return null;
+    const overlayLayerIds = [
+      'difficulty-muted-glow-layer',
+      'difficulty-gentle-glow-layer',
+      'difficulty-winding-glow-layer',
+      'difficulty-tight-glow-layer',
+      'candidate-0-shadow-layer',
+      'candidate-0-core-layer',
+      'route-shadow-layer',
+      'route-core-layer',
+    ];
+    for (final layerId in overlayLayerIds) {
+      if (await map.style.styleLayerExists(layerId)) {
+        return mbx.LayerPosition(below: layerId);
+      }
+    }
+    return null;
+  }
+
+  Future<void> _drawExplorationFog(List<ExplorationCell> cells) async {
+    final map = _mapController;
+    if (map == null || !_styleLoaded) return;
+    for (final layerId in const [
+      'exploration-fog-edge-layer',
+      'exploration-fog-fill-layer',
+    ]) {
+      try {
+        await map.style.removeStyleLayer(layerId);
+      } catch (_) {}
+    }
+    try {
+      await map.style.removeStyleSource('exploration-fog-source');
+    } catch (_) {}
+    if (cells.isEmpty) return;
+
+    try {
+      await map.style.addSource(
+        mbx.GeoJsonSource(
+          id: 'exploration-fog-source',
+          data: buildExplorationFogGeoJson(cells),
+        ),
+      );
+      final layer = mbx.FillLayer(
+        id: 'exploration-fog-fill-layer',
+        sourceId: 'exploration-fog-source',
+        fillColor: AppColors.bg.toARGB32(),
+        fillOpacity: 0.30,
+        fillAntialias: false,
+        minZoom: 7,
+        maxZoom: 24,
+      );
+      final position = await _explorationFogPosition();
+      if (position == null) {
+        await map.style.addLayer(layer);
+      } else {
+        await map.style.addLayerAt(layer, position);
+      }
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[MapWidget] exploration fog: ${error.runtimeType}');
+      }
+    }
   }
 
   Future<void> _drawPolylineParts(
@@ -2118,38 +2235,56 @@ class _MapWidgetState extends State<MapWidget>
     // !_debugDoingThisLayout assertion + touch 먹통 유발.
     // TLHC_VD(Texture Layer Hybrid Composition + VirtualDisplay fallback) +
     // textureView=true → 텍스처 기반 합성으로 layout phase 간섭 차단.
-    return ClipRect(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return SizedBox.expand(
-            child: mbx.MapWidget(
-              styleUri: widget.isSprintMode
-                  ? MapboxService.sprintStyle(weatherIcon)
-                  : widget.strongCurveFieldHeatmap
-                  ? 'mapbox://styles/mapbox/navigation-night-v1'
-                  : MapboxService.cruiseStyle,
-              cameraOptions: mbx.CameraOptions(
-                center: mbx.Point(
-                  coordinates: mbx.Position(
-                    initialCenter.lng,
-                    initialCenter.lat,
-                  ),
-                ),
-                padding: widget.isSprintMode ? _driveCameraPadding : null,
-                zoom: widget.isSprintMode ? 16.5 : 15.0,
-                pitch: widget.isSprintMode ? 22.0 : 0.0,
-                bearing: widget.isSprintMode ? widget.navigationBearing : null,
-              ),
-              // FollowPuckViewportState: 스타일 로드 후 활성화 → Mapbox 네이티브 GPS 추적
-              viewport: _viewportState,
-              onMapCreated: _onMapCreated,
-              onStyleLoadedListener: _onStyleLoaded,
-              onCameraChangeListener: _onCameraChanged,
-              onMapIdleListener: _onMapIdle,
-              onTapListener: _onMapTap,
+    final fogActive = widget.explorationFogCells.isNotEmpty;
+    return Semantics(
+      label: fogActive
+          ? AppCopy.t(
+              language,
+              ko: '탐험 지도. 아직 달리지 않은 루트 주변은 어둡게 표시됩니다.',
+              en: 'Exploration map. Areas around routes not yet driven are shaded.',
+              fr: 'Carte d’exploration. Les zones autour des routes non parcourues sont ombrées.',
+            )
+          : AppCopy.t(
+              language,
+              ko: '루트 지도',
+              en: 'Route map',
+              fr: 'Carte des routes',
             ),
-          );
-        },
+      child: ClipRect(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SizedBox.expand(
+              child: mbx.MapWidget(
+                styleUri: widget.isSprintMode
+                    ? MapboxService.sprintStyle(weatherIcon)
+                    : widget.strongCurveFieldHeatmap
+                    ? 'mapbox://styles/mapbox/navigation-night-v1'
+                    : MapboxService.cruiseStyle,
+                cameraOptions: mbx.CameraOptions(
+                  center: mbx.Point(
+                    coordinates: mbx.Position(
+                      initialCenter.lng,
+                      initialCenter.lat,
+                    ),
+                  ),
+                  padding: widget.isSprintMode ? _driveCameraPadding : null,
+                  zoom: widget.isSprintMode ? 16.5 : 15.0,
+                  pitch: widget.isSprintMode ? 22.0 : 0.0,
+                  bearing: widget.isSprintMode
+                      ? widget.navigationBearing
+                      : null,
+                ),
+                // FollowPuckViewportState: 스타일 로드 후 활성화 → Mapbox 네이티브 GPS 추적
+                viewport: _viewportState,
+                onMapCreated: _onMapCreated,
+                onStyleLoadedListener: _onStyleLoaded,
+                onCameraChangeListener: _onCameraChanged,
+                onMapIdleListener: _onMapIdle,
+                onTapListener: _onMapTap,
+              ),
+            );
+          },
+        ),
       ),
     );
   }

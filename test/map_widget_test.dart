@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/widgets/map_widget.dart';
+import 'package:revv_app/models/exploration_cell.dart';
 
 void main() {
   test(
@@ -48,5 +49,19 @@ void main() {
       [2.0, 1.0],
       [4.0, 3.0],
     ]);
+  });
+
+  test('exploration fog encodes bounded cells as closed polygons', () {
+    final cell = ExplorationCell.fromPoint(const LatLng(45.5, -73.6));
+
+    final json = jsonDecode(buildExplorationFogGeoJson([cell])) as Map;
+    final features = json['features'] as List;
+    final geometry = (features.single as Map)['geometry'] as Map;
+    final ring = ((geometry['coordinates'] as List).single as List);
+
+    expect(features.single['id'], cell.id);
+    expect(geometry['type'], 'Polygon');
+    expect(ring, hasLength(5));
+    expect(ring.first, ring.last);
   });
 }

@@ -18,9 +18,10 @@
 - [x] Firebase, Bluetooth, Speech, TTS, Audio 관련 문자열이 앱/Pod lock에서 사라졌는지 확인한다.
 - [x] Privacy manifest가 Runner 리소스에 포함됐는지 확인한다.
 - [x] `flutter analyze`와 `flutter test`를 통과한다.
-- [x] `flutter build ios --release --no-codesign --dart-define-from-file=.env`를 통과한다.
+- [x] `flutter build ios --release --no-codesign --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true`를 통과한다.
 - [x] Apple Distribution certificate와 App Store provisioning profile을 준비한다.
-- [ ] `flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=43` export를 통과한다.
+- [ ] `flutter build ipa --release --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true --build-name=1.38.0 --build-number=43` export를 통과한다.
+- [ ] IPA 전에 `20260712201817_explored_cells.sql`을 적용하고 원격 RLS/권한을 검증한다.
 - [x] 위치 권한 허용/거부 첫 실행 플로우를 확인한다.
 - [ ] Supabase 정상, 미설정, 네트워크 실패, 후보 0개, 캐시 사용 상태 안내를 실기기에서 확인한다.
 - [x] 루트 선택 -> 주행 시작 -> 현재 위치 추적 -> 주행 종료 -> 요약 저장 -> 앱 재시작 후 기록 복원을 확인한다.
@@ -57,13 +58,13 @@
 ```sh
 flutter analyze
 flutter test
-flutter build ios --release --no-codesign --dart-define-from-file=.env
+flutter build ios --release --no-codesign --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true
 ```
 
 TestFlight 후보 빌드:
 
 ```sh
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=43
+flutter build ipa --release --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true --build-name=1.38.0 --build-number=43
 ```
 
 현재 후보 IPA는 `build/ios/ipa/revv_app.ipa`에 생성된다.

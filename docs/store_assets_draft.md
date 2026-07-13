@@ -77,11 +77,11 @@ Cloud drive storage can be turned on or off in settings, and drive data can be d
 
 ## 5. Review Notes
 
-REVV uses When-In-Use location permission to find nearby curved routes, show the current position on the route map, provide in-drive route progress, and save a post-drive route log when the user completes a drive.
+REVV uses When-In-Use location permission to find nearby curved routes, show the current position, and save a post-drive route log. If the reviewer explicitly chooses navigation to one route start, REVV keeps a visible background location session for that armed route and starts the same drive record only after two accurate moving fixes inside the start zone. It does not monitor every route or require an in-drive confirmation.
 
 No demo account is required. The app creates an anonymous Supabase session automatically so the reviewer can open the app, allow location access, find routes, start a drive, and save a log without entering credentials.
 
-The driving surface is designed to reduce interaction while the vehicle is moving. The active drive screen keeps the map, remaining distance, next curve cue, progress, mute toggle, and end control visible. Route choice, detailed review, sharing, settings, and deletion actions are intended for before or after the drive.
+The driving surface is designed to reduce interaction while the vehicle is moving. Exploration fog is passive, never creates an in-drive target or reward, and clears only after a real drive is ended and saved. Route choice, detailed review, sharing, settings, and deletion actions are intended for before or after the drive.
 
 ## 6. 베타 / 버전 노트 초안
 

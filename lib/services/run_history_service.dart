@@ -13,11 +13,13 @@ import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
 import '../ui/run_report_metrics.dart';
 import 'drive_dynamics_tracker.dart';
+import 'exploration_service.dart';
 import 'run_pending_upload_store.dart';
 import 'supabase_service.dart';
 
 abstract class RunHistoryCloudClient {
   bool get isReady;
+  String? get uid;
   Future<bool> uploadRun(RunSummary summary);
   Future<bool> uploadRunDetail(RunTelemetryDetail detail);
   Future<bool> uploadRouteFeedback(RouteFeedback feedback);
@@ -40,6 +42,9 @@ class SupabaseRunHistoryCloudClient implements RunHistoryCloudClient {
 
   @override
   bool get isReady => _service.isReady;
+
+  @override
+  String? get uid => _service.uid;
 
   @override
   Future<bool> uploadRun(RunSummary summary) => _service.uploadRun(summary);
@@ -81,11 +86,15 @@ class RunHistoryService extends ChangeNotifier {
   RunHistoryService({
     RunPendingUploadStore pendingStore = const RunPendingUploadStore(),
     RunHistoryCloudClient? cloudClient,
+    ExplorationService? exploration,
   }) : _pendingStore = pendingStore,
-       _cloud = cloudClient ?? SupabaseRunHistoryCloudClient();
+       _cloud = cloudClient ?? SupabaseRunHistoryCloudClient(),
+       _exploration = exploration;
 
   final RunPendingUploadStore _pendingStore;
   final RunHistoryCloudClient _cloud;
+  final ExplorationService? _exploration;
+  Future<void> _cloudOperations = Future.value();
   List<RunSummary> _history = [];
   List<RouteFeedback> _feedback = [];
   List<RunSummary> get history => List.unmodifiable(_history);
@@ -113,12 +122,27 @@ class RunHistoryService extends ChangeNotifier {
   }
 
   /// 클라우드 원본을 우선하되, 실패한 pending 업로드를 먼저 비운다.
-  Future<void> syncWithCloud() async {
-    if (!await _cloudUploadEnabled()) return;
+  Future<void> syncWithCloud() => _enqueueCloudOperation(_syncWithCloud);
+
+  Future<void> _syncWithCloud() async {
     final sync = _cloud;
+    final prefs = await SharedPreferences.getInstance();
+    final pendingDeletionUids =
+        (prefs.getStringList(StorageKeys.pendingRunDataDeletionUids) ??
+                const <String>[])
+            .toSet();
+    if (sync.uid case final uid? when pendingDeletionUids.contains(uid)) {
+      if (!sync.isReady || !await sync.deleteUserRunData()) return;
+      pendingDeletionUids.remove(uid);
+      await prefs.setStringList(
+        StorageKeys.pendingRunDataDeletionUids,
+        pendingDeletionUids.toList()..sort(),
+      );
+    }
+    if (!await _cloudUploadEnabled()) return;
     if (!sync.isReady) return;
 
-    await retryPendingUploads();
+    await _retryPendingUploads();
 
     final localIds = _history.map((r) => r.id).toSet();
     final missing = await sync.fetchMissingRuns(localIds);
@@ -130,7 +154,10 @@ class RunHistoryService extends ChangeNotifier {
     }
   }
 
-  Future<void> retryPendingUploads() async {
+  Future<void> retryPendingUploads() =>
+      _enqueueCloudOperation(_retryPendingUploads);
+
+  Future<void> _retryPendingUploads() async {
     if (!await _cloudUploadEnabled()) return;
     final sync = _cloud;
     if (!sync.isReady) return;
@@ -202,23 +229,36 @@ class RunHistoryService extends ChangeNotifier {
 
     _history.insert(0, summary);
     await _persist();
+    try {
+      await _exploration?.recordSession(session);
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[RunHistory] exploration save failed: $error');
+      }
+    }
     notifyListeners();
 
     final cloudUploadEnabled = await _cloudUploadEnabled();
     if (cloudUploadEnabled) {
       await _pendingStore.saveSummary(summary);
-      unawaited(_uploadSummaryAndClearPending(summary));
       unawaited(
-        _cloud.uploadTelemetrySummary(
-          summary.id,
-          DriveDynamicsTracker.summarizeSamples(session.telemetrySamples),
+        _enqueueCloudOperation(() => _uploadSummaryAndClearPending(summary)),
+      );
+      unawaited(
+        _enqueueCloudOperation(
+          () => _cloud.uploadTelemetrySummary(
+            summary.id,
+            DriveDynamicsTracker.summarizeSamples(session.telemetrySamples),
+          ),
         ),
       );
     }
 
     final sync = _cloud;
     if (cloudUploadEnabled && session.route?.id != null) {
-      unawaited(sync.recordRouteRun(session.route!.id));
+      unawaited(
+        _enqueueCloudOperation(() => sync.recordRouteRun(session.route!.id)),
+      );
     }
 
     return summary;
@@ -244,7 +284,7 @@ class RunHistoryService extends ChangeNotifier {
 
     await _pendingStore.saveDetail(detail);
     final sync = _cloud;
-    if (await sync.uploadRunDetail(detail)) {
+    if (await _enqueueCloudOperation(() => sync.uploadRunDetail(detail))) {
       await _pendingStore.removeDetail(detail.runId);
     }
     await _saveLocalDetail(detail);
@@ -273,7 +313,9 @@ class RunHistoryService extends ChangeNotifier {
     if (await _cloudUploadEnabled()) {
       await _pendingStore.saveFeedback(feedback);
       final sync = _cloud;
-      if (await sync.uploadRouteFeedback(feedback)) {
+      if (await _enqueueCloudOperation(
+        () => sync.uploadRouteFeedback(feedback),
+      )) {
         await _pendingStore.removeFeedback(feedback.id);
       }
     }
@@ -319,23 +361,55 @@ class RunHistoryService extends ChangeNotifier {
   }
 
   Future<bool> deleteAllRunData() async {
-    final cloudUploadEnabled = await _cloudUploadEnabled();
-    if (cloudUploadEnabled) {
-      final sync = _cloud;
-      if (!sync.isReady) return false;
-      final remoteDeleted = await sync.deleteUserRunData();
-      if (!remoteDeleted) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final sync = _cloud;
+    final deletionUid = sync.uid;
+    if (deletionUid != null) {
+      final pendingUids =
+          (prefs.getStringList(StorageKeys.pendingRunDataDeletionUids) ??
+                  const <String>[])
+              .toSet()
+            ..add(deletionUid);
+      await prefs.setStringList(
+        StorageKeys.pendingRunDataDeletionUids,
+        pendingUids.toList()..sort(),
+      );
     }
+    final remoteDeleted = await _enqueueCloudOperation(() async {
+      if (!sync.isReady || deletionUid == null || deletionUid != sync.uid) {
+        return false;
+      }
+      return sync.deleteUserRunData();
+    });
+    if (remoteDeleted) {
+      final pendingUids =
+          (prefs.getStringList(StorageKeys.pendingRunDataDeletionUids) ??
+                  const <String>[])
+              .toSet()
+            ..remove(deletionUid);
+      await prefs.setStringList(
+        StorageKeys.pendingRunDataDeletionUids,
+        pendingUids.toList()..sort(),
+      );
+    }
+    final exploration = _exploration;
+    await exploration?.deleteEverywhere();
+    final cloudUploadEnabled = await _cloudUploadEnabled();
 
     _history = [];
     _feedback = [];
-    final prefs = await SharedPreferences.getInstance();
     await prefs.remove(StorageKeys.runs);
     await prefs.remove(StorageKeys.routeFeedback);
     await _clearLocalDetails(prefs);
     await _pendingStore.clearAll();
     notifyListeners();
-    return true;
+    return remoteDeleted || !cloudUploadEnabled;
+  }
+
+  Future<T> _enqueueCloudOperation<T>(Future<T> Function() action) {
+    final result = _cloudOperations.then((_) => action());
+    _cloudOperations = result.then<void>((_) {}, onError: (_) {});
+    return result;
   }
 
   Future<void> _clearLocalDetails(SharedPreferences prefs) async {

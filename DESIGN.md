@@ -41,12 +41,14 @@ REVV Lean MVP is a mobile driving companion for finding winding roads, running a
 - Route ticket: selected route card with rank, route type, map glyph, distance/curves/start metrics, and primary preview/start command.
 - Result metric row: two-column table with mono label and bold result value.
 - History row: route glyph, route metadata, peak G/date column.
+- Exploration fog: a passive, bounded map overlay using `pit-black` fill and a blurred `stone-muted` edge. It never captures gestures, never covers selected-route controls, and disappears cell-by-cell only after a saved real drive.
 
 ## 6. Motion and States
 
 - Motion should be tactile but restrained. Animate opacity and transform only.
 - Loading states should use racing language such as GPS lock, sensors calibrated, and route scan status.
 - Empty states must explain the next route-finding action.
+- Exploration progress updates after a drive is safely ended and saved. Do not animate rewards, percentages, targets, or competitive prompts while driving.
 
 ## 7. Implementation Notes
 

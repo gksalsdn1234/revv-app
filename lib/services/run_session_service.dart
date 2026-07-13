@@ -77,6 +77,7 @@ class RunSessionService extends ChangeNotifier {
   String _weatherEmoji = '🌤';
   String _tempDisplay = '—';
   String _weatherDesc = '';
+  bool _simulated = false;
 
   // ── DriveMode 시간 추적 ────────────────────────────────────
   String _currentMode = 'cruise';
@@ -85,14 +86,17 @@ class RunSessionService extends ChangeNotifier {
 
   double get currentMaxSpeed => _maxSpeedKmh;
   double get currentDistance => _distanceKm;
+  RevvRoute? get currentRoute => _route;
   Duration get currentDuration =>
       _startTime != null ? _clock().difference(_startTime!) : Duration.zero;
+  DateTime? get currentStartTime => _startTime;
 
   void startSession(
     RevvRoute? route, {
     String weatherEmoji = '🌤',
     String tempDisplay = '—',
     String weatherDesc = '',
+    bool simulated = false,
   }) {
     final now = _clock();
     _enqueueRecoveryWrite((store) => store.clear());
@@ -114,6 +118,7 @@ class RunSessionService extends ChangeNotifier {
     _weatherEmoji = weatherEmoji;
     _tempDisplay = tempDisplay;
     _weatherDesc = weatherDesc;
+    _simulated = simulated;
     _currentMode = 'cruise';
     _currentModeStart = now;
     _driveModeSeconds.clear();
@@ -187,6 +192,7 @@ class RunSessionService extends ChangeNotifier {
       tempDisplay: _tempDisplay,
       weatherDesc: _weatherDesc,
       lastSampleTime: now,
+      simulated: _simulated,
     );
     _enqueueRecoveryWrite((store) => store.writeSnapshot(snapshot));
   }
@@ -296,6 +302,7 @@ class RunSessionService extends ChangeNotifier {
       driveModeSeconds: Map.unmodifiable(Map.of(_driveModeSeconds)),
       sharpCorners: List.unmodifiable(List.of(_sharpCorners)),
       telemetrySamples: List.unmodifiable(List.of(_telemetrySamples)),
+      simulated: _simulated,
     );
     _enqueueRecoveryWrite((store) => store.clear());
     _scheduleNotify();

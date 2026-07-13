@@ -678,11 +678,77 @@ class SupabaseService extends ChangeNotifier {
           .from(SupabaseTables.routeRecords)
           .delete()
           .eq('user_id', uid!);
+      await client!
+          .from(SupabaseTables.exploredCells)
+          .delete()
+          .eq('user_id', uid!);
       await client!.from(SupabaseTables.runs).delete().eq('user_id', uid!);
       _debugLog('[Supabase] user run data deleted');
       return true;
     } catch (e) {
       _debugLog('[Supabase] deleteUserRunData failed: ${_safeError(e)}');
+      return false;
+    }
+  }
+
+  Future<Map<String, DateTime>> fetchExploredCells() async {
+    if (!_ready || uid == null) return const {};
+    try {
+      const pageSize = 1000;
+      final cells = <String, DateTime>{};
+      for (var offset = 0; ; offset += pageSize) {
+        final rows = await client!
+            .from(SupabaseTables.exploredCells)
+            .select('cell_id,explored_at')
+            .eq('user_id', uid!)
+            .order('cell_id')
+            .range(offset, offset + pageSize - 1);
+        final page = (rows as List).whereType<Map<String, dynamic>>().toList();
+        for (final row in page) {
+          final cellId = row['cell_id'] as String?;
+          final exploredAt = DateTime.tryParse(
+            row['explored_at']?.toString() ?? '',
+          );
+          if (cellId != null && exploredAt != null) cells[cellId] = exploredAt;
+        }
+        if (page.length < pageSize) break;
+      }
+      return cells;
+    } catch (e) {
+      _debugLog('[Supabase] fetchExploredCells failed: ${_safeError(e)}');
+      rethrow;
+    }
+  }
+
+  Future<bool> upsertExploredCells(Map<String, DateTime> cells) async {
+    if (!_ready || uid == null) return false;
+    if (cells.isEmpty) return true;
+    try {
+      final rows = exploredCellRows(cells, userId: uid!);
+      const batchSize = 500;
+      for (var start = 0; start < rows.length; start += batchSize) {
+        final end = min(start + batchSize, rows.length);
+        await client!
+            .from(SupabaseTables.exploredCells)
+            .upsert(rows.sublist(start, end), onConflict: 'user_id,cell_id');
+      }
+      return true;
+    } catch (e) {
+      _debugLog('[Supabase] upsertExploredCells failed: ${_safeError(e)}');
+      return false;
+    }
+  }
+
+  Future<bool> deleteExploredCells() async {
+    if (!_ready || uid == null) return false;
+    try {
+      await client!
+          .from(SupabaseTables.exploredCells)
+          .delete()
+          .eq('user_id', uid!);
+      return true;
+    } catch (e) {
+      _debugLog('[Supabase] deleteExploredCells failed: ${_safeError(e)}');
       return false;
     }
   }
@@ -711,6 +777,22 @@ class SupabaseService extends ChangeNotifier {
       if (summary.endPoint != null) 'end_lat': summary.endPoint!.lat,
       if (summary.endPoint != null) 'end_lng': summary.endPoint!.lng,
     };
+  }
+
+  static List<Map<String, dynamic>> exploredCellRows(
+    Map<String, DateTime> cells, {
+    required String userId,
+  }) {
+    final entries = cells.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return [
+      for (final entry in entries)
+        {
+          'user_id': userId,
+          'cell_id': entry.key,
+          'explored_at': entry.value.toUtc().toIso8601String(),
+        },
+    ];
   }
 
   static RunSummary runSummaryFromRow(Map<String, dynamic> row) {

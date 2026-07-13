@@ -12,6 +12,10 @@ import 'supabase_service.dart';
 enum SprintStartMode { auto, guideToStart, joinFromCurrent }
 
 class RouteService extends ChangeNotifier {
+  RouteService() {
+    unawaited(_restorePendingDrive(_pendingGuideMutation));
+  }
+
   static const int routeFieldRadiusKm = 160;
   static const int routeFieldFetchLimit = 650;
   static const double routeFieldCacheReuseKm = 40;
@@ -47,6 +51,8 @@ class RouteService extends ChangeNotifier {
   RevvRoute? sprintRoute;
   RevvRoute? pendingGuideRoute;
   DateTime? pendingGuideStartedAt;
+  int _pendingGuideMutation = 0;
+  Future<void> _pendingGuideWrites = Future.value();
 
   int _fetchToken = 0;
 
@@ -63,32 +69,79 @@ class RouteService extends ChangeNotifier {
   }
 
   void beginGuideToStart(RevvRoute route) {
+    _pendingGuideMutation++;
     pendingGuideRoute = route;
     pendingGuideStartedAt = DateTime.now();
-    unawaited(_savePendingDrive(route.id, pendingGuideStartedAt!));
+    unawaited(_savePendingDrive(route, pendingGuideStartedAt!));
     notifyListeners();
   }
 
   void clearGuideToStart() {
+    _pendingGuideMutation++;
     pendingGuideRoute = null;
     pendingGuideStartedAt = null;
     unawaited(_clearPendingDrive());
     notifyListeners();
   }
 
-  Future<void> _savePendingDrive(String routeId, DateTime savedAt) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(StorageKeys.pendingDriveRouteId, routeId);
-    await prefs.setString(
-      StorageKeys.pendingDriveSavedAt,
-      savedAt.toIso8601String(),
-    );
+  Future<void> _savePendingDrive(RevvRoute route, DateTime savedAt) {
+    final routeJson = jsonEncode(route.toJson());
+    return _enqueuePendingGuideWrite((prefs) async {
+      await Future.wait([
+        prefs.setString(StorageKeys.pendingDriveRouteId, route.id),
+        prefs.setString(
+          StorageKeys.pendingDriveSavedAt,
+          savedAt.toIso8601String(),
+        ),
+        prefs.setString(StorageKeys.pendingDriveRoute, routeJson),
+      ]);
+    });
   }
 
-  Future<void> _clearPendingDrive() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(StorageKeys.pendingDriveRouteId);
-    await prefs.remove(StorageKeys.pendingDriveSavedAt);
+  Future<void> _clearPendingDrive() {
+    return _enqueuePendingGuideWrite((prefs) async {
+      await prefs.remove(StorageKeys.pendingDriveRouteId);
+      await prefs.remove(StorageKeys.pendingDriveSavedAt);
+      await prefs.remove(StorageKeys.pendingDriveRoute);
+    });
+  }
+
+  Future<void> _enqueuePendingGuideWrite(
+    Future<void> Function(SharedPreferences prefs) action,
+  ) {
+    final write = _pendingGuideWrites.then((_) async {
+      final prefs = await SharedPreferences.getInstance();
+      await action(prefs);
+    });
+    _pendingGuideWrites = write.catchError((_) {});
+    return write;
+  }
+
+  Future<void> _restorePendingDrive(int mutation) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedAt = DateTime.tryParse(
+        prefs.getString(StorageKeys.pendingDriveSavedAt) ?? '',
+      );
+      final rawRoute = prefs.getString(StorageKeys.pendingDriveRoute);
+      if (savedAt == null || rawRoute == null) return;
+      if (DateTime.now().difference(savedAt) >= const Duration(hours: 24)) {
+        if (mutation == _pendingGuideMutation) {
+          await _clearPendingDrive();
+        }
+        return;
+      }
+      final decoded = jsonDecode(rawRoute) as Map<String, dynamic>;
+      final route = RevvRoute.fromJson(decoded);
+      if (mutation != _pendingGuideMutation) return;
+      pendingGuideRoute = route;
+      pendingGuideStartedAt = savedAt;
+      notifyListeners();
+    } catch (_) {
+      if (mutation == _pendingGuideMutation) {
+        await _clearPendingDrive();
+      }
+    }
   }
 
   void requestSprint({

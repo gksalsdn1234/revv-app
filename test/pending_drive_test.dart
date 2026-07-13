@@ -5,22 +5,56 @@ import 'package:revv_app/services/route_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  test('beginGuideToStart persists pending drive and clear removes it', () async {
-    SharedPreferences.setMockInitialValues({});
+  test(
+    'beginGuideToStart persists pending drive and clear removes it',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final service = RouteService();
+
+      service.beginGuideToStart(_route);
+      await Future<void>.delayed(Duration.zero);
+
+      var prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(StorageKeys.pendingDriveRouteId), 'route');
+      expect(service.hasFreshPendingGuide, isTrue);
+
+      service.clearGuideToStart();
+      await Future<void>.delayed(Duration.zero);
+
+      prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(StorageKeys.pendingDriveRouteId), isNull);
+      expect(prefs.getString(StorageKeys.pendingDriveRoute), isNull);
+    },
+  );
+
+  test(
+    'pending guide restores its route snapshot after a cold start',
+    () async {
+      final original = RouteService();
+      original.beginGuideToStart(_route);
+      await Future<void>.delayed(Duration.zero);
+
+      final restored = RouteService();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(restored.pendingGuideRoute?.id, _route.id);
+      expect(restored.pendingGuideRoute?.nodes, hasLength(2));
+      expect(restored.hasFreshPendingGuide, isTrue);
+    },
+  );
+
+  test('corrupt pending route is cleared instead of restored', () async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.pendingDriveSavedAt: DateTime.now().toIso8601String(),
+      StorageKeys.pendingDriveRoute: '{broken',
+    });
+
     final service = RouteService();
-
-    service.beginGuideToStart(_route);
     await Future<void>.delayed(Duration.zero);
 
-    var prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString(StorageKeys.pendingDriveRouteId), 'route');
-    expect(service.hasFreshPendingGuide, isTrue);
-
-    service.clearGuideToStart();
-    await Future<void>.delayed(Duration.zero);
-
-    prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString(StorageKeys.pendingDriveRouteId), isNull);
+    expect(service.pendingGuideRoute, isNull);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(StorageKeys.pendingDriveRoute), isNull);
   });
 
   test('pending drive prompt only appears within 500m', () {
@@ -30,6 +64,19 @@ void main() {
 
     expect(service.shouldPromptPendingDrive(distanceKm: 0.49), isTrue);
     expect(service.shouldPromptPendingDrive(distanceKm: 0.51), isFalse);
+  });
+
+  test('rapid begin then clear cannot resurrect pending storage', () async {
+    SharedPreferences.setMockInitialValues({});
+    final service = RouteService();
+
+    service.beginGuideToStart(_route);
+    service.clearGuideToStart();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(StorageKeys.pendingDriveRouteId), isNull);
+    expect(prefs.getString(StorageKeys.pendingDriveRoute), isNull);
   });
 
   test('pending guide expires after 24 hours', () async {

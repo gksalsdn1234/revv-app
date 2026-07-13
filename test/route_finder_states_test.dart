@@ -246,7 +246,6 @@ void main() {
     },
   );
 
-
   testWidgets('route duration meta renders estimate and chain segment count', (
     tester,
   ) async {
@@ -300,9 +299,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -346,9 +345,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -414,9 +413,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -491,9 +490,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -575,9 +574,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -761,9 +760,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -825,9 +824,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -954,6 +953,30 @@ void main() {
       ]);
     },
   );
+
+  test('exploration fog is bounded and excludes already explored cells', () {
+    final routes = [
+      const RevvRoute(
+        id: 'fog-route',
+        nodes: [LatLng(45.5, -73.6), LatLng(45.5, -73.58)],
+        name: 'Fog route',
+        distanceKm: 2,
+        windingScore: 4,
+        starRating: 3,
+        sharpCurveCount: 2,
+        centerPoint: LatLng(45.5, -73.59),
+        distanceFromUser: 0,
+      ),
+    ];
+    final all = buildExplorationFogCells(routes, const {}, limit: 5);
+    final explored = {all.first.id};
+
+    final remaining = buildExplorationFogCells(routes, explored, limit: 5);
+
+    expect(all, hasLength(5));
+    expect(remaining.map((cell) => cell.id), isNot(contains(all.first.id)));
+    expect(remaining.length, lessThanOrEqualTo(5));
+  });
 
   test('todayRecommendedRoutes returns routes from three clusters', () {
     final routes = [
@@ -1211,8 +1234,6 @@ class _QuietRouteService extends RouteService {
     prefetched.add(LatLng(lat, lng));
   }
 }
-
-
 
 class _OutsideCoverageLocationService extends LocationService {
   _OutsideCoverageLocationService() {

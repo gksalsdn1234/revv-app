@@ -217,8 +217,10 @@ flutter run --release --dart-define-from-file=.env -d 00008120-000621623E90A01E
 빌드 명령:
 
 ```sh
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=43
+flutter build ipa --release --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true --build-name=1.38.0 --build-number=43
 ```
+
+이 빌드 전에 `20260712201817_explored_cells.sql`을 대상 Supabase 프로젝트에 적용하고 `explored_cells`의 RLS와 anon revoke를 확인한다.
 
 업로드 방법:
 

@@ -14,6 +14,7 @@ import '../services/location_service.dart';
 import '../services/route_geometry_matcher.dart';
 import '../services/route_loading_policy.dart';
 import '../services/route_turn_service.dart';
+import '../services/route_auto_record_service.dart';
 import '../services/run_session_service.dart';
 import '../services/settings_service.dart';
 import '../services/ptt_service.dart';
@@ -66,6 +67,8 @@ class LeanDriveScreen extends StatefulWidget {
 class _LeanDriveScreenState extends State<LeanDriveScreen> {
   LocationService? _location;
   RunSessionService? _session;
+  RouteAutoRecordService? _autoRecord;
+  bool _resumingAutoRecord = false;
   ImuService? _imuService;
   SettingsService? _settings;
   late final VoiceBriefingService _voice;
@@ -112,8 +115,18 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     if (_started) return;
     _started = true;
     _session = context.read<RunSessionService>();
+    try {
+      _autoRecord = context.read<RouteAutoRecordService>();
+      _resumingAutoRecord =
+          !widget.simulated && _autoRecord!.claimRecording(widget.route.id);
+    } on ProviderNotFoundException {
+      _autoRecord = null;
+    }
     _settings = context.read<SettingsService>();
     _imuService = context.read<ImuService>();
+    if (!widget.simulated && !_resumingAutoRecord) {
+      _autoRecord?.claimManualDrive(widget.route.id);
+    }
     if (!widget.simulated) {
       _location = context.read<LocationService>();
       _location!.addListener(_onLocation);
@@ -136,12 +149,16 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     unawaited(_loadRouteTurns(_activeRouteNodes));
     unawaited(_prepareMatchedRouteGeometry());
     if (!mounted) return;
-    _startedAt = DateTime.now();
+    _startedAt = _resumingAutoRecord
+        ? (_session?.currentStartTime ?? DateTime.now())
+        : DateTime.now();
     _clock = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || _startedAt == null) return;
       setState(() => _elapsed = DateTime.now().difference(_startedAt!));
     });
-    _session?.startSession(widget.route);
+    if (!_resumingAutoRecord) {
+      _session?.startSession(widget.route, simulated: widget.simulated);
+    }
     unawaited(WakelockPlus.enable());
     if (widget.simulated) {
       _startSimulation();
@@ -228,7 +245,8 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     }
     _gpsWatchdog = Timer.periodic(const Duration(seconds: 1), (_) {
       final lastUpdate = _lastGpsUpdateAt;
-      final weak = lastUpdate == null ||
+      final weak =
+          lastUpdate == null ||
           DateTime.now().difference(lastUpdate) >= const Duration(seconds: 8);
       if (mounted && weak != _gpsWeak) {
         setState(() => _gpsWeak = weak);
@@ -416,10 +434,13 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
 
   Future<void> _hydrateSparseRouteNodes() async {
     if (_averageRouteNodeSpacingM(widget.route.nodes) <= 120) return;
-    final loader =
-        widget.routeNodesLoader ?? SupabaseService().fetchRouteNodes;
-    final nodes = await loader(widget.route.id).catchError((_) => const <LatLng>[]);
-    if (!mounted || nodes.length < 2 || _sameRouteNodes(nodes, widget.route.nodes)) {
+    final loader = widget.routeNodesLoader ?? SupabaseService().fetchRouteNodes;
+    final nodes = await loader(
+      widget.route.id,
+    ).catchError((_) => const <LatLng>[]);
+    if (!mounted ||
+        nodes.length < 2 ||
+        _sameRouteNodes(nodes, widget.route.nodes)) {
       return;
     }
     setState(() => _matchedRouteNodes = nodes);
@@ -446,6 +467,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       maxLateralG: widget.simulated ? _simMaxLateralG : (imu?.maxLateralG ?? 0),
       maxLonG: widget.simulated ? _simMaxLongitudinalG : (imu?.maxLonG ?? 0),
     );
+    _autoRecord?.finish();
     unawaited(WakelockPlus.disable());
     if (!widget.simulated) {
       imu?.resetMaxG();
@@ -486,109 +508,115 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     final routeNodes = _activeRouteNodes;
     final routeName = routeDisplayName(widget.route, language: language);
 
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: MapWidget(
-              isSprintMode: true,
-              routePolyline: routeNodes,
-              routeFocusMode: true,
-              navigationBearing: _navigationBearing,
-              simulatedPosition: widget.simulated
-                  ? (_drivePosition ??
-                        (routeNodes.isNotEmpty
-                            ? routeNodes.first
-                            : widget.route.centerPoint))
-                  : null,
-            ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-              child: Column(
-                children: [
-                  _DriveTopBar(
-                    routeName: routeName,
-                    progress: _progress,
-                    remainingKm: remainingKm,
-                    simulated: widget.simulated,
-                    language: language,
-                  ),
-                  const SizedBox(height: 8),
-                  if (_gpsWeak)
-                    _GpsStatusBanner(
-                      language: language,
-                      permanentlyDenied:
-                          _location?.permissionStatus.isPermanentlyDenied ??
-                          false,
-                      onOpenSettings: () => openAppSettings(),
-                    ),
-                  if (_gpsWeak) const SizedBox(height: 8),
-                  _NextCurveBanner(
-                    cue: cue,
-                    rhythmBrief: _rhythmBrief,
-                    turnByTurn: _turnByTurn,
-                    navStepProgress: _navStepProgress,
-                    status: _routeStatus,
-                    eventMessage: routeEvent,
-                    language: language,
-                  ),
-                  const Spacer(),
-                  Wrap(
-                    alignment: WrapAlignment.end,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _CompactSpeedPill(speedKmh: _speedKmh, language: language),
-                      RepaintBoundary(
-                        child: widget.simulated
-                            ? _CompactGInstrument(
-                                lateralG: _lateralG,
-                                longitudinalG: _longitudinalG,
-                                totalG: totalG,
-                                language: language,
-                              )
-                            : Consumer<ImuService>(
-                                builder: (context, imu, _) {
-                                  final lG = _lateralG;
-                                  final nG = _longitudinalG;
-                                  final tG = math.sqrt(lG * lG + nG * nG);
-                                  return _CompactGInstrument(
-                                    lateralG: lG,
-                                    longitudinalG: nG,
-                                    totalG: tG,
-                                    language: language,
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  _DriveControlStrip(
-                    remainingKm: remainingKm,
-                    elapsed: _formatDuration(_elapsed),
-                    muted: settings.ttsMuted,
-                    language: language,
-                    onToggleMute: () =>
-                        settings.setTtsMuted(!settings.ttsMuted),
-                    onEnd: _endDrive,
-                  ),
-                ],
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        backgroundColor: AppColors.bg,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: MapWidget(
+                isSprintMode: true,
+                routePolyline: routeNodes,
+                routeFocusMode: true,
+                navigationBearing: _navigationBearing,
+                simulatedPosition: widget.simulated
+                    ? (_drivePosition ??
+                          (routeNodes.isNotEmpty
+                              ? routeNodes.first
+                              : widget.route.centerPoint))
+                    : null,
               ),
             ),
-          ),
-          if (widget.walkieEnabledOverride) _walkieAutoConnect(context),
-          if (_walkiePttButton(context, language) case final button?)
-            Positioned(
-              right: 18,
-              bottom: MediaQuery.paddingOf(context).bottom + 96,
-              child: button,
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                child: Column(
+                  children: [
+                    _DriveTopBar(
+                      routeName: routeName,
+                      progress: _progress,
+                      remainingKm: remainingKm,
+                      simulated: widget.simulated,
+                      language: language,
+                    ),
+                    const SizedBox(height: 8),
+                    if (_gpsWeak)
+                      _GpsStatusBanner(
+                        language: language,
+                        permanentlyDenied:
+                            _location?.permissionStatus.isPermanentlyDenied ??
+                            false,
+                        onOpenSettings: () => openAppSettings(),
+                      ),
+                    if (_gpsWeak) const SizedBox(height: 8),
+                    _NextCurveBanner(
+                      cue: cue,
+                      rhythmBrief: _rhythmBrief,
+                      turnByTurn: _turnByTurn,
+                      navStepProgress: _navStepProgress,
+                      status: _routeStatus,
+                      eventMessage: routeEvent,
+                      language: language,
+                    ),
+                    const Spacer(),
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _CompactSpeedPill(
+                          speedKmh: _speedKmh,
+                          language: language,
+                        ),
+                        RepaintBoundary(
+                          child: widget.simulated
+                              ? _CompactGInstrument(
+                                  lateralG: _lateralG,
+                                  longitudinalG: _longitudinalG,
+                                  totalG: totalG,
+                                  language: language,
+                                )
+                              : Consumer<ImuService>(
+                                  builder: (context, imu, _) {
+                                    final lG = _lateralG;
+                                    final nG = _longitudinalG;
+                                    final tG = math.sqrt(lG * lG + nG * nG);
+                                    return _CompactGInstrument(
+                                      lateralG: lG,
+                                      longitudinalG: nG,
+                                      totalG: tG,
+                                      language: language,
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    _DriveControlStrip(
+                      remainingKm: remainingKm,
+                      elapsed: _formatDuration(_elapsed),
+                      muted: settings.ttsMuted,
+                      language: language,
+                      onToggleMute: () =>
+                          settings.setTtsMuted(!settings.ttsMuted),
+                      onEnd: _endDrive,
+                    ),
+                  ],
+                ),
+              ),
             ),
-        ],
+            if (widget.walkieEnabledOverride) _walkieAutoConnect(context),
+            if (_walkiePttButton(context, language) case final button?)
+              Positioned(
+                right: 18,
+                bottom: MediaQuery.paddingOf(context).bottom + 96,
+                child: button,
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -844,20 +872,10 @@ String? _routeEventFor(
   if (previous == next) return null;
   if (previous == DriveRouteStatus.offRoute &&
       next == DriveRouteStatus.onRoute) {
-    return AppCopy.t(
-      language,
-      ko: '온 루트',
-      en: 'On route',
-      fr: 'Sur la route',
-    );
+    return AppCopy.t(language, ko: '온 루트', en: 'On route', fr: 'Sur la route');
   }
   if (next == DriveRouteStatus.offRoute) {
-    return AppCopy.t(
-      language,
-      ko: '루트 이탈',
-      en: 'Off route',
-      fr: 'Hors route',
-    );
+    return AppCopy.t(language, ko: '루트 이탈', en: 'Off route', fr: 'Hors route');
   }
   if (next == DriveRouteStatus.approachingStart) {
     return AppCopy.t(
@@ -991,15 +1009,23 @@ class _GpsStatusBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(Icons.gps_not_fixed_rounded, size: 18, color: AppColors.ink),
+          const Icon(
+            Icons.gps_not_fixed_rounded,
+            size: 18,
+            color: AppColors.ink,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               AppCopy.t(
                 language,
                 ko: permanentlyDenied ? 'GPS 권한이 꺼져 있습니다' : 'GPS 신호 약함',
-                en: permanentlyDenied ? 'GPS permission is off' : 'GPS signal weak',
-                fr: permanentlyDenied ? 'Autorisation GPS désactivée' : 'Signal GPS faible',
+                en: permanentlyDenied
+                    ? 'GPS permission is off'
+                    : 'GPS signal weak',
+                fr: permanentlyDenied
+                    ? 'Autorisation GPS désactivée'
+                    : 'Signal GPS faible',
               ),
               style: AppText.body(
                 size: 12,

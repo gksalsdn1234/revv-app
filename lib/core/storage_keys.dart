@@ -43,6 +43,14 @@ class StorageKeys {
   /// 외부 내비로 시작점 이동 중인 드라이브
   static const pendingDriveRouteId = 'pending_drive_route_id';
   static const pendingDriveSavedAt = 'pending_drive_saved_at';
+  static const pendingDriveRoute = 'pending_drive_route_v1';
+
+  /// Versioned geohash cells revealed by saved real drives.
+  static const exploredCells = 'revv_explored_cells_v1';
+  static const pendingExplorationDeletionUids =
+      'revv_pending_exploration_deletion_uids';
+  static const pendingRunDataDeletionUids =
+      'revv_pending_run_data_deletion_uids';
 
   // ── 집 위치 (HomeLocationService) ──────────────────────────
   static const homeLat = 'home_lat';

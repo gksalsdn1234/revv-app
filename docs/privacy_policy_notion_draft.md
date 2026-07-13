@@ -1,6 +1,6 @@
 # REVV Privacy Policy / 개인정보 처리방침
 
-Last updated / 마지막 업데이트: 2026-05-10
+Last updated / 마지막 업데이트: 2026-07-12
 
 ## 1. Overview / 개요
 
@@ -16,6 +16,7 @@ REVV may collect or process the following data to provide app functionality:
 - Driving data: distance, duration, route samples, speed, G-force values, selected route, and drive summaries.
 - User identifier: a Supabase anonymous or user identifier used to separate each user’s records.
 - Route feedback: route ratings, safety feedback, hidden routes, and “do not recommend again” choices.
+- Exploration progress: coarse map cell identifiers derived after a saved real drive. The exploration feature does not upload an additional ordered GPS breadcrumb stream.
 
 REVV는 앱 기능 제공을 위해 다음 데이터를 수집하거나 처리할 수 있습니다.
 
@@ -23,6 +24,7 @@ REVV는 앱 기능 제공을 위해 다음 데이터를 수집하거나 처리�
 - 주행 데이터: 거리, 시간, 경로 샘플, 속도, G값, 선택 루트, 주행 요약이 포함될 수 있습니다.
 - 사용자 식별자: Supabase 익명 또는 사용자 ID를 사용해 사용자별 기록을 분리합니다.
 - 루트 피드백: 루트 평가, 위험 신고, 숨김, 다시 추천하지 않기 선택을 저장할 수 있습니다.
+- 탐험 진행 정보: 실제 주행을 저장한 뒤 생성되는 저해상도 지도 셀 ID입니다. 탐험 기능을 위해 별도의 시간순 GPS 원본 경로를 추가 업로드하지 않습니다.
 
 ## 3. How We Use Data / 데이터 사용 목적
 
@@ -31,6 +33,7 @@ We use data only for app functionality, including:
 - Finding relevant driving routes.
 - Showing route progress during a drive.
 - Saving and restoring drive history.
+- Restoring coarse explored-map progress for the current anonymous or identified REVV cloud identity.
 - Improving route recommendation quality.
 - Responding to beta feedback and debugging issues.
 
@@ -39,6 +42,7 @@ We use data only for app functionality, including:
 - 관련성 높은 주행 루트 추천.
 - 주행 중 루트 진행 안내.
 - 주행 기록 저장 및 복원.
+- 현재 REVV 익명 또는 식별 클라우드 ID에 연결된 저해상도 탐험 진행 복원.
 - 루트 추천 품질 개선.
 - 베타 피드백 대응 및 문제 해결.
 
@@ -58,12 +62,16 @@ Users can:
 
 - Turn cloud drive history storage on or off in the app.
 - Delete saved driving records in the app.
+- Delete explored-map progress together with saved driving records.
+- Arm automatic recording for one selected route; background location is used only while that armed/active drive is running and remains visibly indicated by the operating system.
 - Change location permission in iOS Settings.
 
 사용자는 다음을 제어할 수 있습니다.
 
 - 앱에서 클라우드 주행 기록 저장을 켜거나 끌 수 있습니다.
 - 앱에서 저장된 주행 기록을 삭제할 수 있습니다.
+- 저장된 주행 기록과 함께 탐험 지도 진행을 삭제할 수 있습니다.
+- 선택한 루트 한 개에 대해서만 자동 기록을 준비할 수 있습니다. 백그라운드 위치는 해당 준비/주행이 진행 중일 때만 사용되며 운영체제 위치 표시가 유지됩니다.
 - iOS 설정에서 위치 권한을 변경할 수 있습니다.
 
 ## 6. Data Retention / 데이터 보관

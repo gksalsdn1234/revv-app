@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -177,20 +178,28 @@ void main() {
     expect(cloud.lastTelemetrySummary?.hardBrakeCount, 0);
   });
 
-  test('deleteAllRunData keeps local data when cloud delete fails', () async {
-    SharedPreferences.setMockInitialValues({
-      StorageKeys.cloudRunStorageEnabled: true,
-    });
-    final cloud = _FakeCloud(deleteResult: false);
-    final history = RunHistoryService(cloudClient: cloud);
-    await history.load();
-    await history.save(_sessionWithRoute());
+  test(
+    'deleteAllRunData clears local data and queues failed cloud delete',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: true,
+      });
+      final cloud = _FakeCloud(deleteResult: false);
+      final history = RunHistoryService(cloudClient: cloud);
+      await history.load();
+      await history.save(_sessionWithRoute());
 
-    final deleted = await history.deleteAllRunData();
+      final deleted = await history.deleteAllRunData();
 
-    expect(deleted, isFalse);
-    expect(history.history, isNotEmpty);
-  });
+      expect(deleted, isFalse);
+      expect(history.history, isEmpty);
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getStringList(StorageKeys.pendingRunDataDeletionUids),
+        contains('user-1'),
+      );
+    },
+  );
 
   test(
     'deleteAllRunData removes rich local detail after cloud delete succeeds',
@@ -224,6 +233,78 @@ void main() {
       expect(await pending.hasPending(), isFalse);
     },
   );
+
+  test('delete waits for an in-flight upload and runs last', () async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: true,
+    });
+    final upload = Completer<bool>();
+    final cloud = _FakeCloud(uploadRunCompleter: upload);
+    final history = RunHistoryService(cloudClient: cloud);
+    await history.load();
+    await history.save(_sessionWithRoute());
+    await Future<void>.delayed(Duration.zero);
+
+    final deletion = history.deleteAllRunData();
+    await Future<void>.delayed(Duration.zero);
+    expect(cloud.deleteCount, 0);
+
+    upload.complete(true);
+    expect(await deletion, isTrue);
+    expect(cloud.events, ['upload', 'delete']);
+  });
+
+  test('delete waits for an in-flight sync and runs last', () async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: true,
+    });
+    final fetch = Completer<List<RunSummary>>();
+    final cloud = _FakeCloud(fetchMissingCompleter: fetch);
+    final history = RunHistoryService(cloudClient: cloud);
+    await history.load();
+
+    final sync = history.syncWithCloud();
+    await Future<void>.delayed(Duration.zero);
+    final deletion = history.deleteAllRunData();
+    await Future<void>.delayed(Duration.zero);
+    expect(cloud.deleteCount, 0);
+
+    fetch.complete(const []);
+    await sync;
+    expect(await deletion, isTrue);
+    expect(cloud.events, ['fetch', 'delete']);
+    expect(history.history, isEmpty);
+  });
+
+  test('pending deletion does not erase a replacement identity', () async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: true,
+    });
+    final cloud = _FakeCloud(deleteResult: false);
+    final history = RunHistoryService(cloudClient: cloud);
+    await history.load();
+    cloud.deleteResult = false;
+    await history.deleteAllRunData();
+
+    cloud
+      ..userId = 'user-2'
+      ..deleteResult = true;
+    await history.syncWithCloud();
+
+    expect(cloud.deleteCount, 1);
+    final prefs = await SharedPreferences.getInstance();
+    expect(
+      prefs.getStringList(StorageKeys.pendingRunDataDeletionUids),
+      contains('user-1'),
+    );
+
+    cloud.deleteResult = false;
+    await history.deleteAllRunData();
+    expect(
+      prefs.getStringList(StorageKeys.pendingRunDataDeletionUids),
+      containsAll(['user-1', 'user-2']),
+    );
+  });
 
   test('purgePendingUploads preserves local rich detail', () async {
     SharedPreferences.setMockInitialValues({
@@ -367,27 +448,44 @@ class _FakeCloud implements RunHistoryCloudClient {
     this.uploadDetailResult = true,
     this.deleteResult = true,
     this.uploadTelemetrySummaryResult = true,
+    this.uploadRunCompleter,
+    this.fetchMissingCompleter,
   });
 
   final bool uploadDetailResult;
-  final bool deleteResult;
+  bool deleteResult;
   final bool uploadTelemetrySummaryResult;
+  final Completer<bool>? uploadRunCompleter;
+  final Completer<List<RunSummary>>? fetchMissingCompleter;
+  String userId = 'user-1';
   final recordedRouteIds = <String?>[];
+  final events = <String>[];
   var uploadDetailCount = 0;
   var uploadTelemetrySummaryCount = 0;
+  var deleteCount = 0;
   DriveDynamicsSummary? lastTelemetrySummary;
 
   @override
   bool get isReady => true;
 
   @override
-  Future<bool> deleteUserRunData() async => deleteResult;
+  String? get uid => userId;
+
+  @override
+  Future<bool> deleteUserRunData() async {
+    deleteCount++;
+    events.add('delete');
+    return deleteResult;
+  }
 
   @override
   Future<RunTelemetryDetail?> fetchRunDetail(String runId) async => null;
 
   @override
-  Future<List<RunSummary>> fetchMissingRuns(Set<String> localIds) async => [];
+  Future<List<RunSummary>> fetchMissingRuns(Set<String> localIds) async {
+    events.add('fetch');
+    return fetchMissingCompleter?.future ?? const [];
+  }
 
   @override
   Future<Set<String>> fetchRunIds() async => {};
@@ -401,7 +499,10 @@ class _FakeCloud implements RunHistoryCloudClient {
   Future<bool> uploadRouteFeedback(RouteFeedback feedback) async => true;
 
   @override
-  Future<bool> uploadRun(RunSummary summary) async => true;
+  Future<bool> uploadRun(RunSummary summary) async {
+    events.add('upload');
+    return uploadRunCompleter?.future ?? true;
+  }
 
   @override
   Future<bool> uploadRunDetail(RunTelemetryDetail detail) async {

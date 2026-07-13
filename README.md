@@ -60,14 +60,16 @@ flutter run --dart-define-from-file=.env
 ```bash
 flutter analyze
 flutter test
-flutter build ios --release --no-codesign --dart-define-from-file=.env
+flutter build ios --release --no-codesign --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true
 ```
 
 For a TestFlight candidate, keep the marketing version and increment the build number:
 
 ```bash
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=43
+flutter build ipa --release --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true --build-name=1.38.0 --build-number=43
 ```
+
+Apply `supabase/migrations/20260712201817_explored_cells.sql` and verify its RLS policies before shipping a build with exploration fog enabled.
 
 ## Key Project Areas
 

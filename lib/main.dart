@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
@@ -16,6 +18,9 @@ import 'services/settings_service.dart';
 import 'services/supabase_service.dart';
 import 'services/crash_reporting.dart';
 import 'services/crew_channel_service.dart';
+import 'services/exploration_service.dart';
+import 'services/supabase_exploration_cloud_client.dart';
+import 'services/route_auto_record_service.dart';
 import 'labs/walkie/walkie_ptt_controller.dart';
 
 Future<void> main() => runWithCrashReporting(_startApp);
@@ -24,10 +29,17 @@ Future<void> _startApp() async {
   WidgetsFlutterBinding.ensureInitialized();
   await SupabaseService().init();
 
-  final history = RunHistoryService();
-  await history.load();
   final settings = SettingsService();
   await settings.load();
+  final exploration = ExplorationService(
+    cloud: SupabaseExplorationCloudClient(),
+    cloudSyncEnabled: () => settings.cloudRunStorageEnabled,
+  );
+  await exploration.load();
+  await exploration.bindCloudIdentity(SupabaseService().uid);
+  unawaited(exploration.syncWithCloud());
+  final history = RunHistoryService(exploration: exploration);
+  await history.load();
 
   history.syncWithCloud();
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -37,13 +49,21 @@ Future<void> _startApp() async {
       statusBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(RevvApp(history: history, settings: settings));
+  runApp(
+    RevvApp(history: history, settings: settings, exploration: exploration),
+  );
 }
 
 class RevvApp extends StatelessWidget {
   final RunHistoryService history;
   final SettingsService settings;
-  const RevvApp({super.key, required this.history, required this.settings});
+  final ExplorationService exploration;
+  const RevvApp({
+    super.key,
+    required this.history,
+    required this.settings,
+    required this.exploration,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +73,15 @@ class RevvApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => WeatherService()),
         ChangeNotifierProvider(create: (_) => RouteService()),
         ChangeNotifierProvider(create: (_) => RunSessionService()),
+        ChangeNotifierProvider(
+          create: (context) => RouteAutoRecordService(
+            routes: context.read<RouteService>(),
+            sessions: context.read<RunSessionService>(),
+            location: context.read<LocationService>(),
+          )..attach(),
+        ),
         ChangeNotifierProvider<RunHistoryService>.value(value: history),
+        ChangeNotifierProvider<ExplorationService>.value(value: exploration),
         // 정복 지도: runs를 파생한 "달린 루트" 뷰 (별도 저장 없음)
         ChangeNotifierProvider(
           create: (_) => DrivenRoutesService(history: history),
@@ -73,11 +101,7 @@ class RevvApp extends StatelessWidget {
         builder: (_, settings, _) => MaterialApp(
           title: 'REVV',
           locale: Locale(settings.appLanguage.code),
-          supportedLocales: const [
-            Locale('ko'),
-            Locale('en'),
-            Locale('fr'),
-          ],
+          supportedLocales: const [Locale('ko'), Locale('en'), Locale('fr')],
           localizationsDelegates: const [
             GlobalMaterialLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,

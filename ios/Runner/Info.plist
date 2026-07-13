@@ -35,9 +35,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>REVV uses location only while the app is open to guide route progress and save drive summaries. Background location is not requested in this beta. / REVV utilise la position uniquement lorsque l’app est ouverte pour suivre la route et sauvegarder les résumés. La position en arrière-plan n’est pas demandée dans cette bêta.</string>
+	<string>REVV does not request Always access. When you explicitly arm or start one route, the active When-In-Use location session may continue in the background with the system location indicator visible. / REVV ne demande pas l’accès Toujours. Lorsque vous activez ou démarrez explicitement une route, la session de localisation active peut continuer en arrière-plan avec l’indicateur système visible.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>REVV uses your location to find nearby driving routes, show your position, and save drive summaries. / REVV utilise votre position pour trouver des routes proches, afficher votre position et sauvegarder les résumés.</string>
+	<string>REVV uses your location to find routes, guide and record a selected drive, and automatically begin recording when you reach a route start you explicitly armed. The location indicator remains visible while that armed drive continues in the background. / REVV utilise votre position pour trouver des routes, guider et enregistrer un trajet sélectionné, et démarrer automatiquement l’enregistrement lorsque vous atteignez le départ d’une route que vous avez explicitement activée. L’indicateur de position reste visible pendant cet enregistrement en arrière-plan.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>REVV uses the microphone only while you hold the crew talk button to send a short voice message to your crew. Audio is never recorded or stored. / REVV utilise le micro uniquement pendant que vous maintenez le bouton pour envoyer un court message vocal à votre équipage. Aucun audio n’est enregistré ni conservé.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
@@ -68,6 +68,7 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>location</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

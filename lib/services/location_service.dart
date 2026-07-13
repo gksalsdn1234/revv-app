@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -7,10 +8,6 @@ import '../core/storage_keys.dart';
 import '../models/revv_route.dart';
 
 class LocationService extends ChangeNotifier {
-  static const LocationSettings _trackingSettings = LocationSettings(
-    accuracy: LocationAccuracy.bestForNavigation,
-    distanceFilter: 5,
-  );
   static const Duration _notifyThrottle = Duration(milliseconds: 250);
 
   Position? currentPosition;
@@ -20,6 +17,8 @@ class LocationService extends ChangeNotifier {
   bool hasPermission = false;
   PermissionStatus _permissionStatus = PermissionStatus.denied;
   bool isTracking = false;
+  bool _armedBackgroundTracking = false;
+  int _armedTrackingRequest = 0;
   bool _hydrated = false;
 
   StreamSubscription<Position>? _subscription;
@@ -58,7 +57,7 @@ class LocationService extends ChangeNotifier {
     isTracking = true;
     _subscription =
         Geolocator.getPositionStream(
-          locationSettings: _trackingSettings,
+          locationSettings: _trackingSettings(_armedBackgroundTracking),
         ).listen(
           (position) {
             _applyPosition(position);
@@ -71,6 +70,69 @@ class LocationService extends ChangeNotifier {
           },
         );
     await ensureLiveLocation(timeout: const Duration(seconds: 5));
+  }
+
+  Future<void> startArmedTracking() async {
+    final request = ++_armedTrackingRequest;
+    final wasArmed = _armedBackgroundTracking;
+    _armedBackgroundTracking = true;
+    if (!hasPermission) await requestPermission();
+    if (request != _armedTrackingRequest || !_armedBackgroundTracking) return;
+    if (!hasPermission) {
+      _armedBackgroundTracking = false;
+      return;
+    }
+    if (Platform.isAndroid) {
+      await Permission.locationAlways.request();
+      if (request != _armedTrackingRequest || !_armedBackgroundTracking) {
+        return;
+      }
+    }
+    if (wasArmed && isTracking) return;
+    if (isTracking) stopTracking();
+    await startTracking();
+  }
+
+  Future<void> stopArmedTracking() async {
+    _armedTrackingRequest++;
+    if (!_armedBackgroundTracking) return;
+    _armedBackgroundTracking = false;
+    if (isTracking) {
+      stopTracking();
+      await startTracking();
+    }
+  }
+
+  LocationSettings _trackingSettings(bool background) {
+    if (Platform.isIOS || Platform.isMacOS) {
+      return AppleSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 5,
+        activityType: ActivityType.automotiveNavigation,
+        pauseLocationUpdatesAutomatically: false,
+        showBackgroundLocationIndicator: background,
+        allowBackgroundLocationUpdates: background,
+      );
+    }
+    if (Platform.isAndroid) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 5,
+        intervalDuration: const Duration(seconds: 2),
+        foregroundNotificationConfig: background
+            ? const ForegroundNotificationConfig(
+                notificationTitle: 'REVV route recording',
+                notificationText:
+                    'Waiting for the route start and recording your drive.',
+                enableWakeLock: true,
+              )
+            : null,
+      );
+    }
+    return const LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 5,
+    );
   }
 
   void _scheduleNotify() {
@@ -199,7 +261,7 @@ class LocationService extends ChangeNotifier {
 
     tempSubscription =
         Geolocator.getPositionStream(
-          locationSettings: _trackingSettings,
+          locationSettings: _trackingSettings(false),
         ).listen(
           (position) {
             _applyPosition(position);

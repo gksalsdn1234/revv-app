@@ -8,9 +8,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_language.dart';
 import '../models/drive_plan.dart';
+import '../models/exploration_cell.dart';
 import '../models/revv_route.dart';
 import '../services/drive_planner_service.dart';
 import '../services/external_nav.dart';
+import '../services/exploration_service.dart';
 import '../services/location_service.dart';
 import '../services/place_search_service.dart';
 import '../services/recommendation_log_service.dart';
@@ -36,6 +38,31 @@ import 'lean_route_detail_screen.dart';
 enum _RouteLens { all, nearby, sweeper, tight, flow, loop }
 
 enum _RouteMapMode { wide, balanced, close }
+
+const bool _explorationFogEnabled = bool.fromEnvironment(
+  'REVV_EXPLORATION_FOG',
+);
+
+List<ExplorationCell> buildExplorationFogCells(
+  List<RevvRoute> routes,
+  Set<String> exploredCellIds, {
+  int limit = 800,
+}) {
+  if (limit <= 0) return const [];
+  final cells = <String, ExplorationCell>{};
+  for (final route in routes) {
+    if (route.nodes.length < 2) continue;
+    for (final id in ExplorationGrid.cellsForPath(route.nodes)) {
+      if (exploredCellIds.contains(id) || cells.containsKey(id)) continue;
+      cells[id] = ExplorationCell(
+        id: id,
+        bounds: ExplorationGrid.decodeBounds(id),
+      );
+      if (cells.length == limit) return cells.values.toList(growable: false);
+    }
+  }
+  return cells.values.toList(growable: false);
+}
 
 class RouteClusterBounds {
   final double south;
@@ -1208,8 +1235,26 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _mapCenterPoint,
       _mapZoom,
     );
+    ExplorationService? exploration;
+    if (_explorationFogEnabled) {
+      try {
+        exploration = context.watch<ExplorationService>();
+      } on ProviderNotFoundException {
+        exploration = null;
+      }
+    }
     final plan = _plan;
     final showingJourney = _journeyMode != null && plan != null;
+    final explorationFogCells =
+        exploration != null &&
+            !showingJourney &&
+            !service.isLoading &&
+            _coverageRequestPoint == null
+        ? buildExplorationFogCells(
+            mapDisplayRoutes,
+            exploration.exploredCellIds,
+          )
+        : const <ExplorationCell>[];
     final filterEmpty =
         routes.isNotEmpty && lensRoutes.isEmpty && visibleRoutes.isEmpty;
     final budgetEmpty =
@@ -1336,6 +1381,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                   difficultyLines: showingJourney
                       ? const []
                       : _difficultyLines(mapDisplayRoutes, null),
+                  explorationFogCells: explorationFogCells,
                   strongCurveFieldHeatmap: _curveRoadView,
                   routeFocusMode: false,
                   recenterSignal: _recenterSignal,

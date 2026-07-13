@@ -86,301 +86,306 @@ class _CopilotStartSheet extends StatelessWidget {
           // 문구 길이·기기 높이에 따라 미세 오버플로가 나지 않게 스크롤 허용
           child: SingleChildScrollView(
             child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // ── 헤더 ──
-              Text(
-                AppCopy.copilotStartCheck(language),
-                style: AppText.technicalLabel(
-                  size: 10,
-                  color: AppColors.primaryContainer,
-                  letterSpacing: 1.8,
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── 헤더 ──
+                Text(
+                  AppCopy.copilotStartCheck(language),
+                  style: AppText.technicalLabel(
+                    size: 10,
+                    color: AppColors.primaryContainer,
+                    letterSpacing: 1.8,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              // ── 루트 이름 + 시작점 거리 배지 ──
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      arrivedPrompt
-                          ? AppCopy.t(
-                              language,
-                              ko: '루트 도착! 주행 시작할까요?',
-                              en: 'Route reached. Start the drive?',
-                              fr: 'Route atteinte. Commencer?',
-                            )
-                          : displayName,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.body(
-                        size: 23,
-                        height: 1.05,
-                        weight: FontWeight.w900,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isFar
-                          ? AppColors.warning.withValues(alpha: 0.14)
-                          : AppColors.primaryContainer.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: isFar
-                            ? AppColors.warning.withValues(alpha: 0.30)
-                            : AppColors.primaryContainer.withValues(
-                                alpha: 0.28,
-                              ),
-                      ),
-                    ),
-                    child: Text(
-                      route.distanceFromUserDisplay,
-                      style: AppText.technicalLabel(
-                        size: 10,
-                        color: isFar
-                            ? AppColors.warning
-                            : AppColors.primaryContainer,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              if (isFar) ...[
-                // ── 멀 때: 내비 우선 ──
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.warning.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: AppColors.warning.withValues(alpha: 0.20),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.directions_car_rounded,
-                            color: AppColors.warning,
-                            size: 15,
-                          ),
-                          const SizedBox(width: 7),
-                          Text(
-                            AppCopy.t(
-                              language,
-                              ko: '시작점 이동 먼저',
-                              en: 'Start point first',
-                              fr: 'Départ d\'abord',
-                            ),
-                            style: AppText.body(
-                              size: 12,
-                              weight: FontWeight.w900,
-                              color: AppColors.warning,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _NavAppButton(
-                              label: 'Google Maps',
-                              icon: Icons.map_rounded,
-                              onTap: () => _openGoogleMaps(
-                                context,
-                                route,
-                                launchNavigationUrl,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: _NavAppButton(
-                              label: 'Waze',
-                              subtitle: AppCopy.t(
+                const SizedBox(height: 8),
+                // ── 루트 이름 + 시작점 거리 배지 ──
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        arrivedPrompt
+                            ? AppCopy.t(
                                 language,
-                                ko: '시작점까지',
-                                en: 'To start',
-                                fr: 'Au départ',
+                                ko: '루트 도착! 주행 시작할까요?',
+                                en: 'Route reached. Start the drive?',
+                                fr: 'Route atteinte. Commencer?',
+                              )
+                            : displayName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.body(
+                          size: 23,
+                          height: 1.05,
+                          weight: FontWeight.w900,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 9,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isFar
+                            ? AppColors.warning.withValues(alpha: 0.14)
+                            : AppColors.primaryContainer.withValues(
+                                alpha: 0.14,
                               ),
-                              icon: Icons.navigation_rounded,
-                              onTap: () => _openWaze(
-                                context,
-                                route,
-                                launchNavigationUrl,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: isFar
+                              ? AppColors.warning.withValues(alpha: 0.30)
+                              : AppColors.primaryContainer.withValues(
+                                  alpha: 0.28,
+                                ),
+                        ),
+                      ),
+                      child: Text(
+                        route.distanceFromUserDisplay,
+                        style: AppText.technicalLabel(
+                          size: 10,
+                          color: isFar
+                              ? AppColors.warning
+                              : AppColors.primaryContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                if (isFar) ...[
+                  // ── 멀 때: 내비 우선 ──
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.warning.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: AppColors.warning.withValues(alpha: 0.20),
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.directions_car_rounded,
+                              color: AppColors.warning,
+                              size: 15,
+                            ),
+                            const SizedBox(width: 7),
+                            Text(
+                              AppCopy.t(
+                                language,
+                                ko: '시작점 이동 먼저',
+                                en: 'Start point first',
+                                fr: 'Départ d\'abord',
+                              ),
+                              style: AppText.body(
+                                size: 12,
+                                weight: FontWeight.w900,
+                                color: AppColors.warning,
                               ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _NavAppButton(
+                                label: 'Google Maps',
+                                icon: Icons.map_rounded,
+                                onTap: () => _openGoogleMaps(
+                                  context,
+                                  route,
+                                  launchNavigationUrl,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _NavAppButton(
+                                label: 'Waze',
+                                subtitle: AppCopy.t(
+                                  language,
+                                  ko: '시작점까지',
+                                  en: 'To start',
+                                  fr: 'Au départ',
+                                ),
+                                icon: Icons.navigation_rounded,
+                                onTap: () => _openWaze(
+                                  context,
+                                  route,
+                                  launchNavigationUrl,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  // 그래도 바로 시작 — 보조 선택지
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.textSecondary,
+                            side: BorderSide(
+                              color: AppColors.outlineVariant.withValues(
+                                alpha: 0.38,
+                              ),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
-                        ],
+                          child: Text(
+                            AppCopy.cancel(language),
+                            style: AppText.body(
+                              size: 13,
+                              weight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () =>
+                              Navigator.pop(context, CopilotStartChoice.start),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.textPrimary,
+                            side: BorderSide(
+                              color: AppColors.outlineVariant.withValues(
+                                alpha: 0.52,
+                              ),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          child: Text(
+                            AppCopy.startHere(language),
+                            style: AppText.body(
+                              size: 13,
+                              weight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 14),
-                // 그래도 바로 시작 — 보조 선택지
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.textSecondary,
-                          side: BorderSide(
-                            color: AppColors.outlineVariant.withValues(
-                              alpha: 0.38,
-                            ),
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        child: Text(
-                          AppCopy.cancel(language),
-                          style: AppText.body(
-                            size: 13,
-                            weight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () =>
-                            Navigator.pop(context, CopilotStartChoice.start),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.textPrimary,
-                          side: BorderSide(
-                            color: AppColors.outlineVariant.withValues(
-                              alpha: 0.52,
-                            ),
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        child: Text(
-                          AppCopy.startHere(language),
-                          style: AppText.body(
-                            size: 13,
-                            weight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ] else ...[
-                // ── 가까울 때: 바로 시작 ──
-                _AdviceLine(
-                  icon: Icons.flag_rounded,
-                  text: briefing.startAdvice,
-                ),
-                const SizedBox(height: 8),
-                _AdviceLine(
-                  icon: Icons.psychology_rounded,
-                  text: briefing.primaryAdvice,
-                ),
-                const SizedBox(height: 14),
-                if (briefing.decisionChips.isNotEmpty) ...[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: briefing.decisionChips
-                        .map((chip) => _Chip(label: chip))
-                        .toList(),
+                ] else ...[
+                  // ── 가까울 때: 바로 시작 ──
+                  _AdviceLine(
+                    icon: Icons.flag_rounded,
+                    text: briefing.startAdvice,
                   ),
-                  const SizedBox(height: 18),
-                ],
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppColors.textSecondary,
-                          side: BorderSide(
-                            color: AppColors.outlineVariant.withValues(
-                              alpha: 0.42,
+                  const SizedBox(height: 8),
+                  _AdviceLine(
+                    icon: Icons.psychology_rounded,
+                    text: briefing.primaryAdvice,
+                  ),
+                  const SizedBox(height: 14),
+                  if (briefing.decisionChips.isNotEmpty) ...[
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: briefing.decisionChips
+                          .map((chip) => _Chip(label: chip))
+                          .toList(),
+                    ),
+                    const SizedBox(height: 18),
+                  ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.textSecondary,
+                            side: BorderSide(
+                              color: AppColors.outlineVariant.withValues(
+                                alpha: 0.42,
+                              ),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                          ),
+                          child: Text(
+                            AppCopy.cancel(language),
+                            style: AppText.body(
+                              size: 14,
+                              weight: FontWeight.w900,
                             ),
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 15),
                         ),
-                        child: Text(
-                          AppCopy.cancel(language),
-                          style: AppText.body(
-                            size: 14,
-                            weight: FontWeight.w900,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        flex: 2,
+                        child: FilledButton(
+                          onPressed: () =>
+                              Navigator.pop(context, CopilotStartChoice.start),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.primaryContainer,
+                            foregroundColor: AppColors.onPrimary,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                          ),
+                          child: Text(
+                            briefing.nextActionLabel,
+                            textAlign: TextAlign.center,
+                            style: AppText.body(
+                              size: 14,
+                              weight: FontWeight.w900,
+                              color: AppColors.onPrimary,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      flex: 2,
-                      child: FilledButton(
-                        onPressed: () =>
-                            Navigator.pop(context, CopilotStartChoice.start),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppColors.primaryContainer,
-                          foregroundColor: AppColors.onPrimary,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                        ),
-                        child: Text(
-                          briefing.nextActionLabel,
-                          textAlign: TextAlign.center,
-                          style: AppText.body(
-                            size: 14,
-                            weight: FontWeight.w900,
-                            color: AppColors.onPrimary,
-                          ),
-                        ),
+                    ],
+                  ),
+                ],
+
+                // ── Test Drive: 공통 최하단 ──
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () =>
+                        Navigator.pop(context, CopilotStartChoice.simulate),
+                    icon: const Icon(Icons.science_rounded, size: 15),
+                    label: Text(AppCopy.testDriveNow(language)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textHint,
+                      textStyle: AppText.body(
+                        size: 12,
+                        weight: FontWeight.w800,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
                       ),
                     ),
-                  ],
+                  ),
                 ),
               ],
-
-              // ── Test Drive: 공통 최하단 ──
-              Center(
-                child: TextButton.icon(
-                  onPressed: () =>
-                      Navigator.pop(context, CopilotStartChoice.simulate),
-                  icon: const Icon(Icons.science_rounded, size: 15),
-                  label: Text(AppCopy.testDriveNow(language)),
-                  style: TextButton.styleFrom(
-                    foregroundColor: AppColors.textHint,
-                    textStyle: AppText.body(size: 12, weight: FontWeight.w800),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                  ),
-                ),
-              ),
-            ],
             ),
           ),
         ),
@@ -394,7 +399,8 @@ Future<void> _openGoogleMaps(
   RevvRoute route,
   NavigationUrlLauncher launchNavigationUrl,
 ) async {
-  context.read<RouteService>().beginGuideToStart(route);
+  final routes = context.read<RouteService>();
+  routes.beginGuideToStart(route);
   final handoffPoints = selectRouteHandoffPoints(route.nodes);
   final start = handoffPoints.isEmpty
       ? _routeStart(route)
@@ -421,6 +427,7 @@ Future<void> _openGoogleMaps(
     appUri: appUri,
     fallbackUri: webUri,
     launchNavigationUrl: launchNavigationUrl,
+    onFailure: routes.clearGuideToStart,
   );
 }
 
@@ -429,7 +436,8 @@ Future<void> _openWaze(
   RevvRoute route,
   NavigationUrlLauncher launchNavigationUrl,
 ) async {
-  context.read<RouteService>().beginGuideToStart(route);
+  final routes = context.read<RouteService>();
+  routes.beginGuideToStart(route);
   final start = _routeStart(route);
   final appUri = Uri.parse('waze://?ll=${start.lat},${start.lng}&navigate=yes');
   final webUri = Uri.https('waze.com', '/ul', {
@@ -441,6 +449,7 @@ Future<void> _openWaze(
     appUri: appUri,
     fallbackUri: webUri,
     launchNavigationUrl: launchNavigationUrl,
+    onFailure: routes.clearGuideToStart,
   );
 }
 
@@ -449,6 +458,7 @@ Future<void> _launchNavigationUri(
   required Uri appUri,
   required Uri fallbackUri,
   required NavigationUrlLauncher launchNavigationUrl,
+  required VoidCallback onFailure,
 }) async {
   final messenger = ScaffoldMessenger.maybeOf(context);
   final navigator = Navigator.of(context);
@@ -471,6 +481,7 @@ Future<void> _launchNavigationUri(
   }
 
   if (launched) return navigator.pop();
+  onFailure();
   if (messenger == null) return;
 
   messenger.showSnackBar(

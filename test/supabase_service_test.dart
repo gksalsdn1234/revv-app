@@ -321,4 +321,22 @@ void main() {
       expect(payload, {'route_id_input': 'route-1'});
     },
   );
+
+  test('explored cell rows contain no ordered GPS or telemetry fields', () {
+    final rows = SupabaseService.exploredCellRows({
+      'f25dvk1': DateTime.utc(2026, 7, 12, 20),
+    }, userId: 'user-1');
+
+    expect(rows, [
+      {
+        'user_id': 'user-1',
+        'cell_id': 'f25dvk1',
+        'explored_at': '2026-07-12T20:00:00.000Z',
+      },
+    ]);
+    expect(
+      rows.single.keys,
+      unorderedEquals(['user_id', 'cell_id', 'explored_at']),
+    );
+  });
 }

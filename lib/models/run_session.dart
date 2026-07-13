@@ -56,6 +56,7 @@ class RunRecoverySnapshot {
   final String tempDisplay;
   final String weatherDesc;
   final DateTime lastSampleTime;
+  final bool simulated;
 
   const RunRecoverySnapshot({
     required this.startTime,
@@ -73,6 +74,7 @@ class RunRecoverySnapshot {
     required this.tempDisplay,
     required this.weatherDesc,
     required this.lastSampleTime,
+    this.simulated = false,
   });
 
   Map<String, dynamic> toJson() => {
@@ -95,6 +97,7 @@ class RunRecoverySnapshot {
     'tempDisplay': tempDisplay,
     'weatherDesc': weatherDesc,
     'lastSampleTime': lastSampleTime.toIso8601String(),
+    if (simulated) 'simulated': true,
   };
 
   factory RunRecoverySnapshot.fromJson(Map<String, dynamic> json) {
@@ -133,6 +136,7 @@ class RunRecoverySnapshot {
       tempDisplay: json['tempDisplay'] as String,
       weatherDesc: json['weatherDesc'] as String,
       lastSampleTime: DateTime.parse(json['lastSampleTime'] as String),
+      simulated: json['simulated'] as bool? ?? false,
     );
   }
 
@@ -166,6 +170,7 @@ class RunRecoverySnapshot {
       driveModeSeconds: Map.unmodifiable(driveModeSeconds),
       sharpCorners: List.unmodifiable(sharpCorners),
       telemetrySamples: List.unmodifiable(telemetrySamples),
+      simulated: simulated,
     );
   }
 }
@@ -194,6 +199,7 @@ class RunSession {
   /// G포스 임계값(0.45G) 초과 급조작 지점 목록
   final List<SharpCorner> sharpCorners;
   final List<TelemetrySample> telemetrySamples;
+  final bool simulated;
 
   const RunSession({
     required this.startTime,
@@ -211,6 +217,7 @@ class RunSession {
     this.driveModeSeconds = const {},
     this.sharpCorners = const [],
     this.telemetrySamples = const [],
+    this.simulated = false,
   });
 
   Duration get duration => endTime.difference(startTime);

@@ -14,7 +14,7 @@
 
 - [ ] `flutter analyze` 통과.
 - [ ] `flutter test` 통과.
-- [ ] `flutter build ios --release --no-codesign --dart-define-from-file=.env` 통과.
+- [ ] `flutter build ios --release --no-codesign --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true` 통과.
 - [ ] Firebase, Bluetooth, Speech, TTS, Audio 관련 문자열이 남아 있지 않은지 확인한다.
 
 ```sh
@@ -64,11 +64,14 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 
 ## 5. 릴리즈 빌드 생성
 
+- [ ] 앱 빌드보다 먼저 `20260712201817_explored_cells.sql`을 대상 Supabase 프로젝트에 적용한다.
+- [ ] 원격 `explored_cells` 테이블의 RLS, authenticated CRUD, anon revoke를 확인한다.
+
 ```sh
 flutter clean
 flutter pub get
 cd ios && pod install && cd ..
-flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=43
+flutter build ipa --release --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true --build-name=1.38.0 --build-number=43
 ```
 
 - [ ] `build/ios/ipa/*.ipa`가 생성된다.
@@ -115,8 +118,8 @@ Beta Review Notes 예시:
 
 ```text
 REVV is a driving route discovery beta. No login is required.
-To test: allow location permission, open Route Finder, select a route, view details, start a drive, then end the drive to see the summary.
-The app uses location to recommend nearby driving routes and record a local run summary. Please test while parked or with a passenger operating the phone.
+To test: allow location permission, open Route Finder, select a route, and choose navigation to its start. REVV arms only that route. Two accurate moving fixes inside the start zone begin the drive record automatically; return to REVV to see the same active session, then end it to reveal explored map cells.
+The app keeps a visible background location session only while the selected route is armed or recording. Please configure and begin the test while parked or with a passenger operating the phone.
 ```
 
 ## 9. 테스터에게 보낼 안내문

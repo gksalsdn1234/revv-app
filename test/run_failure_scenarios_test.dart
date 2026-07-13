@@ -165,6 +165,9 @@ class _RetryCloud implements RunHistoryCloudClient {
   bool get isReady => true;
 
   @override
+  String? get uid => 'user-1';
+
+  @override
   Future<bool> deleteUserRunData() async => true;
 
   @override
