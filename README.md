@@ -13,14 +13,14 @@ The `lean_mvp` branch intentionally removes non-essential product experiments. `
 - `LoadingScreen` asks only for location permission.
 - `LeanHomeScreen` exposes one primary action: route finding.
 - `LeanRouteFinderScreen` shows the map, nearby route candidates, and a compact route ticket.
-- `LeanDriveScreen` tracks current location, route progress, next curve, speed, and G meter.
+- `LeanDriveScreen` tracks current location, route progress, next curve, speed, and G meter; route chains connect up to six selected routes with continuous in-app guidance.
 - `LeanRunSummaryScreen` saves `RunSummary` and `RunTelemetryDetail`.
 - Supabase remains the route/run backend and must fail safely.
 
 ## Removed From Lean MVP
 
 - Garage, rankings, saved-route management, route editor, route wizard, trip planner, and advanced history UI.
-- OBD UI/service, AI review, Google TTS, STT, always-listening, weather briefing, loop builder, chain extension, and advanced route preview.
+- OBD UI/service, AI review, Google TTS, STT, always-listening, weather briefing, loop builder, and advanced route preview.
 - Legacy large route cards, bottom sheets, and HUD-heavy screens.
 
 ## Setup
@@ -51,8 +51,10 @@ Supabase Edge Functions may still exist in the project, but the lean app path do
 
 ### Run
 
+This release-integration worktree intentionally has no `.env`; use the existing gitignored REVV environment file:
+
 ```bash
-flutter run --dart-define-from-file=.env
+flutter run --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env
 ```
 
 ### Verify
@@ -60,16 +62,16 @@ flutter run --dart-define-from-file=.env
 ```bash
 flutter analyze
 flutter test
-flutter build ios --release --no-codesign --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true
+flutter build ios --release --no-codesign --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env
 ```
 
 For a TestFlight candidate, keep the marketing version and increment the build number:
 
 ```bash
-flutter build ipa --release --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true --build-name=1.38.0 --build-number=43
+flutter build ipa --release --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env --build-name=1.38.0 --build-number=55
 ```
 
-Apply `supabase/migrations/20260712201817_explored_cells.sql` and verify its RLS policies before shipping a build with exploration fog enabled.
+The App Store candidate keeps `REVV_EXPLORATION_FOG` and `REVV_WALKIE_LAB` disabled. Apply and verify the exploration migration before a later build enables that visual feature.
 
 ## Key Project Areas
 

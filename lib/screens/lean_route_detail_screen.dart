@@ -220,160 +220,147 @@ class _LeanRouteDetailScreenState extends State<LeanRouteDetailScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.cream,
-      body: Stack(
-        children: [
-          CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+      body: CustomScrollView(
+        slivers: [
+          SliverToBoxAdapter(
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        Row(
-                          children: [
-                            IconButton(
-                              onPressed: () => Navigator.pop(context),
-                              icon: const Icon(Icons.arrow_back_rounded),
-                              color: AppColors.ink,
-                              style: IconButton.styleFrom(
-                                backgroundColor: AppColors.creamMuted,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          color: AppColors.ink,
+                          style: IconButton.styleFrom(
+                            backgroundColor: AppColors.creamMuted,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
                             ),
-                            const SizedBox(width: 10),
-                            Text(
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          AppCopy.t(
+                            language,
+                            ko: '루트 상세',
+                            en: 'ROUTE DETAIL',
+                            fr: 'DÉTAIL ROUTE',
+                          ),
+                          style: AppText.mono(
+                            size: 11,
+                            color: AppColors.primaryContainer,
+                            letterSpacing: 2.0,
+                          ),
+                        ),
+                        const Spacer(),
+                        Tooltip(
+                          message: AppCopy.t(
+                            language,
+                            ko: '루트 공유',
+                            en: 'Share route',
+                            fr: 'Partager la route',
+                          ),
+                          child: TextButton.icon(
+                            onPressed: _sharingInvite
+                                ? null
+                                : () => _shareRoute(context, language),
+                            icon: const Icon(Icons.ios_share_rounded, size: 18),
+                            label: Text(
                               AppCopy.t(
                                 language,
-                                ko: '루트 상세',
-                                en: 'ROUTE DETAIL',
-                                fr: 'DÉTAIL ROUTE',
+                                ko: '초대',
+                                en: 'Invite',
+                                fr: 'Inviter',
                               ),
                               style: AppText.mono(
-                                size: 11,
-                                color: AppColors.primaryContainer,
-                                letterSpacing: 2.0,
+                                size: 10,
+                                weight: FontWeight.w800,
+                                color: AppColors.ink,
+                                letterSpacing: 0.6,
                               ),
                             ),
-                            const Spacer(),
-                            Tooltip(
-                              message: AppCopy.t(
-                                language,
-                                ko: '루트 공유',
-                                en: 'Share route',
-                                fr: 'Partager la route',
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.ink,
+                              backgroundColor: AppColors.creamMuted,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 12,
                               ),
-                              child: TextButton.icon(
-                                onPressed: _sharingInvite
-                                    ? null
-                                    : () => _shareRoute(context, language),
-                                icon: const Icon(
-                                  Icons.ios_share_rounded,
-                                  size: 18,
-                                ),
-                                label: Text(
-                                  AppCopy.t(
-                                    language,
-                                    ko: '초대',
-                                    en: 'Invite',
-                                    fr: 'Inviter',
-                                  ),
-                                  style: AppText.mono(
-                                    size: 10,
-                                    weight: FontWeight.w800,
-                                    color: AppColors.ink,
-                                    letterSpacing: 0.6,
-                                  ),
-                                ),
-                                style: TextButton.styleFrom(
-                                  foregroundColor: AppColors.ink,
-                                  backgroundColor: AppColors.creamMuted,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        _RouteShapeHero(route: route),
-                        const SizedBox(height: 18),
-                        _QuickStatRow(route: route, language: language),
-                        if (_hasCurveMix(route)) ...[
-                          const SizedBox(height: 12),
-                          _CurveMixSection(route: route, language: language),
-                        ],
-                        if (_routeChainSegmentNames(route).isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          _ChainSegmentsSection(
-                            route: route,
-                            language: language,
                           ),
-                        ],
-                        if (_hasElevationProfile(route)) ...[
-                          const SizedBox(height: 12),
-                          _ElevationProfileSection(
-                            route: route,
-                            language: language,
-                          ),
-                        ],
-                        if (_hasRoadInfo(route)) ...[
-                          const SizedBox(height: 12),
-                          _RoadInfoSection(route: route, language: language),
-                        ],
-                        if (_hasJourneyInfo(route)) ...[
-                          const SizedBox(height: 12),
-                          _JourneyInfoSection(route: route, language: language),
-                        ],
-                        const SizedBox(height: 12),
-                        _CopilotHeadlineCard(
-                          briefing: briefing,
-                          language: language,
-                        ),
-                        const SizedBox(height: 12),
-                        _DriveEnvironmentRow(route: route, language: language),
-                        const SizedBox(height: 12),
-                        _StreetViewButton(
-                          language: language,
-                          onTap: () => _openStreetView(context),
-                        ),
-                        const SizedBox(height: 12),
-                        _RouteDetailExpansion(
-                          briefing: briefing,
-                          copy: copy,
-                          cautionBody: cautionBody,
-                          turnPlan: turnPlan,
-                          language: language,
-                        ),
-                        SizedBox(
-                          height: MediaQuery.paddingOf(context).bottom + 86,
                         ),
                       ],
                     ),
-                  ),
+                    const SizedBox(height: 18),
+                    _RouteShapeHero(route: route),
+                    const SizedBox(height: 18),
+                    _QuickStatRow(route: route, language: language),
+                    if (_hasCurveMix(route)) ...[
+                      const SizedBox(height: 12),
+                      _CurveMixSection(route: route, language: language),
+                    ],
+                    if (_routeChainSegmentNames(route).isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _ChainSegmentsSection(route: route, language: language),
+                    ],
+                    if (_hasElevationProfile(route)) ...[
+                      const SizedBox(height: 12),
+                      _ElevationProfileSection(
+                        route: route,
+                        language: language,
+                      ),
+                    ],
+                    if (_hasRoadInfo(route)) ...[
+                      const SizedBox(height: 12),
+                      _RoadInfoSection(route: route, language: language),
+                    ],
+                    if (_hasJourneyInfo(route)) ...[
+                      const SizedBox(height: 12),
+                      _JourneyInfoSection(route: route, language: language),
+                    ],
+                    const SizedBox(height: 12),
+                    _CopilotHeadlineCard(
+                      briefing: briefing,
+                      language: language,
+                    ),
+                    const SizedBox(height: 12),
+                    _DriveEnvironmentRow(route: route, language: language),
+                    const SizedBox(height: 12),
+                    _StreetViewButton(
+                      language: language,
+                      onTap: () => _openStreetView(context),
+                    ),
+                    const SizedBox(height: 12),
+                    _RouteDetailExpansion(
+                      briefing: briefing,
+                      copy: copy,
+                      cautionBody: cautionBody,
+                      turnPlan: turnPlan,
+                      language: language,
+                    ),
+                    const SizedBox(height: 18),
+                  ],
                 ),
               ),
-            ],
-          ),
-          Positioned(
-            left: 18,
-            right: 18,
-            bottom: MediaQuery.paddingOf(context).bottom + 14,
-            child: _StickyStartBar(
-              onStart: () => _startDrive(context),
-              onBack: () => Navigator.pop(context),
             ),
           ),
         ],
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+        child: _StickyStartBar(
+          onStart: () => _startDrive(context),
+          onBack: () => Navigator.pop(context),
+        ),
       ),
     );
   }
@@ -431,15 +418,15 @@ class _QuickStatRow extends StatelessWidget {
                   icon: Icons.route_rounded,
                   label: AppCopy.t(
                     language,
-                    ko: '커브',
-                    en: 'Curves',
-                    fr: 'Virages',
+                    ko: '와인딩',
+                    en: 'Winding',
+                    fr: 'Sinueux',
                   ),
                   value: AppCopy.t(
                     language,
-                    ko: '${route.sharpCurveCount}개',
-                    en: '${route.sharpCurveCount}',
-                    fr: '${route.sharpCurveCount}',
+                    ko: '${(route.tightCurveKm + route.mediumCurveKm).toStringAsFixed(1)}km',
+                    en: '${(route.tightCurveKm + route.mediumCurveKm).toStringAsFixed(1)}km',
+                    fr: '${(route.tightCurveKm + route.mediumCurveKm).toStringAsFixed(1)}km',
                   ),
                 ),
               ),

@@ -9,8 +9,7 @@ typedef RunRecoveryDirectoryProvider = Future<Directory> Function();
 
 class RunRecoveryStore {
   RunRecoveryStore({RunRecoveryDirectoryProvider? directoryProvider})
-    : _directoryProvider =
-          directoryProvider ?? getApplicationDocumentsDirectory;
+    : _directoryProvider = directoryProvider ?? getTemporaryDirectory;
 
   final RunRecoveryDirectoryProvider _directoryProvider;
 

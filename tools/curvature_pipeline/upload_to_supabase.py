@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -13,15 +14,17 @@ except ImportError:  # pragma: no cover - optional CLI dependency in unit tests
     create_client = None  # type: ignore
 
 if __package__:
-    from .process_roads import RoadRecord, from_json
+    from .process_roads import RoadRecord, load_json_file
 else:
     import sys
 
     sys.path.append(str(Path(__file__).resolve().parent))
-    from process_roads import RoadRecord, from_json
+    from process_roads import RoadRecord, load_json_file
 
 
 TABLE_NAME = "curvy_roads"
+MAX_ROUTE_NODES = 300
+MAX_ROUTE_NODES_BYTES = 512 * 1024
 
 
 def _load_local_env() -> None:
@@ -55,12 +58,34 @@ def get_client() -> Client:
 
 
 def normalize_record(record: RoadRecord) -> dict[str, object]:
+    nodes = record["nodes"]
+    if not isinstance(nodes, list) or not 2 <= len(nodes) <= MAX_ROUTE_NODES:
+        raise ValueError(f"nodes must contain 2..{MAX_ROUTE_NODES} points")
+    for node in nodes:
+        if not isinstance(node, dict):
+            raise ValueError("each node must be an object")
+        lat = node.get("lat")
+        lng = node.get("lng")
+        if (
+            not isinstance(lat, (int, float))
+            or isinstance(lat, bool)
+            or not isinstance(lng, (int, float))
+            or isinstance(lng, bool)
+            or not math.isfinite(lat)
+            or not math.isfinite(lng)
+            or not -90 <= lat <= 90
+            or not -180 <= lng <= 180
+        ):
+            raise ValueError("node coordinates must be finite WGS84 values")
+    if len(json.dumps(nodes, separators=(",", ":")).encode("utf-8")) > MAX_ROUTE_NODES_BYTES:
+        raise ValueError("nodes exceed the upload byte budget")
+
     return {
         "id": record["id"],
         "name": record.get("name", ""),
         "center_lat": record["center_lat"],
         "center_lng": record["center_lng"],
-        "nodes": record["nodes"],
+        "nodes": nodes,
         "distance_km": record["distance_km"],
         "curvature_score": record["curvature_score"],
         "winding_score": record["winding_score"],
@@ -132,6 +157,8 @@ def upload_records(
     table_name: str = TABLE_NAME,
     batch_size: int = 200,
 ) -> None:
+    if table_name != TABLE_NAME:
+        raise ValueError("uploads are restricted to curvy_roads")
     client = client or get_client()
     payload = [normalize_record(record) for record in records]
     for batch in chunked(payload, batch_size):
@@ -139,14 +166,12 @@ def upload_records(
 
 
 def load_records_from_file(path: str | Path) -> list[RoadRecord]:
-    raw = Path(path).read_text(encoding="utf-8")
-    return from_json(raw)
+    return load_json_file(str(path))
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Upload analyzed roads to Supabase")
     parser.add_argument("input", help="JSON file produced by process_roads.py")
-    parser.add_argument("--table", default=TABLE_NAME, help="Destination table")
     parser.add_argument("--batch-size", type=int, default=200, help="Rows per upsert batch")
     parser.add_argument("--dry-run", action="store_true", help="Print payload instead of uploading")
     args = parser.parse_args(argv)
@@ -156,8 +181,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps([normalize_record(r) for r in records], ensure_ascii=False, indent=2))
         return 0
 
-    upload_records(records, table_name=args.table, batch_size=args.batch_size)
-    print(f"uploaded {len(records)} record(s) to {args.table}")
+    upload_records(records, batch_size=args.batch_size)
+    print(f"uploaded {len(records)} record(s) to {TABLE_NAME}")
     return 0
 
 

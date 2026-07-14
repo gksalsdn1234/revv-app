@@ -45,6 +45,7 @@ class JourneySheet extends StatelessWidget {
   final DrivePlanOptionKind selectedKind;
   final int selectedFreeRoamIndex;
   final int selectedOptionBudget;
+  final bool chainMode;
   final bool canStart;
   final VoidCallback? onBack;
   final VoidCallback? onSearchDestination;
@@ -66,6 +67,7 @@ class JourneySheet extends StatelessWidget {
     required this.selectedKind,
     required this.selectedFreeRoamIndex,
     required this.selectedOptionBudget,
+    this.chainMode = false,
     required this.canStart,
     required this.onSelectedOption,
     required this.onSelectedFreeRoam,
@@ -79,11 +81,13 @@ class JourneySheet extends StatelessWidget {
   Widget build(BuildContext context) {
     return DraggableScrollableSheet(
       controller: controller,
-      initialChildSize: 0.42,
+      initialChildSize: chainMode ? 0.52 : 0.46,
       minChildSize: 0.18,
       maxChildSize: 0.85,
       snap: true,
-      snapSizes: const [0.18, 0.42, 0.85],
+      snapSizes: chainMode
+          ? const [0.18, 0.52, 0.85]
+          : const [0.18, 0.46, 0.85],
       builder: (context, scrollController) {
         final bottomPadding = MediaQuery.paddingOf(context).bottom;
         return RevvGlassCard(
@@ -111,8 +115,11 @@ class JourneySheet extends StatelessWidget {
                         selectedKind: selectedKind,
                         selectedFreeRoamIndex: selectedFreeRoamIndex,
                         selectedOptionBudget: selectedOptionBudget,
+                        showHonesty: !chainMode,
                         onBack: onBack,
-                        onSearchDestination: onSearchDestination,
+                        onSearchDestination: chainMode
+                            ? null
+                            : onSearchDestination,
                         onSelectedOption: onSelectedOption,
                         onSelectedFreeRoam: onSelectedFreeRoam,
                       ),
@@ -121,43 +128,55 @@ class JourneySheet extends StatelessWidget {
                 ),
               ),
               Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPadding + 12),
+                key: const Key('journey-start-cta'),
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  chainMode ? 12 : 0,
+                  16,
+                  bottomPadding + 12,
+                ),
                 child: Row(
                   children: [
                     Expanded(
                       child: RevvPrimaryButton(
                         label: _copy(
                           language,
-                          ko: '드라이브 시작',
-                          en: 'Start drive',
-                          fr: 'Lancer',
+                          ko: chainMode ? 'REVV에서 체인 시작' : '드라이브 시작',
+                          en: chainMode ? 'Start chain in REVV' : 'Start drive',
+                          fr: chainMode
+                              ? 'Lancer la chaîne dans REVV'
+                              : 'Lancer',
                         ),
-                        icon: Icons.play_arrow_rounded,
+                        icon: chainMode
+                            ? Icons.navigation_rounded
+                            : Icons.play_arrow_rounded,
                         onPressed: canStart ? onStart : null,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Tooltip(
-                      message: _copy(
-                        language,
-                        ko: '외부 내비',
-                        en: 'Open nav',
-                        fr: 'Navigation',
-                      ),
-                      child: OutlinedButton(
-                        onPressed: onNavigate,
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(
-                            color: AppColors.outline.withValues(alpha: 0.28),
-                          ),
-                          foregroundColor: AppColors.textPrimary,
-                          minimumSize: const Size(52, 52),
-                          shape: const CircleBorder(),
-                          padding: EdgeInsets.zero,
+                    if (!chainMode) ...[
+                      const SizedBox(width: 10),
+                      Tooltip(
+                        message: _copy(
+                          language,
+                          ko: '외부 내비',
+                          en: 'Open nav',
+                          fr: 'Navigation',
                         ),
-                        child: const Icon(Icons.navigation_rounded, size: 20),
+                        child: OutlinedButton(
+                          onPressed: onNavigate,
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(
+                              color: AppColors.outline.withValues(alpha: 0.28),
+                            ),
+                            foregroundColor: AppColors.textPrimary,
+                            minimumSize: const Size(52, 52),
+                            shape: const CircleBorder(),
+                            padding: EdgeInsets.zero,
+                          ),
+                          child: const Icon(Icons.navigation_rounded, size: 20),
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -261,6 +280,7 @@ class _ResultSheetBody extends StatelessWidget {
   final DrivePlanOptionKind selectedKind;
   final int selectedFreeRoamIndex;
   final int selectedOptionBudget;
+  final bool showHonesty;
   final VoidCallback? onBack;
   final VoidCallback? onSearchDestination;
   final ValueChanged<DrivePlanOptionKind> onSelectedOption;
@@ -277,6 +297,7 @@ class _ResultSheetBody extends StatelessWidget {
     required this.selectedKind,
     required this.selectedFreeRoamIndex,
     required this.selectedOptionBudget,
+    required this.showHonesty,
     required this.onBack,
     required this.onSearchDestination,
     required this.onSelectedOption,
@@ -363,6 +384,7 @@ class _ResultSheetBody extends StatelessWidget {
           plan: plan,
           language: language,
           targetMinutes: selectedOptionBudget,
+          showHonesty: showHonesty,
         ),
       ],
     );
@@ -436,11 +458,13 @@ class _PlanResultCard extends StatelessWidget {
   final DrivePlan plan;
   final AppLanguage language;
   final int targetMinutes;
+  final bool showHonesty;
 
   const _PlanResultCard({
     required this.plan,
     required this.language,
     required this.targetMinutes,
+    required this.showHonesty,
   });
 
   @override
@@ -452,21 +476,31 @@ class _PlanResultCard extends StatelessWidget {
           Text(
             _copy(
               language,
-              ko: '대략 경로 · 실제 내비에서 도로 경로를 확인하세요',
-              en: 'Approximate route · confirm roads in navigation',
-              fr: 'Trajet approximatif · vérifiez dans la navigation',
+              ko: '정확한 연결 도로를 불러오지 못했어요 · 다시 시도해 주세요',
+              en: 'Exact connector roads are unavailable · try again',
+              fr: 'Routes de liaison indisponibles · réessayez',
             ),
             style: AppText.body(size: 12, color: AppColors.warning),
           ),
           const SizedBox(height: 12),
         ],
-        ...plan.legs.map((leg) => _TimelineLeg(leg: leg, language: language)),
-        const SizedBox(height: 10),
-        _PlanHonestyLine(
-          plan: plan,
-          language: language,
-          targetMinutes: targetMinutes,
-        ),
+        ...plan.legs
+            .where(
+              (leg) =>
+                  leg.kind != DrivePlanLegKind.transit || leg.distanceKm > 0.01,
+            )
+            .map((leg) => _TimelineLeg(leg: leg, language: language)),
+        if (showHonesty) ...[
+          const SizedBox(height: 10),
+          KeyedSubtree(
+            key: const Key('journey-plan-honesty'),
+            child: _PlanHonestyLine(
+              plan: plan,
+              language: language,
+              targetMinutes: targetMinutes,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -735,13 +769,13 @@ class _PlanHonestyLine extends StatelessWidget {
             language,
             ko: '와인딩 ${plan.windingMinutes}/$targetMinutes분',
             en: 'Winding ${plan.windingMinutes}/$targetMinutes min',
-            fr: 'Sinueux ${plan.windingMinutes}/$targetMinutes min',
+            fr: 'Virages ${plan.windingMinutes}/$targetMinutes min',
           )
         : _copy(
             language,
             ko: '와인딩 ${plan.windingMinutes}/$targetMinutes분',
             en: 'Winding ${plan.windingMinutes}/$targetMinutes min',
-            fr: 'Sinueux ${plan.windingMinutes}/$targetMinutes min',
+            fr: 'Virages ${plan.windingMinutes}/$targetMinutes min',
           );
     return RevvPill(label: text, color: AppColors.warning);
   }
@@ -775,9 +809,9 @@ String _planHeader(DrivePlan plan, AppLanguage language) {
   final eta = DateTime.now().add(Duration(minutes: plan.totalMinutes));
   return _copy(
     language,
-    ko: '도착 ~${_formatClock(eta)} · ${plan.totalMinutes}분 · 와인딩 ${plan.windingMinutes}분',
-    en: 'Arrive ~${_formatClock(eta)} · ${plan.totalMinutes} min · Winding ${plan.windingMinutes} min',
-    fr: 'Arrivée ~${_formatClock(eta)} · ${plan.totalMinutes} min · Sinueux ${plan.windingMinutes} min',
+    ko: '도착 ~${_formatClock(eta)} · ${plan.totalMinutes}분 · 와인딩\u00A0${plan.windingMinutes}분',
+    en: 'Arrive ~${_formatClock(eta)} · ${plan.totalMinutes}\u00A0min · Winding\u00A0${plan.windingMinutes}\u00A0min',
+    fr: 'Arrivée ~${_formatClock(eta)} · ${plan.totalMinutes}\u00A0min · Virages\u00A0${plan.windingMinutes}\u00A0min',
   );
 }
 

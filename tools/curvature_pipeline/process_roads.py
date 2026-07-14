@@ -6,12 +6,15 @@ import math
 import argparse
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 
 PointDict = dict[str, float]
 RoadInput = Mapping[str, object]
 RoadRecord = dict[str, object]
+MAX_JSON_BYTES = 64 * 1024 * 1024
+MAX_ROADS = 100000
 
 FACILITY_PATTERN = re.compile(
     r"\b(kart|karting|drift|circuit|raceway|speedway|motorsport|autocross|pit\s?lane|paddock|test\s?track|trackday)\b",
@@ -42,13 +45,12 @@ def normalize_point(point: Mapping[str, object]) -> PointDict:
 
 
 def downsample_nodes(nodes: Sequence[Mapping[str, object]], max_points: int = 300) -> list[PointDict]:
-    points = [normalize_point(node) for node in nodes]
-    if len(points) <= max_points:
-        return points
     if max_points < 2:
         raise ValueError("max_points must be at least 2")
+    if len(nodes) <= max_points:
+        return [normalize_point(node) for node in nodes]
 
-    last_index = len(points) - 1
+    last_index = len(nodes) - 1
     step = last_index / (max_points - 1)
     selected_indices: list[int] = []
     previous = -1
@@ -60,7 +62,7 @@ def downsample_nodes(nodes: Sequence[Mapping[str, object]], max_points: int = 30
         previous = idx
     selected_indices[0] = 0
     selected_indices[-1] = last_index
-    return [points[idx] for idx in selected_indices]
+    return [normalize_point(nodes[idx]) for idx in selected_indices]
 
 
 def haversine_km(a: Mapping[str, object], b: Mapping[str, object]) -> float:
@@ -424,12 +426,16 @@ def from_json(raw: str) -> list[RoadRecord]:
     data = json.loads(raw)
     if not isinstance(data, list):
         raise ValueError("expected a JSON array")
+    if len(data) > MAX_ROADS:
+        raise ValueError("road input exceeds the record budget")
     return [dict(item) for item in data]
 
 
-def load_json_file(path: str) -> list[RoadRecord]:
-    with open(path, "r", encoding="utf-8") as handle:
-        return from_json(handle.read())
+def load_json_file(path: str, *, max_bytes: int = MAX_JSON_BYTES) -> list[RoadRecord]:
+    input_path = Path(path)
+    if input_path.stat().st_size > max_bytes:
+        raise ValueError("road JSON exceeds the byte budget")
+    return from_json(input_path.read_text(encoding="utf-8"))
 
 
 def main(argv: list[str] | None = None) -> int:

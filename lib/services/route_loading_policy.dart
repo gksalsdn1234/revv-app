@@ -33,13 +33,63 @@ enum RouteFilterStrength { precise, balanced, broad }
 enum DriveBudget { any, short, medium, long }
 
 const routeCoverageRadiusKm = 150.0;
+const routeOverviewZoomThreshold = 9.5;
 const routeCoverageCenters = <LatLng>[
-  LatLng(45.5017, -73.5673),  // Montreal
-  LatLng(46.8139, -71.2080),  // Quebec City
-  LatLng(43.6532, -79.3832),  // Toronto
+  LatLng(45.5017, -73.5673), // Montreal
+  LatLng(46.8139, -71.2080), // Quebec City
+  LatLng(43.6532, -79.3832), // Toronto
   LatLng(49.2827, -123.1207), // Vancouver
   LatLng(51.0447, -114.0719), // Calgary
 ];
+
+const routeOverviewCenters = <LatLng>[
+  LatLng(49.2827, -123.1207), // Vancouver
+  LatLng(49.8880, -119.4960), // Kelowna
+  LatLng(51.0447, -114.0719), // Calgary
+  LatLng(53.5461, -113.4938), // Edmonton
+  LatLng(50.4452, -104.6189), // Regina
+  LatLng(49.8951, -97.1384), // Winnipeg
+  LatLng(48.3809, -89.2477), // Thunder Bay
+  LatLng(43.6532, -79.3832), // Toronto
+  LatLng(45.4215, -75.6972), // Ottawa
+  LatLng(45.5017, -73.5673), // Montreal
+  LatLng(46.8139, -71.2080), // Quebec City
+  LatLng(44.6488, -63.5752), // Halifax
+  LatLng(60.7212, -135.0568), // Whitehorse
+];
+
+bool isRouteOverviewZoom(double zoom) => zoom <= routeOverviewZoomThreshold;
+
+List<RevvRoute> mergeRouteOverviewFields(
+  Iterable<List<RevvRoute>> fields, {
+  required int limit,
+}) {
+  final sources = fields.where((field) => field.isNotEmpty).toList();
+  final indexes = List<int>.filled(sources.length, 0);
+  final seen = <String>{};
+  final merged = <RevvRoute>[];
+
+  while (merged.length < limit) {
+    var addedInRound = false;
+    for (
+      var sourceIndex = 0;
+      sourceIndex < sources.length && merged.length < limit;
+      sourceIndex++
+    ) {
+      final source = sources[sourceIndex];
+      while (indexes[sourceIndex] < source.length) {
+        final route = source[indexes[sourceIndex]++];
+        if (!seen.add(route.id)) continue;
+        merged.add(route);
+        addedInRound = true;
+        break;
+      }
+    }
+    if (!addedInRound) break;
+  }
+
+  return List<RevvRoute>.unmodifiable(merged);
+}
 
 class RegionRequestGrid {
   final double latRounded;
@@ -51,9 +101,8 @@ class RegionRequestGrid {
       '${latRounded.toStringAsFixed(1)},${lngRounded.toStringAsFixed(1)}';
 }
 
-/// 테스트 빌드에서 커버리지 게이트를 전면 개방한다.
-/// `flutter build/run --dart-define=REVV_COVERAGE_ALL=true` — 기본 false(심사/릴리즈).
-const bool routeCoverageOpenAll = bool.fromEnvironment('REVV_COVERAGE_ALL');
+/// 지역별 출시 경계를 두지 않는다. 지도에서 이동한 모든 위치를 조회한다.
+const bool routeCoverageOpenAll = true;
 
 bool isPointInsideRouteCoverage(
   LatLng point, {

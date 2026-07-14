@@ -107,7 +107,7 @@ void main() {
     expect(plan, hasLength(4));
     expect(plan.first.sequence, 1);
     expect(plan.first.distanceFromStartM, inInclusiveRange(100, 140));
-    expect(plan.first.headline, '110m 우측 헤어핀');
+    expect(plan.first.headline, '110m 우측 급회전');
     expect(plan.first.command, contains('우측'));
     expect(plan.last.finish, isTrue);
   });
@@ -125,5 +125,32 @@ void main() {
     expect(state.instruction!.command, contains('준비'));
     expect(state.completedInstructions, 0);
     expect(state.totalInstructions, 4);
+  });
+
+  test('progress bounds keep crossing-route state on the current branch', () {
+    const crossing = [
+      LatLng(45.0000, -73.0020),
+      LatLng(45.0000, -72.9980),
+      LatLng(45.0020, -73.0000),
+      LatLng(44.9980, -73.0000),
+      LatLng(45.0000, -73.0020),
+    ];
+
+    final state = readDriveRouteState(
+      const LatLng(45.0000, -73.0000),
+      crossing,
+      minProgress: 0,
+      maxProgress: 0.3,
+    );
+    final turns = readTurnByTurnState(
+      const LatLng(45.0000, -73.0000),
+      crossing,
+      routeProgress: state.progress,
+    );
+
+    expect(state.progress, lessThanOrEqualTo(0.3));
+    expect(state.remainingKm, greaterThan(0));
+    expect(state.status, isNot(DriveRouteStatus.completed));
+    expect(turns.completedInstructions, lessThan(turns.totalInstructions));
   });
 }

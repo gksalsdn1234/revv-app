@@ -34,14 +34,14 @@ void main() {
     await tester.pumpAndSettle();
 
     final uri = launched.single;
-    expect(uri.scheme, 'comgooglemapsurl');
-    expect(uri.queryParameters['origin'], '45.0000,-73.0000');
-    expect(uri.queryParameters['destination'], '45.1300,-73.1300');
+    expect(uri.scheme, 'https');
+    expect(uri.queryParameters['origin'], '45.00000,-73.00000');
+    expect(uri.queryParameters['destination'], '45.13000,-73.13000');
     expect(uri.queryParameters['travelmode'], 'driving');
     final waypoints = uri.queryParameters['waypoints']!.split('|');
     expect(waypoints, hasLength(lessThanOrEqualTo(2)));
-    expect(waypoints.first, isNot('45.0000,-73.0000'));
-    expect(waypoints.last, isNot('45.1300,-73.1300'));
+    expect(waypoints.first, isNot('45.00000,-73.00000'));
+    expect(waypoints.last, isNot('45.13000,-73.13000'));
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(StorageKeys.pendingDriveRouteId), 'route');
     expect(prefs.getString(StorageKeys.pendingDriveSavedAt), isNotNull);
@@ -52,11 +52,15 @@ void main() {
     final settings = SettingsService();
     await settings.setAppLanguage(AppLanguage.korean);
 
+    final launched = <Uri>[];
     await _pumpSheet(
       tester,
       route: _routeWithNodes(4),
       settings: settings,
-      launcher: (_, {required mode}) async => true,
+      launcher: (uri, {required mode}) async {
+        launched.add(uri);
+        return true;
+      },
     );
 
     await tester.tap(find.text('Open'));
@@ -64,6 +68,40 @@ void main() {
 
     expect(find.text('Waze'), findsOneWidget);
     expect(find.text('시작점까지'), findsOneWidget);
+
+    await tester.tap(find.text('Waze'));
+    await tester.pumpAndSettle();
+
+    expect(launched.single.scheme, 'https');
+    expect(launched.single.host, 'waze.com');
+  });
+
+  testWidgets('Google Maps reports failure when the universal link throws', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final launched = <Uri>[];
+
+    await _pumpSheet(
+      tester,
+      route: _routeWithNodes(4),
+      settings: settings,
+      launcher: (uri, {required mode}) async {
+        launched.add(uri);
+        throw Exception('launcher unavailable');
+      },
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Google Maps'));
+    await tester.pumpAndSettle();
+
+    expect(launched, hasLength(1));
+    expect(launched.single.scheme, 'https');
+    expect(find.text('Google Maps'), findsOneWidget);
   });
 
   testWidgets('arrived prompt uses resume copy', (tester) async {

@@ -5,6 +5,11 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseKeystorePath = System.getenv("REVV_ANDROID_KEYSTORE_PATH")
+val releaseKeystorePassword = System.getenv("REVV_ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("REVV_ANDROID_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("REVV_ANDROID_KEY_PASSWORD")
+
 android {
     namespace = "com.revv.revv_app"
     compileSdk = 36
@@ -30,12 +35,36 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = releaseKeystorePath?.let(::file)
+            storePassword = releaseKeystorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val releaseTaskRequested = allTasks.any {
+        it.name.contains("Release", ignoreCase = true)
+    }
+    val releaseCredentials = listOf(
+        releaseKeystorePath,
+        releaseKeystorePassword,
+        releaseKeyAlias,
+        releaseKeyPassword,
+    )
+    if (releaseTaskRequested && releaseCredentials.any { it.isNullOrBlank() }) {
+        throw GradleException(
+            "Android release signing requires the REVV_ANDROID_KEYSTORE_* environment variables.",
+        )
     }
 }
 

@@ -206,6 +206,25 @@ void main() {
     expect(route.publishedBy, 'user-1');
   });
 
+  test('Route rows cap and validate geometry before map rendering', () {
+    final nodes = List.generate(5000, (index) {
+      if (index == 2500) return {'lat': double.infinity, 'lng': -73.0};
+      return {'lat': 45.0 + (index / 100000), 'lng': -73.0 - (index / 100000)};
+    });
+
+    final route = SupabaseService.routeFromRow({
+      'id': 'oversized-route',
+      'name': 'Oversized Route',
+      'nodes': nodes,
+    });
+
+    expect(route.nodes.length, lessThanOrEqualTo(1200));
+    expect(route.nodes.every((point) => point.lat.isFinite), isTrue);
+    expect(route.nodes.first.lat, 45);
+    expect(route.nodes.first.lng, -73);
+    expect(route.nodes.last.lat, closeTo(45.04999, 0.00001));
+  });
+
   test(
     'Route rows derive distance when rpc payload omits distance_from_user_km',
     () {
@@ -316,9 +335,12 @@ void main() {
   test(
     'recordRouteRun uses rpc payload instead of read-then-write increment',
     () {
-      final payload = SupabaseService.recordRouteRunRpcParams('route-1');
+      final payload = SupabaseService.recordRouteRunRpcParams(
+        'route-1',
+        'run-1',
+      );
 
-      expect(payload, {'route_id_input': 'route-1'});
+      expect(payload, {'route_id_input': 'route-1', 'run_id_input': 'run-1'});
     },
   );
 

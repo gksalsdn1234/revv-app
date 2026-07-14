@@ -1,28 +1,90 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="12121" systemVersion="16G29" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23094" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+    <device id="retina6_12" orientation="portrait" appearance="dark"/>
     <dependencies>
         <deployment identifier="iOS"/>
-        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="12089"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23084"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+        <capability name="System colors in document resources" minToolsVersion="11.0"/>
     </dependencies>
     <scenes>
-        <!--View Controller-->
         <scene sceneID="EHf-IW-A2E">
             <objects>
                 <viewController id="01J-lp-oVM" sceneMemberID="viewController">
-                    <layoutGuides>
-                        <viewControllerLayoutGuide type="top" id="Ydg-fD-yQy"/>
-                        <viewControllerLayoutGuide type="bottom" id="xbc-2k-c8Z"/>
-                    </layoutGuides>
                     <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
+                        <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" image="LaunchImage" translatesAutoresizingMaskIntoConstraints="NO" id="YRO-k0-Ey4">
-                            </imageView>
+                            <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" alignment="center" spacing="12" translatesAutoresizingMaskIntoConstraints="NO" id="launch-stack" userLabel="Launch Identity">
+                                <rect key="frame" x="49" y="260" width="295" height="332"/>
+                                <subviews>
+                                    <stackView opaque="NO" contentMode="scaleToFill" spacing="8" translatesAutoresizingMaskIntoConstraints="NO" id="launch-lights" userLabel="Launch F1 Lights">
+                                        <rect key="frame" x="72" y="0.0" width="151" height="22"/>
+                                        <subviews>
+                                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="●  ●  ●  ●" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" translatesAutoresizingMaskIntoConstraints="NO" id="launch-lights-lit">
+                                                <rect key="frame" x="0.0" y="0.0" width="122" height="22"/>
+                                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="18"/>
+                                                <color key="textColor" red="0.8862745098" green="0.137254902" blue="0.1019607843" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                                <nil key="highlightedColor"/>
+                                            </label>
+                                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="●" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" translatesAutoresizingMaskIntoConstraints="NO" id="launch-lights-unlit">
+                                                <rect key="frame" x="130" y="0.0" width="21" height="22"/>
+                                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="18"/>
+                                                <color key="textColor" red="0.1254901961" green="0.1137254902" blue="0.1019607843" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                                <nil key="highlightedColor"/>
+                                            </label>
+                                        </subviews>
+                                    </stackView>
+                                    <stackView opaque="NO" contentMode="scaleToFill" spacing="0.0" translatesAutoresizingMaskIntoConstraints="NO" id="launch-logo-stack" userLabel="Launch Logo">
+                                        <rect key="frame" x="57.5" y="39" width="180" height="105"/>
+                                        <subviews>
+                                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="RE" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" minimumFontSize="54" translatesAutoresizingMaskIntoConstraints="NO" id="launch-logo-re" userLabel="Launch Logo RE">
+                                                <rect key="frame" x="0.0" y="0.0" width="88" height="105"/>
+                                                <fontDescription key="fontDescription" name="AvenirNextCondensed-Heavy" family="Avenir Next Condensed" pointSize="66"/>
+                                                <color key="textColor" red="0.9450980392" green="0.9254901961" blue="0.8823529412" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                                <nil key="highlightedColor"/>
+                                            </label>
+                                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="VV" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" minimumFontSize="54" translatesAutoresizingMaskIntoConstraints="NO" id="launch-logo-vv" userLabel="Launch Logo VV">
+                                                <rect key="frame" x="88" y="0.0" width="92" height="105"/>
+                                                <fontDescription key="fontDescription" name="AvenirNextCondensed-Heavy" family="Avenir Next Condensed" pointSize="66"/>
+                                                <color key="textColor" red="0.8862745098" green="0.137254902" blue="0.1019607843" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                                <nil key="highlightedColor"/>
+                                            </label>
+                                        </subviews>
+                                    </stackView>
+                                    <view contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="launch-underline" userLabel="Launch Underline">
+                                        <rect key="frame" x="119.5" y="156" width="56" height="2"/>
+                                        <color key="backgroundColor" red="0.8862745098" green="0.137254902" blue="0.1019607843" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                        <constraints>
+                                            <constraint firstAttribute="width" constant="56" id="underline-width"/>
+                                            <constraint firstAttribute="height" constant="2" id="underline-height"/>
+                                        </constraints>
+                                    </view>
+                                    <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="ROUTE CHECK · SAFE START" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" minimumFontSize="8" adjustsFontSizeToFit="YES" translatesAutoresizingMaskIntoConstraints="NO" id="launch-tagline" userLabel="Launch Tagline">
+                                        <rect key="frame" x="56.5" y="170" width="182" height="15"/>
+                                        <fontDescription key="fontDescription" name="Menlo-Bold" family="Menlo" pointSize="10"/>
+                                        <color key="textColor" red="0.5411764706" green="0.5098039216" blue="0.4705882353" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                        <nil key="highlightedColor"/>
+                                    </label>
+                                    <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="Find the road.&#10;Start the drive." textAlignment="center" lineBreakMode="wordWrap" numberOfLines="2" baselineAdjustment="alignBaselines" minimumFontSize="24" adjustsFontSizeToFit="YES" translatesAutoresizingMaskIntoConstraints="NO" id="launch-title" userLabel="Launch Title">
+                                        <rect key="frame" x="0.0" y="197" width="295" height="135"/>
+                                        <constraints>
+                                            <constraint firstAttribute="width" constant="260" id="title-width"/>
+                                        </constraints>
+                                        <fontDescription key="fontDescription" name="AvenirNextCondensed-Heavy" family="Avenir Next Condensed" pointSize="30"/>
+                                        <color key="textColor" red="0.9450980392" green="0.9254901961" blue="0.8823529412" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                                        <nil key="highlightedColor"/>
+                                    </label>
+                                </subviews>
+                            </stackView>
                         </subviews>
-                        <color key="backgroundColor" red="0.07450980392" green="0.07450980392" blue="0.07843137255" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <viewLayoutGuide key="safeArea" id="safe-area"/>
+                        <color key="backgroundColor" red="0.06274509804" green="0.05490196078" blue="0.04705882353" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                         <constraints>
-                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="1a2-6s-vTC"/>
-                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="4X2-HB-R7a"/>
+                            <constraint firstItem="launch-stack" firstAttribute="centerX" secondItem="safe-area" secondAttribute="centerX" id="stack-center-x"/>
+                            <constraint firstItem="launch-stack" firstAttribute="centerY" secondItem="safe-area" secondAttribute="centerY" constant="-12" id="stack-center-y"/>
+                            <constraint firstItem="launch-stack" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="safe-area" secondAttribute="leading" constant="24" id="stack-leading"/>
+                            <constraint firstItem="safe-area" firstAttribute="trailing" relation="greaterThanOrEqual" secondItem="launch-stack" secondAttribute="trailing" constant="24" id="stack-trailing"/>
                         </constraints>
                     </view>
                 </viewController>
@@ -31,7 +93,4 @@
             <point key="canvasLocation" x="53" y="375"/>
         </scene>
     </scenes>
-    <resources>
-        <image name="LaunchImage" width="168" height="185"/>
-    </resources>
 </document>

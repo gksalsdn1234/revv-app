@@ -1,12 +1,12 @@
 # REVV Privacy Policy / 개인정보 처리방침
 
-Last updated / 마지막 업데이트: 2026-07-12
+Last updated / 마지막 업데이트: 2026-07-13
 
 ## 1. Overview / 개요
 
-REVV is a beta route discovery and driving rhythm copilot app. REVV helps drivers find nearby curvy routes, preview route details, follow route progress during a drive, and save post-drive summaries.
+REVV is a route discovery and driving rhythm copilot app. REVV helps drivers find available curvy routes, preview route details, follow route progress during a drive, and save post-drive summaries.
 
-REVV는 운전자가 주변 와인딩 루트를 찾고, 루트 정보를 확인하며, 주행 중 루트 진행을 보고, 주행 후 요약을 저장하기 위한 베타 앱입니다.
+REVV는 운전자가 이용 가능한 와인딩 루트를 찾고, 루트 정보를 확인하며, 주행 중 루트 진행을 보고, 주행 후 요약을 저장하기 위한 앱입니다.
 
 ## 2. Data We Collect / 수집하는 데이터
 
@@ -35,7 +35,7 @@ We use data only for app functionality, including:
 - Saving and restoring drive history.
 - Restoring coarse explored-map progress for the current anonymous or identified REVV cloud identity.
 - Improving route recommendation quality.
-- Responding to beta feedback and debugging issues.
+- Responding to route feedback and resolving app issues.
 
 수집한 데이터는 다음 목적에만 사용합니다.
 
@@ -44,7 +44,7 @@ We use data only for app functionality, including:
 - 주행 기록 저장 및 복원.
 - 현재 REVV 익명 또는 식별 클라우드 ID에 연결된 저해상도 탐험 진행 복원.
 - 루트 추천 품질 개선.
-- 베타 피드백 대응 및 문제 해결.
+- 루트 피드백 대응 및 앱 문제 해결.
 
 ## 4. Data Sharing / 데이터 공유
 
@@ -52,9 +52,13 @@ REVV does not sell personal data and does not use collected data for third-party
 
 REVV may use service providers required for app functionality, including Supabase for data storage and Mapbox for map display. These services process data only as needed to provide app functionality.
 
+When a user chooses to open external navigation, REVV sends the selected route coordinates, and when applicable the current or saved home location, to Google Maps or Waze through an HTTPS link so that the provider can calculate and display directions. This transfer occurs only after the user selects the external navigation action and is then governed by the provider's privacy policy.
+
 REVV는 개인정보를 판매하지 않으며, 제3자 광고 추적 목적으로 데이터를 사용하지 않습니다.
 
 REVV는 앱 기능 제공을 위해 Supabase(데이터 저장)와 Mapbox(지도 표시) 같은 서비스 제공자를 사용할 수 있습니다. 해당 서비스는 앱 기능 제공에 필요한 범위에서만 데이터를 처리합니다.
+
+사용자가 외부 내비게이션 열기를 선택하면 REVV는 경로 계산과 표시를 위해 선택한 루트 좌표와 필요한 경우 현재 위치 또는 저장한 집 위치를 HTTPS 링크로 Google Maps 또는 Waze에 전달합니다. 이 전달은 사용자가 외부 내비게이션 동작을 직접 선택한 경우에만 발생하며, 이후 처리는 각 제공자의 개인정보 처리방침을 따릅니다.
 
 ## 5. User Controls / 사용자 제어
 
@@ -76,9 +80,9 @@ Users can:
 
 ## 6. Data Retention / 데이터 보관
 
-Drive records may be stored while the beta is active or until the user deletes them. Pending local upload data may be temporarily stored on the device to prevent drive data loss when the network is unavailable.
+Drive records may be stored until the user deletes them. Pending local upload data may be temporarily stored on the device to prevent drive data loss when the network is unavailable.
 
-주행 기록은 베타 운영 중 또는 사용자가 삭제할 때까지 저장될 수 있습니다. 네트워크가 불안정할 때 주행 데이터 손실을 막기 위해 업로드 대기 데이터가 기기에 일시적으로 저장될 수 있습니다.
+주행 기록은 사용자가 삭제할 때까지 저장될 수 있습니다. 네트워크가 불안정할 때 주행 데이터 손실을 막기 위해 업로드 대기 데이터가 기기에 일시적으로 저장될 수 있습니다.
 
 ## 7. Contact / 문의
 

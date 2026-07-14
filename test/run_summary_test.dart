@@ -42,6 +42,23 @@ void main() {
     expect(json.keys, isNot(contains('speedBuckets')));
   });
 
+  test('new run summaries use collision-resistant UUID identifiers', () async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: false,
+    });
+    final history = RunHistoryService();
+
+    final first = await history.save(_session());
+    final second = await history.save(_session());
+
+    final uuidV4 = RegExp(
+      r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+    );
+    expect(first.id, matches(uuidV4));
+    expect(second.id, matches(uuidV4));
+    expect(second.id, isNot(first.id));
+  });
+
   test('run summary loads old json without rich metrics', () {
     final summary = RunSummary.fromJson({
       'id': 'old-run',

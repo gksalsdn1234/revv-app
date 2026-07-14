@@ -48,6 +48,15 @@ RevvRoute _route({
 }
 
 void main() {
+  test('distance from user display contains only the value and unit', () {
+    expect(_route(distanceFromUser: 0.42).distanceFromUserDisplay, '420m');
+    expect(_route(distanceFromUser: 14).distanceFromUserDisplay, '14km');
+    expect(
+      _route(distanceFromUser: 14).distanceFromUserDisplay,
+      isNot(contains(RegExp(r'[가-힣]'))),
+    );
+  });
+
   test('classifies primary route types consistently', () {
     expect(RouteQualityProfile.fromRoute(_route(isLoop: true)).typeLabel, '루프');
     expect(

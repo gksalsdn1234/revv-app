@@ -164,6 +164,7 @@ TurnByTurnState readTurnByTurnState(
   LatLng position,
   List<LatLng> nodes, {
   AppLanguage? language,
+  double? routeProgress,
 }) {
   final plan = buildTurnByTurnPlan(nodes, language: language);
   if (plan.isEmpty || nodes.length < 2) {
@@ -177,7 +178,12 @@ TurnByTurnState readTurnByTurnState(
 
   final cumulativeM = _cumulativeMeters(nodes);
   final totalM = cumulativeM.last;
-  final nearest = _nearestRouteProjection(position, nodes, cumulativeM);
+  final nearest = routeProgress == null
+      ? _nearestRouteProjection(position, nodes, cumulativeM)
+      : _Projection(
+          alongM: totalM * routeProgress.clamp(0.0, 1.0),
+          distanceM: 0,
+        );
   final distanceToStartM = RevvRoute.haversineKm(position, nodes.first) * 1000;
   final remainingM = math.max(0.0, totalM - nearest.alongM);
   final status = _routeStatus(
@@ -212,6 +218,8 @@ DriveRouteState readDriveRouteState(
   LatLng position,
   List<LatLng> nodes, {
   AppLanguage? language,
+  double? minProgress,
+  double? maxProgress,
 }) {
   if (nodes.length < 3) {
     return DriveRouteState(
@@ -269,7 +277,17 @@ DriveRouteState readDriveRouteState(
     );
   }
 
-  final nearest = _nearestRouteProjection(position, nodes, cumulativeM);
+  final nearest = _nearestRouteProjection(
+    position,
+    nodes,
+    cumulativeM,
+    minAlongM: minProgress == null
+        ? null
+        : totalM * minProgress.clamp(0.0, 1.0),
+    maxAlongM: maxProgress == null
+        ? null
+        : totalM * maxProgress.clamp(0.0, 1.0),
+  );
   final distanceToStartM = RevvRoute.haversineKm(position, nodes.first) * 1000;
   final remainingM = math.max(0.0, totalM - nearest.alongM);
   final progress = (nearest.alongM / totalM).clamp(0.0, 1.0).toDouble();
@@ -699,15 +717,15 @@ int _curveSeverity(double absTurn) {
 
 String _curveIntensity(double absTurn, AppLanguage? language) {
   if (absTurn >= 68) {
-    return _driveText(language, '헤어핀', 'Hairpin', 'Épingle');
+    return _driveText(language, '급회전', 'Very sharp', 'Très serré');
   }
   if (absTurn >= 42) {
-    return _driveText(language, '타이트', 'Tight', 'Serré');
+    return _driveText(language, '급커브', 'Sharp', 'Serré');
   }
   if (absTurn >= 26) {
-    return _driveText(language, '중간', 'Medium', 'Moyen');
+    return _driveText(language, '커브', 'Curve', 'Virage');
   }
-  return _driveText(language, '완만', 'Gentle', 'Doux');
+  return _driveText(language, '완만한 커브', 'Easy curve', 'Virage doux');
 }
 
 String _rhythmLineForCue({
@@ -720,22 +738,26 @@ String _rhythmLineForCue({
   if (countAhead >= 4 && (nextGapM ?? 999) <= 200) {
     return _driveText(
       language,
-      '스위치백 구간',
-      'Switchback section',
-      'Section en lacets',
+      '커브 $countAhead개 연속',
+      '$countAhead curves ahead',
+      '$countAhead virages à suivre',
     );
   }
   if (countAhead >= 3 && (nextGapM ?? 999) <= 280) {
     return _driveText(
       language,
-      '짧은 좌우 전환',
-      'Quick left-right switch',
-      'Gauche-droite rapide',
+      '커브 $countAhead개 연속',
+      '$countAhead curves ahead',
+      '$countAhead virages à suivre',
     );
   }
   if (countAhead >= 2) {
-    final spanM = math.max(nextGapM ?? 0, horizonM - firstAheadM);
-    return '${_driveText(language, '이후', 'Next', 'Puis')} ${formatDriveMeters(spanM)} ${_driveText(language, '연속 코너', 'continuous corners', 'virages enchaînés')}';
+    return _driveText(
+      language,
+      '커브 $countAhead개 연속',
+      '$countAhead curves ahead',
+      '$countAhead virages à suivre',
+    );
   }
   if (nextGapM != null && nextGapM <= 420) {
     return '${_driveText(language, '이후', 'Next', 'Puis')} ${formatDriveMeters(nextGapM)} ${_driveText(language, '연속 코너', 'continuous corners', 'virages enchaînés')}';
@@ -748,7 +770,7 @@ String _rhythmLineForCue({
 
 String _rhythmLabelForCue(DriveCurveCue cue, AppLanguage? language) {
   if (cue.curveCountAhead >= 4 && (cue.nextGapM ?? 999) <= 200) {
-    return _driveText(language, '스위치백', 'Switchback', 'Lacets');
+    return _driveText(language, '연속 커브', 'Curve sequence', 'Virages liés');
   }
   if (cue.curveCountAhead >= 3 && (cue.nextGapM ?? 999) <= 280) {
     return _driveText(language, '짧은 전환', 'Quick switch', 'Transition rapide');
@@ -788,13 +810,27 @@ double? _nextCurveGapM(
 _Projection _nearestRouteProjection(
   LatLng position,
   List<LatLng> nodes,
-  List<double> cumulativeM,
-) {
+  List<double> cumulativeM, {
+  double? minAlongM,
+  double? maxAlongM,
+}) {
   var best = const _Projection(alongM: 0, distanceM: double.infinity);
   for (var i = 0; i < nodes.length - 1; i++) {
     final segmentM = cumulativeM[i + 1] - cumulativeM[i];
     if (segmentM <= 0) continue;
-    final projection = _projectOnSegment(position, nodes[i], nodes[i + 1]);
+    final allowedStartM = math.max(cumulativeM[i], minAlongM ?? 0);
+    final allowedEndM = math.min(
+      cumulativeM[i + 1],
+      maxAlongM ?? cumulativeM.last,
+    );
+    if (allowedStartM > allowedEndM) continue;
+    final projection = _projectOnSegment(
+      position,
+      nodes[i],
+      nodes[i + 1],
+      minT: (allowedStartM - cumulativeM[i]) / segmentM,
+      maxT: (allowedEndM - cumulativeM[i]) / segmentM,
+    );
     final alongM = cumulativeM[i] + segmentM * projection.t;
     if (projection.distanceM < best.distanceM) {
       best = _Projection(alongM: alongM, distanceM: projection.distanceM);
@@ -803,13 +839,20 @@ _Projection _nearestRouteProjection(
   return best;
 }
 
-_SegmentProjection _projectOnSegment(LatLng p, LatLng a, LatLng b) {
+_SegmentProjection _projectOnSegment(
+  LatLng p,
+  LatLng a,
+  LatLng b, {
+  double minT = 0,
+  double maxT = 1,
+}) {
   final ap = _metersFrom(a, p);
   final ab = _metersFrom(a, b);
   final ab2 = ab.x * ab.x + ab.y * ab.y;
-  final t = ab2 <= 0
+  final rawT = ab2 <= 0
       ? 0.0
       : ((ap.x * ab.x + ap.y * ab.y) / ab2).clamp(0.0, 1.0).toDouble();
+  final t = rawT.clamp(minT, maxT).toDouble();
   final closestX = ab.x * t;
   final closestY = ab.y * t;
   final dx = ap.x - closestX;

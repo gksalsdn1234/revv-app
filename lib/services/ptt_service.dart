@@ -34,6 +34,7 @@ abstract class BriefingState {
 class PttService {
   static const channelBusyWindow = Duration(milliseconds: 350);
   static const _playbackPrebufferBytes = PttChunkSpec.batchBytes * 3;
+  static const _maxQueuedPlaybackBytes = PttChunkSpec.batchBytes * 12;
   static const _playbackPrebufferTimeout = Duration(milliseconds: 400);
   static const _utteranceIdleReset = Duration(milliseconds: 600);
   static const _maxReconnectAttempts = 5;
@@ -87,14 +88,26 @@ class PttService {
 
   Future<void> subscribe(String channelId) async {
     _connectEpoch += 1;
+    final subscriptionEpoch = _connectEpoch;
     await _transport.subscribe(channelId);
     _channelId = channelId;
     _reconnecting = false;
     connectionState.value = PttConnectionState.connected;
     await _incomingSubscription?.cancel();
+    _clearPlaybackQueue();
     _incomingSubscription = _transport.onChunk.listen((chunk) async {
       _markChannelBusy();
       final decoded = await _codec.decode(chunk);
+      if (_disposed ||
+          _connectEpoch != subscriptionEpoch ||
+          _channelId != channelId ||
+          decoded.length > _maxQueuedPlaybackBytes) {
+        return;
+      }
+      while (_playbackQueue.isNotEmpty &&
+          _queuedPlaybackBytes + decoded.length > _maxQueuedPlaybackBytes) {
+        _playbackQueue.removeFirst();
+      }
       _playbackQueue.add(decoded);
       _scheduleUtteranceReset();
       _maybeDrainPlaybackQueue();
@@ -109,7 +122,7 @@ class PttService {
     await _incomingSubscription?.cancel();
     _incomingSubscription = null;
     _clearChannelBusy();
-    _resetPlaybackPrebuffer();
+    _clearPlaybackQueue();
     await _transport.disposeChannelOnly();
   }
 
@@ -237,6 +250,11 @@ class PttService {
     _playbackPrebufferReady = false;
   }
 
+  void _clearPlaybackQueue() {
+    _playbackQueue.clear();
+    _resetPlaybackPrebuffer();
+  }
+
   void _handleConnectionDown() {
     if (_disposed || _reconnecting) return;
     final channelId = _channelId;
@@ -299,7 +317,7 @@ class PttService {
     await _briefingSubscription?.cancel();
     await _connectionSubscription?.cancel();
     _clearChannelBusy();
-    _resetPlaybackPrebuffer();
+    _clearPlaybackQueue();
     await _recorder.stop();
     await _transport.dispose();
     channelBusy.dispose();

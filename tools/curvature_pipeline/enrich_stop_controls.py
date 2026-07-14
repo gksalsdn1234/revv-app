@@ -21,6 +21,8 @@ OVERPASS_ENDPOINTS = [
 # Overpass 공개 인스턴스는 식별 가능한 User-Agent를 요구한다 (기본 UA는 406)
 OVERPASS_USER_AGENT = "REVV-route-pipeline/1.0 (+https://github.com/gksalsdn1234/revv-app)"
 DEFAULT_TILE_SIZE_DEG = 0.15
+MAX_OVERPASS_RESPONSE_BYTES = 8 * 1024 * 1024
+MAX_TILES_PER_ROUTE = 256
 
 
 def haversine_km(a: dict[str, float], b: dict[str, float]) -> float:
@@ -77,7 +79,10 @@ def load_overpass_payload(query: str, timeout_seconds: int) -> dict[str, Any]:
             )
             try:
                 with urllib.request.urlopen(request, timeout=timeout_seconds + 5) as response:
-                    return json.loads(response.read().decode("utf-8"))
+                    payload = response.read(MAX_OVERPASS_RESPONSE_BYTES + 1)
+                    if len(payload) > MAX_OVERPASS_RESPONSE_BYTES:
+                        raise ValueError("Overpass response exceeds the byte budget")
+                    return json.loads(payload.decode("utf-8"))
             except (HTTPError, URLError, TimeoutError, OSError) as error:
                 last_error = error
                 continue
@@ -118,6 +123,12 @@ def tile_keys_for_bbox(
     max_lat_index = math.floor(north / tile_size_deg)
     min_lng_index = math.floor(west / tile_size_deg)
     max_lng_index = math.floor(east / tile_size_deg)
+    tile_count = (
+        (max_lat_index - min_lat_index + 1)
+        * (max_lng_index - min_lng_index + 1)
+    )
+    if tile_count > MAX_TILES_PER_ROUTE:
+        raise ValueError("route span exceeds the tile budget")
     return {
         (lat_index, lng_index)
         for lat_index in range(min_lat_index, max_lat_index + 1)

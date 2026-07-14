@@ -371,7 +371,7 @@ void main() {
     },
   );
 
-  test('buildPlanFromRoutes orders selected routes by nearest entry', () async {
+  test('buildPlanFromRoutes preserves the selected route order', () async {
     final near = _route(id: 'near', startLng: 0.10, windingScore: 2.0);
     final far = _route(id: 'far', startLng: 0.80, windingScore: 9.0);
     final service = _service(const []);
@@ -381,7 +381,7 @@ void main() {
       routes: [far, near],
     );
 
-    expect(_windingIds(plan), ['near', 'far']);
+    expect(_windingIds(plan).toSet().toList(), ['far', 'near']);
   });
 
   test(

@@ -119,7 +119,7 @@ class RouteAutoRecordService extends ChangeNotifier {
 
   void claimManualDrive(String routeId) {
     if (_state == AutoRecordState.recording) return;
-    if (_routes.pendingGuideRoute?.id == routeId) {
+    if (_routes.pendingGuideRoute != null) {
       _routes.clearGuideToStart();
     }
     _state = AutoRecordState.claimed;

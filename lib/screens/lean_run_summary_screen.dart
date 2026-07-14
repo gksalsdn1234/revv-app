@@ -176,32 +176,16 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
       }
       return;
     }
-    final appUri = Uri(
-      scheme: 'comgooglemapsurl',
-      host: 'www.google.com',
-      path: '/maps/dir/',
-      queryParameters: {
-        'api': '1',
-        if (current != null) 'origin': googleMapsCoord(current),
-        'destination': googleMapsCoord(destination),
-        'travelmode': 'driving',
-      },
-    );
-    final webUri = Uri.https('www.google.com', '/maps/dir/', {
+    final mapsUri = Uri.https('www.google.com', '/maps/dir/', {
       'api': '1',
       if (current != null) 'origin': googleMapsCoord(current),
       'destination': googleMapsCoord(destination),
       'travelmode': 'driving',
     });
-    var launched = false;
-    try {
-      launched = await launchUrl(appUri, mode: LaunchMode.externalApplication);
-      if (!launched) {
-        launched = await launchUrl(webUri, mode: LaunchMode.externalApplication);
-      }
-    } catch (_) {
-      launched = false;
-    }
+    final launched = await launchExternalNavigationWithFallback(
+      primaryUri: mapsUri,
+      launcher: (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
+    );
     if (launched || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
@@ -555,8 +539,11 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                             width: double.infinity,
                             height: 52,
                             child: OutlinedButton.icon(
-                              onPressed: () => unawaited(_navigateHome(language)),
-                              icon: const Icon(Icons.assistant_direction_rounded),
+                              onPressed: () =>
+                                  unawaited(_navigateHome(language)),
+                              icon: const Icon(
+                                Icons.assistant_direction_rounded,
+                              ),
                               label: Text(
                                 AppCopy.t(
                                   language,
@@ -2003,12 +1990,7 @@ List<_SessionLogGroup> _sessionLogGroups({
             '$gpsPointCount',
           ),
           _SessionLogRow(
-            AppCopy.t(
-              language,
-              ko: '상세 데이터',
-              en: 'DETAIL DATA',
-              fr: 'DÉTAIL',
-            ),
+            AppCopy.t(language, ko: '상세 데이터', en: 'DETAIL DATA', fr: 'DÉTAIL'),
             AppCopy.t(
               language,
               ko: detail == null ? '요약만 있음' : '불러옴',

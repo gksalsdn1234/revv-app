@@ -162,6 +162,55 @@ void main() {
     },
   );
 
+  test(
+    'route usage receipt retries after its parent run upload succeeds',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: true,
+      });
+      final cloud = _RetryRunCloud();
+      final history = RunHistoryService(cloudClient: cloud);
+
+      await history.save(_sessionWithRoute());
+      await cloud.firstAttempted.future;
+      expect(cloud.recordedRouteIds, isEmpty);
+
+      await history.retryPendingUploads();
+
+      expect(cloud.recordedRouteIds, ['route-1']);
+    },
+  );
+
+  test(
+    'composite chain uploads history without crediting one source route',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: true,
+      });
+      final cloud = _FakeCloud();
+      final history = RunHistoryService(cloudClient: cloud);
+      final session = _sessionWithRoute(
+        route: const RevvRoute(
+          id: 'chain:first/second',
+          name: 'Route chain · 2',
+          nodes: [LatLng(45, -73), LatLng(45.02, -73.02)],
+          distanceKm: 4.2,
+          windingScore: 5,
+          starRating: 4,
+          sharpCurveCount: 4,
+          centerPoint: LatLng(45.01, -73.01),
+          distanceFromUser: 0,
+        ),
+      );
+
+      final summary = await history.save(session);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(summary.routeId, 'chain:first/second');
+      expect(cloud.recordedRouteIds, isEmpty);
+    },
+  );
+
   test('RunHistoryService ignores telemetry summary upload failure', () async {
     SharedPreferences.setMockInitialValues({
       StorageKeys.cloudRunStorageEnabled: true,
@@ -417,7 +466,7 @@ RunTelemetryDetail _detail(String runId, {DateTime? createdAt}) =>
       createdAt: createdAt ?? DateTime.now().toUtc(),
     );
 
-RunSession _sessionWithRoute() {
+RunSession _sessionWithRoute({RevvRoute? route}) {
   final start = DateTime.parse('2026-05-08T00:00:00Z');
   return RunSession(
     startTime: start,
@@ -426,17 +475,19 @@ RunSession _sessionWithRoute() {
     avgSpeedKmh: 35,
     distanceKm: 2.1,
     gpsPath: const [LatLng(45, -73), LatLng(45.01, -73.01)],
-    route: const RevvRoute(
-      id: 'route-1',
-      name: 'Test Route',
-      nodes: [LatLng(45, -73), LatLng(45.01, -73.01)],
-      distanceKm: 2.1,
-      windingScore: 4,
-      starRating: 4,
-      sharpCurveCount: 2,
-      centerPoint: LatLng(45, -73),
-      distanceFromUser: 0.5,
-    ),
+    route:
+        route ??
+        const RevvRoute(
+          id: 'route-1',
+          name: 'Test Route',
+          nodes: [LatLng(45, -73), LatLng(45.01, -73.01)],
+          distanceKm: 2.1,
+          windingScore: 4,
+          starRating: 4,
+          sharpCurveCount: 2,
+          centerPoint: LatLng(45, -73),
+          distanceFromUser: 0.5,
+        ),
     weatherEmoji: '',
     tempDisplay: '',
     weatherDesc: '',
@@ -491,7 +542,7 @@ class _FakeCloud implements RunHistoryCloudClient {
   Future<Set<String>> fetchRunIds() async => {};
 
   @override
-  Future<void> recordRouteRun(String? routeId) async {
+  Future<void> recordRouteRun(String? routeId, String runId) async {
     recordedRouteIds.add(routeId);
   }
 
@@ -518,5 +569,17 @@ class _FakeCloud implements RunHistoryCloudClient {
     uploadTelemetrySummaryCount++;
     lastTelemetrySummary = summary;
     return uploadTelemetrySummaryResult;
+  }
+}
+
+class _RetryRunCloud extends _FakeCloud {
+  final firstAttempted = Completer<void>();
+  var attempts = 0;
+
+  @override
+  Future<bool> uploadRun(RunSummary summary) async {
+    attempts++;
+    if (attempts == 1) firstAttempted.complete();
+    return attempts > 1;
   }
 }

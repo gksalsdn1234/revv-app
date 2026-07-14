@@ -74,19 +74,14 @@ void main() {
     expect(reloaded.hasRequestedRegion('43.7,-79.4'), isTrue);
   });
 
-  test('cloud copy describes detailed upload without requiring login now', () {
+  test('cloud copy describes detailed storage without requiring login now', () {
     expect(
       AppCopy.cloudOn(AppLanguage.english),
-      contains('detailed drive cloud upload'),
+      'Detailed drive cloud storage',
     );
     expect(
-      AppCopy.t(
-        AppLanguage.english,
-        ko: '',
-        en: 'Local reports stay available · cross-device cloud sync will require sign-in later',
-        fr: '',
-      ),
-      contains('sign-in later'),
+      AppCopy.cloudStorageDetail(AppLanguage.english, false),
+      'Keep drive reports on this device',
     );
   });
 

@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 
 import '../models/revv_route.dart';
+import 'bounded_http_response.dart';
 import 'mapbox_service.dart';
 
 class TransitLegEta {
@@ -23,6 +24,9 @@ class TransitLegEta {
 
 class TransitEtaService {
   static const _requestTimeout = Duration(seconds: 8);
+  static const _maxResponseBytes = 4 * 1024 * 1024;
+  static const _maxGeometryNodesPerLeg = 5000;
+  static const _maxCacheEntries = 32;
 
   final http.Client _client;
   final Map<String, List<TransitLegEta>> _cache = {};
@@ -36,6 +40,9 @@ class TransitEtaService {
     if (cached != null) return cached;
 
     final legs = await _fetchMapboxLegs(waypoints) ?? fallbackLegs(waypoints);
+    if (!_cache.containsKey(key) && _cache.length >= _maxCacheEntries) {
+      _cache.remove(_cache.keys.first);
+    }
     _cache[key] = legs;
     return legs;
   }
@@ -43,11 +50,12 @@ class TransitEtaService {
   Future<List<TransitLegEta>?> _fetchMapboxLegs(List<LatLng> waypoints) async {
     if (!MapboxService.isConfigured) return null;
     try {
-      final response = await _client
-          .get(_directionsUri(waypoints))
-          .timeout(_requestTimeout);
-      if (response.statusCode < 200 || response.statusCode >= 300) return null;
-      final decoded = jsonDecode(response.body);
+      final body = await getBoundedResponseBody(
+        _client,
+        _directionsUri(waypoints),
+        maxBytes: _maxResponseBytes,
+      ).timeout(_requestTimeout);
+      final decoded = jsonDecode(body);
       if (decoded is! Map<String, dynamic>) return null;
       return parseMapboxDirectionsLegs(decoded, waypoints);
     } catch (_) {
@@ -133,6 +141,9 @@ List<LatLng> _legNodes(Map<String, dynamic> leg, LatLng start, LatLng end) {
       final coordinates = geometry['coordinates'];
       if (coordinates is! List) continue;
       for (final coordinate in coordinates) {
+        if (nodes.length >= TransitEtaService._maxGeometryNodesPerLeg - 1) {
+          break;
+        }
         if (coordinate is! List || coordinate.length < 2) continue;
         nodes.add(
           LatLng(

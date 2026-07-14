@@ -58,4 +58,14 @@ void main() {
       expect(nodes, isEmpty);
     },
   );
+
+  test('parseMatchedGeometry caps retained coordinates', () {
+    final coordinates = List.generate(6000, (i) => [-73.0, 45.0 + i / 100000]);
+    final raw =
+        '{"matchings":[{"geometry":{"coordinates":${coordinates.toString()}}}]}';
+
+    final nodes = RouteGeometryMatcher.parseMatchedGeometry(raw);
+
+    expect(nodes, hasLength(5000));
+  });
 }

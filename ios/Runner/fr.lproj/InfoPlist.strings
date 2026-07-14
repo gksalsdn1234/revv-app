@@ -1,0 +1,3 @@
+"NSLocationWhenInUseUsageDescription" = "REVV utilise votre position pour trouver des routes, vous guider et enregistrer un trajet que vous démarrez.";
+"NSMicrophoneUsageDescription" = "REVV utilise le micro uniquement lorsque vous maintenez le bouton de conversation avec l’équipe.";
+"NSMotionUsageDescription" = "REVV utilise les capteurs de mouvement pour résumer la tenue de route pendant un trajet que vous démarrez.";

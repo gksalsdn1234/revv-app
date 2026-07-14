@@ -81,4 +81,3 @@ revoke all on function public.consume_edge_rate_limit(text, text, integer, integ
   from public, anon, authenticated;
 grant execute on function public.consume_edge_rate_limit(text, text, integer, integer)
   to service_role;
-

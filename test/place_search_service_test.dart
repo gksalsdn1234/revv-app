@@ -17,6 +17,8 @@ void main() {
     );
     expect(results.first.point.lat, 45.5001);
     expect(results.first.point.lng, -73.5229);
+    expect(results.first.featureType, 'poi');
+    expect(results.first.isArea, isFalse);
     expect(results.last.name, 'Mount Royal Park');
     expect(results.last.address, 'Montreal, Quebec, Canada');
     expect(results.last.point.lat, 45.5048);
@@ -31,6 +33,22 @@ void main() {
     expect(results, isEmpty);
     expect(service.isEnabled, isFalse);
   });
+
+  test('Mapbox Geocoding parser caps retained results', () {
+    final features = List.generate(
+      50,
+      (index) => {
+        'properties': {
+          'name': 'Place $index',
+          'coordinates': {'longitude': -73.0, 'latitude': 45.0},
+        },
+      },
+    );
+
+    final results = parseMapboxGeocodingPlaces({'features': features});
+
+    expect(results, hasLength(6));
+  });
 }
 
 const _geocodingFixture = '''
@@ -41,6 +59,7 @@ const _geocodingFixture = '''
       "type": "Feature",
       "properties": {
         "name": "Circuit Gilles-Villeneuve",
+        "feature_type": "poi",
         "full_address": "Circuit Gilles-Villeneuve, Montreal, Quebec",
         "coordinates": {
           "longitude": -73.5229,

@@ -1,3 +1,8 @@
+import { z, ZodError } from "npm:zod@4.1.12";
+import {
+  readJsonWithLimit,
+  RequestBodyTooLargeError,
+} from "../_shared/bounded_json.ts";
 import { consumeRateLimit } from "../_shared/security.ts";
 
 const corsHeaders = {
@@ -10,6 +15,26 @@ const allowedModels = new Set([
   "claude-haiku-4-5-20251001",
   "claude-sonnet-4-6",
 ]);
+const maxRequestBytes = 64 * 1024;
+const requestSchema = z.object({
+  model: z.string().default("claude-haiku-4-5-20251001"),
+  system: z.string().default(""),
+  messages: z.array(
+    z.object({
+      role: z.enum(["user", "assistant"]),
+      content: z.string().min(1),
+    }),
+  ).min(1).max(6),
+  maxTokens: z.number().finite().default(200),
+});
+const upstreamSchema = z.object({
+  content: z.array(
+    z.object({
+      type: z.string(),
+      text: z.string().optional(),
+    }),
+  ).default([]),
+});
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -29,17 +54,19 @@ Deno.serve(async (req) => {
       return json({ text: "", error: "ai_config_missing" }, 200);
     }
 
-    const body = await req.json();
-    const requestedModel = String(body.model ?? "claude-haiku-4-5-20251001");
+    const body = requestSchema.parse(
+      await readJsonWithLimit(req, maxRequestBytes),
+    );
+    const requestedModel = body.model;
     const model = allowedModels.has(requestedModel)
       ? requestedModel
       : "claude-haiku-4-5-20251001";
-    const system = truncate(String(body.system ?? ""), 800);
-    const messages = sanitizeMessages(body.messages);
-    if (messages.length === 0) {
-      return json({ text: "", error: "empty_messages" }, 400);
-    }
-    const maxTokens = clamp(Number(body.maxTokens ?? 200), 40, 350);
+    const system = truncate(body.system, 800);
+    const messages = body.messages.map((message) => ({
+      role: message.role,
+      content: truncate(message.content, 1200),
+    }));
+    const maxTokens = clamp(body.maxTokens, 40, 350);
 
     const upstream = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -60,29 +87,23 @@ Deno.serve(async (req) => {
       return json({ text: "", error: "ai_upstream_failed" }, 200);
     }
 
-    const data = await upstream.json();
-    const text = (data.content ?? [])
-      .map((part: { type?: string; text?: string }) =>
-        part.type === "text" ? part.text ?? "" : ""
-      )
+    const data = upstreamSchema.parse(await upstream.json());
+    const text = data.content
+      .map((part) => part.type === "text" ? part.text ?? "" : "")
       .join("")
       .trim();
     return json({ text });
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof RequestBodyTooLargeError ||
+      error instanceof SyntaxError ||
+      error instanceof ZodError
+    ) {
+      return json({ text: "", error: "invalid_request" }, 400);
+    }
     return json({ text: "", error: "ai_request_failed" }, 200);
   }
 });
-
-function sanitizeMessages(value: unknown) {
-  if (!Array.isArray(value)) return [];
-  return value.slice(0, 6).flatMap((item) => {
-    if (!item || typeof item !== "object") return [];
-    const record = item as Record<string, unknown>;
-    const role = record.role === "assistant" ? "assistant" : "user";
-    const content = truncate(String(record.content ?? ""), 1200);
-    return content.trim().length === 0 ? [] : [{ role, content }];
-  });
-}
 
 function truncate(value: string, maxLength: number) {
   return value.length <= maxLength ? value : value.slice(0, maxLength);

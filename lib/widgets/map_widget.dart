@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -115,6 +116,7 @@ String buildExplorationFogGeoJson(List<ExplorationCell> cells) {
 
 class MapWidget extends StatefulWidget {
   final bool isSprintMode;
+  final bool driveHudOrnaments;
 
   /// 현재위치 → 루트 시작점 내비 경로 (파란 선)
   final List<LatLng>? navPolyline;
@@ -148,13 +150,17 @@ class MapWidget extends StatefulWidget {
   final int recenterSignal;
   final LatLng? cameraTarget;
   final int cameraTargetSignal;
+  final List<LatLng> cameraTargetPoints;
+  final double cameraTargetMaxZoom;
   final ValueChanged<LatLng>? onCameraCenterChanged;
   final ValueChanged<RouteMapViewport>? onCameraViewportChanged;
   final ValueChanged<String>? onRouteLineTap;
+  final VoidCallback? onMapTap;
 
   const MapWidget({
     super.key,
     this.isSprintMode = false,
+    this.driveHudOrnaments = false,
     this.navPolyline,
     this.navPolylines,
     this.routePolyline,
@@ -175,9 +181,12 @@ class MapWidget extends StatefulWidget {
     this.recenterSignal = 0,
     this.cameraTarget,
     this.cameraTargetSignal = 0,
+    this.cameraTargetPoints = const [],
+    this.cameraTargetMaxZoom = 14.0,
     this.onCameraCenterChanged,
     this.onCameraViewportChanged,
     this.onRouteLineTap,
+    this.onMapTap,
   });
 
   @override
@@ -223,6 +232,7 @@ class _MapWidgetState extends State<MapWidget>
   Uint8List? _puckTopImage;
   Uint8List? _puckBearingImage;
   Uint8List? _puckShadowImage;
+  Future<void> _difficultyDraws = Future.value();
   Future<void> _fogDraws = Future.value();
 
   bool get _shouldDrawCurveHeatmap =>
@@ -476,7 +486,7 @@ class _MapWidgetState extends State<MapWidget>
       }
       if (oldWidget.cameraTargetSignal != widget.cameraTargetSignal &&
           widget.cameraTarget != null) {
-        _moveCameraToPoint(widget.cameraTarget!, zoom: 14.0, fly: true);
+        _focusCameraTarget();
       }
       if (oldWidget.simulatedPosition != widget.simulatedPosition) {
         _drawSimulationMarker(widget.simulatedPosition);
@@ -565,7 +575,7 @@ class _MapWidgetState extends State<MapWidget>
         oldWidget.difficultyLines,
         widget.difficultyLines,
       )) {
-        _drawDifficultyLines(widget.difficultyLines);
+        _scheduleDifficultyLines(widget.difficultyLines);
       }
       if (!_sameExplorationCells(
         oldWidget.explorationFogCells,
@@ -658,7 +668,7 @@ class _MapWidgetState extends State<MapWidget>
 
   void _onLocationChanged() {
     if (_locationService == null || !_styleLoaded) return;
-    if (!widget.isSprintMode) return;
+    if (!widget.driveHudOrnaments) return;
     if (widget.simulatedPosition != null) return;
     // FollowPuckViewportState가 활성화돼 있으면 SDK가 자동 추적한다.
     // GPS 업데이트마다 viewport를 다시 생성하면 platform view 전체가 재빌드돼
@@ -686,6 +696,51 @@ class _MapWidgetState extends State<MapWidget>
 
   void _onMapCreated(mbx.MapboxMap controller) {
     _mapController = controller;
+    unawaited(_configureMapOrnaments(controller));
+  }
+
+  Future<void> _configureMapOrnaments(mbx.MapboxMap controller) async {
+    // The default top-left scale bar sits underneath the route-finder search
+    // control. Distance is already presented in route details and the drive
+    // HUD, so hide the redundant ornament on both map surfaces.
+    try {
+      await controller.scaleBar.updateSettings(
+        mbx.ScaleBarSettings(enabled: false),
+      );
+    } catch (_) {
+      // Ornament positioning is best-effort; Mapbox keeps its default if a
+      // platform rejects the update.
+    }
+
+    if (!widget.isSprintMode) return;
+
+    // The drive HUD occupies the bottom edge. Keep Mapbox's required logo and
+    // attribution controls together in a clear section of the map instead of
+    // leaving them obscured beneath the controls.
+    try {
+      await Future.wait([
+        controller.logo.updateSettings(
+          mbx.LogoSettings(
+            enabled: true,
+            position: mbx.OrnamentPosition.TOP_LEFT,
+            marginLeft: 8,
+            marginTop: 400,
+          ),
+        ),
+        controller.attribution.updateSettings(
+          mbx.AttributionSettings(
+            enabled: true,
+            clickable: true,
+            position: mbx.OrnamentPosition.TOP_LEFT,
+            marginLeft: 100,
+            marginTop: 400,
+          ),
+        ),
+      ]);
+    } catch (_) {
+      // Ornament positioning is best-effort; Mapbox keeps its defaults if a
+      // platform rejects the update.
+    }
   }
 
   void _onCameraChanged(mbx.CameraChangedEventData data) {
@@ -696,11 +751,11 @@ class _MapWidgetState extends State<MapWidget>
     final map = _mapController;
     if (map == null) return;
     try {
-      _reportCameraCenter(await map.getCameraState());
+      _reportCameraCenter(await map.getCameraState(), force: true);
     } catch (_) {}
   }
 
-  void _reportCameraCenter(mbx.CameraState cameraState) {
+  void _reportCameraCenter(mbx.CameraState cameraState, {bool force = false}) {
     final centerCallback = widget.onCameraCenterChanged;
     final viewportCallback = widget.onCameraViewportChanged;
     if (centerCallback == null && viewportCallback == null) return;
@@ -717,7 +772,7 @@ class _MapWidgetState extends State<MapWidget>
         previous == null || RevvRoute.haversineKm(previous, center) >= 0.2;
     final zoomChanged =
         previousZoom == null || (previousZoom - zoom).abs() >= 0.35;
-    if (!centerMoved && !zoomChanged) return;
+    if (!force && !centerMoved && !zoomChanged) return;
 
     _lastReportedCameraCenter = center;
     _lastReportedCameraZoom = zoom;
@@ -961,7 +1016,7 @@ class _MapWidgetState extends State<MapWidget>
     }
     await _drawCurveFieldHeatmap(widget.curveHeatmapPolylines);
     await _scheduleExplorationFog(widget.explorationFogCells);
-    await _drawDifficultyLines(widget.difficultyLines);
+    await _scheduleDifficultyLines(widget.difficultyLines);
     await _drawCandidatePolylines(widget.candidatePolylines);
     if (routeParts.isNotEmpty) {
       if (_shouldDrawCurveHeatmap) {
@@ -982,11 +1037,7 @@ class _MapWidgetState extends State<MapWidget>
     await _drawPlanMarkers(widget.planMarkers ?? const []);
     await _drawClusterMarkers(widget.clusterMarkers);
     if (widget.cameraTarget != null && widget.cameraTargetSignal > 0) {
-      await _moveCameraToPoint(
-        widget.cameraTarget!,
-        zoom: 14.0,
-        immediate: true,
-      );
+      await _focusCameraTarget(immediate: true);
     }
   }
 
@@ -1209,6 +1260,8 @@ class _MapWidgetState extends State<MapWidget>
     final routeId = _nearestDifficultyRouteId(tapPoint);
     if (routeId != null) {
       widget.onRouteLineTap?.call(routeId);
+    } else {
+      widget.onMapTap?.call();
     }
   }
 
@@ -1275,6 +1328,14 @@ class _MapWidgetState extends State<MapWidget>
       colorArgb,
       width,
     );
+  }
+
+  Future<void> _scheduleDifficultyLines(List<RouteDifficultyLine> lines) {
+    final snapshot = List<RouteDifficultyLine>.of(lines);
+    _difficultyDraws = _difficultyDraws.then(
+      (_) => _drawDifficultyLines(snapshot),
+    );
+    return _difficultyDraws;
   }
 
   Future<void> _scheduleExplorationFog(List<ExplorationCell> cells) {
@@ -1976,7 +2037,7 @@ class _MapWidgetState extends State<MapWidget>
     try {
       await map.compass.updateSettings(
         mbx.CompassSettings(
-          enabled: true,
+          enabled: !widget.driveHudOrnaments,
           opacity: 0.85,
           position: mbx.OrnamentPosition.BOTTOM_RIGHT,
           marginBottom: 120,
@@ -2135,9 +2196,32 @@ class _MapWidgetState extends State<MapWidget>
     } catch (_) {}
   }
 
+  Future<void> _focusCameraTarget({bool immediate = false}) {
+    if (widget.cameraTargetPoints.length > 1) {
+      return _focusRoutePolyline(
+        widget.cameraTargetPoints,
+        immediate: immediate,
+        maxZoom: widget.cameraTargetMaxZoom,
+        padding: mbx.MbxEdgeInsets(top: 180, left: 36, bottom: 180, right: 36),
+      );
+    }
+    final target = widget.cameraTargetPoints.isNotEmpty
+        ? widget.cameraTargetPoints.first
+        : widget.cameraTarget;
+    if (target == null) return Future.value();
+    return _moveCameraToPoint(
+      target,
+      zoom: widget.cameraTargetMaxZoom,
+      immediate: immediate,
+      fly: !immediate,
+    );
+  }
+
   Future<void> _focusRoutePolyline(
     List<LatLng> polyline, {
     bool immediate = false,
+    double maxZoom = 13.8,
+    mbx.MbxEdgeInsets? padding,
   }) async {
     final map = _mapController;
     if (!_styleLoaded || map == null || polyline.isEmpty) return;
@@ -2153,7 +2237,7 @@ class _MapWidgetState extends State<MapWidget>
         final only = polyline.first;
         final camera = mbx.CameraOptions(
           center: mbx.Point(coordinates: mbx.Position(only.lng, only.lat)),
-          zoom: 13.8,
+          zoom: maxZoom,
           pitch: 0.0,
           bearing: 0.0,
         );
@@ -2168,8 +2252,12 @@ class _MapWidgetState extends State<MapWidget>
       final camera = await map.cameraForCoordinatesPadding(
         coordinates,
         mbx.CameraOptions(pitch: 0.0, bearing: 0.0),
-        mbx.MbxEdgeInsets(top: 180, left: 42, bottom: 250, right: 42),
-        13.8,
+        // Keep the fitted route clear of the finder controls and preview card.
+        // This also prevents iOS platform-view captures from compositing a map
+        // line through Flutter text that sits over the map.
+        padding ??
+            mbx.MbxEdgeInsets(top: 330, left: 42, bottom: 310, right: 42),
+        maxZoom,
         null,
       );
       if (immediate) {
@@ -2189,7 +2277,7 @@ class _MapWidgetState extends State<MapWidget>
     );
     final language = context.watch<SettingsService>().appLanguage;
 
-    if (!hasPermission) {
+    if (!hasPermission && widget.simulatedPosition == null) {
       return _MapFallback(
         message: AppCopy.t(
           language,

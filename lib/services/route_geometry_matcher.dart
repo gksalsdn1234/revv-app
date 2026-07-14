@@ -6,16 +6,22 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/revv_route.dart';
+import 'bounded_http_response.dart';
 import 'mapbox_service.dart';
 
 class RouteGeometryMatcher {
-  RouteGeometryMatcher._();
+  RouteGeometryMatcher._({http.Client? client})
+    : _client = client ?? http.Client();
 
   static final RouteGeometryMatcher instance = RouteGeometryMatcher._();
 
   static const _cachePrefix = 'route_geometry_match_v1_';
   static const _maxMapboxMatchingPoints = 90;
+  static const _maxMatchedGeometryPoints = 5000;
+  static const _maxResponseBytes = 4 * 1024 * 1024;
   static const _requestTimeout = Duration(seconds: 8);
+
+  final http.Client _client;
 
   Future<List<LatLng>> matchRoute(RevvRoute route) async {
     if (!MapboxService.isConfigured || route.nodes.length < 2) {
@@ -33,17 +39,12 @@ class RouteGeometryMatcher {
 
     try {
       final uri = _matchingUri(sampled);
-      final response = await http.get(uri).timeout(_requestTimeout);
-      if (response.statusCode != 200) {
-        if (kDebugMode) {
-          debugPrint(
-            '[RouteGeometryMatcher] map matching skipped: ${response.statusCode}',
-          );
-        }
-        return route.nodes;
-      }
-
-      final matched = parseMatchedGeometry(response.body);
+      final body = await getBoundedResponseBody(
+        _client,
+        uri,
+        maxBytes: _maxResponseBytes,
+      ).timeout(_requestTimeout);
+      final matched = parseMatchedGeometry(body);
       if (!_isUsableMatch(route.nodes, matched)) return route.nodes;
 
       await _writeCached(route.id, matched);
@@ -161,6 +162,7 @@ class RouteGeometryMatcher {
     final coordinates = geometry?['coordinates'] as List<dynamic>?;
     if (coordinates == null) return const [];
     return coordinates
+        .take(_maxMatchedGeometryPoints)
         .map((coord) {
           final pair = coord as List<dynamic>;
           if (pair.length < 2) return null;

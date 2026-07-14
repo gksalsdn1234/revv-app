@@ -11,7 +11,6 @@ class LocationService extends ChangeNotifier {
   static const Duration _notifyThrottle = Duration(milliseconds: 250);
 
   Position? currentPosition;
-  LatLng? _persistedLatLng;
   double speedKmh = 0;
   double heading = 0; // 이동 방향 (0=북, 90=동, 단위: degrees)
   bool hasPermission = false;
@@ -19,7 +18,6 @@ class LocationService extends ChangeNotifier {
   bool isTracking = false;
   bool _armedBackgroundTracking = false;
   int _armedTrackingRequest = 0;
-  bool _hydrated = false;
 
   StreamSubscription<Position>? _subscription;
   bool _notifyPending = false;
@@ -27,7 +25,15 @@ class LocationService extends ChangeNotifier {
   DateTime? _lastNotifiedAt;
 
   LocationService() {
-    unawaited(_hydrateLastKnownLocation());
+    unawaited(_clearLegacyPersistedLocation());
+  }
+
+  Future<void> _clearLegacyPersistedLocation() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(StorageKeys.lastKnownLat);
+      await prefs.remove(StorageKeys.lastKnownLng);
+    } catch (_) {}
   }
 
   Future<void> requestPermission() async {
@@ -174,14 +180,13 @@ class LocationService extends ChangeNotifier {
       ? null
       : LatLng(currentPosition!.latitude, currentPosition!.longitude);
 
-  LatLng? get bestKnownLatLng => liveLatLng ?? _persistedLatLng;
+  LatLng? get bestKnownLatLng => liveLatLng;
 
   bool get hasBestKnownLocation => bestKnownLatLng != null;
 
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
   }) async {
-    await _hydrateLastKnownLocation();
     if (!hasPermission) {
       final status = await Permission.locationWhenInUse.status;
       _permissionStatus = status;
@@ -226,8 +231,6 @@ class LocationService extends ChangeNotifier {
     currentPosition = position;
     speedKmh = (position.speed * 3.6).clamp(0, 300);
     if (position.heading >= 0) heading = position.heading;
-    _persistedLatLng = LatLng(position.latitude, position.longitude);
-    unawaited(_persistLastKnownLocation());
   }
 
   bool _isFreshEnough(Position? position) {
@@ -288,31 +291,6 @@ class LocationService extends ChangeNotifier {
     } finally {
       await tempSubscription.cancel();
     }
-  }
-
-  Future<void> _hydrateLastKnownLocation() async {
-    if (_hydrated) return;
-    _hydrated = true;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final lat = prefs.getDouble(StorageKeys.lastKnownLat);
-      final lng = prefs.getDouble(StorageKeys.lastKnownLng);
-      if (lat != null && lng != null) {
-        _persistedLatLng = LatLng(lat, lng);
-      }
-    } catch (_) {
-      _hydrated = false;
-    }
-  }
-
-  Future<void> _persistLastKnownLocation() async {
-    final last = _persistedLatLng;
-    if (last == null) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setDouble(StorageKeys.lastKnownLat, last.lat);
-      await prefs.setDouble(StorageKeys.lastKnownLng, last.lng);
-    } catch (_) {}
   }
 
   double get lat => bestKnownLatLng?.lat ?? 0.0;

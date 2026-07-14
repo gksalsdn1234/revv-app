@@ -16,26 +16,10 @@ class PlaceSearchMapPinSelection {
   const PlaceSearchMapPinSelection();
 }
 
-class PlaceSearchRegion {
-  final String key;
-  final String title;
-  final LatLng point;
-
-  const PlaceSearchRegion(this.key, this.title, this.point);
-}
-
-const defaultPlaceSearchRegions = [
-  PlaceSearchRegion('montreal', 'Montreal', LatLng(45.5017, -73.5673)),
-  PlaceSearchRegion('laurentians', 'Laurentians', LatLng(45.9000, -74.1600)),
-  PlaceSearchRegion('toronto', 'Toronto', LatLng(43.6532, -79.3832)),
-  PlaceSearchRegion('vancouver', 'Vancouver', LatLng(49.2827, -123.1207)),
-];
-
 class PlaceSearchSheet extends StatefulWidget {
   final AppLanguage language;
   final PlaceSearchService service;
   final LatLng proximity;
-  final LatLng? selected;
   final bool allowMapPin;
 
   const PlaceSearchSheet({
@@ -43,7 +27,6 @@ class PlaceSearchSheet extends StatefulWidget {
     required this.language,
     required this.service,
     required this.proximity,
-    required this.selected,
     this.allowMapPin = true,
   });
 
@@ -213,19 +196,6 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
                 constraints: const BoxConstraints(maxHeight: 280),
                 child: _buildResults(),
               ),
-              const SizedBox(height: 10),
-              _RegionStrip(
-                language: widget.language,
-                selected: widget.selected,
-                onSelected: (region) => Navigator.pop(
-                  context,
-                  PlaceResult(
-                    name: region.title,
-                    address: '',
-                    point: region.point,
-                  ),
-                ),
-              ),
             ],
           ),
         ),
@@ -286,50 +256,6 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
           onTap: () => Navigator.pop(context, result),
         );
       },
-    );
-  }
-}
-
-class _RegionStrip extends StatelessWidget {
-  final AppLanguage language;
-  final LatLng? selected;
-  final ValueChanged<PlaceSearchRegion> onSelected;
-
-  const _RegionStrip({
-    required this.language,
-    required this.selected,
-    required this.onSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 42,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: defaultPlaceSearchRegions.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final region = defaultPlaceSearchRegions[index];
-          final selectedPoint = selected;
-          final active =
-              selectedPoint != null &&
-              region.point.lat == selectedPoint.lat &&
-              region.point.lng == selectedPoint.lng;
-          return ChoiceChip(
-            label: Text(region.title),
-            selected: active,
-            onSelected: (_) => onSelected(region),
-            selectedColor: AppColors.primaryContainer,
-            backgroundColor: AppColors.panel2.withValues(alpha: 0.92),
-            labelStyle: AppText.body(
-              size: 12,
-              weight: FontWeight.w800,
-              color: active ? AppColors.onPrimary : AppColors.textPrimary,
-            ),
-          );
-        },
-      ),
     );
   }
 }

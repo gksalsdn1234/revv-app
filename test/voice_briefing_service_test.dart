@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/app_language.dart';
@@ -31,9 +33,10 @@ DriveCurveCue cue({
 }
 
 class _FakeVoiceTtsClient implements VoiceTtsClient {
-  _FakeVoiceTtsClient({required this.voices});
+  _FakeVoiceTtsClient({required this.voices, this.firstSpeakGate});
 
   final Object? voices;
+  final Completer<void>? firstSpeakGate;
   final selectedVoices = <Map<String, String>>[];
   final spoken = <String>[];
   final languages = <String>[];
@@ -65,7 +68,10 @@ class _FakeVoiceTtsClient implements VoiceTtsClient {
   }
 
   @override
-  Future<void> speak(String text) async => spoken.add(text);
+  Future<void> speak(String text) async {
+    spoken.add(text);
+    if (spoken.length == 1) await firstSpeakGate?.future;
+  }
 
   @override
   Future<void> stop() async {}
@@ -105,11 +111,15 @@ void main() {
     );
 
     expect(spoken, hasLength(1));
-    expect(spoken.first, '300, 우 타이트');
+    expect(spoken.first, '300, 우측 급커브');
   });
 
   test('stays silent when muted or severity is low', () {
-    voice.onCoPilotCue(curveCue: cue(), language: AppLanguage.korean, muted: true);
+    voice.onCoPilotCue(
+      curveCue: cue(),
+      language: AppLanguage.korean,
+      muted: true,
+    );
     voice.onCoPilotCue(
       curveCue: cue(severity: 1),
       language: AppLanguage.korean,
@@ -143,8 +153,78 @@ void main() {
       language: AppLanguage.korean,
       muted: false,
     );
-    expect(spoken.single, contains('연속'));
+    expect(spoken.single, contains('좌우 커브'));
     expect(spoken.single, contains('4개'));
+  });
+
+  test('medium curves speak only when they form a meaningful sequence', () {
+    voice.onCoPilotCue(
+      curveCue: cue(severity: 1, intensity: '중간', curveCountAhead: 1),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    expect(spoken, isEmpty);
+
+    voice.onCoPilotCue(
+      curveCue: cue(
+        severity: 1,
+        intensity: '중간',
+        curveCountAhead: 4,
+        nextGapM: 150,
+      ),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken.single, '200, 우측 커브. 좌우 커브 4개');
+  });
+
+  test('a close pair of medium curves is worth briefing', () {
+    voice.onCoPilotCue(
+      curveCue: cue(
+        severity: 1,
+        intensity: '중간',
+        curveCountAhead: 2,
+        nextGapM: 180,
+      ),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken.single, '200, 우측 커브. 연속 커브 2개');
+  });
+
+  test('curve wording changes with tight and hairpin severity', () {
+    expect(
+      voice.buildPhrase(cue(), language: AppLanguage.korean),
+      '200, 우측 급커브',
+    );
+    expect(
+      voice.buildPhrase(
+        cue(severity: 3, intensity: '헤어핀', direction: '좌측'),
+        language: AppLanguage.korean,
+      ),
+      '200, 좌측 급회전',
+    );
+  });
+
+  test('curve direction and intensity use natural localized word order', () {
+    final mediumPair = cue(
+      severity: 1,
+      intensity: 'Medium',
+      direction: 'Right',
+      curveCountAhead: 2,
+      nextGapM: 180,
+    );
+
+    expect(
+      voice.buildPhrase(mediumPair, language: AppLanguage.english),
+      '200, right turn. 2-curve sequence',
+    );
+    expect(
+      voice.buildPhrase(mediumPair, language: AppLanguage.french),
+      '200, virage à droite. série de 2 virages',
+    );
   });
 
   test('hairpin gets the prepare-early phrasing', () {
@@ -153,10 +233,10 @@ void main() {
       language: AppLanguage.korean,
       muted: false,
     );
-    expect(spoken.single, '200, 헤어핀 좌');
+    expect(spoken.single, '200, 좌측 급회전');
   });
 
-  test('cooldown suppresses a second callout within 8 seconds', () {
+  test('cooldown suppresses a second callout within 5 seconds', () {
     voice.onCoPilotCue(
       curveCue: cue(distanceM: 200),
       language: AppLanguage.korean,
@@ -172,7 +252,7 @@ void main() {
     );
     expect(spoken, hasLength(1));
 
-    now = now.add(const Duration(seconds: 5));
+    now = now.add(const Duration(seconds: 2));
     voice.onCoPilotCue(
       curveCue: cue(distanceM: 240),
       language: AppLanguage.korean,
@@ -197,7 +277,7 @@ void main() {
     expect(spoken, hasLength(2));
   });
 
-  test('long clear gap adds the flow-ending prefix', () {
+  test('long clear gap adds no filler', () {
     // 첫 큐 관측 (발화 없이 창 밖)
     voice.onCoPilotCue(
       curveCue: cue(distanceM: 700),
@@ -211,7 +291,7 @@ void main() {
       language: AppLanguage.korean,
       muted: false,
     );
-    expect(spoken.single, '300, 긴 흐름 구간 — 우 타이트');
+    expect(spoken.single, '300, 우측 급커브');
   });
 
   test('merges nearby TBT and curve events into one pacenote', () {
@@ -223,23 +303,141 @@ void main() {
         modifier: 'right',
         location: LatLng(45, -73),
         distanceFromStartM: 100,
+        segmentDistanceM: 200,
       ),
       navDistanceM: 300,
       curveCue: cue(distanceM: 120, direction: '좌측'),
     );
 
-    expect(phrase, '300, 우측 갈림길 — 바로 좌 타이트');
+    expect(phrase, '300, 우측 갈림길. 좌측 급커브');
     expect(phrase, isNot(contains('미터 앞')));
     expect(phrase, isNot(contains('하세요')));
   });
 
-  test('speaks 300m and 80m stages for the same nav step', () {
-    const step = NavStep(
+  test('winding mode speaks the curve before a nearby maneuver', () {
+    final phrase = voice.buildCoPilotPhrase(
+      language: AppLanguage.korean,
+      navStep: const NavStep(
+        sequence: 1,
+        maneuverType: 'fork',
+        modifier: 'right',
+        location: LatLng(45, -73),
+        distanceFromStartM: 100,
+        segmentDistanceM: 200,
+      ),
+      navDistanceM: 300,
+      curveCue: cue(distanceM: 120, direction: '좌측'),
+      preferCurve: true,
+    );
+
+    expect(phrase, '120, 좌측 급커브. 우측 갈림길');
+  });
+
+  test('combined speech marks the included curve as already spoken', () {
+    const nav = NavStep(
       sequence: 1,
       maneuverType: 'fork',
       modifier: 'right',
       location: LatLng(45, -73),
       distanceFromStartM: 100,
+      segmentDistanceM: 200,
+    );
+    final curve = cue(distanceM: 120, direction: '좌측');
+    voice.onCoPilotCue(
+      navStep: nav,
+      navDistanceM: 300,
+      curveCue: curve,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 9));
+    voice.onCoPilotCue(
+      curveCue: curve,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken, hasLength(1));
+  });
+
+  test('short straight navigation stays silent without a curve', () {
+    voice.onCoPilotCue(
+      navStep: const NavStep(
+        sequence: 1,
+        maneuverType: 'continue',
+        modifier: 'straight',
+        location: LatLng(45, -73),
+        distanceFromStartM: 500,
+        segmentDistanceM: 400,
+      ),
+      navDistanceM: 300,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken, isEmpty);
+  });
+
+  test('short straight navigation yields to detailed curve briefing', () {
+    voice.onCoPilotCue(
+      navStep: const NavStep(
+        sequence: 1,
+        maneuverType: 'continue',
+        modifier: 'straight',
+        location: LatLng(45, -73),
+        distanceFromStartM: 500,
+        segmentDistanceM: 400,
+      ),
+      navDistanceM: 300,
+      curveCue: cue(
+        distanceM: 220,
+        direction: '우측',
+        intensity: '타이트',
+        curveCountAhead: 4,
+        nextGapM: 150,
+      ),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken.single, '220, 우측 급커브. 좌우 커브 4개');
+    expect(spoken.single, isNot(contains('직진')));
+  });
+
+  test('a significant curve leads when a long straight overlaps it', () {
+    voice.onCoPilotCue(
+      navStep: const NavStep(
+        sequence: 1,
+        maneuverType: 'continue',
+        modifier: 'straight',
+        location: LatLng(45, -73),
+        distanceFromStartM: 500,
+        segmentDistanceM: 1200,
+      ),
+      navDistanceM: 300,
+      curveCue: cue(
+        distanceM: 220,
+        direction: '우측',
+        intensity: '타이트',
+        curveCountAhead: 4,
+        nextGapM: 150,
+      ),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken.single, '220, 우측 급커브. 좌우 커브 4개');
+    expect(spoken.single, isNot(contains('직진')));
+  });
+
+  test('long straight navigation is announced once with its length', () {
+    const step = NavStep(
+      sequence: 1,
+      maneuverType: 'continue',
+      modifier: 'straight',
+      location: LatLng(45, -73),
+      distanceFromStartM: 500,
+      segmentDistanceM: 1200,
     );
 
     voice.onCoPilotCue(
@@ -256,7 +454,151 @@ void main() {
       muted: false,
     );
 
-    expect(spoken, ['300, 우측 갈림길', '80, 우측 갈림길']);
+    expect(spoken, ['300, 1.2킬로 직진']);
+  });
+
+  test('one kilometer is the exact straight briefing threshold', () {
+    const shortStep = NavStep(
+      sequence: 1,
+      maneuverType: 'continue',
+      modifier: 'straight',
+      location: LatLng(45, -73),
+      distanceFromStartM: 500,
+      segmentDistanceM: 999,
+    );
+    const longStep = NavStep(
+      sequence: 2,
+      maneuverType: 'continue',
+      modifier: 'straight',
+      location: LatLng(45, -73),
+      distanceFromStartM: 1500,
+      segmentDistanceM: 1000,
+    );
+
+    voice.onCoPilotCue(
+      navStep: shortStep,
+      navDistanceM: 300,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    voice.onCoPilotCue(
+      navStep: longStep,
+      navDistanceM: 300,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken, ['300, 1킬로 직진']);
+    expect(
+      voice.buildCoPilotPhrase(
+        language: AppLanguage.english,
+        navStep: longStep,
+        navDistanceM: 300,
+      ),
+      '300, straight for 1 kilometer',
+    );
+    expect(
+      voice.buildCoPilotPhrase(
+        language: AppLanguage.french,
+        navStep: longStep,
+        navDistanceM: 300,
+      ),
+      '300, tout droit sur 1 kilomètre',
+    );
+  });
+
+  test(
+    'long straight at the route start is announced without a zero prefix',
+    () {
+      voice.onCoPilotCue(
+        navStep: const NavStep(
+          sequence: 1,
+          maneuverType: 'depart',
+          modifier: 'straight',
+          location: LatLng(45, -73),
+          distanceFromStartM: 0,
+          segmentDistanceM: 1200,
+        ),
+        navDistanceM: 0,
+        language: AppLanguage.korean,
+        muted: false,
+      );
+
+      expect(spoken, ['1.2킬로 직진']);
+    },
+  );
+
+  test('speaks each navigation step only once', () {
+    const step = NavStep(
+      sequence: 1,
+      maneuverType: 'fork',
+      modifier: 'right',
+      location: LatLng(45, -73),
+      distanceFromStartM: 100,
+      segmentDistanceM: 200,
+    );
+
+    voice.onCoPilotCue(
+      navStep: step,
+      navDistanceM: 300,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 9));
+    voice.onCoPilotCue(
+      navStep: step,
+      navDistanceM: 80,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken, ['300, 우측 갈림길']);
+  });
+
+  test('rejoin navigation has a separate spoken-step namespace', () {
+    const step = NavStep(
+      sequence: 1,
+      maneuverType: 'turn',
+      modifier: 'right',
+      location: LatLng(45, -73),
+      distanceFromStartM: 100,
+      segmentDistanceM: 200,
+    );
+
+    voice.onCoPilotCue(
+      navStep: step,
+      navDistanceM: 300,
+      navNamespace: 'route',
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 9));
+    voice.onCoPilotCue(
+      navStep: step,
+      navDistanceM: 280,
+      navNamespace: 'rejoin:1',
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken, ['300, 우측 갈림길', '280, 우측 갈림길']);
+  });
+
+  test('finish omits a meaningless zero-distance prefix', () {
+    final phrase = voice.buildCoPilotPhrase(
+      language: AppLanguage.korean,
+      navStep: const NavStep(
+        sequence: 9,
+        maneuverType: 'arrive',
+        modifier: null,
+        location: LatLng(45, -73),
+        distanceFromStartM: 6400,
+        segmentDistanceM: 0,
+      ),
+      navDistanceM: 0,
+    );
+
+    expect(phrase, '피니시');
   });
 
   test('off-route and back-on-route phrases use rally tone', () {
@@ -275,7 +617,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken, ['루트 이탈 — 우측에서 재진입', '온 루트']);
+    expect(spoken, ['루트 이탈, 우측 재진입', '온 루트']);
   });
 
   test('phrases avoid forbidden performance language in all languages', () {
@@ -286,7 +628,11 @@ void main() {
           cue(curveCountAhead: 4, nextGapM: 150),
           language: language,
         ),
-        voice.buildPhrase(cue(severity: 3), language: language, afterLongClear: true),
+        voice.buildPhrase(
+          cue(severity: 3),
+          language: language,
+          afterLongClear: true,
+        ),
       ];
       for (final sample in samples) {
         for (final word in forbidden) {
@@ -296,55 +642,62 @@ void main() {
     }
   });
 
-  test('selects enhanced voice for the active locale and caches voices', () async {
-    final fakeTts = _FakeVoiceTtsClient(
-      voices: const [
-        {'name': 'en-US Standard', 'locale': 'en-US', 'quality': 'default'},
-        {'name': 'en-US Premium', 'locale': 'en-US', 'quality': 'premium'},
-        {'name': 'ko-KR Enhanced', 'locale': 'ko-KR', 'quality': 'enhanced'},
-      ],
-    );
-    final service = VoiceBriefingService(ttsFactory: () => fakeTts);
+  test(
+    'selects enhanced voice for the active locale and caches voices',
+    () async {
+      final fakeTts = _FakeVoiceTtsClient(
+        voices: const [
+          {'name': 'en-US Standard', 'locale': 'en-US', 'quality': 'default'},
+          {'name': 'en-US Premium', 'locale': 'en-US', 'quality': 'premium'},
+          {'name': 'ko-KR Enhanced', 'locale': 'ko-KR', 'quality': 'enhanced'},
+        ],
+      );
+      final service = VoiceBriefingService(ttsFactory: () => fakeTts);
 
-    service.announceStart(AppLanguage.english, muted: false);
-    await Future<void>.delayed(Duration.zero);
-    service.onCue(cue(), language: AppLanguage.english, muted: false);
-    await Future<void>.delayed(Duration.zero);
+      service.onCue(cue(), language: AppLanguage.english, muted: false);
+      await Future<void>.delayed(Duration.zero);
 
-    expect(fakeTts.languages, ['en-US']);
-    expect(fakeTts.speechRates.single, 0.5);
-    expect(fakeTts.pitches.single, 1.0);
-    expect(fakeTts.getVoicesCount, 1);
-    expect(fakeTts.selectedVoices.single, {
-      'name': 'en-US Premium',
-      'locale': 'en-US',
-    });
-  });
+      expect(fakeTts.languages, ['en-US']);
+      expect(fakeTts.speechRates.single, 0.5);
+      expect(fakeTts.pitches.single, 1.0);
+      expect(fakeTts.getVoicesCount, 1);
+      expect(fakeTts.selectedVoices.single, {
+        'name': 'en-US Premium',
+        'locale': 'en-US',
+      });
+    },
+  );
 
-  test('keeps default voice when no enhanced voice matches the locale', () async {
-    final fakeTts = _FakeVoiceTtsClient(
-      voices: const [
-        {'name': 'en-US Standard', 'locale': 'en-US', 'quality': 'default'},
-        {'name': 'ko-KR Premium', 'locale': 'ko-KR', 'quality': 'premium'},
-      ],
-    );
-    final service = VoiceBriefingService(ttsFactory: () => fakeTts);
+  test(
+    'keeps default voice when no enhanced voice matches the locale',
+    () async {
+      final fakeTts = _FakeVoiceTtsClient(
+        voices: const [
+          {'name': 'en-US Standard', 'locale': 'en-US', 'quality': 'default'},
+          {'name': 'ko-KR Premium', 'locale': 'ko-KR', 'quality': 'premium'},
+        ],
+      );
+      final service = VoiceBriefingService(ttsFactory: () => fakeTts);
 
-    service.announceStart(AppLanguage.french, muted: false);
-    await Future<void>.delayed(Duration.zero);
+      service.onCue(cue(), language: AppLanguage.french, muted: false);
+      await Future<void>.delayed(Duration.zero);
 
-    expect(fakeTts.languages, ['fr-CA']);
-    expect(fakeTts.selectedVoices, isEmpty);
-    expect(fakeTts.spoken.single, 'Le briefing virages est actif. Bonne route.');
-  });
+      expect(fakeTts.languages, ['fr-CA']);
+      expect(fakeTts.selectedVoices, isEmpty);
+      expect(fakeTts.spoken.single, '200, virage serré à droite');
+    },
+  );
 
-  test('announceStart speaks once and then no-ops', () async {
-    voice.announceStart(AppLanguage.korean, muted: false);
-    voice.announceStart(AppLanguage.korean, muted: false);
-    await Future<void>.delayed(Duration.zero);
+  test(
+    'announceStart stays silent because it has no driving information',
+    () async {
+      voice.announceStart(AppLanguage.korean, muted: false);
+      voice.announceStart(AppLanguage.korean, muted: false);
+      await Future<void>.delayed(Duration.zero);
 
-    expect(spoken, ['코너 브리핑을 시작해요. 좋은 드라이브 되세요.']);
-  });
+      expect(spoken, isEmpty);
+    },
+  );
 
   test('announceStart stays silent while muted', () async {
     voice.announceStart(AppLanguage.korean, muted: true);
@@ -352,4 +705,37 @@ void main() {
 
     expect(spoken, isEmpty);
   });
+
+  test(
+    'platform speech waits for the current phrase before starting next',
+    () async {
+      final firstSpeakGate = Completer<void>();
+      final fakeTts = _FakeVoiceTtsClient(
+        voices: const [],
+        firstSpeakGate: firstSpeakGate,
+      );
+      final service = VoiceBriefingService(ttsFactory: () => fakeTts);
+
+      service.onRouteStatusChange(
+        previous: DriveRouteStatus.onRoute,
+        next: DriveRouteStatus.offRoute,
+        language: AppLanguage.korean,
+        muted: false,
+      );
+      service.onRouteStatusChange(
+        previous: DriveRouteStatus.offRoute,
+        next: DriveRouteStatus.onRoute,
+        language: AppLanguage.korean,
+        muted: false,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(fakeTts.spoken, ['루트 이탈, 우측 재진입']);
+
+      firstSpeakGate.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(fakeTts.spoken, ['루트 이탈, 우측 재진입', '온 루트']);
+    },
+  );
 }

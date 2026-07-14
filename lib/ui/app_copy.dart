@@ -69,16 +69,27 @@ class AppCopy {
 
   static String cloudOff(AppLanguage language) => t(
     language,
-    ko: '상세 주행 데이터 클라우드 업로드 끄기',
-    en: 'Turn detailed drive cloud upload off',
-    fr: 'Désactiver l’upload détaillé',
+    ko: '상세 주행 클라우드 저장',
+    en: 'Detailed drive cloud storage',
+    fr: 'Stockage cloud détaillé',
   );
 
   static String cloudOn(AppLanguage language) => t(
     language,
-    ko: '상세 주행 데이터 클라우드 업로드 켜기',
-    en: 'Turn detailed drive cloud upload on',
-    fr: 'Activer l’upload détaillé',
+    ko: '상세 주행 클라우드 저장',
+    en: 'Detailed drive cloud storage',
+    fr: 'Stockage cloud détaillé',
+  );
+
+  static String cloudStorageDetail(AppLanguage language, bool enabled) => t(
+    language,
+    ko: enabled ? '상세 주행 기록을 클라우드에도 저장' : '주행 기록을 이 기기에만 저장',
+    en: enabled
+        ? 'Save detailed drives to the cloud too'
+        : 'Keep drive reports on this device',
+    fr: enabled
+        ? 'Enregistrer aussi les trajets détaillés dans le cloud'
+        : 'Garder les rapports sur cet appareil',
   );
 
   static String deleteHistory(AppLanguage language) => t(
@@ -389,12 +400,8 @@ class AppCopy {
     fr: 'Réglages / Garage',
   );
 
-  static String anonymousDriver(AppLanguage language) => t(
-    language,
-    ko: '익명 드라이버',
-    en: 'Anonymous driver',
-    fr: 'Conducteur anonyme',
-  );
+  static String anonymousDriver(AppLanguage language) =>
+      t(language, ko: 'REVV 드라이버', en: 'REVV driver', fr: 'Pilote REVV');
 
   static String noSavedRuns(AppLanguage language) => t(
     language,
@@ -437,9 +444,9 @@ class AppCopy {
 
   static String cloudSyncDetail(AppLanguage language) => t(
     language,
-    ko: '로컬 리포트 유지 · 기기 동기화는 나중에 로그인 필요',
-    en: 'Local reports stay · device sync needs sign-in later',
-    fr: 'Rapports locaux gardés · sync avec connexion plus tard',
+    ko: '클라우드 저장을 켜면 자동 동기화',
+    en: 'Syncs automatically when cloud storage is on',
+    fr: 'Synchronisation automatique avec le stockage cloud',
   );
 
   static String settingsVoiceGuidance(AppLanguage language) =>

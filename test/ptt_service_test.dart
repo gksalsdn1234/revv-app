@@ -126,6 +126,37 @@ void main() {
     await service.dispose();
   });
 
+  test(
+    'bounds queued incoming audio while a briefing blocks playback',
+    () async {
+      final transport = _FakeTransport();
+      final playback = _FakePlayback();
+      final briefing = _FakeBriefingState()..active = true;
+      final service = PttService(
+        transport: transport,
+        recorder: _FakeRecorder(const []),
+        codec: const PassthroughPttAudioCodec(),
+        playback: playback,
+        briefingState: briefing,
+      );
+      await service.subscribe('channel-1');
+
+      for (var seed = 0; seed < 20; seed += 1) {
+        transport.receive(_batch(seed));
+      }
+      await Future<void>.delayed(Duration.zero);
+      expect(playback.playedChunks, isEmpty);
+
+      briefing.active = false;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(playback.playedChunks.length, 12);
+      expect(playback.playedChunks.first.first, 8);
+      expect(playback.playedChunks.last.first, 19);
+      await service.dispose();
+    },
+  );
+
   test('marks the channel busy briefly after an incoming chunk', () async {
     // Given: a subscribed service listening for remote walkie audio.
     final transport = _FakeTransport();

@@ -8,6 +8,8 @@ class LatLng {
 }
 
 class RevvRoute {
+  static const String chainRouteIdPrefix = 'chain:';
+
   final String id;
   final String name;
   final List<LatLng> nodes;
@@ -103,6 +105,8 @@ class RevvRoute {
 
   String get starDisplay => '★' * starRating + '☆' * (5 - starRating);
 
+  bool get isChainRoute => id.startsWith(chainRouteIdPrefix);
+
   String get distanceDisplay => '${distanceKm.toStringAsFixed(0)} km';
 
   String get durationDisplay {
@@ -113,10 +117,10 @@ class RevvRoute {
     return '${h}h ${m.toString().padLeft(2, '0')}m';
   }
 
-  /// 집에서 거리 표시
+  /// Locale-neutral distance from the current origin.
   String get distanceFromUserDisplay {
     if (distanceFromUser < 1.0) return '${(distanceFromUser * 1000).round()}m';
-    return '${distanceFromUser.toStringAsFixed(0)}km 거리';
+    return '${distanceFromUser.toStringAsFixed(0)}km';
   }
 
   /// 난이도 레이블 (windingScore 기반)

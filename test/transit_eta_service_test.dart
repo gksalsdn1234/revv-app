@@ -38,6 +38,35 @@ void main() {
       expect(legs.last.estimatedMinutes, 10);
     },
   );
+
+  test('Mapbox Directions parser caps retained geometry per leg', () {
+    const waypoints = [LatLng(45.0, -73.0), LatLng(45.2, -73.2)];
+    final coordinates = List.generate(
+      6000,
+      (index) => [-73.0, 45.0 + index / 100000],
+    );
+    final legs = parseMapboxDirectionsLegs({
+      'routes': [
+        {
+          'legs': [
+            {
+              'distance': 1000,
+              'duration': 60,
+              'steps': [
+                {
+                  'geometry': {'coordinates': coordinates},
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    }, waypoints);
+
+    expect(legs, isNotNull);
+    expect(legs!.single.nodes.length, lessThanOrEqualTo(5000));
+    expect(legs.single.nodes.last.lat, waypoints.last.lat);
+  });
 }
 
 const _directionsFixture = '''

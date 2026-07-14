@@ -75,6 +75,11 @@ RevvRoute _chainRoute(String id, LatLng start, LatLng end) {
 }
 
 void main() {
+  test('national overview begins before the map becomes fully zoomed out', () {
+    expect(isRouteOverviewZoom(9.5), isTrue);
+    expect(isRouteOverviewZoom(9.51), isFalse);
+  });
+
   test('coverage includes all five supported city centers', () {
     const cityCenters = <LatLng>[
       LatLng(45.5017, -73.5673),
@@ -95,20 +100,47 @@ void main() {
     expect(isPointInsideRouteCoverage(troisRivieres), isTrue);
   });
 
-  test('coverage excludes Winnipeg and Halifax', () {
+  test('coverage admits routes anywhere by default', () {
     const winnipeg = LatLng(49.90, -97.14);
     const halifax = LatLng(44.65, -63.57);
 
-    expect(isPointInsideRouteCoverage(winnipeg), isFalse);
-    expect(isPointInsideRouteCoverage(halifax), isFalse);
+    expect(isPointInsideRouteCoverage(winnipeg), isTrue);
+    expect(isPointInsideRouteCoverage(halifax), isTrue);
   });
 
-  test('coverage open-all override admits any point (test builds)', () {
+  test('coverage can still be closed explicitly for legacy diagnostics', () {
     const winnipeg = LatLng(49.90, -97.14);
 
-    expect(isPointInsideRouteCoverage(winnipeg, openAll: true), isTrue);
     expect(isPointInsideRouteCoverage(winnipeg, openAll: false), isFalse);
   });
+
+  test(
+    'overview merge keeps every region visible before filling one region',
+    () {
+      final montreal = [
+        _route(id: 'm1', distanceKm: 12, windingScore: 6),
+        _route(id: 'm2', distanceKm: 13, windingScore: 6),
+        _route(id: 'm3', distanceKm: 14, windingScore: 6),
+      ];
+      final vancouver = [
+        _route(id: 'v1', distanceKm: 12, windingScore: 6),
+        _route(id: 'v2', distanceKm: 13, windingScore: 6),
+      ];
+
+      final merged = mergeRouteOverviewFields([montreal, vancouver], limit: 4);
+
+      expect(merged.map((route) => route.id), ['m1', 'v1', 'm2', 'v2']);
+    },
+  );
+
+  test(
+    'national overview includes populated regions beyond launch presets',
+    () {
+      expect(routeOverviewCenters, contains(const LatLng(49.8880, -119.4960)));
+      expect(routeOverviewCenters, contains(const LatLng(49.8951, -97.1384)));
+      expect(routeOverviewCenters, contains(const LatLng(44.6488, -63.5752)));
+    },
+  );
 
   test('region request grid rounds coordinates to one decimal place', () {
     final grid = regionRequestGridFor(const LatLng(43.6532, -79.3832));

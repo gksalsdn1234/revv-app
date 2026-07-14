@@ -9,17 +9,39 @@ from bs4 import BeautifulSoup
 from lxml import etree
 
 KML_NS = {"kml": "http://www.opengis.net/kml/2.2"}
+MAX_KML_BYTES = 32 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 50
+MAX_COMPRESSION_RATIO = 100
+MAX_PLACEMARKS = 50000
+MAX_NODES_PER_PLACEMARK = 10000
 SCORE_PATTERNS = (
     re.compile(r"(?:curvature|score)[^0-9]*([0-9]+(?:\.[0-9]+)?)", re.I),
     re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(?:pts?|score)", re.I),
 )
 
 
-def extract_kml_bytes_from_kmz(kmz_path: str | Path) -> bytes:
+def extract_kml_bytes_from_kmz(
+    kmz_path: str | Path,
+    max_kml_bytes: int = MAX_KML_BYTES,
+) -> bytes:
     with zipfile.ZipFile(kmz_path, "r") as archive:
-        for member in archive.namelist():
-            if member.lower().endswith(".kml"):
-                return archive.read(member)
+        members = archive.infolist()
+        if len(members) > MAX_ARCHIVE_MEMBERS:
+            raise ValueError("KMZ archive contains too many members")
+        for member in members:
+            if not member.filename.lower().endswith(".kml"):
+                continue
+            compressed_size = max(member.compress_size, 1)
+            if (
+                member.file_size > max_kml_bytes
+                or member.file_size / compressed_size > MAX_COMPRESSION_RATIO
+            ):
+                raise ValueError("KML member exceeds the extraction budget")
+            with archive.open(member) as source:
+                payload = source.read(max_kml_bytes + 1)
+            if len(payload) > max_kml_bytes:
+                raise ValueError("KML member exceeds the extraction budget")
+            return payload
     raise FileNotFoundError("KMZ archive does not contain a KML file")
 
 
@@ -42,7 +64,7 @@ def parse_coordinates(text: str | None) -> list[dict[str, float]]:
     if not text:
         return []
     points: list[dict[str, float]] = []
-    for chunk in text.strip().split():
+    for chunk in text.strip().split()[:MAX_NODES_PER_PLACEMARK]:
         parts = chunk.split(",")
         if len(parts) < 2:
             continue
@@ -55,8 +77,13 @@ def parse_coordinates(text: str | None) -> list[dict[str, float]]:
 
 
 def extract_placemarks_from_kml_bytes(kml_bytes: bytes) -> list[dict[str, object]]:
-    root = etree.fromstring(kml_bytes)
+    if len(kml_bytes) > MAX_KML_BYTES:
+        raise ValueError("KML document exceeds the parsing budget")
+    parser = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)
+    root = etree.fromstring(kml_bytes, parser=parser)
     placemarks = root.xpath(".//kml:Placemark", namespaces=KML_NS)
+    if len(placemarks) > MAX_PLACEMARKS:
+        raise ValueError("KML document contains too many placemarks")
     records: list[dict[str, object]] = []
     for placemark in placemarks:
         name = (placemark.findtext("kml:name", namespaces=KML_NS) or "").strip()

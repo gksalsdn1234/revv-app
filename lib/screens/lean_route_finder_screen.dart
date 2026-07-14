@@ -11,6 +11,7 @@ import '../models/drive_plan.dart';
 import '../models/exploration_cell.dart';
 import '../models/revv_route.dart';
 import '../services/drive_planner_service.dart';
+import '../services/drive_plan_navigation.dart';
 import '../services/external_nav.dart';
 import '../services/exploration_service.dart';
 import '../services/location_service.dart';
@@ -42,6 +43,7 @@ enum _RouteMapMode { wide, balanced, close }
 const bool _explorationFogEnabled = bool.fromEnvironment(
   'REVV_EXPLORATION_FOG',
 );
+const int _maxChainRoutes = 6;
 
 List<ExplorationCell> buildExplorationFogCells(
   List<RevvRoute> routes,
@@ -217,47 +219,11 @@ enum RouteFinderStateKind {
 /// 카메라가 마지막 검색 중심에서 이만큼 벗어나면 "이 지역에서 찾기"를 띄운다.
 const double searchAreaOfferThresholdKm = 30.0;
 
-/// 이 거리 안에 프리셋 도시가 있으면 지역 칩에 그 도시명을 쓴다.
-const double regionChipMatchRadiusKm = 150.0;
-
 bool shouldOfferSearchArea(LatLng? lastSearchCenter, LatLng? cameraCenter) {
   if (lastSearchCenter == null || cameraCenter == null) return false;
   return RevvRoute.haversineKm(lastSearchCenter, cameraCenter) >=
       searchAreaOfferThresholdKm;
 }
-
-const _routeRegionPresets = [
-  _RouteRegion(
-    'montreal',
-    'Montreal',
-    '45.5017, -73.5673',
-    LatLng(45.5017, -73.5673),
-  ),
-  _RouteRegion(
-    'quebec_city',
-    'Quebec City',
-    '46.8139, -71.2080',
-    LatLng(46.8139, -71.2080),
-  ),
-  _RouteRegion(
-    'toronto',
-    'Toronto',
-    '43.6532, -79.3832',
-    LatLng(43.6532, -79.3832),
-  ),
-  _RouteRegion(
-    'vancouver',
-    'Vancouver',
-    '49.2827, -123.1207',
-    LatLng(49.2827, -123.1207),
-  ),
-  _RouteRegion(
-    'calgary',
-    'Calgary',
-    '51.0447, -114.0719',
-    LatLng(51.0447, -114.0719),
-  ),
-];
 
 class LeanRouteFinderScreen extends StatefulWidget {
   final DrivePlannerService? planner;
@@ -282,6 +248,9 @@ class LeanRouteFinderScreen extends StatefulWidget {
 class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   int _recenterSignal = 0;
   int _mapFocusSignal = 0;
+  List<LatLng> _mapFocusPoints = const [];
+  double _mapFocusMaxZoom = 14.0;
+  bool _programmaticFieldFocusPending = false;
   _RouteLens _lens = _RouteLens.all;
   LatLng? _mapCenterPoint;
   LatLng? _lastSearchCenter;
@@ -291,10 +260,10 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   final bool _curveRoadView = false;
   bool _coverageRequestInProgress = false;
   DriveBudget _driveBudget = DriveBudget.any;
-  String? _selectedRegionKey;
   LatLng? _coverageRequestPoint;
   RevvRoute? _previewRoute;
   final Map<String, RevvRoute> _chainSelection = {};
+  List<RevvRoute> _plannedChainRoutes = const [];
   late final DrivePlannerService _planner =
       widget.planner ?? DrivePlannerService();
   late final PlaceSearchService _placeSearch =
@@ -318,6 +287,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   int? _mapTapPointer;
   Offset? _mapTapOrigin;
   bool _mapTapMoved = false;
+  bool _routeListOpen = false;
 
   bool get _chainMode => _chainSelection.isNotEmpty;
 
@@ -389,37 +359,21 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   Future<void> _searchHere() async {
     final point = _mapCenterPoint ?? await _resolveSearchPoint();
     if (!mounted || point == null) return;
-    await _fetchAtPoint(point, forceRefresh: true, regionKey: null);
+    await _fetchAtPoint(point, forceRefresh: true);
   }
 
   Future<void> _searchThisArea() async {
-    setState(() => _searchAreaShown = false);
+    setState(() {
+      _destinationName = null;
+      _searchAreaShown = false;
+    });
     await _searchHere();
-  }
-
-  String _currentRegionLabel(AppLanguage language) {
-    final anchor = _mapCenterPoint ?? _lastSearchCenter;
-    if (anchor != null) {
-      _RouteRegion? nearest;
-      var nearestKm = double.infinity;
-      for (final region in _routeRegionPresets) {
-        final km = RevvRoute.haversineKm(anchor, region.point);
-        if (km < nearestKm) {
-          nearestKm = km;
-          nearest = region;
-        }
-      }
-      if (nearest != null && nearestKm <= regionChipMatchRadiusKm) {
-        return nearest.title;
-      }
-    }
-    return AppCopy.t(language, ko: '내 위치', en: 'My area', fr: 'Ma zone');
   }
 
   Future<void> _searchCurrentLocation() async {
     final point = await _resolveSearchPoint();
     if (!mounted || point == null) return;
-    await _fetchAtPoint(point, regionKey: null);
+    await _fetchAtPoint(point);
   }
 
   Future<LatLng?> _resolveSearchPoint() async {
@@ -447,11 +401,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     return point;
   }
 
-  Future<void> _fetchAtPoint(
-    LatLng point, {
-    bool forceRefresh = false,
-    String? regionKey,
-  }) async {
+  Future<void> _fetchAtPoint(LatLng point, {bool forceRefresh = false}) async {
     final settings = context.read<SettingsService>();
     final routes = context.read<RouteService>();
     routes.filterStrength = settings.routeFilterStrength;
@@ -462,7 +412,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       setState(() {
         _lens = _RouteLens.all;
         _localStatusMessage = null;
-        _selectedRegionKey = regionKey;
         _mapCenterPoint = point;
         _mapZoom = 11.0;
         _coverageRequestPoint = point;
@@ -480,17 +429,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     setState(() {
       _lens = _RouteLens.all;
       _localStatusMessage = null;
-      _selectedRegionKey = regionKey;
       _coverageRequestPoint = null;
       _lastSearchCenter = point;
       _searchAreaShown = false;
-      if (regionKey != null) {
-        _mapCenterPoint = point;
-        // 도시 점프 시 커브 필드가 보이게 광역 줌으로 (도심 20km 시야였던
-        // 줌 11에선 토론토처럼 근교 루트가 적은 도시가 텅 비어 보였다).
-        _mapZoom = 9.0;
-      }
     });
+    unawaited(routes.prefetchRouteOverview(point));
   }
 
   Future<void> _requestCoverageNotification(RegionRequestGrid grid) async {
@@ -530,85 +473,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     }
   }
 
-  Future<void> _selectRegionPreset() async {
-    final language = context.read<SettingsService>().appLanguage;
-    final current = _routeRegionPresets.indexWhere(
-      (region) => region.key == _selectedRegionKey,
-    );
-    final selected = await showModalBottomSheet<int>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _RouteOptionSheet(
-        title: AppCopy.t(
-          language,
-          ko: '지역 프리셋',
-          en: 'Region presets',
-          fr: 'Régions',
-        ),
-        selectedValue: current,
-        options: [
-          for (var i = 0; i < _routeRegionPresets.length; i++)
-            _RouteOption(
-              i,
-              _routeRegionPresets[i].title,
-              _routeRegionPresets[i].subtitle,
-            ),
-        ],
-        footer: _RouteOption(
-          -1,
-          AppCopy.t(
-            language,
-            ko: '내 지역이 없나요?',
-            en: "Don't see your area?",
-            fr: 'Votre région n’y est pas ?',
-          ),
-          AppCopy.t(
-            language,
-            ko: '열리면 알려드릴게요',
-            en: 'Get notified when it opens',
-            fr: 'Soyez averti à l’ouverture',
-          ),
-        ),
-      ),
-    );
-    if (!mounted || selected == null) return;
-    if (selected == -1) {
-      final anchor = _mapCenterPoint ?? _lastSearchCenter;
-      if (anchor == null) return;
-      final grid = regionRequestGridFor(anchor);
-      await _requestCoverageNotification(grid);
-      if (!mounted) return;
-      final settings = context.read<SettingsService>();
-      if (settings.hasRequestedRegion(grid.gridKey)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              AppCopy.t(
-                settings.appLanguage,
-                ko: '이 지역이 열리면 알려드릴게요.',
-                en: "We'll let you know when this area opens.",
-                fr: 'Nous vous avertirons à l’ouverture de cette zone.',
-              ),
-            ),
-          ),
-        );
-      }
-      return;
-    }
-    await _selectRegionPresetValue(selected);
-  }
-
-  Future<void> _selectRegionPresetValue(int selected) async {
-    final region = _routeRegionPresets[selected];
-    await _fetchAtPoint(
-      region.point,
-      forceRefresh: true,
-      regionKey: region.key,
-    );
-  }
-
-  Future<void> _browseMontreal() => _selectRegionPresetValue(0);
-
   Future<void> _openDestinationSearch() async {
     _dismissRoutePreview();
     final language = context.read<SettingsService>().appLanguage;
@@ -619,26 +483,46 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       builder: (context) => PlaceSearchSheet(
         language: language,
         service: _placeSearch,
-        proximity: _mapCenterPoint ?? _routeRegionPresets.first.point,
-        selected: _destination,
+        proximity:
+            _mapCenterPoint ??
+            _lastSearchCenter ??
+            const LatLng(45.5017, -73.5673),
         allowMapPin: false,
       ),
     );
     if (!mounted || result is! PlaceResult) return;
+    final browseArea = result.isArea;
     setState(() {
-      _destination = result.point;
+      _destination = browseArea ? null : result.point;
       _destinationName = result.name;
       _mapCenterPoint = result.point;
-      _mapFocusSignal++;
       _journeyMode = null;
       _options = null;
       _freeRoamOptions = null;
       _selectedKind = DrivePlanOptionKind.standard;
       _selectedFreeRoamIndex = 0;
     });
-    await _fetchAtPoint(result.point, forceRefresh: true, regionKey: null);
+    await _fetchAtPoint(result.point, forceRefresh: true);
     if (!mounted) return;
-    unawaited(_buildDestinationJourney());
+    final fieldRoutes = context.read<RouteService>().mapVisualRoutes.where(
+      (route) =>
+          RevvRoute.haversineKm(result.point, route.centerPoint) <=
+          RouteService.routeFieldRadiusKm,
+    );
+    setState(() {
+      _mapCenterPoint = result.point;
+      _mapZoom = routeOverviewZoomThreshold;
+      _mapFocusPoints = [
+        result.point,
+        for (final route in fieldRoutes) route.centerPoint,
+      ];
+      _mapFocusMaxZoom = 10.0;
+      _programmaticFieldFocusPending = true;
+      _mapFocusSignal++;
+    });
+    if (!browseArea) {
+      unawaited(_buildDestinationJourney());
+    }
   }
 
   void _clearDestination() {
@@ -650,6 +534,12 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _freeRoamOptions = null;
       _selectedKind = DrivePlanOptionKind.standard;
       _selectedFreeRoamIndex = 0;
+      if (_mapFocusPoints.isNotEmpty) {
+        _mapCenterPoint = _lastSearchCenter;
+        _mapFocusMaxZoom = 10.0;
+        _programmaticFieldFocusPending = true;
+        _mapFocusSignal++;
+      }
     });
   }
 
@@ -720,6 +610,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   Future<void> _buildFreeRoamJourney() async {
     if (_planning) return;
     _dismissRoutePreview();
+    if (_chainSelection.isNotEmpty) setState(_chainSelection.clear);
     final origin = await _resolveSearchPoint();
     if (!mounted || origin == null) return;
     final language = context.read<SettingsService>().appLanguage;
@@ -798,6 +689,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final clamped = nextIndex.clamp(0, routes.length - 1);
     setState(() {
       _mapCenterPoint = routes[clamped].centerPoint;
+      _mapFocusPoints = const [];
+      _mapFocusMaxZoom = 14.0;
       _mapFocusSignal++;
     });
     context.read<RouteService>().selectRoute(routes[clamped]);
@@ -813,6 +706,13 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   void _toggleChainRoute(RevvRoute route) {
+    if (_planning) return;
+    if (!_chainSelection.containsKey(route.id) &&
+        _chainSelection.length >= _maxChainRoutes) {
+      final language = context.read<SettingsService>().appLanguage;
+      setState(() => _localStatusMessage = _chainLimitLabel(language));
+      return;
+    }
     setState(() {
       if (_chainSelection.containsKey(route.id)) {
         _chainSelection.remove(route.id);
@@ -823,6 +723,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   void _clearChainSelection() {
+    if (_planning) return;
     setState(_chainSelection.clear);
   }
 
@@ -858,20 +759,31 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   Future<void> _startChainDrive() async {
-    if (_chainSelection.length < 2) return;
+    if (_planning || _chainSelection.length < 2) return;
     _dismissRoutePreview();
-    final origin = await _resolveSearchPoint();
-    if (!mounted || origin == null) return;
     final selectedRoutes = _chainSelection.values.toList();
+    final firstRoute = selectedRoutes.first;
+    final fallbackOrigin = firstRoute.nodes.isEmpty
+        ? firstRoute.centerPoint
+        : firstRoute.nodes.first;
     final language = context.read<SettingsService>().appLanguage;
     setState(() {
       _planning = true;
-      _journeyOrigin = origin;
       _journeyMode = 'chain';
       _options = null;
       _freeRoamOptions = null;
+      _plannedChainRoutes = const [];
       _localStatusMessage = null;
     });
+    final location = context.read<LocationService>();
+    final origin =
+        await location.ensureLiveLocation(
+          timeout: const Duration(seconds: 3),
+        ) ??
+        location.bestKnownLatLng ??
+        fallbackOrigin;
+    if (!mounted) return;
+    setState(() => _journeyOrigin = origin);
     DrivePlan plan;
     try {
       plan = await _planner.buildPlanFromRoutes(
@@ -907,6 +819,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         fr: 'Fin des routes choisies',
       );
       _options = [option];
+      _plannedChainRoutes = List.unmodifiable(selectedRoutes);
       _selectedKind = DrivePlanOptionKind.standard;
     });
     unawaited(_logShownOnce(mode: 'chain', options: [option]));
@@ -962,38 +875,62 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     );
   }
 
+  void _startSelectedChain() {
+    final plan = _plan;
+    final selectedRoutes = _plannedChainRoutes;
+    if (plan == null ||
+        plan.usesApproximateTransit ||
+        selectedRoutes.length < 2) {
+      return;
+    }
+    final language = context.read<SettingsService>().appLanguage;
+    final route = buildDrivePlanRoute(
+      plan: plan,
+      windingRoutes: selectedRoutes,
+      name: AppCopy.t(
+        language,
+        ko: '루트 체인 · ${selectedRoutes.length}개',
+        en: 'Route chain · ${selectedRoutes.length}',
+        fr: 'Chaîne de routes · ${selectedRoutes.length}',
+      ),
+    );
+    unawaited(
+      _recommendationLog.logChosen(
+        mode: 'chain',
+        routeId: selectedRoutes.first.id,
+        optionKind: _selectedKind.key,
+        origin: _journeyOrigin,
+        budgetMinutes: _selectedOptionBudget,
+      ),
+    );
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LeanDriveScreen(route: route, drivePlan: plan),
+      ),
+    );
+  }
+
   Future<void> _openExternalNavigation() async {
     final plan = _plan;
     final origin = _journeyOrigin;
     final destination = _planDestination;
     if (plan == null || origin == null || destination == null) return;
     final language = context.read<SettingsService>().appLanguage;
-    final waypoints = selectHandoffWaypoints(legs: plan.legs);
-    final webUri = Uri.https('www.google.com', '/maps/dir/', {
-      'api': '1',
-      'origin': googleMapsCoord(origin),
-      'destination': googleMapsCoord(destination),
-      if (waypoints.isNotEmpty)
-        'waypoints': waypoints.map(googleMapsCoord).join('|'),
-      'travelmode': 'driving',
-    });
-    final appUri = buildGoogleMapsAppUri(
+    final waypoints = selectHandoffWaypoints(
+      legs: plan.legs,
+      origin: origin,
+      destination: destination,
+    );
+    final mapsUri = buildGoogleMapsDirectionsUri(
       origin: origin,
       destination: destination,
       waypoints: waypoints,
     );
-    var launched = false;
-    try {
-      launched = await launchUrl(appUri, mode: LaunchMode.externalApplication);
-      if (!launched) {
-        launched = await launchUrl(
-          webUri,
-          mode: LaunchMode.externalApplication,
-        );
-      }
-    } catch (_) {
-      launched = false;
-    }
+    final launched = await launchExternalNavigationWithFallback(
+      primaryUri: mapsUri,
+      launcher: (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
+    );
     if (launched || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
@@ -1001,12 +938,18 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   void _backToList() {
+    final clearChainDestination = _journeyMode == 'chain';
     setState(() {
       _journeyMode = null;
       _options = null;
       _freeRoamOptions = null;
+      _plannedChainRoutes = const [];
       _selectedFreeRoamIndex = 0;
       _selectedKind = DrivePlanOptionKind.standard;
+      if (clearChainDestination) {
+        _destination = null;
+        _destinationName = null;
+      }
     });
   }
 
@@ -1052,7 +995,10 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     setState(() {
       _previewRoute = route;
       _mapCenterPoint = route.centerPoint;
+      _mapFocusPoints = const [];
+      _mapFocusMaxZoom = 14.0;
       _mapFocusSignal++;
+      _searchAreaShown = false;
     });
     context.read<RouteService>().selectRoute(route);
   }
@@ -1105,12 +1051,13 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     _mapTapMoved = false;
   }
 
-  void _openRouteList(
+  Future<void> _openRouteList(
     List<RevvRoute> routes,
     AppLanguage language,
     Set<String> drivenIds,
-  ) {
-    showModalBottomSheet<void>(
+  ) async {
+    setState(() => _routeListOpen = true);
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -1124,12 +1071,18 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
           _showRoutePreview(route);
         },
         onToggleChain: _toggleChainRoute,
+        onClearChain: _clearChainSelection,
+        onStartChain: () {
+          Navigator.pop(sheetContext);
+          unawaited(_startChainDrive());
+        },
         onFreeRoam: () {
           Navigator.pop(sheetContext);
           unawaited(_buildFreeRoamJourney());
         },
       ),
     );
+    if (mounted) setState(() => _routeListOpen = false);
   }
 
   void _handleCameraViewportChanged(RouteMapViewport viewport) {
@@ -1145,10 +1098,21 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     _cameraDebounce?.cancel();
     _cameraDebounce = Timer(const Duration(milliseconds: 400), () {
       if (!mounted) return;
-      final offerSearchArea = shouldOfferSearchArea(
-        _lastSearchCenter,
-        _mapCenterPoint,
-      );
+      final center = _mapCenterPoint;
+      final routeService = context.read<RouteService>();
+      if (isRouteOverviewZoom(_mapZoom) && center != null) {
+        unawaited(routeService.prefetchRouteOverview(center));
+      }
+      final suppressSearchArea = _programmaticFieldFocusPending;
+      if (suppressSearchArea) {
+        _programmaticFieldFocusPending = false;
+        _lastSearchCenter = center;
+      }
+      final offerSearchArea =
+          !suppressSearchArea &&
+          _destination == null &&
+          _previewRoute == null &&
+          shouldOfferSearchArea(_lastSearchCenter, _mapCenterPoint);
       if (shouldRefreshMarkers || offerSearchArea != _searchAreaShown) {
         setState(() => _searchAreaShown = offerSearchArea);
       }
@@ -1275,12 +1239,13 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         coverageGrid != null &&
         settings.hasRequestedRegion(coverageGrid.gridKey);
     final localStatus = _localStatusMessage;
-    final cacheStatus = service.routeFieldFromCache
+    final cacheStatus = service.routeFieldFromCache && service.isLoading
         ? _cacheInlineStatus(service, language)
         : null;
-    final serviceStatus = service.routeDataStatusTitle == null
-        ? null
-        : routeFinderStatusBodyFor(service.routeDataStatusTitle, language);
+    final serviceStatus =
+        _routeStatusNeedsAttention(service.routeDataStatusTitle)
+        ? routeFinderStatusBodyFor(service.routeDataStatusTitle, language)
+        : null;
     final status = service.isLoading
         ? AppCopy.t(
             language,
@@ -1387,8 +1352,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                   recenterSignal: _recenterSignal,
                   cameraTarget: _mapCenterPoint,
                   cameraTargetSignal: _mapFocusSignal,
+                  cameraTargetPoints: _mapFocusPoints,
+                  cameraTargetMaxZoom: _mapFocusMaxZoom,
                   onCameraViewportChanged: _handleCameraViewportChanged,
                   onRouteLineTap: _handleRouteLineTap,
+                  onMapTap: _dismissRoutePreview,
                 ),
               ),
             ),
@@ -1405,33 +1373,25 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                           : null,
                       destinationName: _destinationName,
                       onDestination: _openDestinationSearch,
-                      onClearDestination: _destination == null
+                      onClearDestination: _destinationName == null
                           ? null
                           : _clearDestination,
                       onRecenter: () => setState(() => _recenterSignal++),
                     ),
                     // 필터 스트립 제거 (민우 2026-07-10): 지도는 셀렉터에만
                     // 집중한다. 예산은 여정 시트의 옵션 칩이 담당.
-                    if (!showingJourney) ...[
+                    if (!showingJourney && _searchAreaShown) ...[
                       const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          _RegionJumpChip(
-                            key: const ValueKey('finder-region-chip'),
-                            label: _currentRegionLabel(language),
-                            onTap: () => unawaited(_selectRegionPreset()),
-                          ),
-                          const Spacer(),
-                          if (_searchAreaShown)
-                            _SearchAreaPill(
-                              key: const ValueKey('finder-search-area-button'),
-                              language: language,
-                              onTap: () => unawaited(_searchThisArea()),
-                            ),
-                        ],
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: _SearchAreaPill(
+                          key: const ValueKey('finder-search-area-button'),
+                          language: language,
+                          onTap: () => unawaited(_searchThisArea()),
+                        ),
                       ),
                     ],
-                    if (_chainMode) ...[
+                    if (_chainMode && !_routeListOpen && !showingJourney) ...[
                       const SizedBox(height: 8),
                       _RouteChainBar(
                         language: language,
@@ -1454,10 +1414,17 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
             ),
             if (status != null && status.isNotEmpty)
               Positioned(
-                top: MediaQuery.paddingOf(context).top + 124,
+                top:
+                    MediaQuery.paddingOf(context).top +
+                    (_chainMode && !_routeListOpen && !showingJourney
+                        ? 202 + (_searchAreaShown ? 52 : 0)
+                        : 124),
                 left: 24,
                 right: 24,
-                child: _LeanToast(message: status, busy: service.isLoading),
+                child: KeyedSubtree(
+                  key: const Key('finder-status-toast'),
+                  child: _LeanToast(message: status, busy: service.isLoading),
+                ),
               ),
             Positioned.fill(
               child: coverageGrid != null
@@ -1476,7 +1443,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                           requesting: _coverageRequestInProgress,
                           onRequest: () =>
                               _requestCoverageNotification(coverageGrid),
-                          onBrowseMontreal: _browseMontreal,
+                          onBrowseMontreal: _searchHere,
                         ),
                       ),
                     )
@@ -1493,14 +1460,20 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       selectedKind: _selectedKind,
                       selectedFreeRoamIndex: _selectedFreeRoamIndex,
                       selectedOptionBudget: _selectedOptionBudget,
-                      canStart: _firstWindingRoute != null,
+                      chainMode: _journeyMode == 'chain',
+                      canStart:
+                          _firstWindingRoute != null &&
+                          (_journeyMode != 'chain' ||
+                              !plan.usesApproximateTransit),
                       onBack: _backToList,
                       onSearchDestination: _openDestinationSearch,
                       onSelectedOption: (kind) =>
                           setState(() => _selectedKind = kind),
                       onSelectedFreeRoam: (index) =>
                           setState(() => _selectedFreeRoamIndex = index),
-                      onStart: _startFirstWinding,
+                      onStart: _journeyMode == 'chain'
+                          ? _startSelectedChain
+                          : _startFirstWinding,
                       onNavigate: _openExternalNavigation,
                     )
                   : noDestination
@@ -1548,7 +1521,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                                             .permanentlyLocationDenied =>
                                           _openLocationSettings,
                                         RouteFinderStateKind.emptyRoutes =>
-                                          _selectRegionPreset,
+                                          _searchHere,
                                         RouteFinderStateKind.loadFailed =>
                                           _searchHere,
                                         RouteFinderStateKind.cachedRoutes =>
@@ -1616,8 +1589,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                                 _searchCurrentLocation,
                               RouteFinderStateKind.permanentlyLocationDenied =>
                                 _openLocationSettings,
-                              RouteFinderStateKind.emptyRoutes =>
-                                _selectRegionPreset,
+                              RouteFinderStateKind.emptyRoutes => _searchHere,
                               RouteFinderStateKind.loadFailed => _searchHere,
                               RouteFinderStateKind.cachedRoutes => _searchHere,
                             }
@@ -1645,7 +1617,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                     14,
                     0,
                     14,
-                    MediaQuery.paddingOf(context).bottom + 14,
+                    MediaQuery.paddingOf(context).bottom + 58,
                   ),
                   child: _RoutePreviewCard(
                     route: _previewRoute!,
@@ -1657,6 +1629,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                     onDetails: () => _showRouteDetails(_previewRoute!),
                     onStart: () => _startPreviewDrive(_previewRoute!),
                     onToggleChain: () => _toggleChainRoute(_previewRoute!),
+                    onDismiss: _dismissRoutePreview,
                   ),
                 ),
               ),
@@ -1798,6 +1771,7 @@ class _RoutePreviewCard extends StatelessWidget {
   final VoidCallback onDetails;
   final VoidCallback onStart;
   final VoidCallback onToggleChain;
+  final VoidCallback onDismiss;
 
   const _RoutePreviewCard({
     required this.route,
@@ -1807,6 +1781,7 @@ class _RoutePreviewCard extends StatelessWidget {
     required this.onDetails,
     required this.onStart,
     required this.onToggleChain,
+    required this.onDismiss,
   });
 
   @override
@@ -1911,6 +1886,22 @@ class _RoutePreviewCard extends StatelessWidget {
                         : AppColors.textPrimary,
                   ),
                 ),
+                IconButton(
+                  key: const ValueKey('preview-dismiss'),
+                  tooltip: AppCopy.t(
+                    language,
+                    ko: '미리보기 닫기',
+                    en: 'Close preview',
+                    fr: 'Fermer l’aperçu',
+                  ),
+                  onPressed: onDismiss,
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    size: 20,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 10),
@@ -1945,6 +1936,8 @@ class _RouteListSheet extends StatefulWidget {
   final Map<String, RevvRoute> chainSelection;
   final ValueChanged<RevvRoute> onRouteTap;
   final ValueChanged<RevvRoute> onToggleChain;
+  final VoidCallback onClearChain;
+  final VoidCallback onStartChain;
   final VoidCallback onFreeRoam;
 
   const _RouteListSheet({
@@ -1954,6 +1947,8 @@ class _RouteListSheet extends StatefulWidget {
     required this.chainSelection,
     required this.onRouteTap,
     required this.onToggleChain,
+    required this.onClearChain,
+    required this.onStartChain,
     required this.onFreeRoam,
   });
 
@@ -1965,11 +1960,22 @@ class _RouteListSheetState extends State<_RouteListSheet> {
   late final Set<String> _selectedIds = widget.chainSelection.keys.toSet();
 
   void _toggle(RevvRoute route) {
+    if (!_selectedIds.contains(route.id) &&
+        _selectedIds.length >= _maxChainRoutes) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_chainLimitLabel(widget.language))),
+      );
+      return;
+    }
     widget.onToggleChain(route);
     setState(() {
       if (!_selectedIds.add(route.id)) _selectedIds.remove(route.id);
     });
-    if (_selectedIds.length >= 2) Navigator.pop(context);
+  }
+
+  void _clearChain() {
+    widget.onClearChain();
+    setState(_selectedIds.clear);
   }
 
   @override
@@ -2039,28 +2045,118 @@ class _RouteListSheetState extends State<_RouteListSheet> {
                   },
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-                child: OutlinedButton.icon(
-                  key: const Key('finder-free-roam-button'),
-                  onPressed: widget.onFreeRoam,
-                  icon: const Icon(Icons.explore_rounded, size: 18),
-                  label: Text(
-                    AppCopy.t(
-                      widget.language,
-                      ko: '그냥 추천',
-                      en: 'Surprise me',
-                      fr: 'Suggestion',
+              if (_selectedIds.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                  child: OutlinedButton.icon(
+                    key: const Key('finder-free-roam-button'),
+                    onPressed: widget.onFreeRoam,
+                    icon: const Icon(Icons.explore_rounded, size: 18),
+                    label: Text(
+                      AppCopy.t(
+                        widget.language,
+                        ko: '그냥 추천',
+                        en: 'Surprise me',
+                        fr: 'Suggestion',
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(44),
                     ),
                   ),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(44),
-                  ),
+                )
+              else
+                _RouteListChainFooter(
+                  language: widget.language,
+                  count: _selectedIds.length,
+                  totalDistanceKm: widget.routes
+                      .where((route) => _selectedIds.contains(route.id))
+                      .fold(0, (total, route) => total + route.distanceKm),
+                  onClear: _clearChain,
+                  onStart: _selectedIds.length >= 2
+                      ? widget.onStartChain
+                      : null,
                 ),
-              ),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _RouteListChainFooter extends StatelessWidget {
+  final AppLanguage language;
+  final int count;
+  final double totalDistanceKm;
+  final VoidCallback onClear;
+  final VoidCallback? onStart;
+
+  const _RouteListChainFooter({
+    required this.language,
+    required this.count,
+    required this.totalDistanceKm,
+    required this.onClear,
+    required this.onStart,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _chainSummaryLabel(count, totalDistanceKm, language),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 13,
+                    weight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  onStart == null
+                      ? _chainPickMoreLabel(language)
+                      : AppCopy.t(
+                          language,
+                          ko: '선택한 순서대로 연결해요',
+                          en: 'Connected in selection order',
+                          fr: 'Reliées dans l’ordre choisi',
+                        ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 11,
+                    weight: FontWeight.w700,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            key: const Key('finder-chain-clear-button'),
+            onPressed: onClear,
+            child: Text(
+              AppCopy.t(language, ko: '선택 초기화', en: 'Clear', fr: 'Effacer'),
+            ),
+          ),
+          if (onStart != null)
+            FilledButton.icon(
+              key: const Key('finder-chain-start-button'),
+              onPressed: onStart,
+              icon: const Icon(Icons.route_rounded, size: 17),
+              label: Text(_chainDriveLabel(language)),
+            ),
+        ],
       ),
     );
   }
@@ -2468,6 +2564,7 @@ class _RouteChainBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
+      key: const Key('finder-route-chain-bar'),
       decoration: BoxDecoration(
         color: AppColors.primaryContainer,
         borderRadius: BorderRadius.circular(22),
@@ -2515,6 +2612,7 @@ class _RouteChainBar extends StatelessWidget {
                   ),
                 ),
                 IconButton(
+                  key: const Key('finder-chain-clear-button'),
                   tooltip: AppCopy.cancel(language),
                   onPressed: onCancel,
                   icon: const Icon(Icons.close_rounded, size: 19),
@@ -2532,74 +2630,6 @@ class _RouteChainBar extends StatelessWidget {
                 weight: FontWeight.w800,
                 color: AppColors.onPrimary.withValues(alpha: 0.82),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RouteOption {
-  final int value;
-  final String title;
-  final String subtitle;
-
-  const _RouteOption(this.value, this.title, this.subtitle);
-}
-
-class _RouteRegion {
-  final String key;
-  final String title;
-  final String subtitle;
-  final LatLng point;
-
-  const _RouteRegion(this.key, this.title, this.subtitle, this.point);
-}
-
-class _RegionJumpChip extends StatelessWidget {
-  final String label;
-  final VoidCallback onTap;
-
-  const _RegionJumpChip({super.key, required this.label, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 44),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppColors.surface.withValues(alpha: 0.86),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: AppColors.outlineVariant.withValues(alpha: 0.32),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.location_on_rounded,
-              size: 16,
-              color: AppColors.textSecondary,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: AppText.body(
-                size: 13,
-                weight: FontWeight.w800,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(width: 3),
-            const Icon(
-              Icons.expand_more_rounded,
-              size: 17,
-              color: AppColors.textSecondary,
             ),
           ],
         ),
@@ -2649,123 +2679,6 @@ class _SearchAreaPill extends StatelessWidget {
                 size: 13,
                 weight: FontWeight.w800,
                 color: Colors.black,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RouteOptionSheet extends StatelessWidget {
-  final String title;
-  final int selectedValue;
-  final List<_RouteOption> options;
-  final _RouteOption? footer;
-
-  const _RouteOptionSheet({
-    required this.title,
-    required this.selectedValue,
-    required this.options,
-    this.footer,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-        child: _LeanGlass(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppText.body(
-                  size: 18,
-                  weight: FontWeight.w900,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 12),
-              for (final option in options)
-                _RouteOptionTile(
-                  option: option,
-                  selected: option.value == selectedValue,
-                ),
-              if (footer != null)
-                _RouteOptionTile(option: footer!, selected: false),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RouteOptionTile extends StatelessWidget {
-  final _RouteOption option;
-  final bool selected;
-
-  const _RouteOptionTile({required this.option, required this.selected});
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () => Navigator.pop(context, option.value),
-      borderRadius: BorderRadius.circular(18),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.primaryContainer.withValues(alpha: 0.16)
-              : AppColors.surface.withValues(alpha: 0.58),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: selected
-                ? AppColors.primaryContainer.withValues(alpha: 0.62)
-                : AppColors.outlineVariant.withValues(alpha: 0.26),
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              selected
-                  ? Icons.radio_button_checked_rounded
-                  : Icons.radio_button_unchecked_rounded,
-              color: selected
-                  ? AppColors.primaryContainer
-                  : AppColors.textSecondary,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    option.title,
-                    style: AppText.body(
-                      size: 14,
-                      weight: FontWeight.w900,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    option.subtitle,
-                    style: AppText.body(
-                      size: 12,
-                      weight: FontWeight.w700,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
               ),
             ),
           ],
@@ -3366,6 +3279,16 @@ String _routeListMeta(RevvRoute route, AppLanguage language) {
 }
 
 int routeChainSegmentCount(RevvRoute route) {
+  if (route.isChainRoute) {
+    final encoded = route.id.substring(RevvRoute.chainRouteIdPrefix.length);
+    if (encoded.isEmpty) return 1;
+    return encoded
+        .split('/')
+        .where((part) => part.isNotEmpty)
+        .length
+        .clamp(1, _maxChainRoutes)
+        .toInt();
+  }
   if (!route.id.startsWith('combo:')) return 1;
   final count = route.id.split(':').where((part) => part.isNotEmpty).length - 1;
   return count.clamp(1, 3).toInt();
@@ -3390,6 +3313,15 @@ String _chainPickMoreLabel(AppLanguage language) {
     ko: '1개 더 고르세요',
     en: 'Pick one more',
     fr: 'Encore un',
+  );
+}
+
+String _chainLimitLabel(AppLanguage language) {
+  return AppCopy.t(
+    language,
+    ko: '루트 체인은 최대 6개까지 연결할 수 있어요.',
+    en: 'A route chain can include up to 6 routes.',
+    fr: 'Une chaîne peut contenir jusqu’à 6 routes.',
   );
 }
 
@@ -3587,21 +3519,21 @@ String routeFinderStateBody(RouteFinderStateKind kind, AppLanguage language) {
   return switch (kind) {
     RouteFinderStateKind.temporaryLocationDenied => AppCopy.t(
       language,
-      ko: '근처 루트를 찾으려면 위치 권한을 허용하거나 지역 프리셋을 선택하세요.',
-      en: 'Allow location to find nearby routes, or choose a region preset.',
-      fr: 'Autorisez la position ou choisissez une région.',
+      ko: '근처 루트를 찾으려면 위치 권한을 허용해 주세요.',
+      en: 'Allow location to find nearby routes.',
+      fr: 'Autorisez la position pour trouver des routes à proximité.',
     ),
     RouteFinderStateKind.permanentlyLocationDenied => AppCopy.t(
       language,
-      ko: '권한이 차단되어 앱 안에서 다시 묻기 어렵습니다. 설정에서 위치를 허용하거나 지역 프리셋을 선택하세요.',
-      en: 'Permission is blocked. Open Settings to allow location, or choose a region preset.',
-      fr: 'Autorisation bloquée. Ouvrez Réglages ou choisissez une région.',
+      ko: '권한이 차단되어 앱 안에서 다시 묻기 어렵습니다. 설정에서 위치를 허용해 주세요.',
+      en: 'Permission is blocked. Open Settings to allow location.',
+      fr: 'Autorisation bloquée. Ouvrez Réglages pour autoriser la position.',
     ),
     RouteFinderStateKind.emptyRoutes => AppCopy.t(
       language,
-      ko: '반경을 넓히거나 지역 프리셋으로 다른 도시를 살펴보세요.',
-      en: 'Broaden the radius or use a region preset to check another city.',
-      fr: 'Élargissez le rayon ou choisissez une autre région.',
+      ko: '지도를 옮기거나 축척을 바꾼 뒤 이 지도에서 다시 찾아보세요.',
+      en: 'Move or zoom the map, then search this map again.',
+      fr: 'Déplacez ou zoomez la carte, puis relancez la recherche ici.',
     ),
     RouteFinderStateKind.loadFailed => AppCopy.t(
       language,
@@ -3674,9 +3606,9 @@ String routeFinderStateActionLabel(
     ),
     RouteFinderStateKind.emptyRoutes => AppCopy.t(
       language,
-      ko: '지역 프리셋',
-      en: 'Region presets',
-      fr: 'Régions',
+      ko: '이 지도에서 찾기',
+      en: 'Search this map',
+      fr: 'Rechercher ici',
     ),
     RouteFinderStateKind.loadFailed => AppCopy.t(
       language,
@@ -3872,6 +3804,20 @@ String routeFinderStatusBodyFor(String? title, AppLanguage language) {
       fr: 'Consultez les routes sur la carte.',
     ),
     _RouteServiceStatusKey.unknown => 'Route status is unavailable. Try again.',
+  };
+}
+
+bool _routeStatusNeedsAttention(String? title) {
+  return switch (_routeServiceStatusKeyFor(title)) {
+    _RouteServiceStatusKey.fieldLoading ||
+    _RouteServiceStatusKey.findingRoutes ||
+    _RouteServiceStatusKey.usingCache ||
+    _RouteServiceStatusKey.keepingCache ||
+    _RouteServiceStatusKey.dataConnectionNeeded ||
+    _RouteServiceStatusKey.loadFailed ||
+    _RouteServiceStatusKey.noCandidates ||
+    _RouteServiceStatusKey.noCurveRoads => true,
+    _ => false,
   };
 }
 

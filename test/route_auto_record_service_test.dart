@@ -147,6 +147,22 @@ void main() {
     expect(location.stopCalls, 1);
   });
 
+  test('manual claim disarms an unrelated pending route', () {
+    final routes = RouteService()..beginGuideToStart(_route);
+    final location = _FakeLocationService();
+    final service = RouteAutoRecordService(
+      routes: routes,
+      sessions: RunSessionService(),
+      location: location,
+    );
+
+    service.claimManualDrive(_manualRoute.id);
+
+    expect(service.state, AutoRecordState.claimed);
+    expect(routes.pendingGuideRoute, isNull);
+    expect(location.stopCalls, 1);
+  });
+
   test('expired pending route stops armed background tracking', () async {
     final routes = RouteService()..beginGuideToStart(_route);
     final location = _FakeLocationService();

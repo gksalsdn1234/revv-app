@@ -4,22 +4,38 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../models/revv_route.dart';
+import 'bounded_http_response.dart';
 import 'mapbox_service.dart';
 
 class PlaceResult {
   final String name;
   final String address;
   final LatLng point;
+  final String? featureType;
 
   const PlaceResult({
     required this.name,
     required this.address,
     required this.point,
+    this.featureType,
   });
+
+  bool get isArea => switch (featureType) {
+    'country' ||
+    'region' ||
+    'district' ||
+    'place' ||
+    'locality' ||
+    'neighborhood' => true,
+    _ => false,
+  };
 }
 
 class PlaceSearchService {
   static const _requestTimeout = Duration(seconds: 8);
+  static const _maxResponseBytes = 512 * 1024;
+  static const _maxResults = 6;
+  static const _maxCacheEntries = 64;
 
   final http.Client _client;
   final Map<String, List<PlaceResult>> _cache = {};
@@ -42,15 +58,17 @@ class PlaceSearchService {
     if (cached != null) return cached;
 
     try {
-      final response = await _client
-          .get(_forwardUri(trimmed, proximity, safeLanguage))
-          .timeout(_requestTimeout);
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        return const [];
-      }
-      final decoded = jsonDecode(response.body);
+      final body = await getBoundedResponseBody(
+        _client,
+        _forwardUri(trimmed, proximity, safeLanguage),
+        maxBytes: _maxResponseBytes,
+      ).timeout(_requestTimeout);
+      final decoded = jsonDecode(body);
       if (decoded is! Map<String, dynamic>) return const [];
       final results = parseMapboxGeocodingPlaces(decoded);
+      if (!_cache.containsKey(key) && _cache.length >= _maxCacheEntries) {
+        _cache.remove(_cache.keys.first);
+      }
       _cache[key] = results;
       return results;
     } on TimeoutException {
@@ -76,7 +94,7 @@ List<PlaceResult> parseMapboxGeocodingPlaces(Map<String, dynamic> json) {
   if (features is! List) return const [];
 
   final results = <PlaceResult>[];
-  for (final feature in features) {
+  for (final feature in features.take(PlaceSearchService._maxResults)) {
     if (feature is! Map<String, dynamic>) continue;
     final properties = feature['properties'];
     if (properties is! Map<String, dynamic>) continue;
@@ -85,13 +103,21 @@ List<PlaceResult> parseMapboxGeocodingPlaces(Map<String, dynamic> json) {
     if (point == null) continue;
 
     final name = (properties['name'] as String?)?.trim();
+    final featureType = (properties['feature_type'] as String?)?.trim();
     final address =
         (properties['full_address'] as String?)?.trim() ??
         (properties['place_formatted'] as String?)?.trim() ??
         '';
     if (name == null || name.isEmpty) continue;
 
-    results.add(PlaceResult(name: name, address: address, point: point));
+    results.add(
+      PlaceResult(
+        name: name,
+        address: address,
+        point: point,
+        featureType: featureType,
+      ),
+    );
   }
   return results;
 }

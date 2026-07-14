@@ -250,11 +250,10 @@ class SupabaseService extends ChangeNotifier {
     RegionRequestGrid grid, {
     required String locale,
   }) async {
-    _config ??= SupabaseConfig.instance;
-    if (!_config!.isConfigured) return false;
+    if (!_ready || uid == null || client == null) return false;
     try {
-      final requestClient = SupabaseClient(_config!.url, _config!.anonKey);
-      await requestClient.from(SupabaseTables.regionRequests).insert({
+      await client!.from(SupabaseTables.regionRequests).insert({
+        'user_id': uid!,
         'grid_key': grid.gridKey,
         'lat_rounded': grid.latRounded,
         'lng_rounded': grid.lngRounded,
@@ -395,13 +394,18 @@ class SupabaseService extends ChangeNotifier {
   Future<List<RevvRoute>> fetchNearbyRoutes(
     double lat,
     double lng,
-    double radiusKm,
-  ) async {
+    double radiusKm, {
+    int? maxResults,
+    bool throwOnFailure = false,
+    bool trackFailureReason = true,
+  }) async {
     return findCurvyRoads(
       lat: lat,
       lng: lng,
       radiusM: (radiusKm * 1000).round(),
-      maxResults: _nearbyRouteFetchLimit(radiusKm),
+      maxResults: maxResults ?? _nearbyRouteFetchLimit(radiusKm),
+      throwOnFailure: throwOnFailure,
+      trackFailureReason: trackFailureReason,
     );
   }
 
@@ -473,9 +477,16 @@ class SupabaseService extends ChangeNotifier {
     required int radiusM,
     double minScore = 0,
     int maxResults = 30,
+    bool throwOnFailure = false,
+    bool trackFailureReason = true,
   }) async {
-    if (!_ready) return const [];
-    _lastFailureReason = null;
+    if (!_ready) {
+      if (throwOnFailure) {
+        throw StateError('Supabase is not ready');
+      }
+      return const [];
+    }
+    if (trackFailureReason) _lastFailureReason = null;
     try {
       _debugLog(
         '[Supabase] findCurvyRoads request '
@@ -514,8 +525,11 @@ class SupabaseService extends ChangeNotifier {
       );
       return mapped;
     } catch (e) {
-      _lastFailureReason = '클라우드 루트 검색에 실패했어요.';
+      if (trackFailureReason) {
+        _lastFailureReason = '클라우드 루트 검색에 실패했어요.';
+      }
       _debugLog('[Supabase] findCurvyRoads failed: ${_safeError(e)}');
+      if (throwOnFailure) rethrow;
       return const [];
     }
   }
@@ -544,12 +558,12 @@ class SupabaseService extends ChangeNotifier {
     }
   }
 
-  Future<void> recordRouteRun(String? routeId) async {
+  Future<void> recordRouteRun(String? routeId, String runId) async {
     if (!_ready || routeId == null) return;
     try {
       await client!.rpc(
         'increment_route_run_count',
-        params: recordRouteRunRpcParams(routeId),
+        params: recordRouteRunRpcParams(routeId, runId),
       );
     } catch (e) {
       _debugLog('[Supabase] recordRouteRun failed: ${_safeError(e)}');
@@ -939,8 +953,11 @@ class SupabaseService extends ChangeNotifier {
     };
   }
 
-  static Map<String, dynamic> recordRouteRunRpcParams(String routeId) {
-    return {'route_id_input': routeId};
+  static Map<String, dynamic> recordRouteRunRpcParams(
+    String routeId,
+    String runId,
+  ) {
+    return {'route_id_input': routeId, 'run_id_input': runId};
   }
 
   static RevvRoute routeFromRow(
@@ -950,17 +967,33 @@ class SupabaseService extends ChangeNotifier {
   }) {
     final centerLat = (row['center_lat'] as num?)?.toDouble() ?? 0;
     final centerLng = (row['center_lng'] as num?)?.toDouble() ?? 0;
-    final nodes =
-        (row['nodes'] as List?)
-            ?.whereType<Map<String, dynamic>>()
-            .map(
-              (n) => LatLng(
-                (n['lat'] as num).toDouble(),
-                (n['lng'] as num).toDouble(),
-              ),
-            )
-            .toList() ??
-        const [];
+    const maxRouteNodes = 1200;
+    final rawNodes = (row['nodes'] as List?) ?? const [];
+    final sampledNodes = rawNodes.length <= maxRouteNodes
+        ? rawNodes
+        : List.generate(maxRouteNodes, (index) {
+            final sourceIndex =
+                (index * (rawNodes.length - 1) / (maxRouteNodes - 1)).round();
+            return rawNodes[sourceIndex];
+          }, growable: false);
+    final nodes = sampledNodes
+        .whereType<Map<String, dynamic>>()
+        .expand((node) {
+          final lat = (node['lat'] as num?)?.toDouble();
+          final lng = (node['lng'] as num?)?.toDouble();
+          if (lat == null ||
+              lng == null ||
+              !lat.isFinite ||
+              !lng.isFinite ||
+              lat < -90 ||
+              lat > 90 ||
+              lng < -180 ||
+              lng > 180) {
+            return const <LatLng>[];
+          }
+          return [LatLng(lat, lng)];
+        })
+        .toList(growable: false);
     final distanceFromUser =
         (row['distance_from_user_km'] as num?)?.toDouble() ??
         ((userLat != null &&

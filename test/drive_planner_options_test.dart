@@ -64,7 +64,20 @@ void main() {
     test(
       'long uninterrupted legs get repeated rests before the final segment',
       () {
-        final plan = insertRestLegs(planOf([transit(241)]));
+        final plan = insertRestLegs(
+          planOf([
+            DrivePlanLeg(
+              kind: DrivePlanLegKind.transit,
+              nodes: const [
+                LatLng(45.5, -73.6),
+                LatLng(45.55, -73.65),
+                LatLng(45.6, -73.7),
+              ],
+              distanceKm: 10,
+              estimatedMinutes: 241,
+            ),
+          ]),
+        );
         final restLegs = plan.legs
             .where((leg) => leg.kind == DrivePlanLegKind.rest)
             .toList();
@@ -79,6 +92,39 @@ void main() {
         expect(plan.legs.last.kind, isNot(DrivePlanLegKind.rest));
         expect(plan.restMinutes, restStopMinutes * 2);
         expect(plan.totalMinutes, 241 + restStopMinutes * 2);
+        final drivingLegs = plan.legs
+            .where((leg) => leg.kind != DrivePlanLegKind.rest)
+            .toList();
+        expect(
+          drivingLegs[0].nodes.last.lat,
+          closeTo(drivingLegs[1].nodes.first.lat, 0.0000001),
+        );
+        expect(
+          drivingLegs[0].nodes.last.lng,
+          closeTo(drivingLegs[1].nodes.first.lng, 0.0000001),
+        );
+        expect(
+          drivingLegs[1].nodes.last.lat,
+          closeTo(drivingLegs[2].nodes.first.lat, 0.0000001),
+        );
+        expect(
+          drivingLegs[1].nodes.last.lng,
+          closeTo(drivingLegs[2].nodes.first.lng, 0.0000001),
+        );
+        expect(drivingLegs.first.nodes.first.lat, closeTo(45.5, 0.0000001));
+        expect(drivingLegs.first.nodes.first.lng, closeTo(-73.6, 0.0000001));
+        expect(drivingLegs.last.nodes.last.lat, closeTo(45.6, 0.0000001));
+        expect(drivingLegs.last.nodes.last.lng, closeTo(-73.7, 0.0000001));
+        expect(
+          drivingLegs
+              .expand((leg) => leg.nodes)
+              .where(
+                (node) =>
+                    (node.lat - 45.5).abs() < 0.0000001 &&
+                    (node.lng + 73.6).abs() < 0.0000001,
+              ),
+          hasLength(1),
+        );
       },
     );
 

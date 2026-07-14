@@ -1,5 +1,7 @@
 # REVV TestFlight Execution Plan
 
+> **Superseded:** this file preserves build 42/43 history and must not be used for the `1.38.0 (55)` signing, feature flags, or IPA status. Use `docs/app_store_submission_2026-07-14.md` and `docs/prelaunch_remaining_manual.md` for the current release.
+
 목표: `lean_mvp` 브랜치를 1차 iOS TestFlight 베타로 올린다.
 
 이 문서는 다음 Codex 세션에서도 바로 이어서 작업할 수 있는 실행 계획서다. 작업을 재개하면 먼저 이 파일과 `docs/release_quality_checklist.md`를 읽고, 현재 상태를 확인한 뒤 아래 순서대로 진행한다.
@@ -371,3 +373,4 @@ TestFlight 전에는 아래 기능을 추가하지 않는다.
 3. 루트파인더에서 루트 다양성, 마커, 히트맵, 상세 진입 UX를 다듬는다.
 4. 주행 HUD에서 다음 커브 안내와 종료/요약 플로우를 안정화한다.
 5. TestFlight는 Apple Developer Program 가입 후 Block 4부터 재개한다.
+# Historical TestFlight execution plan

@@ -1,0 +1,3 @@
+"NSLocationWhenInUseUsageDescription" = "REVV uses your location to find routes, guide a selected drive, and record a drive you start.";
+"NSMicrophoneUsageDescription" = "REVV uses the microphone only while you hold the crew talk button.";
+"NSMotionUsageDescription" = "REVV uses motion sensors to summarize handling during a drive you start.";

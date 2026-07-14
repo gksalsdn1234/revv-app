@@ -187,9 +187,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -213,7 +213,7 @@ void main() {
     expect(find.text('JD'), findsNothing);
     expect(find.text('Driver #042'), findsNothing);
     expect(find.text('7 RUNS · MEMBER SINCE APR 2026'), findsNothing);
-    expect(find.text('Anonymous driver'), findsOneWidget);
+    expect(find.text('REVV driver'), findsOneWidget);
     expect(find.text('2 runs · since MAR 2026'), findsOneWidget);
   });
 
@@ -227,9 +227,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -277,9 +277,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -301,7 +301,7 @@ void main() {
     expect(find.text('Route reached. Start the drive?'), findsOneWidget);
   });
 
-  testWidgets('history tab carries the recent run one-line card', (
+  testWidgets('history tab separates the recent run title and metadata', (
     tester,
   ) async {
     final runs = [
@@ -326,9 +326,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -348,13 +348,12 @@ void main() {
     await tester.tap(find.text('History'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.textContaining('Last drive: Morning Pass · 12.4 km'),
-      findsOneWidget,
-    );
+    expect(find.text('Morning Pass'), findsWidgets);
+    expect(find.textContaining('Last drive · 12.4 km'), findsOneWidget);
     expect(find.text('LAST DRIVE'), findsNothing);
     expect(find.text('HISTORY'), findsOneWidget);
-    expect(find.text('Morning Pass'), findsWidgets);
+    expect(find.text('12.4'), findsNWidgets(2));
+    expect(find.text('15M'), findsOneWidget);
   });
 
   testWidgets('settings tab keeps language voice controls and sync chip', (
@@ -373,9 +372,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -407,6 +406,15 @@ void main() {
     expect(find.text('EN'), findsOneWidget);
     expect(find.text('FR'), findsOneWidget);
     expect(find.text('Voice guidance'), findsOneWidget);
+    expect(find.text('LOCAL'), findsOneWidget);
+    expect(find.text('SYNCED'), findsNothing);
+    expect(find.text('Detailed drive cloud storage'), findsOneWidget);
+
+    await tester.tap(find.text('Detailed drive cloud storage'));
+    await tester.pumpAndSettle();
+
+    expect(settings.cloudRunStorageEnabled, isTrue);
+    expect(find.text('SYNCED'), findsOneWidget);
 
     await tester.tap(find.text('KO'));
     await tester.pumpAndSettle();
@@ -491,9 +499,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -616,9 +624,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -694,9 +702,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -747,9 +755,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -859,9 +867,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -946,9 +954,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -995,9 +1003,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
@@ -1035,9 +1043,9 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-        ChangeNotifierProvider(
-          create: (_) => DrivenRoutesService(history: RunHistoryService()),
-        ),
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),

@@ -17,6 +17,7 @@
     <application
         android:label="revv_app"
         android:name="${applicationName}"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

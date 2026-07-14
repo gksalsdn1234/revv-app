@@ -1,6 +1,6 @@
 # REVV Store Assets Draft
 
-작성 기준: `docs/2026-07-02-launch-plan.md` Week 2 Track B, `docs/release_quality_checklist.md` App Store Privacy Notes, `lib/screens` 5개 화면, 지정 서비스 4개 파일.
+릴리스 후보: `1.38.0 (55)` · 심사용 기능 플래그: 탐험 안개/워키 랩 비활성.
 
 ## 1. 앱 이름 / 서브타이틀
 
@@ -8,27 +8,27 @@
 
 | 안 | 앱 이름 | 서브타이틀 |
 |---|---|---|
-| KO-1 | REVV | 몬트리올 커브 루트 |
-| KO-2 | REVV Drive | 드라이브 설계와 기록 |
-| KO-3 | REVV Montreal | 와인딩 루트 로그 |
+| KO-1 | REVV | 드라이브 루트와 기록 |
+| KO-2 | REVV Drive | 커브 루트 탐색과 기록 |
+| KO-3 | REVV Routes | 와인딩 드라이브 로그 |
 
 ### 영어안
 
 | Option | App Name | Subtitle |
 |---|---|---|
-| EN-1 | REVV | Montreal curve routes |
-| EN-2 | REVV Drive | Design the drive |
-| EN-3 | REVV Montreal | Routes and drive logs |
+| EN-1 | REVV | Curvy routes & drive logs |
+| EN-2 | REVV Drive | Find roads. Start driving. |
+| EN-3 | REVV Routes | Explore curvy roads |
 
 ## 2. 앱 설명
 
 ### 한국어
 
-몬트리올 근처의 굽이진 길을 지도에서 발견하세요.  
-커브 수, 흐름, 거리로 오늘의 드라이브를 설계하세요.  
+캐나다 전역 지도에서 이용 가능한 굽이진 길을 발견하세요.
+커브 수, 흐름, 거리로 오늘의 드라이브를 설계하세요.
 주행 후에는 경로와 여정을 기록으로 남기세요.
 
-REVV는 주말 드라이브를 준비하고 복기하기 위한 앱입니다. 현재 위치 또는 지역 프리셋에서 루트 후보를 찾고, 지도에서 커브 밀도와 루트 형태를 비교할 수 있습니다.
+REVV는 주말 드라이브를 준비하고 복기하기 위한 앱입니다. 현재 위치나 지도에서 선택한 어느 지역이든 검색하고, 이용 가능한 루트의 커브 밀도와 형태를 비교할 수 있습니다. 지역 잠금이나 도시 프리셋은 없습니다.
 
 루트 상세 화면에서는 거리, 예상 시간, 정지 요소, 커브 흐름, 코파일럿 브리핑, 턴 플랜 미리보기를 확인합니다. 시작 전에는 외부 내비 앱으로 출발점까지 이동하거나, 앱 안에서 바로 주행을 시작할 수 있습니다.
 
@@ -38,11 +38,11 @@ REVV는 주말 드라이브를 준비하고 복기하기 위한 앱입니다. �
 
 ### English
 
-Find curved roads around Montreal on the map.  
-Shape today’s drive with curve count, flow, and distance.  
+Discover available curved roads on a Canada-wide map.
+Shape today’s drive with curve count, flow, and distance.
 After the drive, keep the route and journey in your log.
 
-REVV helps you prepare and review weekend drives. Search near your current location or from region presets, then compare route shape and curve density directly on the map.
+REVV helps you prepare and review weekend drives. Search near your current location or any area you choose on the map, then compare available route shape and curve density. There are no city presets or regional locks.
 
 Route detail shows distance, estimated time, stop elements, flow notes, copilot briefing, and a turn plan preview. Before you begin, you can open an external navigation app to the start point or start the drive inside REVV.
 
@@ -54,8 +54,8 @@ Cloud drive storage can be turned on or off in settings, and drive data can be d
 
 | 언어 | 키워드 초안 |
 |---|---|
-| English | Montreal,route planner,scenic drive,curve map,drive log,road trip,Quebec,car routes |
-| French | Montréal,itinéraire,route panoramique,virages,carnet de trajet,Québec,balade auto |
+| English | route planner,scenic drive,curvy roads,drive log,road trip,Canada,car routes |
+| French | itinéraire,route panoramique,virages,carnet de trajet,Canada,balade auto |
 
 ## 4. 프라이버시 라벨 매핑
 
@@ -64,8 +64,8 @@ Cloud drive storage can be turned on or off in settings, and drive data can be d
 | Location | 예 | `SupabaseService.findCurvyRoads`, `fetchNearbyRoutesDirect`, `WeatherService.fetchWeather`, `RunHistoryService.save`, `RunTelemetryDetail.fromSession` | 루트 검색과 날씨 조회에 현재 좌표를 사용합니다. 주행 기록에는 시작/종료 좌표와 경로 샘플이 포함될 수 있습니다. 클라우드 저장을 켠 경우 익명 `user_id`와 함께 저장됩니다. |
 | Identifiers / User ID | 예 | `SupabaseService.init`, `uid`, `SecureSessionStore` | Supabase 익명 인증 ID와 세션 토큰으로 개인 기록을 분리합니다. 이메일, 이름, 전화번호는 코드상 수집하지 않습니다. |
 | Usage Data / Product Interaction | 예 | `RunHistoryService.saveFeedback`, `recordRouteRun`, `saveRouteBookmark`, `saveDiscoveredRoutes` | 루트 피드백, 루트 실행 카운트, 저장한 루트, 발견한 루트 캐시가 앱 기능 복원과 루트 품질 개선에 사용됩니다. |
-| Fitness / Movement | 예 | `RunSession`, `RunTelemetryDetail`, `RunHistoryService.save` | 거리, 시간, 이동 페이스 수치, 관성 센서 요약, 코너 이벤트, 주행 모드 샘플을 기록 복기와 공유 카드 생성에 사용합니다. |
-| Diagnostics | 아니오 | 지정 서비스 4개 파일 기준 별도 크래시/성능 SDK 없음 | 이 플랜 범위의 코드 근거로는 진단 데이터 수집을 확인하지 못했습니다. |
+| Other Data | 예 | `RunSession`, `RunTelemetryDetail`, `RunHistoryService.save` | 거리, 시간, 주행 속도 표본, 관성 센서 요약, 코너 이벤트를 기록 복기와 공유 카드 생성에 사용합니다. Apple의 Fitness 분류로 과장하지 않고 Other Data로 신고합니다. |
+| Diagnostics | 아니오 | `sentry_flutter`는 binary에 포함되지만 release `SENTRY_DSN`이 비어 있어 초기화/전송이 비활성 | 이 심사 후보에서는 진단 데이터를 전송하지 않습니다. DSN을 켜는 후속 빌드는 App Privacy 답변을 다시 검토해야 합니다. |
 | Contact Info | 아니오 | 익명 인증 유지, 입력 필드 없음 | 이메일, 이름, 전화번호 수집 근거 없음. |
 | Tracking | 아니오 | `release_quality_checklist.md` App Store Privacy Notes | 타사 광고 추적 또는 교차 앱 추적 근거 없음. |
 
@@ -81,7 +81,7 @@ REVV uses When-In-Use location permission to find nearby curved routes, show the
 
 No demo account is required. The app creates an anonymous Supabase session automatically so the reviewer can open the app, allow location access, find routes, start a drive, and save a log without entering credentials.
 
-The driving surface is designed to reduce interaction while the vehicle is moving. Exploration fog is passive, never creates an in-drive target or reward, and clears only after a real drive is ended and saved. Route choice, detailed review, sharing, settings, and deletion actions are intended for before or after the drive.
+The driving surface is designed to reduce interaction while the vehicle is moving. The App Store build does not enable exploration fog or the walkie-talkie lab. Route choice, detailed review, sharing, settings, and deletion actions are intended for before or after the drive.
 
 ## 6. 베타 / 버전 노트 초안
 
@@ -89,7 +89,7 @@ The driving surface is designed to reduce interaction while the vehicle is movin
 
 REVV 첫 공개 후보입니다.
 
-- 몬트리올과 주요 지역 프리셋에서 굽이진 루트 후보를 찾을 수 있습니다.
+- 캐나다 전역 지도에서 이용 가능한 굽이진 루트를 확인하고 원하는 지역을 검색할 수 있습니다.
 - 지도에서 커브 밀도, 루트 형태, 거리, 예상 시간을 비교할 수 있습니다.
 - 주행 중 진행률, 남은 거리, 다음 커브 안내를 확인할 수 있습니다.
 - 주행 후 지도 리플레이, 거리/시간 기록, 코너 이벤트, 공유 카드 초안을 볼 수 있습니다.
@@ -99,7 +99,7 @@ REVV 첫 공개 후보입니다.
 
 Initial public candidate for REVV.
 
-- Find curved route candidates around Montreal and supported region presets.
+- Browse available curved routes on a Canada-wide map and search any map area.
 - Compare curve density, route shape, distance, and estimated duration on the map.
 - During a drive, view progress, remaining distance, and next curve guidance.
 - After a drive, review a map replay, distance/duration log, corner events, and a share card draft.
@@ -111,5 +111,5 @@ Initial public candidate for REVV.
 |---|---|
 | Support URL | 민우 결정 필요: App Store Connect에 넣을 공개 지원 페이지 URL |
 | Marketing URL | 민우 결정 필요: 랜딩 페이지 또는 Notion 공개 페이지 사용 여부 |
-| Privacy Policy URL | 민우 결정 필요: `docs/privacy_policy_notion_draft.md` 게시 후 공개 URL 확정 |
+| Privacy Policy URL | `.env`의 공개 URL을 App Store Connect와 앱에서 동일하게 사용. 제출 전 실제 페이지/문의 이메일만 수동 확인 |
 | Review Contact | 민우 결정 필요: 심사 대응 이메일 또는 연락 창구 |

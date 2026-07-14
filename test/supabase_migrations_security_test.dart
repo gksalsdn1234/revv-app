@@ -32,6 +32,10 @@ void main() {
       'supabase/migrations/20260712100000_find_curvy_roads_slim.sql';
   const exploredCellsMigration =
       'supabase/migrations/20260712201817_explored_cells.sql';
+  const releaseHardeningMigration =
+      'supabase/migrations/20260713082759_harden_release_data_boundaries.sql';
+  const boundedRouteSearchMigration =
+      'supabase/migrations/20260713120000_bound_route_search_and_canonical_geometry.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -42,12 +46,26 @@ void main() {
     regionRequestsMigration,
     crewWalkieMigration,
     crewWalkieRealtimeMigration,
+    'supabase/migrations/20260706041351_crew_walkie.sql',
+    'supabase/migrations/20260706041413_crew_walkie_realtime.sql',
+    'supabase/migrations/20260706042642_crew_walkie_fix_trigger_definer.sql',
+    'supabase/migrations/20260706042937_crew_walkie_code_no_pgcrypto.sql',
+    'supabase/migrations/20260706043442_crew_walkie_create_rpc.sql',
+    'supabase/migrations/20260706065221_crew_walkie_presence.sql',
     crewWalkiePresenceMigration,
     learningLoopMigration,
+    'supabase/migrations/20260707144026_learning_loop.sql',
     v2DataShellsMigration,
     telemetrySummaryMigration,
+    'supabase/migrations/20260709045102_v2_data_shells.sql',
+    'supabase/migrations/20260709051344_telemetry_summary.sql',
     findCurvyRoadsSlimMigration,
+    'supabase/migrations/20260712180148_region_requests.sql',
+    'supabase/migrations/20260712180201_increment_route_run_count.sql',
+    'supabase/migrations/20260712180335_find_curvy_roads_slim.sql',
     exploredCellsMigration,
+    releaseHardeningMigration,
+    boundedRouteSearchMigration,
   ];
 
   const userTables = [
@@ -104,6 +122,26 @@ void main() {
       isNot(contains('security definer')),
       reason: 'find_curvy_roads must stay invoker-rights (plain sql).',
     );
+  });
+
+  test('release route search requires auth and clamps database work', () {
+    final sql = _readLower(boundedRouteSearchMigration);
+
+    expect(sql, contains('rename to find_curvy_roads_unbounded_internal'));
+    expect(sql, contains('security definer'));
+    expect(sql, contains('authentication required'));
+    expect(
+      sql,
+      contains('least(greatest(coalesce(radius_m, 50000), 1000), 160000)'),
+    );
+    expect(sql, contains('least(greatest(coalesce(max_results, 30), 1), 120)'));
+    expect(sql, contains('from public, anon'));
+    expect(
+      sql,
+      contains('revoke insert on public.crew_channels from authenticated'),
+    );
+    expect(sql, contains('jsonb_array_length(nodes) between 2 and 1200'));
+    expect(sql, contains('pg_column_size(nodes) <= 1048576'));
   });
 
   test('explored cells are owner scoped and anonymous Data API is revoked', () {
@@ -564,6 +602,89 @@ void main() {
         'revoke insert, update, delete on public.route_scores from anon, authenticated',
       ),
     );
+  });
+
+  test('release hardening binds popularity updates to owned runs', () {
+    final sql = _readLower(releaseHardeningMigration);
+
+    expect(
+      sql,
+      contains('create table if not exists public.route_run_receipts'),
+    );
+    expect(sql, contains('run_id text primary key'));
+    expect(
+      sql,
+      contains(
+        'create or replace function public.increment_route_run_count(\n'
+        '  route_id_input text,\n'
+        '  run_id_input text',
+      ),
+    );
+    expect(sql, contains('r.user_id = current_user_id'));
+    expect(sql, contains('r.route_id = route_id_input'));
+    expect(sql, contains('on conflict (run_id) do nothing'));
+    expect(
+      sql,
+      contains(
+        'revoke all on function public.increment_route_run_count(text, text)',
+      ),
+    );
+    expect(
+      sql,
+      contains(
+        'grant execute on function public.increment_route_run_count(text, text)',
+      ),
+    );
+  });
+
+  test('release hardening binds run details to the parent owner', () {
+    final sql = _readLower(releaseHardeningMigration);
+
+    expect(sql, contains('drop policy if exists run_details_owner'));
+    expect(sql, contains('create policy run_details_owner'));
+    expect(sql, contains('r.id = run_details.run_id'));
+    expect(sql, contains('r.user_id = (select auth.uid())'));
+    expect(sql, contains('run_details.user_id = (select auth.uid())'));
+  });
+
+  test('release hardening expires crew database and realtime access', () {
+    final sql = _readLower(releaseHardeningMigration);
+
+    expect(
+      sql,
+      contains(
+        'create or replace function public.is_current_crew_channel_member',
+      ),
+    );
+    expect(sql, contains('c.expires_at > now()'));
+    expect(sql, contains('create policy crew_walkie_realtime_receive'));
+    expect(sql, contains('create policy crew_walkie_realtime_send'));
+    expect(sql, contains('join public.crew_channels c'));
+  });
+
+  test('release hardening forces photo proposals into untrusted defaults', () {
+    final sql = _readLower(releaseHardeningMigration);
+
+    expect(sql, contains('drop policy if exists photo_spots_owner_insert'));
+    expect(sql, contains("source = 'user'"));
+    expect(sql, contains("status = 'candidate'"));
+    expect(sql, contains('vote_count = 0'));
+    expect(sql, contains('lat between -90 and 90'));
+    expect(sql, contains('lng between -180 and 180'));
+  });
+
+  test('release hardening bounds database write amplification', () {
+    final sql = _readLower(releaseHardeningMigration);
+
+    expect(sql, contains('enforce_authenticated_write_rate'));
+    expect(sql, contains("'region-request', '20', '86400'"));
+    expect(sql, contains("'photo-spot', '20', '86400'"));
+    expect(sql, contains("'recommendation-log', '500', '86400'"));
+    expect(sql, contains("'explored-cell', '5000', '86400'"));
+    expect(sql, contains("'telemetry-summary', '200', '86400'"));
+    expect(sql, contains("'crew-create'"));
+    expect(sql, contains("set statement_timeout = '8s'"));
+    expect(sql, contains('revoke all on public.region_requests from anon'));
   });
 
   test(

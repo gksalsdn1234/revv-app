@@ -1,7 +1,10 @@
 import unittest
 import tempfile
+import csv
+import zipfile
 from pathlib import Path
 
+from tools.curvature_pipeline.download_kmz import validated_download_url
 from tools.curvature_pipeline.enrich_stop_controls import (
     TileControlCache,
     build_bbox,
@@ -32,7 +35,11 @@ from tools.curvature_pipeline.process_roads import (
     downsample_nodes,
     stable_road_id,
     analyze_road,
+    load_json_file,
 )
+from tools.curvature_pipeline.parse_kml import extract_kml_bytes_from_kmz
+from tools.curvature_pipeline.upload_to_supabase import upload_records
+from tools.route_audit.export_region_audit import write_csv
 
 
 class CurvaturePipelineTest(unittest.TestCase):
@@ -44,6 +51,44 @@ class CurvaturePipelineTest(unittest.TestCase):
         self.assertEqual(sampled[0], nodes[0])
         self.assertEqual(sampled[-1], nodes[-1])
         self.assertLessEqual(len(sampled), 300)
+
+    def test_downsample_does_not_materialize_discarded_nodes(self) -> None:
+        nodes = [{"lat": float(i), "lng": float(i)} for i in range(500)]
+        nodes[1] = {"lat": "invalid", "lng": "invalid"}
+
+        sampled = downsample_nodes(nodes, max_points=2)
+
+        self.assertEqual(sampled, [nodes[0], nodes[-1]])
+
+    def test_json_loader_rejects_files_above_its_byte_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "roads.json"
+            path.write_text('[{"id":"road-1"}]', encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                load_json_file(str(path), max_bytes=8)
+
+    def test_kmz_parser_rejects_large_decompressed_members(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "roads.kmz"
+            with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("doc.kml", b"<kml>" + (b"x" * 128) + b"</kml>")
+
+            with self.assertRaises(ValueError):
+                extract_kml_bytes_from_kmz(path, max_kml_bytes=32)
+
+    def test_kmz_links_stay_on_the_supported_https_origin(self) -> None:
+        accepted = validated_download_url(
+            "https://kml.roadcurvature.com/north_america/canada/roads.kmz",
+            expected_host="kml.roadcurvature.com",
+        )
+
+        self.assertEqual(accepted.scheme, "https")
+        with self.assertRaises(ValueError):
+            validated_download_url(
+                "http://127.0.0.1/internal.kmz",
+                expected_host="kml.roadcurvature.com",
+            )
 
     def test_bearing_rate_profile_detects_curves(self) -> None:
         nodes = [
@@ -116,6 +161,27 @@ class CurvaturePipelineTest(unittest.TestCase):
 
         self.assertGreater(len(first_tiles), 0)
         self.assertTrue(first_tiles.issubset(second_tiles) or second_tiles.issubset(first_tiles))
+
+    def test_tile_expansion_rejects_route_spans_above_budget(self) -> None:
+        with self.assertRaises(ValueError):
+            tile_keys_for_bbox(
+                (-89.0, -179.0, 89.0, 179.0),
+                tile_size_deg=0.15,
+            )
+
+    def test_audit_csv_neutralizes_formula_leading_cells(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "audit.csv"
+            write_csv(path, [{"name": '=HYPERLINK("https://invalid","open")'}])
+
+            with path.open(encoding="utf-8", newline="") as handle:
+                row = next(csv.DictReader(handle))
+
+        self.assertTrue(row["name"].startswith("'="))
+
+    def test_privileged_uploader_rejects_non_route_tables(self) -> None:
+        with self.assertRaises(ValueError):
+            upload_records([], client=object(), table_name="runs")
 
     def test_tile_control_cache_reuses_tile_fetches_for_overlapping_routes(self) -> None:
         calls: list[tuple[float, float, float, float]] = []

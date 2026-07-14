@@ -34,4 +34,23 @@ void main() {
       hasLength(1),
     );
   });
+
+  test('hostile long segments stop at the exploration work budget', () {
+    final cells = ExplorationGrid.cellsForPath(const [
+      LatLng(-89, -179),
+      LatLng(89, 179),
+    ]);
+
+    expect(cells, hasLength(ExplorationGrid.maxCellsPerPath));
+  });
+
+  test('invalid coordinates do not enter exploration persistence', () {
+    final cells = ExplorationGrid.cellsForPath(const [
+      LatLng(double.nan, -73.6),
+      LatLng(45.5, -73.6),
+      LatLng(95, -73.5),
+    ]);
+
+    expect(cells, [ExplorationCell.fromPoint(const LatLng(45.5, -73.6)).id]);
+  });
 }

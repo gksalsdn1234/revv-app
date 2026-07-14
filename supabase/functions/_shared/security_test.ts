@@ -1,0 +1,34 @@
+import { assertEquals, assertRejects } from "jsr:@std/assert@1.0.14";
+import { readJsonWithLimit, RequestBodyTooLargeError } from "./bounded_json.ts";
+import { rateLimitKeys } from "./security.ts";
+
+Deno.test("bounded JSON accepts a request within its byte budget", async () => {
+  const request = new Request("https://example.invalid", {
+    method: "POST",
+    body: JSON.stringify({ messages: [{ role: "user", content: "hello" }] }),
+  });
+
+  const result = await readJsonWithLimit(request, 1024);
+
+  assertEquals(result, {
+    messages: [{ role: "user", content: "hello" }],
+  });
+});
+
+Deno.test("bounded JSON rejects a chunked request above its byte budget", async () => {
+  const request = new Request("https://example.invalid", {
+    method: "POST",
+    body: "x".repeat(1025),
+  });
+
+  await assertRejects(
+    () => readJsonWithLimit(request, 1024),
+    RequestBodyTooLargeError,
+  );
+});
+
+Deno.test("rate limiting includes a network bucket for verified users", () => {
+  const keys = rateLimitKeys("user-1", "203.0.113.4");
+
+  assertEquals(keys, ["user:user-1", "ip:203.0.113.4"]);
+});

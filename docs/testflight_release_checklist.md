@@ -1,24 +1,24 @@
 # REVV TestFlight 배포 체크리스트
 
-목표: `lean_mvp` 브랜치를 친구/초기 테스터가 설치할 수 있는 iOS TestFlight 베타로 올린다. 이번 배포는 공개 App Store 출시가 아니라, 실제 주행 피드백을 받기 위한 베타 배포다.
+목표: `codex/exploration-cloud-auto-record` 통합 후보를 iOS TestFlight/App Store Connect에서 검증 가능한 빌드로 올린다.
 
 ## 0. 배포 범위 고정
 
-- [ ] 브랜치가 `lean_mvp`인지 확인한다.
+- [x] 통합 후보 브랜치가 `codex/exploration-cloud-auto-record`인지 확인한다.
 - [ ] `main`은 건드리지 않는다.
 - [ ] 이번 빌드 범위는 `홈 -> 루트 찾기 -> 루트 상세 -> 주행 시작 -> 주행 종료 -> 요약 저장`으로 고정한다.
-- [ ] OBD, AI 리뷰, TTS, STT, Garage, 결제, Android는 이번 TestFlight 차단 범위에서 제외한다.
+- [ ] OBD, AI 리뷰, STT, Garage, 결제, Android는 이번 TestFlight 차단 범위에서 제외한다. 코파일럿 TTS는 포함한다.
 - [ ] 알려진 미완성 기능은 베타 노트에 솔직하게 적는다.
 
 ## 1. 로컬 코드 검증
 
 - [ ] `flutter analyze` 통과.
 - [ ] `flutter test` 통과.
-- [ ] `flutter build ios --release --no-codesign --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true` 통과.
-- [ ] Firebase, Bluetooth, Speech, TTS, Audio 관련 문자열이 남아 있지 않은지 확인한다.
+- [x] `flutter build ios --release --no-codesign --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env` 통과.
+- [ ] Firebase, Bluetooth, Speech, `audioplayers`, 무허가 beep/chirp 문자열이 남아 있지 않은지 확인한다. 코파일럿 TTS와 flag-off 워키 오디오 패키지는 의도된 binary 구성이다.
 
 ```sh
-rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flutter_tts|audioplayers|share_plus" lib pubspec.yaml ios/Podfile.lock
+rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|audioplayers|assets/sounds/beep.mp3" lib pubspec.yaml ios/Podfile.lock
 ```
 
 위 명령은 결과가 없어야 한다.
@@ -39,12 +39,12 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 
 - [ ] Bundle ID: `com.revv.revvApp`.
 - [ ] Team: `BMG2X5W7V9`.
-- [ ] Display Name: `Revv App`.
+- [x] Display Name: `REVV`.
 - [ ] Version: `1.38.0`.
-- [ ] Build Number: `42` 또는 이전 업로드보다 높은 숫자.
+- [x] Build Number: `55`.
 - [ ] App icon이 기본 Flutter 아이콘이 아닌 REVV 아이콘인지 확인한다.
 - [ ] Launch screen이 기본 Flutter 화면이 아닌지 확인한다.
-- [ ] `Info.plist` 권한 문구는 실제 요청 권한인 위치 When-In-Use를 설명하고, permission library가 참조할 수 있는 Speech/Always Location purpose string도 방어적으로 포함한다.
+- [x] `Info.plist` 권한 문구는 실제 요청 권한으로 제한하고 Speech/Always Location purpose string을 제거한다.
 - [ ] `Info.plist`에 `ITSAppUsesNonExemptEncryption=false`가 포함되어 표준 HTTPS 암호화만 사용하는 베타임을 명시한다.
 - [ ] `ios/Runner/PrivacyInfo.xcprivacy`가 Runner target에 포함되어 있다.
 
@@ -57,21 +57,21 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|flut
 - [ ] Run Data: 주행 거리, 시간, 경로 샘플, 속도, G 값, 피드백을 저장하며 클라우드 저장 토글과 삭제 기능을 제공한다고 명시한다.
 - [ ] 업로드 실패 시 주행 상세는 pending 안전망에만 남고, 업로드 성공 후 로컬 상세 payload가 삭제된다고 내부 검증한다.
 - [ ] 업로드 실패 pending 상세 payload는 14일 TTL 이후 자동 삭제되는지 내부 검증한다.
-- [ ] Microphone, Bluetooth, Contacts, Photos는 이번 MVP에서 사용하지 않음으로 정리한다. Speech Recognition/Always Location은 앱에서 요청하지 않지만 App Store binary scanner 대응용 purpose string이 포함될 수 있음을 리뷰 노트에 설명한다.
+- [ ] Bluetooth, Contacts, Photos, Speech Recognition, Always Location은 심사 후보에서 요청하지 않는다. Microphone 워키 구현은 binary에 남지만 `REVV_WALKIE_LAB`가 꺼져 있어 진입점/권한 요청이 없음을 리뷰 노트와 실제 빌드에서 일치시킨다.
 - [ ] 개인정보 처리방침 URL을 준비한다. 1차 TestFlight는 Notion 공개 페이지를 사용하고, 앱 내부 `개인정보 처리방침` 링크도 같은 URL을 연다.
 - [ ] `.env`의 `PRIVACY_POLICY_URL`에 Notion 공개 URL을 입력한다.
 - [ ] Beta App Review Notes에 위치 권한이 필요한 이유와 테스트 방법을 적는다.
 
 ## 5. 릴리즈 빌드 생성
 
-- [ ] 앱 빌드보다 먼저 `20260712201817_explored_cells.sql`을 대상 Supabase 프로젝트에 적용한다.
-- [ ] 원격 `explored_cells` 테이블의 RLS, authenticated CRUD, anon revoke를 확인한다.
+- [x] production Supabase에 release migration `20260713120000`까지 적용한다.
+- [x] 원격 migration 정렬과 authenticated/anonymous 경계, 중복 제한, run receipt 무효 입력을 live smoke test로 확인한다.
 
 ```sh
 flutter clean
 flutter pub get
 cd ios && pod install && cd ..
-flutter build ipa --release --dart-define-from-file=.env --dart-define=REVV_EXPLORATION_FOG=true --build-name=1.38.0 --build-number=43
+flutter build ipa --release --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env --build-name=1.38.0 --build-number=55
 ```
 
 - [ ] `build/ios/ipa/*.ipa`가 생성된다.
@@ -118,7 +118,7 @@ Beta Review Notes 예시:
 
 ```text
 REVV is a driving route discovery beta. No login is required.
-To test: allow location permission, open Route Finder, select a route, and choose navigation to its start. REVV arms only that route. Two accurate moving fixes inside the start zone begin the drive record automatically; return to REVV to see the same active session, then end it to reveal explored map cells.
+To test: allow location permission, open Route Finder, select a route, and choose navigation to its start. REVV arms only that route. Two accurate moving fixes inside the start zone begin the drive record automatically; return to REVV to see the same active session, then end it to review the drive summary.
 The app keeps a visible background location session only while the selected route is armed or recording. Please configure and begin the test while parked or with a passenger operating the phone.
 ```
 

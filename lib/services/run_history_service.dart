@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
 import '../core/storage_keys.dart';
 import 'route_loading_policy.dart';
@@ -30,7 +31,7 @@ abstract class RunHistoryCloudClient {
   Future<List<RunSummary>> fetchMissingRuns(Set<String> localIds);
   Future<Set<String>> fetchRunIds();
   Future<RunTelemetryDetail?> fetchRunDetail(String runId);
-  Future<void> recordRouteRun(String? routeId);
+  Future<void> recordRouteRun(String? routeId, String runId);
   Future<bool> deleteUserRunData();
 }
 
@@ -75,8 +76,8 @@ class SupabaseRunHistoryCloudClient implements RunHistoryCloudClient {
       _service.fetchRunDetail(runId);
 
   @override
-  Future<void> recordRouteRun(String? routeId) =>
-      _service.recordRouteRun(routeId);
+  Future<void> recordRouteRun(String? routeId, String runId) =>
+      _service.recordRouteRun(routeId, runId);
 
   @override
   Future<bool> deleteUserRunData() => _service.deleteUserRunData();
@@ -163,9 +164,7 @@ class RunHistoryService extends ChangeNotifier {
     if (!sync.isReady) return;
 
     for (final summary in await _pendingStore.loadSummaries()) {
-      if (await sync.uploadRun(summary)) {
-        await _pendingStore.removeSummary(summary.id);
-      }
+      await _uploadSummaryAndClearPending(summary);
     }
 
     for (final detail in await _pendingStore.loadDetails()) {
@@ -186,7 +185,7 @@ class RunHistoryService extends ChangeNotifier {
     final LatLng? startPt = path.isNotEmpty ? path.first : null;
     final LatLng? endPt = path.length > 1 ? path.last : null;
     final routeDistance = session.route?.distanceKm;
-    final runId = DateTime.now().millisecondsSinceEpoch.toString();
+    final runId = const Uuid().v4();
     final analytics = RunTelemetryDetail.fromSession(runId, session).analytics;
     final routeCompletionPct = routeCompletionPercent(
       drivenKm: session.distanceKm,
@@ -254,19 +253,16 @@ class RunHistoryService extends ChangeNotifier {
       );
     }
 
-    final sync = _cloud;
-    if (cloudUploadEnabled && session.route?.id != null) {
-      unawaited(
-        _enqueueCloudOperation(() => sync.recordRouteRun(session.route!.id)),
-      );
-    }
-
     return summary;
   }
 
   Future<void> _uploadSummaryAndClearPending(RunSummary summary) async {
     final sync = _cloud;
     if (await sync.uploadRun(summary)) {
+      if (summary.routeId != null &&
+          !summary.routeId!.startsWith(RevvRoute.chainRouteIdPrefix)) {
+        await sync.recordRouteRun(summary.routeId, summary.id);
+      }
       await _pendingStore.removeSummary(summary.id);
     }
   }

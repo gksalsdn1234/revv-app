@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../core/app_language.dart';
 import '../labs/walkie/walkie_lab_screen.dart';
 import '../services/crew_channel_service.dart';
+import '../services/external_nav.dart';
 import '../services/route_loading_policy.dart';
 import '../core/app_links.dart';
 import '../models/revv_route.dart';
@@ -31,6 +33,10 @@ import 'lean_route_finder_screen.dart';
 import 'lean_run_summary_screen.dart';
 
 const bool _revvWalkieLabEnabled = bool.fromEnvironment('REVV_WALKIE_LAB');
+Future<PackageInfo>? _packageInfoFuture;
+
+Future<PackageInfo> _loadPackageInfo() =>
+    _packageInfoFuture ??= PackageInfo.fromPlatform();
 
 class LeanAppShellScreen extends StatefulWidget {
   const LeanAppShellScreen({
@@ -361,10 +367,7 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     await _openRouteNavigation(
       ctx,
       route,
-      appUri: (start) => Uri.parse(
-        'comgooglemaps://?daddr=${start.lat},${start.lng}&directionsmode=driving',
-      ),
-      webUri: (start) => Uri.https('www.google.com', '/maps/dir/', {
+      primaryUri: (start) => Uri.https('www.google.com', '/maps/dir/', {
         'api': '1',
         'destination': '${start.lat},${start.lng}',
         'travelmode': 'driving',
@@ -376,9 +379,7 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     await _openRouteNavigation(
       ctx,
       route,
-      appUri: (start) =>
-          Uri.parse('waze://?ll=${start.lat},${start.lng}&navigate=yes'),
-      webUri: (start) => Uri.https('waze.com', '/ul', {
+      primaryUri: (start) => Uri.https('waze.com', '/ul', {
         'll': '${start.lat},${start.lng}',
         'navigate': 'yes',
       }),
@@ -388,37 +389,33 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
   Future<void> _openRouteNavigation(
     BuildContext ctx,
     RevvRoute route, {
-    required Uri Function(LatLng start) appUri,
-    required Uri Function(LatLng start) webUri,
+    required Uri Function(LatLng start) primaryUri,
+    Uri Function(LatLng start)? fallbackUri,
   }) async {
     ctx.read<RouteService>().beginGuideToStart(route);
     final start = route.nodes.isNotEmpty
         ? route.nodes.first
         : route.centerPoint;
     final launched = await _launchExternalNavigation(
-      appUri(start),
-      webUri(start),
+      primaryUri(start),
+      fallbackUri?.call(start),
     );
     if (!launched && ctx.mounted) {
       ctx.read<RouteService>().clearGuideToStart();
     }
   }
 
-  Future<bool> _launchExternalNavigation(Uri appUri, Uri webUri) async {
+  Future<bool> _launchExternalNavigation(
+    Uri primaryUri,
+    Uri? fallbackUri,
+  ) async {
     final messenger = ScaffoldMessenger.of(context);
     final language = context.read<SettingsService>().appLanguage;
-    var launched = false;
-    try {
-      launched = await launchUrl(appUri, mode: LaunchMode.externalApplication);
-      if (!launched) {
-        launched = await launchUrl(
-          webUri,
-          mode: LaunchMode.externalApplication,
-        );
-      }
-    } catch (_) {
-      launched = false;
-    }
+    final launched = await launchExternalNavigationWithFallback(
+      primaryUri: primaryUri,
+      fallbackUri: fallbackUri,
+      launcher: (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
+    );
     if (launched) return true;
     messenger.showSnackBar(
       SnackBar(content: Text(AppCopy.navigationOpenFailed(language))),
@@ -449,20 +446,17 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
       backgroundColor: AppColors.bg,
       body: Stack(
         children: [
-          IndexedStack(
-            index: _currentTab.index,
-            children: [
-              const LeanRouteFinderScreen(showBackButton: false),
-              const HistoryTab(),
-              SettingsTab(
-                onToggleCloud: () => unawaited(_toggleCloudRunStorage(context)),
-                onDeleteHistory: () => _confirmDeleteRunData(context),
-                onPrivacy: _openPrivacyPolicy,
-                showWalkieLabEntry: widget.walkieLabEntryEnabled,
-                onOpenWalkieLab: () => _openWalkieLab(context),
-              ),
-            ],
-          ),
+          switch (_currentTab) {
+            _RaceTab.map => const LeanRouteFinderScreen(showBackButton: false),
+            _RaceTab.history => const HistoryTab(),
+            _RaceTab.settings => SettingsTab(
+              onToggleCloud: () => unawaited(_toggleCloudRunStorage(context)),
+              onDeleteHistory: () => _confirmDeleteRunData(context),
+              onPrivacy: _openPrivacyPolicy,
+              showWalkieLabEntry: widget.walkieLabEntryEnabled,
+              onOpenWalkieLab: () => _openWalkieLab(context),
+            ),
+          },
           if (routes.pendingGuideRoute != null)
             Positioned(
               top: MediaQuery.paddingOf(context).top + 14,
@@ -533,20 +527,36 @@ class _LastRunCard extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Text(
-                AppCopy.t(
-                  language,
-                  ko: '지난 드라이브: ${run.routeName} · $distText · $relDate',
-                  en: 'Last drive: ${run.routeName} · $distText · $relDate',
-                  fr: 'Dernier trajet : ${run.routeName} · $distText · $relDate',
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppText.body(
-                  size: 14,
-                  weight: FontWeight.w900,
-                  color: AppColors.ink,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    run.routeName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(
+                      size: 14,
+                      weight: FontWeight.w900,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    AppCopy.t(
+                      language,
+                      ko: '최근 주행 · $distText · $relDate',
+                      en: 'Last drive · $distText · $relDate',
+                      fr: 'Dernier trajet · $distText · $relDate',
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.technicalLabel(
+                      size: 9,
+                      letterSpacing: 0.3,
+                      color: AppColors.stone,
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(width: 8),
@@ -669,7 +679,7 @@ class _RaceNavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.ink : AppColors.stone;
+    final color = active ? AppColors.red : AppColors.stone;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
@@ -820,7 +830,7 @@ class _HistoryContent extends StatelessWidget {
               AppCopy.t(
                 settings.appLanguage,
                 ko: '달린 길 ${driven.totalDrivenRoutes}개 · 이번 달 새 길 ${driven.newRoutesThisMonth}개',
-                en: '${driven.totalDrivenRoutes} roads driven · ${driven.newRoutesThisMonth} new this month',
+                en: '${driven.totalDrivenRoutes} ${driven.totalDrivenRoutes == 1 ? 'road' : 'roads'} driven · ${driven.newRoutesThisMonth} new this month',
                 fr: '${driven.totalDrivenRoutes} routes parcourues · ${driven.newRoutesThisMonth} nouvelles ce mois',
               ),
               key: const Key('history-conquest-line'),
@@ -855,7 +865,7 @@ class _HistoryContent extends StatelessWidget {
             _HistoryMetric(label: 'RUNS', value: '${history.totalRuns}'),
             _HistoryMetric(
               label: 'KM TOTAL',
-              value: history.totalDistanceKm.toStringAsFixed(0),
+              value: history.totalDistanceKm.toStringAsFixed(1),
             ),
             _HistoryMetric(
               label: 'AVG KM',
@@ -924,6 +934,8 @@ class _HistoryContent extends StatelessWidget {
   }
 
   String _compactDuration(int seconds) {
+    if (seconds <= 0) return '0M';
+    if (seconds < 60) return '${seconds}S';
     final hours = seconds ~/ 3600;
     final minutes = (seconds % 3600) ~/ 60;
     if (hours > 0) return '${hours}H ${minutes}M';
@@ -1050,30 +1062,63 @@ class _MiniDistanceChart extends StatelessWidget {
           else
             SizedBox(
               height: 52,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  for (final value in values)
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 2),
-                        child: FractionallySizedBox(
-                          heightFactor: (value / maxValue).clamp(0.16, 1.0),
+              child: _DistanceBars(values: values, maxValue: maxValue),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DistanceBars extends StatelessWidget {
+  final List<double> values;
+  final double maxValue;
+
+  const _DistanceBars({required this.values, required this.maxValue});
+
+  @override
+  Widget build(BuildContext context) {
+    final chronological = values.reversed.take(8).toList(growable: false);
+    final leadingSlots = 8 - chronological.length;
+    return Stack(
+      children: [
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Container(
+            height: 1,
+            color: AppColors.ink.withValues(alpha: 0.12),
+          ),
+        ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            for (var index = 0; index < 8; index++)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
+                  child: index < leadingSlots
+                      ? const SizedBox.expand()
+                      : FractionallySizedBox(
+                          heightFactor:
+                              (chronological[index - leadingSlots] / maxValue)
+                                  .clamp(0.16, 1.0),
                           alignment: Alignment.bottomCenter,
                           child: Container(
                             decoration: BoxDecoration(
                               color: AppColors.primaryContainer,
-                              borderRadius: BorderRadius.circular(3),
+                              borderRadius: const BorderRadius.vertical(
+                                top: Radius.circular(3),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                ],
+                ),
               ),
-            ),
-        ],
-      ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -1349,7 +1394,11 @@ class _SettingsSheet extends StatelessWidget {
                           ),
                         ),
                       ),
-                      _CloudStatusChip(supabase: supabase, language: language),
+                      _CloudStatusChip(
+                        supabase: supabase,
+                        language: language,
+                        cloudStorageEnabled: settings.cloudRunStorageEnabled,
+                      ),
                     ],
                   ),
                 ),
@@ -1455,22 +1504,17 @@ class _SettingsSheet extends StatelessWidget {
                 _SettingsGroupLabel(
                   label: AppCopy.settingsDrive(language).toUpperCase(),
                 ),
-                // 클라우드 저장 토글
-                _SettingsTile(
-                  icon: settings.cloudRunStorageEnabled
-                      ? Icons.cloud_done_rounded
-                      : Icons.cloud_off_rounded,
-                  label: settings.cloudRunStorageEnabled
-                      ? AppCopy.cloudOff(language)
-                      : AppCopy.cloudOn(language),
+                _SettingsToggleRow(
+                  label: AppCopy.cloudOn(language),
+                  detail: AppCopy.cloudStorageDetail(
+                    language,
+                    settings.cloudRunStorageEnabled,
+                  ),
+                  active: settings.cloudRunStorageEnabled,
                   onTap: () {
                     if (popOnAction) Navigator.pop(context);
                     onToggleCloud();
                   },
-                ),
-                _SettingsInfoTile(
-                  label: AppCopy.settingsCloudSync(language),
-                  value: AppCopy.cloudSyncDetail(language),
                 ),
                 _SettingsToggleRow(
                   label: AppCopy.settingsVoiceGuidance(language),
@@ -1502,13 +1546,22 @@ class _SettingsSheet extends StatelessWidget {
                 ),
                 Padding(
                   padding: const EdgeInsets.only(top: 10, bottom: 14),
-                  child: Text(
-                    'REVV · BUILD 1.38.0+42',
-                    style: AppText.technicalLabel(
-                      size: 10,
-                      letterSpacing: 1,
-                      color: AppColors.stoneMuted,
-                    ),
+                  child: FutureBuilder<PackageInfo>(
+                    future: _loadPackageInfo(),
+                    builder: (context, snapshot) {
+                      final info = snapshot.data;
+                      final buildLabel = info == null
+                          ? 'REVV'
+                          : 'REVV · BUILD ${info.version}+${info.buildNumber}';
+                      return Text(
+                        buildLabel,
+                        style: AppText.technicalLabel(
+                          size: 10,
+                          letterSpacing: 1,
+                          color: AppColors.stoneMuted,
+                        ),
+                      );
+                    },
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -1524,12 +1577,17 @@ class _SettingsSheet extends StatelessWidget {
 class _CloudStatusChip extends StatelessWidget {
   final SupabaseService supabase;
   final AppLanguage language;
+  final bool cloudStorageEnabled;
 
-  const _CloudStatusChip({required this.supabase, required this.language});
+  const _CloudStatusChip({
+    required this.supabase,
+    required this.language,
+    required this.cloudStorageEnabled,
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (supabase.status == SyncStatus.error) {
+    if (cloudStorageEnabled && supabase.status == SyncStatus.error) {
       return _LeanStatusDot(
         active: false,
         label: AppCopy.t(
@@ -1540,7 +1598,7 @@ class _CloudStatusChip extends StatelessWidget {
         ),
       );
     }
-    if (supabase.status == SyncStatus.syncing) {
+    if (cloudStorageEnabled && supabase.status == SyncStatus.syncing) {
       return _LeanStatusDot(
         active: false,
         label: AppCopy.t(
@@ -1551,7 +1609,7 @@ class _CloudStatusChip extends StatelessWidget {
         ),
       );
     }
-    if (supabase.isCloudAvailable) {
+    if (cloudStorageEnabled && supabase.isCloudAvailable) {
       return _LeanStatusDot(
         active: true,
         label: AppCopy.t(language, ko: '동기화됨', en: 'SYNCED', fr: 'SYNCHRONISÉ'),
@@ -1762,47 +1820,6 @@ class _SegmentOption extends StatelessWidget {
             color: active ? AppColors.cream : AppColors.stone,
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _SettingsInfoTile extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _SettingsInfoTile({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: AppText.body(
-                size: 15,
-                weight: FontWeight.w700,
-                color: AppColors.ink,
-              ),
-            ),
-          ),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.right,
-              style: AppText.body(
-                size: 14,
-                weight: FontWeight.w700,
-                color: AppColors.stone,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          const Icon(Icons.chevron_right_rounded, color: AppColors.stoneMuted),
-        ],
       ),
     );
   }

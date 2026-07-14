@@ -409,23 +409,14 @@ Future<void> _openGoogleMaps(
   final waypoints = handoffPoints.length <= 2
       ? const <LatLng>[]
       : handoffPoints.sublist(1, handoffPoints.length - 1);
-  final appUri = buildGoogleMapsAppUri(
+  final mapsUri = buildGoogleMapsDirectionsUri(
     origin: start,
     destination: end,
     waypoints: waypoints,
   );
-  final webUri = Uri.https('www.google.com', '/maps/dir/', {
-    'api': '1',
-    'origin': googleMapsCoord(start),
-    'destination': googleMapsCoord(end),
-    if (waypoints.isNotEmpty)
-      'waypoints': waypoints.map(googleMapsCoord).join('|'),
-    'travelmode': 'driving',
-  });
   await _launchNavigationUri(
     context,
-    appUri: appUri,
-    fallbackUri: webUri,
+    primaryUri: mapsUri,
     launchNavigationUrl: launchNavigationUrl,
     onFailure: routes.clearGuideToStart,
   );
@@ -439,15 +430,13 @@ Future<void> _openWaze(
   final routes = context.read<RouteService>();
   routes.beginGuideToStart(route);
   final start = _routeStart(route);
-  final appUri = Uri.parse('waze://?ll=${start.lat},${start.lng}&navigate=yes');
-  final webUri = Uri.https('waze.com', '/ul', {
+  final mapsUri = Uri.https('waze.com', '/ul', {
     'll': '${start.lat},${start.lng}',
     'navigate': 'yes',
   });
   await _launchNavigationUri(
     context,
-    appUri: appUri,
-    fallbackUri: webUri,
+    primaryUri: mapsUri,
     launchNavigationUrl: launchNavigationUrl,
     onFailure: routes.clearGuideToStart,
   );
@@ -455,8 +444,8 @@ Future<void> _openWaze(
 
 Future<void> _launchNavigationUri(
   BuildContext context, {
-  required Uri appUri,
-  required Uri fallbackUri,
+  required Uri primaryUri,
+  Uri? fallbackUri,
   required NavigationUrlLauncher launchNavigationUrl,
   required VoidCallback onFailure,
 }) async {
@@ -464,21 +453,12 @@ Future<void> _launchNavigationUri(
   final navigator = Navigator.of(context);
   final language = context.read<SettingsService>().appLanguage;
 
-  var launched = false;
-  try {
-    launched = await launchNavigationUrl(
-      appUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (!launched) {
-      launched = await launchNavigationUrl(
-        fallbackUri,
-        mode: LaunchMode.externalApplication,
-      );
-    }
-  } catch (_) {
-    launched = false;
-  }
+  final launched = await launchExternalNavigationWithFallback(
+    primaryUri: primaryUri,
+    fallbackUri: fallbackUri,
+    launcher: (uri) =>
+        launchNavigationUrl(uri, mode: LaunchMode.externalApplication),
+  );
 
   if (launched) return navigator.pop();
   onFailure();

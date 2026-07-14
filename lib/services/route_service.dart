@@ -7,17 +7,29 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/storage_keys.dart';
 import '../models/revv_route.dart';
 import 'route_loading_policy.dart';
+import 'route_overview_cache.dart';
 import 'supabase_service.dart';
 
 enum SprintStartMode { auto, guideToStart, joinFromCurrent }
 
+typedef RouteOverviewFetcher =
+    Future<List<RevvRoute>> Function(LatLng center, int maxResults);
+
 class RouteService extends ChangeNotifier {
-  RouteService() {
+  RouteService({
+    RouteOverviewFetcher? routeOverviewFetcher,
+    RouteOverviewCache? routeOverviewCache,
+  }) : _routeOverviewFetcher = routeOverviewFetcher,
+       _routeOverviewCache = routeOverviewCache ?? RouteOverviewCache() {
     unawaited(_restorePendingDrive(_pendingGuideMutation));
   }
 
   static const int routeFieldRadiusKm = 160;
   static const int routeFieldFetchLimit = 650;
+  static const int routeFieldInitialFetchLimit = 120;
+  static const int routeOverviewPerRegionLimit = 30;
+  static const int routeOverviewConcurrencyLimit = 3;
+  static const double routeOverviewCoverageReuseKm = routeFieldRadiusKm / 2;
   static const double routeFieldCacheReuseKm = 40;
   static const Duration routeFieldCacheTtl = Duration(hours: 24);
 
@@ -45,6 +57,8 @@ class RouteService extends ChangeNotifier {
   LatLng? routeFieldCenter;
   DateTime? routeFieldFetchedAt;
   bool routeFieldFromCache = false;
+  bool routeOverviewLoaded = false;
+  bool routeOverviewLoading = false;
 
   bool sprintRequested = false;
   SprintStartMode sprintStartMode = SprintStartMode.auto;
@@ -55,6 +69,12 @@ class RouteService extends ChangeNotifier {
   Future<void> _pendingGuideWrites = Future.value();
 
   int _fetchToken = 0;
+  int _overviewFetchToken = 0;
+  final RouteOverviewFetcher? _routeOverviewFetcher;
+  final RouteOverviewCache _routeOverviewCache;
+  List<RevvRoute> _overviewRoutes = const [];
+  final Set<String> _overviewCompletedRegionKeys = {};
+  LatLng? _pendingOverviewReferencePoint;
 
   RevvRoute? get effectiveSprintRoute => sprintRoute ?? selectedRoute;
 
@@ -238,6 +258,189 @@ class RouteService extends ChangeNotifier {
     await _refreshRouteField(point, token, allowCacheFallback: true);
   }
 
+  Future<void> prefetchRouteOverview(LatLng referencePoint) async {
+    if (routeOverviewLoading) {
+      _pendingOverviewReferencePoint = referencePoint;
+      return;
+    }
+    if (routeOverviewLoaded && _hasOverviewCoverage(referencePoint)) return;
+    routeOverviewLoading = true;
+    final token = ++_overviewFetchToken;
+    notifyListeners();
+
+    try {
+      final cached = await _routeOverviewCache.read();
+      if (token != _overviewFetchToken) return;
+      final staticRegionKeys = {
+        for (final center in routeOverviewCenters) _overviewRegionKey(center),
+      };
+      final completedRegionKeys = <String>{
+        ..._overviewCompletedRegionKeys,
+        ...?cached?.completedRegionKeys,
+      };
+      _overviewCompletedRegionKeys.addAll(completedRegionKeys);
+      if (cached != null) {
+        _overviewRoutes = cached.routes;
+        _refreshMapVisualRoutes();
+        notifyListeners();
+        routeOverviewLoaded = staticRegionKeys.every(
+          completedRegionKeys.contains,
+        );
+        if (routeOverviewLoaded &&
+            _hasOverviewCoverage(
+              referencePoint,
+              completedRegionKeys: completedRegionKeys,
+            )) {
+          return;
+        }
+      }
+
+      final requestCenters = _overviewRequestCenters(
+        referencePoint,
+        completedRegionKeys,
+      );
+      final regionalFields = List<List<RevvRoute>?>.filled(
+        requestCenters.length,
+        null,
+      );
+      final baselineRoutes = _overviewRoutes;
+      var nextRequest = 0;
+      var newlyCompletedRegionCount = 0;
+
+      Future<void> loadNextRegions() async {
+        while (token == _overviewFetchToken) {
+          if (nextRequest >= requestCenters.length) return;
+          final index = nextRequest++;
+          final center = requestCenters[index];
+          List<RevvRoute> field;
+          try {
+            field = await _fetchRouteOverviewRegion(center);
+          } catch (_) {
+            continue;
+          }
+          if (token != _overviewFetchToken) return;
+          regionalFields[index] = field;
+          final regionKey = _overviewRegionKey(center);
+          completedRegionKeys.add(regionKey);
+          _overviewCompletedRegionKeys.add(regionKey);
+          newlyCompletedRegionCount++;
+          _overviewRoutes = mergeRouteOverviewFields([
+            baselineRoutes,
+            ...regionalFields.whereType<List<RevvRoute>>(),
+          ], limit: routeFieldFetchLimit);
+          _refreshMapVisualRoutes();
+          notifyListeners();
+        }
+      }
+
+      await Future.wait([
+        for (var worker = 0; worker < routeOverviewConcurrencyLimit; worker++)
+          loadNextRegions(),
+      ]);
+      if (token != _overviewFetchToken) return;
+
+      if (newlyCompletedRegionCount > 0) {
+        await _routeOverviewCache.write(
+          RouteOverviewCacheEntry(
+            routes: _overviewRoutes,
+            completedRegionKeys: completedRegionKeys,
+          ),
+        );
+      }
+
+      routeOverviewLoaded = staticRegionKeys.every(
+        completedRegionKeys.contains,
+      );
+    } catch (e) {
+      if (token != _overviewFetchToken) return;
+      if (kDebugMode) {
+        debugPrint('[RouteService] route overview failed: ${e.runtimeType}');
+      }
+    } finally {
+      routeOverviewLoading = false;
+      if (token == _overviewFetchToken) {
+        notifyListeners();
+        final pendingReferencePoint = _pendingOverviewReferencePoint;
+        _pendingOverviewReferencePoint = null;
+        if (pendingReferencePoint != null &&
+            !_hasOverviewCoverage(pendingReferencePoint)) {
+          unawaited(prefetchRouteOverview(pendingReferencePoint));
+        }
+      }
+    }
+  }
+
+  List<LatLng> _overviewRequestCenters(
+    LatLng referencePoint,
+    Set<String> completedRegionKeys,
+  ) {
+    final missingStaticCenters =
+        routeOverviewCenters
+            .where(
+              (center) =>
+                  !completedRegionKeys.contains(_overviewRegionKey(center)),
+            )
+            .toList()
+          ..sort((a, b) {
+            final distanceA = RevvRoute.haversineKm(referencePoint, a);
+            final distanceB = RevvRoute.haversineKm(referencePoint, b);
+            return distanceA.compareTo(distanceB);
+          });
+    if (_hasOverviewCoverage(
+      referencePoint,
+      completedRegionKeys: completedRegionKeys,
+    )) {
+      return missingStaticCenters;
+    }
+
+    if (missingStaticCenters.isNotEmpty &&
+        RevvRoute.haversineKm(referencePoint, missingStaticCenters.first) <=
+            routeOverviewCoverageReuseKm) {
+      return missingStaticCenters;
+    }
+    return [referencePoint, ...missingStaticCenters];
+  }
+
+  bool _hasOverviewCoverage(
+    LatLng referencePoint, {
+    Set<String>? completedRegionKeys,
+  }) {
+    final keys = completedRegionKeys ?? _overviewCompletedRegionKeys;
+    return keys.any((key) {
+      final center = _overviewCenterFromKey(key);
+      return center != null &&
+          RevvRoute.haversineKm(referencePoint, center) <=
+              routeOverviewCoverageReuseKm;
+    });
+  }
+
+  LatLng? _overviewCenterFromKey(String key) {
+    final parts = key.split(',');
+    if (parts.length != 2) return null;
+    final lat = double.tryParse(parts[0]);
+    final lng = double.tryParse(parts[1]);
+    if (lat == null || lng == null) return null;
+    return LatLng(lat, lng);
+  }
+
+  String _overviewRegionKey(LatLng center) =>
+      '${center.lat.toStringAsFixed(4)},${center.lng.toStringAsFixed(4)}';
+
+  Future<List<RevvRoute>> _fetchRouteOverviewRegion(LatLng center) {
+    final fetcher = _routeOverviewFetcher;
+    if (fetcher != null) {
+      return fetcher(center, routeOverviewPerRegionLimit);
+    }
+    return SupabaseService().fetchNearbyRoutes(
+      center.lat,
+      center.lng,
+      routeFieldRadiusKm.toDouble(),
+      maxResults: routeOverviewPerRegionLimit,
+      throwOnFailure: true,
+      trackFailureReason: false,
+    );
+  }
+
   Future<void> fetchRoutes(double lat, double lng) async {
     searchRadiusKm = searchRadiusKm <= 0 ? routeFieldRadiusKm : searchRadiusKm;
     await _fetchRoutesAt(LatLng(lat, lng), radiusKm: searchRadiusKm);
@@ -263,6 +466,7 @@ class RouteService extends ChangeNotifier {
         point.lat,
         point.lng,
         radiusKm.toDouble(),
+        maxResults: routeFieldInitialFetchLimit,
       );
       lastCloudCandidateCount = candidates.length;
 
@@ -271,7 +475,7 @@ class RouteService extends ChangeNotifier {
           point.lat,
           point.lng,
           radiusKm.toDouble(),
-          limit: _fetchLimitForRadius(radiusKm),
+          limit: routeFieldInitialFetchLimit,
         );
         lastCloudCandidateCount = candidates.length;
       }
@@ -385,6 +589,7 @@ class RouteService extends ChangeNotifier {
         point.lat,
         point.lng,
         routeFieldRadiusKm.toDouble(),
+        maxResults: routeFieldInitialFetchLimit,
       );
       lastCloudCandidateCount = candidates.length;
 
@@ -393,7 +598,7 @@ class RouteService extends ChangeNotifier {
           point.lat,
           point.lng,
           routeFieldRadiusKm.toDouble(),
-          limit: routeFieldFetchLimit,
+          limit: routeFieldInitialFetchLimit,
         );
         lastCloudCandidateCount = candidates.length;
       }
@@ -481,6 +686,11 @@ class RouteService extends ChangeNotifier {
   }
 
   void resetCache() {
+    _overviewFetchToken++;
+    _pendingOverviewReferencePoint = null;
+    _overviewRoutes = const [];
+    _overviewCompletedRegionKeys.clear();
+    routeOverviewLoaded = false;
     rawCandidateRoutes = [];
     mapVisualRoutes = [];
     routes = [];
@@ -490,12 +700,6 @@ class RouteService extends ChangeNotifier {
     routeFieldFromCache = false;
     routeDataSourceLabel = '초기화됨';
     notifyListeners();
-  }
-
-  int _fetchLimitForRadius(int radiusKm) {
-    if (radiusKm >= 160) return 650;
-    if (radiusKm >= 100) return 400;
-    return 250;
   }
 
   List<RevvRoute> _prepareVisibleRoutes(List<RevvRoute> candidates) {
@@ -516,13 +720,20 @@ class RouteService extends ChangeNotifier {
     required bool fromCache,
   }) {
     rawCandidateRoutes = List<RevvRoute>.unmodifiable(candidates);
-    mapVisualRoutes = _prepareMapVisualRoutes(candidates);
+    _refreshMapVisualRoutes();
     _rebuildRecommendations();
     selectedRoute = routes.isNotEmpty ? routes.first : null;
     routeFieldCenter = center;
     routeFieldFetchedAt = fetchedAt;
     routeFieldFromCache = fromCache;
     routeDataSourceLabel = sourceLabel;
+  }
+
+  void _refreshMapVisualRoutes() {
+    mapVisualRoutes = mergeRouteOverviewFields([
+      _prepareMapVisualRoutes(rawCandidateRoutes),
+      _overviewRoutes,
+    ], limit: routeFieldFetchLimit);
   }
 
   void _rebuildRecommendations() {

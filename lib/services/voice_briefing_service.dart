@@ -30,9 +30,12 @@ class _FlutterVoiceTtsClient implements VoiceTtsClient {
   final FlutterTts _tts;
 
   @override
-  Future<void> configureAudioSession() => configureMusicDuckingAudioSession(
-    setIosAudioCategory: _tts.setIosAudioCategory,
-  );
+  Future<void> configureAudioSession() async {
+    await configureMusicDuckingAudioSession(
+      setIosAudioCategory: _tts.setIosAudioCategory,
+    );
+    await _tts.awaitSpeakCompletion(true);
+  }
 
   @override
   Future<void> setSpeechRate(double rate) => _tts.setSpeechRate(rate);
@@ -66,12 +69,11 @@ class VoiceBriefingService {
     VoiceSpeak? speak,
     DateTime Function()? clock,
     VoiceTtsFactory? ttsFactory,
-  })
-    : _speakOverride = speak,
-      _clock = clock ?? DateTime.now,
-      _ttsFactory = ttsFactory ?? _FlutterVoiceTtsClient.new;
+  }) : _speakOverride = speak,
+       _clock = clock ?? DateTime.now,
+       _ttsFactory = ttsFactory ?? _FlutterVoiceTtsClient.new;
 
-  static const cooldown = Duration(seconds: 8);
+  static const cooldown = Duration(seconds: 5);
 
   /// 이 창 안에 들어온 커브만 읽는다 (너무 멀면 소음, 너무 가까우면 뒷북).
   static const speakWindowMinM = 50.0;
@@ -92,24 +94,20 @@ class VoiceBriefingService {
   double? _spokenDistanceM;
   final Set<String> _spokenStages = {};
   DateTime? _lastCueSeenAt;
-  bool _startAnnounced = false;
+  Future<void> _speechQueue = Future.value();
+  bool _disposed = false;
 
+  /// 시작 인사는 운전 판단 정보가 아니므로 의도적으로 읽지 않는다.
   void announceStart(AppLanguage language, {required bool muted}) {
-    if (_startAnnounced || muted) return;
-    _startAnnounced = true;
-    unawaited(_speak(
-      _t(
-        language,
-        ko: '코너 브리핑을 시작해요. 좋은 드라이브 되세요.',
-        en: 'Corner briefing is on. Enjoy the drive.',
-        fr: 'Le briefing virages est actif. Bonne route.',
-      ),
-      language,
-    ));
+    // Intentionally silent.
   }
 
   /// 주행 샘플마다 호출. 조건이 맞을 때만 발화한다.
-  void onCue(DriveCurveCue? cue, {required AppLanguage language, required bool muted}) {
+  void onCue(
+    DriveCurveCue? cue, {
+    required AppLanguage language,
+    required bool muted,
+  }) {
     onCoPilotCue(curveCue: cue, language: language, muted: muted);
   }
 
@@ -117,13 +115,25 @@ class VoiceBriefingService {
   void onCoPilotCue({
     NavStep? navStep,
     double? navDistanceM,
+    String navNamespace = 'route',
     DriveCurveCue? curveCue,
+    bool preferCurve = false,
     required AppLanguage language,
     required bool muted,
   }) {
     final now = _clock();
-    final cue = curveCue;
-    if (navStep == null && (cue == null || cue.severity <= 0)) {
+    final spokenCurveCue = _briefableCurve(curveCue);
+    final candidateNavStep = _briefableNavStep(navStep);
+    final curveTakesPriority =
+        (preferCurve || candidateNavStep?.isStraightAhead == true) &&
+        spokenCurveCue != null &&
+        spokenCurveCue.distanceM >= speakWindowMinM &&
+        spokenCurveCue.distanceM <= speakWindowMaxM;
+    final spokenNavStep = curveTakesPriority && !preferCurve
+        ? null
+        : candidateNavStep;
+    final spokenNavDistanceM = spokenNavStep == null ? null : navDistanceM;
+    if (spokenNavStep == null && spokenCurveCue == null) {
       // 큐가 사라짐 = 커브 통과/흐름 구간. 다음 커브를 위해 재무장.
       _spokenDistanceM = null;
       _spokenStages.removeWhere((key) => key.startsWith('c:'));
@@ -137,20 +147,34 @@ class VoiceBriefingService {
     _lastCueSeenAt = now;
 
     if (muted) return;
-    final distanceM = navDistanceM ?? cue?.distanceM ?? double.infinity;
-    final stageKey = _stageKey(navStep, navDistanceM, cue);
+    final distanceM = preferCurve && spokenCurveCue != null
+        ? spokenCurveCue.distanceM
+        : spokenNavDistanceM ?? spokenCurveCue?.distanceM ?? double.infinity;
+    final stageKey = _stageKey(
+      spokenNavStep,
+      spokenNavDistanceM,
+      spokenCurveCue,
+      navNamespace,
+      preferCurve: preferCurve,
+    );
     if (stageKey == null || _spokenStages.contains(stageKey)) return;
-    if (distanceM < speakWindowMinM || distanceM > speakWindowMaxM) {
+    final atStraightStart =
+        spokenNavStep?.isStraightAhead == true && distanceM <= 25;
+    if (!atStraightStart &&
+        (distanceM < speakWindowMinM || distanceM > speakWindowMaxM)) {
       return;
     }
-    if (navStep == null &&
-        (cue == null || cue.severity < 2 || cue.curveCountAhead < 1)) {
+    if (spokenNavStep?.isStraightAhead == true &&
+        distanceM <= 95 &&
+        !atStraightStart) {
       return;
     }
 
     // 같은 커브 접근 중 재발화 방지: 발화 후 거리가 크게 늘어나야(=새 커브) 재무장
     final spokenAt = _spokenDistanceM;
-    if (navStep == null && spokenAt != null && distanceM <= spokenAt + 120) {
+    if (spokenNavStep == null &&
+        spokenAt != null &&
+        distanceM <= spokenAt + 120) {
       return;
     }
 
@@ -159,14 +183,20 @@ class VoiceBriefingService {
 
     final phrase = buildCoPilotPhrase(
       language: language,
-      navStep: navStep,
-      navDistanceM: navDistanceM,
-      curveCue: cue,
+      navStep: spokenNavStep,
+      navDistanceM: spokenNavDistanceM,
+      curveCue: spokenCurveCue,
       afterLongClear: hadLongClear,
+      preferCurve: preferCurve,
     );
     _lastSpokenAt = now;
     _spokenDistanceM = distanceM;
     _spokenStages.add(stageKey);
+    if (spokenNavStep != null && spokenCurveCue != null) {
+      _spokenStages
+        ..add(_navStageKey(spokenNavStep, navNamespace))
+        ..add(_curveStageKey(spokenCurveCue));
+    }
     _speak(phrase, language);
   }
 
@@ -187,9 +217,9 @@ class VoiceBriefingService {
       ),
       (_, DriveRouteStatus.offRoute) => _t(
         language,
-        ko: '루트 이탈 — ${_rejoinSide(language, rejoinBearing)}에서 재진입',
-        en: 'off route — rejoin from the ${_rejoinSide(language, rejoinBearing)}',
-        fr: 'hors route — reprise par la ${_rejoinSide(language, rejoinBearing)}',
+        ko: '루트 이탈, ${_rejoinSide(language, rejoinBearing)} 재진입',
+        en: 'off route, rejoin ${_rejoinSide(language, rejoinBearing)}',
+        fr: 'hors route, reprise à ${_rejoinSide(language, rejoinBearing)}',
       ),
       _ => null,
     };
@@ -217,87 +247,199 @@ class VoiceBriefingService {
     double? navDistanceM,
     DriveCurveCue? curveCue,
     bool afterLongClear = false,
+    bool preferCurve = false,
   }) {
-    final distanceM = navDistanceM ?? curveCue?.distanceM ?? 0;
-    final calls = <String>[];
-    if (navStep != null) calls.add(navStep.call(language));
+    final spokenNavStep = _briefableNavStep(navStep);
+    final distanceM = preferCurve && curveCue != null
+        ? curveCue.distanceM
+        : spokenNavStep == null
+        ? curveCue?.distanceM ?? 0
+        : navDistanceM ?? 0;
+    final navCall = spokenNavStep == null
+        ? null
+        : _navCall(spokenNavStep, language);
+    String? curveCall;
+    String? sequenceCall;
     if (curveCue != null && curveCue.curveCountAhead > 0) {
       final curve = _curveCall(curveCue, language);
-      calls.add(
-        afterLongClear
-            ? _t(
-                language,
-                ko: '긴 흐름 구간 — $curve',
-                en: 'long flow — $curve',
-                fr: 'section fluide — $curve',
-              )
-            : curve,
-      );
-      if (curveCue.curveCountAhead >= 3 && (curveCue.nextGapM ?? 999) <= 280) {
-        calls.add(_t(
-          language,
-          ko: '이어서 연속 ${curveCue.curveCountAhead}개',
-          en: 'then ${curveCue.curveCountAhead} in a row',
-          fr: 'puis ${curveCue.curveCountAhead} enchaînés',
-        ));
-      }
+      curveCall = curve;
+      sequenceCall = _curveSequenceCall(curveCue, language);
     }
-    if (calls.isEmpty) return _pacedDistance(distanceM);
-    final rest = calls.skip(1).map(
-      (call) => navStep == null
-          ? call
-          : _t(language, ko: '바로 $call', en: 'into $call', fr: call),
-    );
-    return [
-      '${_pacedDistance(distanceM)}, ${calls.first}',
-      ...rest,
-    ].join(' — ');
+    final primaryCall = preferCurve
+        ? curveCall ?? navCall
+        : navCall ?? curveCall;
+    if (primaryCall == null) return _pacedDistance(distanceM);
+    if (spokenNavStep?.maneuverType == 'arrive') return primaryCall;
+    final atStraightStart =
+        spokenNavStep?.isStraightAhead == true && (navDistanceM ?? 999) <= 25;
+    final calls = <String>[
+      atStraightStart
+          ? primaryCall
+          : '${_pacedDistance(distanceM)}, $primaryCall',
+    ];
+    if (navCall != null && curveCall != null) {
+      calls.add(preferCurve ? navCall : curveCall);
+    }
+    if (sequenceCall != null) calls.add(sequenceCall);
+    return calls.join('. ');
   }
 
-  String? _stageKey(NavStep? navStep, double? navDistanceM, DriveCurveCue? cue) {
+  NavStep? _briefableNavStep(NavStep? step) {
+    if (step == null) return null;
+    return step.isBriefingWorthy ? step : null;
+  }
+
+  DriveCurveCue? _briefableCurve(DriveCurveCue? cue) {
+    if (cue == null || cue.curveCountAhead < 1) return null;
+    if (cue.severity >= 2) return cue;
+    if (cue.severity >= 1 &&
+        cue.curveCountAhead >= 2 &&
+        (cue.nextGapM ?? double.infinity) <= 280) {
+      return cue;
+    }
+    return null;
+  }
+
+  String _navCall(NavStep step, AppLanguage language) {
+    if (!step.isStraightAhead) return step.call(language);
+    final kilometers = (step.segmentDistanceM / 100).round() / 10;
+    final distance = kilometers == kilometers.roundToDouble()
+        ? kilometers.toStringAsFixed(0)
+        : kilometers.toStringAsFixed(1);
+    final singular = kilometers == 1;
+    return _t(
+      language,
+      ko: '$distance킬로 직진',
+      en: 'straight for $distance ${singular ? 'kilometer' : 'kilometers'}',
+      fr: 'tout droit sur ${distance.replaceAll('.', ',')} ${singular ? 'kilomètre' : 'kilomètres'}',
+    );
+  }
+
+  String? _curveSequenceCall(DriveCurveCue cue, AppLanguage language) {
+    if (cue.curveCountAhead < 2) return null;
+    final gap = cue.nextGapM;
+    if (gap == null) {
+      return _t(
+        language,
+        ko: '연속 커브 ${cue.curveCountAhead}개',
+        en: '${cue.curveCountAhead} in a row',
+        fr: '${cue.curveCountAhead} virages enchaînés',
+      );
+    }
+    if (cue.curveCountAhead >= 4 && gap <= 200) {
+      return _t(
+        language,
+        ko: '좌우 커브 ${cue.curveCountAhead}개',
+        en: '${cue.curveCountAhead} alternating turns',
+        fr: '${cue.curveCountAhead} virages alternés',
+      );
+    }
+    if (cue.curveCountAhead >= 3 && gap <= 280) {
+      return _t(
+        language,
+        ko: '좌우 커브 ${cue.curveCountAhead}개',
+        en: '${cue.curveCountAhead} quick transitions',
+        fr: '${cue.curveCountAhead} transitions',
+      );
+    }
+    return _t(
+      language,
+      ko: '연속 커브 ${cue.curveCountAhead}개',
+      en: '${cue.curveCountAhead}-curve sequence',
+      fr: 'série de ${cue.curveCountAhead} virages',
+    );
+  }
+
+  String? _stageKey(
+    NavStep? navStep,
+    double? navDistanceM,
+    DriveCurveCue? cue,
+    String navNamespace, {
+    bool preferCurve = false,
+  }) {
     final distanceM = navDistanceM ?? cue?.distanceM;
     if (distanceM == null) return null;
+    if (preferCurve && cue != null) return _curveStageKey(cue);
+    if (navStep != null) {
+      return _navStageKey(navStep, navNamespace);
+    }
     final stage = distanceM <= 95
         ? '80'
         : distanceM <= speakWindowMaxM
         ? '300'
         : null;
     if (stage == null) return null;
-    if (navStep != null) return 'n:${navStep.sequence}:$stage';
     if (cue == null) return null;
-    return 'c:${_pacedDistance(distanceM)}:${cue.directionLabel}:'
-        '${cue.intensityLabel}:${cue.curveCountAhead}:$stage';
+    return _curveStageKey(cue, stage: stage);
+  }
+
+  String _navStageKey(NavStep step, String namespace) =>
+      'n:$namespace:${step.sequence}:approach';
+
+  String _curveStageKey(DriveCurveCue cue, {String? stage}) {
+    final distanceStage = stage ?? (cue.distanceM <= 95 ? '80' : '300');
+    return 'c:${_pacedDistance(cue.distanceM)}:${cue.directionLabel}:'
+        '${cue.intensityLabel}:${cue.curveCountAhead}:$distanceStage';
   }
 
   String _curveCall(DriveCurveCue cue, AppLanguage language) {
     final direction = cue.directionLabel.toLowerCase();
-    final left = direction.contains('좌') ||
+    final left =
+        direction.contains('좌') ||
         direction.contains('left') ||
         direction.contains('gauche');
     final side = left
-        ? _t(language, ko: '좌', en: 'left', fr: 'gauche')
-        : _t(language, ko: '우', en: 'right', fr: 'droite');
+        ? _t(language, ko: '좌측', en: 'left', fr: 'gauche')
+        : _t(language, ko: '우측', en: 'right', fr: 'droite');
     final intensity = cue.intensityLabel.toLowerCase();
     if (cue.intensityLabel.contains('헤어핀') ||
         intensity.contains('hairpin') ||
         intensity.contains('épingle')) {
       return _t(
         language,
-        ko: '헤어핀 $side',
-        en: 'hairpin $side',
-        fr: 'épingle $side',
+        ko: '$side 급회전',
+        en: 'very sharp $side',
+        fr: 'virage très serré à $side',
       );
     }
-    final character = cue.intensityLabel.contains('타이트') ||
-            intensity.contains('tight') ||
-            intensity.contains('serré')
-        ? _t(language, ko: '타이트', en: 'tight', fr: 'serrée')
-        : cue.intensityLabel.contains('완만') ||
-              intensity.contains('gentle') ||
-              intensity.contains('doux')
-        ? _t(language, ko: '완만', en: 'gentle', fr: 'douce')
-        : cue.intensityLabel;
-    return '$side $character';
+    final tight =
+        cue.intensityLabel.contains('타이트') ||
+        intensity.contains('tight') ||
+        intensity.contains('serré');
+    final gentle =
+        cue.intensityLabel.contains('완만') ||
+        intensity.contains('gentle') ||
+        intensity.contains('doux');
+    final medium =
+        cue.intensityLabel.contains('중간') ||
+        intensity.contains('medium') ||
+        intensity.contains('moyen');
+    return switch (language) {
+      AppLanguage.korean =>
+        '$side ${tight
+            ? '급커브'
+            : gentle
+            ? '완만한 커브'
+            : medium
+            ? '커브'
+            : cue.intensityLabel}',
+      AppLanguage.french =>
+        '${tight
+            ? 'virage serré'
+            : gentle
+            ? 'courbe douce'
+            : medium
+            ? 'virage'
+            : 'virage ${cue.intensityLabel.toLowerCase()}'} à $side',
+      _ =>
+        medium
+            ? '$side turn'
+            : '${tight
+                  ? 'sharp'
+                  : gentle
+                  ? 'gentle'
+                  : cue.intensityLabel.toLowerCase()} $side',
+    };
   }
 
   String _rejoinSide(AppLanguage language, double? bearing) {
@@ -315,7 +457,7 @@ class VoiceBriefingService {
     return ((meters / 10).round() * 10).clamp(0, 990).toString();
   }
 
-  // 재진입 가드는 쿨다운(8초)이 담당한다 — 별도 플래그는 두지 않는다
+  // 재진입 가드는 쿨다운(5초)이 담당한다 — 별도 플래그는 두지 않는다
   Future<void> _speak(String phrase, AppLanguage language) async {
     try {
       final override = _speakOverride;
@@ -323,9 +465,14 @@ class VoiceBriefingService {
         await override(phrase, language);
         return;
       }
-      final tts = await _ensureTts(language);
-      if (tts == null) return;
-      await tts.speak(phrase);
+      final speech = _speechQueue.then((_) async {
+        if (_disposed) return;
+        final tts = await _ensureTts(language);
+        if (tts == null || _disposed) return;
+        await tts.speak(phrase);
+      });
+      _speechQueue = speech.catchError((_) {});
+      await speech;
     } catch (_) {
       // TTS 실패는 조용히 — 시각 배너가 항상 있다
     }
@@ -338,7 +485,7 @@ class VoiceBriefingService {
         tts = _ttsFactory();
         await tts.configureAudioSession();
         await tts.setSpeechRate(
-          defaultTargetPlatform == TargetPlatform.iOS ? 0.52 : 0.5,
+          defaultTargetPlatform == TargetPlatform.iOS ? 0.48 : 0.5,
         );
         await tts.setPitch(1.0);
         _tts = tts;
@@ -427,13 +574,19 @@ class VoiceBriefingService {
   }
 
   void dispose() {
+    _disposed = true;
     try {
       unawaited(_tts?.stop());
     } catch (_) {}
     _tts = null;
   }
 
-  String _t(AppLanguage language, {required String ko, required String en, required String fr}) {
+  String _t(
+    AppLanguage language, {
+    required String ko,
+    required String en,
+    required String fr,
+  }) {
     return switch (language) {
       AppLanguage.korean => ko,
       AppLanguage.french => fr,

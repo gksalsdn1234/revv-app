@@ -51,32 +51,53 @@ class ExplorationGrid {
 
   static const int precision = 7;
   static const double interpolationKm = 0.075;
+  static const int maxCellsPerPath = 4096;
+  static const int _maxInterpolationSteps = 20000;
   static const String _alphabet = '0123456789bcdefghjkmnpqrstuvwxyz';
 
   static List<String> cellsForPath(List<LatLng> path) {
-    if (path.isEmpty) return const [];
+    final validPath = path
+        .where(
+          (point) =>
+              point.lat.isFinite &&
+              point.lng.isFinite &&
+              point.lat >= -90 &&
+              point.lat <= 90 &&
+              point.lng >= -180 &&
+              point.lng <= 180,
+        )
+        .toList(growable: false);
+    if (validPath.isEmpty) return const [];
     final ordered = <String>[];
     final seen = <String>{};
+    var remainingSteps = _maxInterpolationSteps;
 
-    void addPoint(LatLng point) {
+    bool addPoint(LatLng point) {
       final id = RevvRoute.encodeGeohash(point.lat, point.lng, precision);
       if (seen.add(id)) ordered.add(id);
+      return ordered.length < maxCellsPerPath;
     }
 
-    addPoint(path.first);
-    for (var index = 1; index < path.length; index++) {
-      final start = path[index - 1];
-      final end = path[index];
+    addPoint(validPath.first);
+    for (var index = 1; index < validPath.length; index++) {
+      if (remainingSteps <= 0 || ordered.length >= maxCellsPerPath) break;
+      final start = validPath[index - 1];
+      final end = validPath[index];
       final distanceKm = RevvRoute.haversineKm(start, end);
-      final steps = math.max(1, (distanceKm / interpolationKm).ceil());
+      final steps = math.min(
+        remainingSteps,
+        math.max(1, (distanceKm / interpolationKm).ceil()),
+      );
+      remainingSteps -= steps;
       for (var step = 1; step <= steps; step++) {
         final fraction = step / steps;
-        addPoint(
+        final hasCapacity = addPoint(
           LatLng(
             start.lat + ((end.lat - start.lat) * fraction),
             start.lng + ((end.lng - start.lng) * fraction),
           ),
         );
+        if (!hasCapacity) break;
       }
     }
     return ordered;

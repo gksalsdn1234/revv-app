@@ -3,49 +3,70 @@ import 'dart:math' as math;
 import '../models/drive_plan.dart';
 import '../models/revv_route.dart';
 
-String googleMapsCoord(LatLng point) {
-  return '${point.lat.toStringAsFixed(4)},${point.lng.toStringAsFixed(4)}';
+typedef ExternalNavigationLauncher = Future<bool> Function(Uri uri);
+
+Future<bool> launchExternalNavigationWithFallback({
+  required Uri primaryUri,
+  Uri? fallbackUri,
+  required ExternalNavigationLauncher launcher,
+}) async {
+  try {
+    if (await launcher(primaryUri)) return true;
+  } catch (_) {}
+  if (fallbackUri == null || fallbackUri == primaryUri) return false;
+  try {
+    return await launcher(fallbackUri);
+  } catch (_) {
+    return false;
+  }
 }
 
-Uri buildGoogleMapsAppUri({
+String googleMapsCoord(LatLng point) {
+  return '${point.lat.toStringAsFixed(5)},${point.lng.toStringAsFixed(5)}';
+}
+
+Uri buildGoogleMapsDirectionsUri({
   required LatLng origin,
   required LatLng destination,
   required List<LatLng> waypoints,
 }) {
-  // comgooglemapsurl://는 구글맵 앱에 "이 웹 URL을 열어라"로 전달되므로
-  // Maps URLs API 규격(origin/destination/travelmode)을 써야 한다.
-  // saddr/daddr는 구형 comgooglemaps:// 스킴 전용이라 여기선 무시되어
-  // 출발·도착 없이 waypoints만 찍히는 깨진 경로가 됐다 (2026-07-12).
-  return Uri(
-    scheme: 'comgooglemapsurl',
-    host: 'www.google.com',
-    path: '/maps/dir/',
-    queryParameters: {
-      'api': '1',
-      'origin': googleMapsCoord(origin),
-      'destination': googleMapsCoord(destination),
-      if (waypoints.isNotEmpty)
-        'waypoints': waypoints.map(googleMapsCoord).join('|'),
-      'travelmode': 'driving',
-    },
-  );
+  return Uri.https('www.google.com', '/maps/dir/', {
+    'api': '1',
+    'origin': googleMapsCoord(origin),
+    'destination': googleMapsCoord(destination),
+    if (waypoints.isNotEmpty)
+      'waypoints': waypoints.map(googleMapsCoord).join('|'),
+    'travelmode': 'driving',
+  });
 }
 
-List<LatLng> selectHandoffWaypoints({required List<DrivePlanLeg> legs}) {
+List<LatLng> selectHandoffWaypoints({
+  required List<DrivePlanLeg> legs,
+  required LatLng origin,
+  required LatLng destination,
+}) {
   final windingLegs = legs
       .where((leg) => leg.kind == DrivePlanLegKind.winding)
       .where((leg) => leg.nodes.length >= 2)
       .toList();
   if (windingLegs.isEmpty) return const [];
 
-  final points = <LatLng>[];
-  _addPoint(points, windingLegs.first.nodes.first);
-  for (final leg in windingLegs.take(2)) {
-    final middle = _middleNode(leg.nodes);
-    if (middle != null) _addPoint(points, middle);
+  final candidates = <LatLng>[];
+  for (var index = 0; index < windingLegs.length; index++) {
+    final leg = windingLegs[index];
+    final anchor =
+        _middleNode(leg.nodes) ??
+        (index == 0 ? leg.nodes.last : leg.nodes.first);
+    if (!_samePoint(anchor, origin) && !_samePoint(anchor, destination)) {
+      _addPoint(candidates, anchor);
+    }
   }
-  _addPoint(points, windingLegs.last.nodes.last);
-  return points;
+  if (candidates.length <= 3) return candidates;
+  return [
+    candidates.first,
+    candidates[candidates.length ~/ 2],
+    candidates.last,
+  ];
 }
 
 List<LatLng> selectRouteHandoffPoints(List<LatLng> nodes) {
@@ -120,4 +141,4 @@ void _addPoint(List<LatLng> points, LatLng point) {
   points.add(point);
 }
 
-bool _samePoint(LatLng a, LatLng b) => a.lat == b.lat && a.lng == b.lng;
+bool _samePoint(LatLng a, LatLng b) => googleMapsCoord(a) == googleMapsCoord(b);

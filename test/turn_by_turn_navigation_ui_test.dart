@@ -46,7 +46,7 @@ void main() {
 
     expect(find.text('TURN BOOK'), findsOneWidget);
     expect(find.text('4 cues'), findsOneWidget);
-    expect(find.text('110m Right Hairpin'), findsOneWidget);
+    expect(find.text('110m Right Very sharp'), findsOneWidget);
     expect(find.textContaining('Finish'), findsWidgets);
   });
 }

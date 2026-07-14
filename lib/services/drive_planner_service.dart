@@ -87,7 +87,15 @@ DrivePlan insertRestLegs(DrivePlan plan) {
     while (remainingMinutes > 0) {
       final minutesUntilRest = restIntervalMinutes - minutesSinceRest;
       final segmentMinutes = math.min(remainingMinutes, minutesUntilRest);
-      legs.add(_legWithEstimatedMinutes(leg, segmentMinutes));
+      final consumedMinutes = leg.estimatedMinutes - remainingMinutes;
+      legs.add(
+        _legSlice(
+          leg,
+          startRatio: consumedMinutes / leg.estimatedMinutes,
+          endRatio: (consumedMinutes + segmentMinutes) / leg.estimatedMinutes,
+          minutes: segmentMinutes,
+        ),
+      );
       remainingMinutes -= segmentMinutes;
       minutesSinceRest += segmentMinutes;
 
@@ -122,16 +130,65 @@ DrivePlan insertRestLegs(DrivePlan plan) {
   );
 }
 
-DrivePlanLeg _legWithEstimatedMinutes(DrivePlanLeg leg, int minutes) {
-  if (leg.estimatedMinutes == minutes) return leg;
-  final distanceRatio = minutes / leg.estimatedMinutes;
+DrivePlanLeg _legSlice(
+  DrivePlanLeg leg, {
+  required double startRatio,
+  required double endRatio,
+  required int minutes,
+}) {
+  if (startRatio <= 0 && endRatio >= 1) return leg;
+  final distanceRatio = endRatio - startRatio;
   return DrivePlanLeg(
     kind: leg.kind,
-    nodes: leg.nodes,
+    nodes: _slicePolyline(leg.nodes, startRatio, endRatio),
     distanceKm: leg.distanceKm * distanceRatio,
     estimatedMinutes: minutes,
     route: leg.route,
   );
+}
+
+List<LatLng> _slicePolyline(
+  List<LatLng> nodes,
+  double startRatio,
+  double endRatio,
+) {
+  if (nodes.length < 2) return nodes;
+  final cumulativeKm = List<double>.filled(nodes.length, 0);
+  var totalKm = 0.0;
+  for (var index = 1; index < nodes.length; index++) {
+    totalKm += RevvRoute.haversineKm(nodes[index - 1], nodes[index]);
+    cumulativeKm[index] = totalKm;
+  }
+  if (totalKm <= 0) return nodes;
+
+  final startKm = totalKm * startRatio.clamp(0.0, 1.0);
+  final endKm = totalKm * endRatio.clamp(0.0, 1.0);
+  final sliced = <LatLng>[_pointAtDistance(nodes, cumulativeKm, startKm)];
+  for (var index = 1; index < nodes.length - 1; index++) {
+    if (cumulativeKm[index] > startKm && cumulativeKm[index] < endKm) {
+      sliced.add(nodes[index]);
+    }
+  }
+  final end = _pointAtDistance(nodes, cumulativeKm, endKm);
+  if (!_samePoint(sliced.last, end)) sliced.add(end);
+  return List.unmodifiable(sliced);
+}
+
+LatLng _pointAtDistance(
+  List<LatLng> nodes,
+  List<double> cumulativeKm,
+  double targetKm,
+) {
+  if (targetKm <= 0) return nodes.first;
+  if (targetKm >= cumulativeKm.last) return nodes.last;
+  for (var index = 1; index < nodes.length; index++) {
+    if (cumulativeKm[index] < targetKm) continue;
+    final segmentKm = cumulativeKm[index] - cumulativeKm[index - 1];
+    if (segmentKm <= 0) return nodes[index];
+    final ratio = (targetKm - cumulativeKm[index - 1]) / segmentKm;
+    return _interpolate(nodes[index - 1], nodes[index], ratio);
+  }
+  return nodes.last;
 }
 
 bool _hasDrivingBeforeNextRest(List<DrivePlanLeg> legs, int currentIndex) {
@@ -188,14 +245,20 @@ class DrivePlannerService {
   }
 
   /// 사용자가 고른 루트들을 그대로 이어붙인 플랜 (탐색·랭킹 없음).
-  /// 순서는 현위치 기준 최근접 이웃(greedy)으로 정하고 각 루트는 진행 방향으로 orient.
+  /// 선택 순서를 유지하고 각 루트만 이전 끝점에서 가까운 방향으로 orient.
   Future<DrivePlan> buildPlanFromRoutes({
     required LatLng origin,
     required List<RevvRoute> routes,
     LatLng? destination,
   }) async {
     final hydrated = await _hydrateSelectedRoutes(routes);
-    final ordered = _greedyOrderedRoutes(origin, hydrated);
+    final ordered = <RevvRoute>[];
+    var current = origin;
+    for (final route in hydrated.where((route) => route.nodes.length >= 2)) {
+      final oriented = _orientedFromPoint(route, current);
+      ordered.add(oriented);
+      current = oriented.nodes.last;
+    }
     final resolvedDestination =
         destination ?? (ordered.isEmpty ? origin : ordered.last.nodes.last);
     final baselineDirectMinutes = _samePoint(origin, resolvedDestination)

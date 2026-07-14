@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/supabase_config.dart';
+import 'package:revv_app/models/revv_route.dart';
+import 'package:revv_app/services/route_loading_policy.dart';
+import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/supabase_service.dart';
 
 const _supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: '');
@@ -74,6 +77,30 @@ void main() {
       expect(routes, isNotEmpty);
       expect(routes.length, greaterThanOrEqualTo(5));
       expect(routes.any((route) => route.distanceFromUser > 0), isTrue);
+    },
+    skip: !config.isConfigured,
+  );
+
+  test(
+    'live supabase smoke: route overview keeps every launch region visible',
+    () async {
+      final cloud = SupabaseService();
+      await cloud.init(config: config);
+      final service = RouteService();
+      addTearDown(service.dispose);
+
+      await service.prefetchRouteOverview(routeCoverageCenters.first);
+
+      expect(service.routeOverviewLoaded, isTrue);
+      for (final center in routeOverviewCenters) {
+        expect(
+          service.mapVisualRoutes.any(
+            (route) => RevvRoute.haversineKm(center, route.centerPoint) <= 180,
+          ),
+          isTrue,
+          reason: 'No overview route remained near $center',
+        );
+      }
     },
     skip: !config.isConfigured,
   );

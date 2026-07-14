@@ -6,27 +6,43 @@ export async function consumeRateLimit(
   limit: number,
   windowSeconds: number,
 ) {
-  const key = await clientKey(req);
-  const fromDb = await consumeDbRateLimit(
-    functionName,
-    key,
-    limit,
-    windowSeconds,
-  );
-  if (fromDb !== null) return fromDb;
-  return consumeMemoryRateLimit(
-    `${functionName}:${key}`,
-    limit,
-    windowSeconds * 1000,
-  );
+  const keys = await clientKeys(req);
+  for (const key of keys) {
+    const fromDb = await consumeDbRateLimit(
+      functionName,
+      key,
+      limit,
+      windowSeconds,
+    );
+    const allowed = fromDb ?? consumeMemoryRateLimit(
+      `${functionName}:${key}`,
+      limit,
+      windowSeconds * 1000,
+    );
+    if (!allowed) return false;
+  }
+  return true;
 }
 
 export async function clientKey(req: Request) {
+  return (await clientKeys(req))[0];
+}
+
+async function clientKeys(req: Request): Promise<readonly string[]> {
   const verifiedSub = await verifiedJwtSub(req.headers.get("authorization"));
-  if (verifiedSub) return `user:${verifiedSub}`;
   const forwardedFor = req.headers.get("x-forwarded-for")?.split(",")[0]
-    ?.trim();
-  return forwardedFor ? `ip:${forwardedFor}` : "ip:unknown";
+    ?.trim() ?? null;
+  return rateLimitKeys(verifiedSub, forwardedFor);
+}
+
+export function rateLimitKeys(
+  verifiedSub: string | null,
+  forwardedFor: string | null,
+): readonly string[] {
+  const keys: string[] = [];
+  if (verifiedSub) keys.push(`user:${verifiedSub}`);
+  keys.push(forwardedFor ? `ip:${forwardedFor}` : "ip:unknown");
+  return keys;
 }
 
 async function consumeDbRateLimit(

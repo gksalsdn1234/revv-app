@@ -6,14 +6,18 @@ import 'package:http/http.dart' as http;
 
 import '../core/app_language.dart';
 import '../models/revv_route.dart';
+import 'bounded_http_response.dart';
 import 'mapbox_service.dart';
 
 class NavStep {
+  static const minBriefingStraightM = 1000.0;
+
   final int sequence;
   final String maneuverType;
   final String? modifier;
   final LatLng location;
   final double distanceFromStartM;
+  final double segmentDistanceM;
 
   const NavStep({
     required this.sequence,
@@ -21,7 +25,29 @@ class NavStep {
     required this.modifier,
     required this.location,
     required this.distanceFromStartM,
+    required this.segmentDistanceM,
   });
+
+  bool get isStraightAhead {
+    final normalizedModifier = modifier?.toLowerCase();
+    if (normalizedModifier?.contains('left') == true ||
+        normalizedModifier?.contains('right') == true) {
+      return false;
+    }
+    if (normalizedModifier == 'straight') return true;
+    return switch (maneuverType.toLowerCase()) {
+      'depart' ||
+      'continue' ||
+      'new name' ||
+      'notification' ||
+      'use lane' ||
+      '' => true,
+      _ => false,
+    };
+  }
+
+  bool get isBriefingWorthy =>
+      !isStraightAhead || segmentDistanceM >= minBriefingStraightM;
 
   String call(AppLanguage language) {
     final right = modifier?.contains('right') == true;
@@ -31,25 +57,27 @@ class NavStep {
         : left
         ? _t(language, ko: '좌측', en: 'left', fr: 'gauche')
         : _t(language, ko: '직진', en: 'straight', fr: 'tout droit');
+    final frenchDirection = right
+        ? 'à droite'
+        : left
+        ? 'à gauche'
+        : 'tout droit';
+    if (isStraightAhead) return direction;
     return switch (maneuverType) {
       'fork' || 'off ramp' || 'on ramp' || 'merge' => _t(
         language,
         ko: '$direction 갈림길',
         en: 'fork $direction',
-        fr: 'bifurcation $direction',
+        fr: 'bifurcation $frenchDirection',
       ),
-      'roundabout' || 'rotary' => _t(
-        language,
-        ko: '회전교차로',
-        en: 'roundabout',
-        fr: 'rond-point',
-      ),
+      'roundabout' ||
+      'rotary' => _t(language, ko: '회전교차로', en: 'roundabout', fr: 'rond-point'),
       'arrive' => _t(language, ko: '피니시', en: 'finish', fr: 'arrivée'),
       _ => _t(
         language,
         ko: '$direction 갈림길',
         en: right || left ? 'turn $direction' : direction,
-        fr: right || left ? 'virage $direction' : direction,
+        fr: right || left ? 'tournez $frenchDirection' : direction,
       ),
     };
   }
@@ -72,15 +100,69 @@ class RouteTurnService {
        _clock = clock ?? DateTime.now;
 
   static const recalculateCooldown = Duration(seconds: 60);
+  static const _maxResponseBytes = 2 * 1024 * 1024;
+  static const _maxSteps = 500;
 
   final http.Client _client;
   final String _accessToken;
   final DateTime Function() _clock;
   DateTime? _lastRecalculatedAt;
 
+  void resetRecalculationCooldown() {
+    _lastRecalculatedAt = null;
+  }
+
   Future<List<NavStep>> fetchSteps(List<LatLng> routeNodes) async {
     if (_accessToken.isEmpty || routeNodes.length < 2) return const [];
     return _fetch(_downsampleWaypoints(routeNodes));
+  }
+
+  Future<List<NavStep>> fetchStepsForLegs(List<List<LatLng>> routeLegs) async {
+    final legs = routeLegs
+        .where((nodes) => nodes.length >= 2)
+        .toList(growable: false);
+    if (legs.isEmpty) return const [];
+    final stepsByLeg = await Future.wait(legs.map(fetchSteps));
+    final merged = <NavStep>[];
+    NavStep? finalArrival;
+    var distanceOffsetM = 0.0;
+    for (var legIndex = 0; legIndex < legs.length; legIndex++) {
+      final isLastLeg = legIndex == legs.length - 1;
+      final cumulativeM = _cumulativeMeters(legs[legIndex]);
+      for (final step in stepsByLeg[legIndex]) {
+        if (legIndex > 0 && step.maneuverType == 'depart') continue;
+        if (!isLastLeg && step.maneuverType == 'arrive') continue;
+        final adjusted = NavStep(
+          sequence: merged.length + 1,
+          maneuverType: step.maneuverType,
+          modifier: step.modifier,
+          location: step.location,
+          distanceFromStartM:
+              distanceOffsetM +
+              _nearestAlongM(step.location, legs[legIndex], cumulativeM),
+          segmentDistanceM: step.segmentDistanceM,
+        );
+        if (step.maneuverType == 'arrive') {
+          finalArrival = adjusted;
+          continue;
+        }
+        if (merged.length < _maxSteps - 1) merged.add(adjusted);
+      }
+      distanceOffsetM += _polylineDistanceM(legs[legIndex]);
+    }
+    if (finalArrival != null) {
+      merged.add(
+        NavStep(
+          sequence: merged.length + 1,
+          maneuverType: finalArrival.maneuverType,
+          modifier: finalArrival.modifier,
+          location: finalArrival.location,
+          distanceFromStartM: finalArrival.distanceFromStartM,
+          segmentDistanceM: finalArrival.segmentDistanceM,
+        ),
+      );
+    }
+    return List.unmodifiable(merged);
   }
 
   Future<List<NavStep>> recalculateSteps({
@@ -99,13 +181,12 @@ class RouteTurnService {
 
   Future<List<NavStep>> _fetch(List<LatLng> waypoints) async {
     try {
-      final response = await _client
-          .get(_directionsUri(waypoints))
-          .timeout(const Duration(seconds: 8));
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        return const [];
-      }
-      final body = jsonDecode(response.body);
+      final raw = await getBoundedResponseBody(
+        _client,
+        _directionsUri(waypoints),
+        maxBytes: _maxResponseBytes,
+      ).timeout(const Duration(seconds: 8));
+      final body = jsonDecode(raw);
       if (body is! Map<String, dynamic>) return const [];
       return _parseSteps(body);
     } catch (_) {
@@ -132,6 +213,14 @@ class RouteTurnService {
   }
 }
 
+double _polylineDistanceM(List<LatLng> nodes) {
+  var distanceM = 0.0;
+  for (var index = 1; index < nodes.length; index++) {
+    distanceM += RevvRoute.haversineKm(nodes[index - 1], nodes[index]) * 1000;
+  }
+  return distanceM;
+}
+
 List<LatLng> _downsampleWaypoints(List<LatLng> nodes) {
   if (nodes.length <= 25) return List.unmodifiable(nodes);
   return List.unmodifiable(
@@ -151,8 +240,11 @@ List<NavStep> _parseSteps(Map<String, dynamic> body) {
   if (legs is! List) return const [];
 
   final steps = <NavStep>[];
+  NavStep? finalArrival;
+  NavStep? deferredNonArrival;
   var distanceFromStartM = 0.0;
-  for (final leg in legs) {
+  for (var legIndex = 0; legIndex < legs.length; legIndex++) {
+    final leg = legs[legIndex];
     if (leg is! Map<String, dynamic>) continue;
     final rawSteps = leg['steps'];
     if (rawSteps is! List) continue;
@@ -162,17 +254,46 @@ List<NavStep> _parseSteps(Map<String, dynamic> body) {
       if (maneuver is! Map<String, dynamic>) continue;
       final location = _locationFrom(maneuver['location']);
       if (location == null) continue;
-      distanceFromStartM += _doubleFrom(rawStep['distance']);
-      steps.add(
-        NavStep(
-          sequence: steps.length + 1,
-          maneuverType: maneuver['type']?.toString() ?? '',
-          modifier: maneuver['modifier']?.toString(),
-          location: location,
-          distanceFromStartM: distanceFromStartM,
-        ),
+      final segmentDistanceM = _doubleFrom(rawStep['distance']);
+      final maneuverType = maneuver['type']?.toString() ?? '';
+      if (maneuverType == 'depart' && legIndex > 0) {
+        distanceFromStartM += segmentDistanceM;
+        continue;
+      }
+      if (maneuverType == 'arrive' && legIndex < legs.length - 1) {
+        distanceFromStartM += segmentDistanceM;
+        continue;
+      }
+      final step = NavStep(
+        sequence: steps.length + 1,
+        maneuverType: maneuverType,
+        modifier: maneuver['modifier']?.toString(),
+        location: location,
+        distanceFromStartM: distanceFromStartM,
+        segmentDistanceM: segmentDistanceM,
       );
+      if (maneuverType == 'arrive') {
+        finalArrival = step;
+      } else if (steps.length < RouteTurnService._maxSteps - 1) {
+        steps.add(step);
+      } else {
+        deferredNonArrival ??= step;
+      }
+      distanceFromStartM += segmentDistanceM;
     }
+  }
+  final tail = finalArrival ?? deferredNonArrival;
+  if (tail != null && steps.length < RouteTurnService._maxSteps) {
+    steps.add(
+      NavStep(
+        sequence: steps.length + 1,
+        maneuverType: tail.maneuverType,
+        modifier: tail.modifier,
+        location: tail.location,
+        distanceFromStartM: tail.distanceFromStartM,
+        segmentDistanceM: tail.segmentDistanceM,
+      ),
+    );
   }
   return List.unmodifiable(steps);
 }
@@ -180,12 +301,21 @@ List<NavStep> _parseSteps(Map<String, dynamic> body) {
 NavStepProgress? nextStepProgress(
   LatLng position,
   List<LatLng> routeNodes,
-  List<NavStep> steps,
-) {
+  List<NavStep> steps, {
+  double? routeProgress,
+}) {
   if (routeNodes.length < 2 || steps.isEmpty) return null;
   final cumulativeM = _cumulativeMeters(routeNodes);
-  final alongM = _nearestAlongM(position, routeNodes, cumulativeM);
+  final alongM = routeProgress == null
+      ? _nearestAlongM(position, routeNodes, cumulativeM)
+      : cumulativeM.last * routeProgress.clamp(0.0, 1.0);
+  final remainingM = math.max(0.0, cumulativeM.last - alongM);
   for (final step in steps) {
+    if (!step.isBriefingWorthy) continue;
+    if (step.maneuverType == 'arrive') {
+      if (remainingM > 800) continue;
+      return NavStepProgress(step: step, aheadM: remainingM);
+    }
     final aheadM = step.distanceFromStartM - alongM;
     if (aheadM >= -18) {
       return NavStepProgress(step: step, aheadM: math.max(0.0, aheadM));
@@ -194,15 +324,36 @@ NavStepProgress? nextStepProgress(
   return null;
 }
 
-LatLng? nearestRoutePoint(LatLng position, List<LatLng> routeNodes) {
+LatLng? nearestRoutePoint(
+  LatLng position,
+  List<LatLng> routeNodes, {
+  double? routeProgress,
+  double progressWindow = 0.08,
+}) {
   if (routeNodes.length < 2) return null;
+  final cumulativeM = _cumulativeMeters(routeNodes);
+  final totalM = cumulativeM.last;
+  final minAlongM = routeProgress == null
+      ? 0.0
+      : totalM * math.max(0.0, routeProgress - 0.01);
+  final maxAlongM = routeProgress == null
+      ? totalM
+      : totalM * math.min(1.0, routeProgress + progressWindow);
   var bestDistanceM = double.infinity;
   LatLng? bestPoint;
   for (var i = 0; i < routeNodes.length - 1; i++) {
+    final segmentStartM = cumulativeM[i];
+    final segmentEndM = cumulativeM[i + 1];
+    final segmentM = segmentEndM - segmentStartM;
+    if (segmentM <= 0 || segmentEndM < minAlongM || segmentStartM > maxAlongM) {
+      continue;
+    }
     final projection = _projectOnSegment(
       position,
       routeNodes[i],
       routeNodes[i + 1],
+      minT: ((minAlongM - segmentStartM) / segmentM).clamp(0.0, 1.0),
+      maxT: ((maxAlongM - segmentStartM) / segmentM).clamp(0.0, 1.0),
     );
     if (projection.distanceM < bestDistanceM) {
       bestDistanceM = projection.distanceM;
@@ -241,13 +392,20 @@ double _nearestAlongM(
   return bestAlongM;
 }
 
-_SegmentProjection _projectOnSegment(LatLng p, LatLng a, LatLng b) {
+_SegmentProjection _projectOnSegment(
+  LatLng p,
+  LatLng a,
+  LatLng b, {
+  double minT = 0,
+  double maxT = 1,
+}) {
   final ap = _metersFrom(a, p);
   final ab = _metersFrom(a, b);
   final ab2 = ab.x * ab.x + ab.y * ab.y;
-  final t = ab2 <= 0
+  final rawT = ab2 <= 0
       ? 0.0
       : ((ap.x * ab.x + ap.y * ab.y) / ab2).clamp(0.0, 1.0).toDouble();
+  final t = rawT.clamp(minT, maxT).toDouble();
   final closestX = ab.x * t;
   final closestY = ab.y * t;
   final dx = ap.x - closestX;
@@ -277,7 +435,8 @@ double _doubleFrom(Object? value) {
   return double.tryParse(value?.toString() ?? '') ?? 0;
 }
 
-String _t(AppLanguage language, {
+String _t(
+  AppLanguage language, {
   required String ko,
   required String en,
   required String fr,

@@ -8,7 +8,9 @@ import 'package:provider/provider.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../core/app_language.dart';
+import '../models/drive_plan.dart';
 import '../models/revv_route.dart';
+import '../services/drive_plan_navigation.dart';
 import '../services/imu_service.dart';
 import '../services/location_service.dart';
 import '../services/route_geometry_matcher.dart';
@@ -35,8 +37,24 @@ const bool _revvWalkieLabEnabled = bool.fromEnvironment('REVV_WALKIE_LAB');
 
 typedef DriveRouteNodesLoader = Future<List<LatLng>> Function(String routeId);
 
+double driveRemainingKmForDisplay({
+  required double remainingKm,
+  required double totalKm,
+  required DriveRouteStatus status,
+}) {
+  switch (status) {
+    case DriveRouteStatus.completed:
+      return 0;
+    case DriveRouteStatus.approachingStart:
+    case DriveRouteStatus.onRoute:
+    case DriveRouteStatus.offRoute:
+      return remainingKm > 0 ? remainingKm : totalKm;
+  }
+}
+
 class LeanDriveScreen extends StatefulWidget {
   final RevvRoute route;
+  final DrivePlan? drivePlan;
   final bool simulated;
 
   /// 테스트 주입용 — 참여 상태 크루 서비스/컨트롤러를 넣어 PTT를 노출시킨다.
@@ -51,6 +69,7 @@ class LeanDriveScreen extends StatefulWidget {
   const LeanDriveScreen({
     super.key,
     required this.route,
+    this.drivePlan,
     this.simulated = false,
     this.crewChannelOverride,
     this.pttControllerOverride,
@@ -95,7 +114,13 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   DriveRhythmBrief? _rhythmBrief;
   TurnByTurnState? _turnByTurn;
   NavStepProgress? _navStepProgress;
+  bool _isTransitPlanLeg = false;
   List<NavStep> _navSteps = const [];
+  List<NavStep> _rejoinNavSteps = const [];
+  int _rejoinStepIndex = 0;
+  int _routeTurnGeneration = 0;
+  int _recalculationGeneration = 0;
+  late final List<LatLng> _plannedRouteNodes;
   DriveRouteStatus _routeStatus = DriveRouteStatus.approachingStart;
   String? _routeEventMessage;
   DateTime? _routeEventUntil;
@@ -107,6 +132,9 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     super.initState();
     _voice = widget.voiceOverride ?? VoiceBriefingService();
     _turnService = widget.routeTurnService ?? RouteTurnService();
+    _plannedRouteNodes = widget.drivePlan == null
+        ? widget.route.nodes
+        : navigableDrivePlanNodes(widget.drivePlan!);
   }
 
   @override
@@ -276,24 +304,44 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       position,
       _activeRouteNodes,
       language: language,
+      minProgress: _drivePosition == null ? null : _progress,
+      maxProgress: _routeProgressCeiling(position),
     );
-    final navStepProgress = nextStepProgress(
-      position,
-      _activeRouteNodes,
-      _navSteps,
-    );
+    final stableProgress = routeState.progress;
+    final rejoinStepProgress = routeState.status == DriveRouteStatus.offRoute
+        ? _nextRejoinStepProgress(position)
+        : null;
+    final navStepProgress =
+        rejoinStepProgress ??
+        nextStepProgress(
+          position,
+          _activeRouteNodes,
+          _navSteps,
+          routeProgress: stableProgress,
+        );
+    final activePlanLegKind = widget.drivePlan == null
+        ? null
+        : activeDrivePlanLegKind(widget.drivePlan!, stableProgress);
+    final isTransitLeg = activePlanLegKind == DrivePlanLegKind.transit;
     _voice.onCoPilotCue(
       navStep: navStepProgress?.step,
       navDistanceM: navStepProgress?.aheadM,
-      curveCue: routeState.cue,
+      navNamespace: rejoinStepProgress == null
+          ? 'route'
+          : 'rejoin:$_recalculationGeneration',
+      curveCue: isTransitLeg ? null : routeState.cue,
+      preferCurve: !isTransitLeg,
       language: language,
       muted: _settings?.ttsMuted ?? true,
     );
-    final turnByTurn = readTurnByTurnState(
-      position,
-      _activeRouteNodes,
-      language: language,
-    );
+    final turnByTurn = isTransitLeg
+        ? null
+        : readTurnByTurnState(
+            position,
+            _activeRouteNodes,
+            language: language,
+            routeProgress: stableProgress,
+          );
     final nextEvent = _routeEventFor(_routeStatus, routeState.status, language);
     final nextBearing = _nextNavigationBearing(position, heading);
     _handleRouteStatusTransition(
@@ -310,12 +358,13 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       _speedKmh = speed;
       _lateralG = lateralG;
       _longitudinalG = longitudinalG;
-      _progress = routeState.progress;
+      _progress = stableProgress;
       _remainingKm = routeState.remainingKm;
-      _cue = routeState.cue;
-      _rhythmBrief = routeState.rhythmBrief;
+      _cue = isTransitLeg ? null : routeState.cue;
+      _rhythmBrief = isTransitLeg ? null : routeState.rhythmBrief;
       _turnByTurn = turnByTurn;
       _navStepProgress = navStepProgress;
+      _isTransitPlanLeg = isTransitLeg;
       _routeStatus = routeState.status;
       if (nextEvent != null) {
         _routeEventMessage = nextEvent;
@@ -328,8 +377,16 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   }
 
   Future<void> _loadRouteTurns(List<LatLng> nodes) async {
-    final steps = await _turnService.fetchSteps(nodes);
-    if (!mounted || steps.isEmpty) return;
+    final generation = ++_routeTurnGeneration;
+    final plan = widget.drivePlan;
+    final steps = plan == null
+        ? await _turnService.fetchSteps(nodes)
+        : await _turnService.fetchStepsForLegs(
+            navigableDrivePlanLegNodes(plan),
+          );
+    if (!mounted || generation != _routeTurnGeneration || steps.isEmpty) {
+      return;
+    }
     setState(() => _navSteps = steps);
   }
 
@@ -341,7 +398,11 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     required bool muted,
   }) {
     if (previous == next) return;
-    final rejoin = nearestRoutePoint(position, _activeRouteNodes);
+    final rejoin = nearestRoutePoint(
+      position,
+      _activeRouteNodes,
+      routeProgress: _progress,
+    );
     _voice.onRouteStatusChange(
       previous: previous,
       next: next,
@@ -351,18 +412,102 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
           ? _navigationBearing
           : _bearingBetween(position, rejoin),
     );
-    if (next != DriveRouteStatus.offRoute) return;
+    if (next != DriveRouteStatus.offRoute) {
+      if (previous == DriveRouteStatus.offRoute) {
+        _recalculationGeneration++;
+        _turnService.resetRecalculationCooldown();
+        _rejoinNavSteps = const [];
+        _rejoinStepIndex = 0;
+      }
+      return;
+    }
     if (rejoin == null) return;
     unawaited(_recalculateRouteTurns(position, rejoin));
   }
 
   Future<void> _recalculateRouteTurns(LatLng position, LatLng rejoin) async {
+    final generation = ++_recalculationGeneration;
+    await _loadRejoinRouteTurns(
+      position,
+      rejoin,
+      generation: generation,
+      attempt: 0,
+    );
+  }
+
+  Future<void> _loadRejoinRouteTurns(
+    LatLng position,
+    LatLng rejoin, {
+    required int generation,
+    required int attempt,
+  }) async {
     final steps = await _turnService.recalculateSteps(
       current: position,
       rejoin: rejoin,
     );
-    if (!mounted || steps.isEmpty) return;
-    setState(() => _navSteps = steps);
+    if (!mounted || generation != _recalculationGeneration) {
+      return;
+    }
+    if (_routeStatus != DriveRouteStatus.offRoute) return;
+    if (steps.isEmpty) {
+      if (attempt >= 2) return;
+      await Future<void>.delayed(const Duration(seconds: 8));
+      if (!mounted ||
+          generation != _recalculationGeneration ||
+          _routeStatus != DriveRouteStatus.offRoute) {
+        return;
+      }
+      _turnService.resetRecalculationCooldown();
+      return _loadRejoinRouteTurns(
+        position,
+        rejoin,
+        generation: generation,
+        attempt: attempt + 1,
+      );
+    }
+    final maneuvers = steps
+        .where(
+          (step) =>
+              step.maneuverType != 'depart' && step.maneuverType != 'arrive',
+        )
+        .toList(growable: false);
+    if (maneuvers.isEmpty) return;
+    setState(() {
+      _rejoinNavSteps = List.unmodifiable(maneuvers);
+      _rejoinStepIndex = 0;
+    });
+  }
+
+  NavStepProgress? _nextRejoinStepProgress(LatLng position) {
+    while (_rejoinStepIndex < _rejoinNavSteps.length) {
+      final step = _rejoinNavSteps[_rejoinStepIndex];
+      if (!step.isBriefingWorthy) {
+        _rejoinStepIndex++;
+        continue;
+      }
+      final distanceM = RevvRoute.haversineKm(position, step.location) * 1000;
+      if (distanceM <= 18 && _rejoinStepIndex < _rejoinNavSteps.length - 1) {
+        _rejoinStepIndex++;
+        continue;
+      }
+      return NavStepProgress(step: step, aheadM: distanceM);
+    }
+    return null;
+  }
+
+  double? _routeProgressCeiling(LatLng position) {
+    if (_drivePosition == null || _activeRouteNodes.length < 2) return null;
+    var routeKm = 0.0;
+    for (var index = 1; index < _activeRouteNodes.length; index++) {
+      routeKm += RevvRoute.haversineKm(
+        _activeRouteNodes[index - 1],
+        _activeRouteNodes[index],
+      );
+    }
+    if (routeKm <= 0) return _progress;
+    final movedKm = RevvRoute.haversineKm(_drivePosition!, position);
+    final maxAdvance = (movedKm + 0.05) / routeKm;
+    return math.min(1.0, _progress + maxAdvance);
   }
 
   double? _nextNavigationBearing(LatLng position, double? heading) {
@@ -415,10 +560,11 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   List<LatLng> get _activeRouteNodes {
     final matched = _matchedRouteNodes;
     if (matched != null && matched.length >= 2) return matched;
-    return widget.route.nodes;
+    return _plannedRouteNodes;
   }
 
   Future<void> _prepareMatchedRouteGeometry() async {
+    if (widget.drivePlan != null) return;
     if (_matchingRouteGeometry || widget.route.nodes.length < 2) return;
     _matchingRouteGeometry = true;
     final matched = await RouteGeometryMatcher.instance.matchRoute(
@@ -433,6 +579,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   }
 
   Future<void> _hydrateSparseRouteNodes() async {
+    if (widget.drivePlan != null) return;
     if (_averageRouteNodeSpacingM(widget.route.nodes) <= 120) return;
     final loader = widget.routeNodesLoader ?? SupabaseService().fetchRouteNodes;
     final nodes = await loader(
@@ -497,9 +644,11 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     final routeEvent = _routeEventUntil?.isAfter(DateTime.now()) == true
         ? _routeEventMessage
         : null;
-    final remainingKm = _remainingKm > 0
-        ? _remainingKm
-        : widget.route.distanceKm;
+    final remainingKm = driveRemainingKmForDisplay(
+      remainingKm: _remainingKm,
+      totalKm: widget.route.distanceKm,
+      status: _routeStatus,
+    );
     final settings = context.watch<SettingsService>();
     final language = settings.appLanguage;
     final totalG = math.sqrt(
@@ -507,6 +656,18 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     );
     final routeNodes = _activeRouteNodes;
     final routeName = routeDisplayName(widget.route, language: language);
+    final plan = widget.drivePlan;
+    final windingCount = plan?.legs
+        .where((leg) => leg.kind == DrivePlanLegKind.winding)
+        .length;
+    final chainProgressLabel = plan == null || windingCount == null
+        ? null
+        : AppCopy.t(
+            language,
+            ko: '체인 ${activeWindingRouteNumber(plan, _progress)}/$windingCount',
+            en: 'CHAIN ${activeWindingRouteNumber(plan, _progress)}/$windingCount',
+            fr: 'CHAÎNE ${activeWindingRouteNumber(plan, _progress)}/$windingCount',
+          );
 
     return PopScope(
       canPop: false,
@@ -517,6 +678,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
             Positioned.fill(
               child: MapWidget(
                 isSprintMode: true,
+                driveHudOrnaments: true,
                 routePolyline: routeNodes,
                 routeFocusMode: true,
                 navigationBearing: _navigationBearing,
@@ -539,6 +701,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                       remainingKm: remainingKm,
                       simulated: widget.simulated,
                       language: language,
+                      chainProgressLabel: chainProgressLabel,
                     ),
                     const SizedBox(height: 8),
                     if (_gpsWeak)
@@ -555,6 +718,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                       rhythmBrief: _rhythmBrief,
                       turnByTurn: _turnByTurn,
                       navStepProgress: _navStepProgress,
+                      preferNavigation: _isTransitPlanLeg,
                       status: _routeStatus,
                       eventMessage: routeEvent,
                       language: language,
@@ -902,6 +1066,7 @@ class _DriveTopBar extends StatelessWidget {
   final double remainingKm;
   final bool simulated;
   final AppLanguage language;
+  final String? chainProgressLabel;
 
   const _DriveTopBar({
     required this.routeName,
@@ -909,6 +1074,7 @@ class _DriveTopBar extends StatelessWidget {
     required this.remainingKm,
     required this.simulated,
     required this.language,
+    required this.chainProgressLabel,
   });
 
   @override
@@ -947,10 +1113,19 @@ class _DriveTopBar extends StatelessWidget {
                   ),
                 ),
               ),
+              if (chainProgressLabel != null) ...[
+                const SizedBox(width: 8),
+                _TinyHudPill(label: chainProgressLabel!),
+              ],
               if (simulated) ...[
                 const SizedBox(width: 8),
                 _TinyHudPill(
-                  label: AppCopy.t(language, ko: '테스트', en: 'TEST', fr: 'TEST'),
+                  label: AppCopy.t(
+                    language,
+                    ko: '시뮬레이션',
+                    en: 'SIMULATION',
+                    fr: 'SIMULATION',
+                  ),
                 ),
               ],
               const SizedBox(width: 8),
@@ -1057,6 +1232,7 @@ class _NextCurveBanner extends StatelessWidget {
   final DriveRhythmBrief? rhythmBrief;
   final TurnByTurnState? turnByTurn;
   final NavStepProgress? navStepProgress;
+  final bool preferNavigation;
   final DriveRouteStatus status;
   final String? eventMessage;
   final AppLanguage language;
@@ -1066,6 +1242,7 @@ class _NextCurveBanner extends StatelessWidget {
     required this.rhythmBrief,
     required this.turnByTurn,
     required this.navStepProgress,
+    required this.preferNavigation,
     required this.status,
     required this.eventMessage,
     required this.language,
@@ -1080,14 +1257,48 @@ class _NextCurveBanner extends StatelessWidget {
     final fallback = _fallbackCue(status, language);
     final turn = turnByTurn?.instruction;
     final nav = navStepProgress;
-    final headline = data?.headline ?? fallback.label;
-    final rhythmLine = data?.rhythmLine ?? rhythm?.advice ?? fallback.detail;
+    final navigationPrimary =
+        preferNavigation && data == null && nav != null && nav.aheadM <= 320
+        ? nav
+        : null;
+    final headline =
+        navigationPrimary?.step.call(language) ??
+        data?.headline ??
+        fallback.label;
+    final rhythmLine = navigationPrimary == null
+        ? data?.rhythmLine ?? rhythm?.advice ?? fallback.detail
+        : _paceDistance(navigationPrimary.aheadM);
+    final showNavigation =
+        navigationPrimary == null &&
+        data == null &&
+        nav != null &&
+        nav.aheadM <= 320;
+    final showCurveSequence = data != null && data.curveCountAhead >= 2;
+    final sequenceState = turnByTurn;
+    final sequenceProgress =
+        turn != null &&
+            sequenceState != null &&
+            sequenceState.totalInstructions > 0
+        ? AppCopy.t(
+            language,
+            ko: '${sequenceState.completedInstructions + 1}/${sequenceState.totalInstructions} 커브',
+            en: 'Curve ${sequenceState.completedInstructions + 1} of ${sequenceState.totalInstructions}',
+            fr: 'Virage ${sequenceState.completedInstructions + 1} sur ${sequenceState.totalInstructions}',
+          )
+        : null;
+    final supportingLine = showCurveSequence
+        ? sequenceProgress == null
+              ? rhythmLine
+              : '$rhythmLine · $sequenceProgress'
+        : data == null
+        ? sequenceProgress ?? rhythmLine
+        : null;
     return _DriveGlass(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (nav != null && nav.aheadM <= 320) ...[
+          if (showNavigation) ...[
             Row(
               children: [
                 const Icon(
@@ -1141,7 +1352,9 @@ class _NextCurveBanner extends StatelessWidget {
                   ),
                 ),
                 child: Icon(
-                  data?.icon ?? fallback.icon,
+                  navigationPrimary == null
+                      ? data?.icon ?? fallback.icon
+                      : Icons.assistant_direction_rounded,
                   color: severityColor,
                   size: 24,
                 ),
@@ -1162,61 +1375,24 @@ class _NextCurveBanner extends StatelessWidget {
                         color: AppColors.textPrimary,
                       ),
                     ),
-                    const SizedBox(height: 7),
-                    Text(
-                      rhythmLine,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.body(
-                        size: 13,
-                        weight: FontWeight.w900,
-                        color: severityColor,
+                    if (supportingLine != null) ...[
+                      const SizedBox(height: 7),
+                      Text(
+                        supportingLine,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.body(
+                          size: 13,
+                          weight: FontWeight.w900,
+                          color: severityColor,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
-          if (turn != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.fromLTRB(10, 9, 10, 9),
-              decoration: BoxDecoration(
-                color: AppColors.bg.withValues(alpha: 0.42),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: severityColor.withValues(alpha: 0.24),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(turn.icon, size: 18, color: severityColor),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      turn.command,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppText.body(
-                        size: 13,
-                        weight: FontWeight.w900,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '${turnByTurn!.completedInstructions + 1}/${turnByTurn!.totalInstructions}',
-                    style: AppText.technicalLabel(
-                      size: 10,
-                      color: AppColors.textHint,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -1224,8 +1400,8 @@ class _NextCurveBanner extends StatelessWidget {
 }
 
 String _paceDistance(double meters) {
-  if (meters >= 1000) return ((meters / 100).round() * 100).toString();
-  return ((meters / 10).round() * 10).clamp(0, 990).toString();
+  if (meters >= 1000) return '${(meters / 1000).toStringAsFixed(1)}km';
+  return '${((meters / 10).round() * 10).clamp(0, 990)}m';
 }
 
 class _TinyHudPill extends StatelessWidget {
