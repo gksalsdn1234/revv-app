@@ -3,56 +3,78 @@
 import json, os, subprocess
 
 OUT = os.path.dirname(os.path.abspath(__file__))
-meta = json.load(open(os.path.join(OUT, "routes_meta.json")))
+meta = json.load(open(os.path.join(OUT, "routes_meta_v2.json")))
+
+# Build key -> route mapping for display
+meta_by_key = {r["key"]: r for r in meta}
 
 DISPLAY = {
-    "BC 99": ("Sea-to-Sky Highway", "BC-99 · Vancouver → Whistler → Pemberton",
+    "BC 99": ("Sea-to-Sky Highway", "BC-99 · Horseshoe Bay → Whistler → Pemberton",
         "The classic. Ocean cliffs out of Horseshoe Bay, granite walls past Squamish, alpine sweepers into Whistler. Rebuilt for the 2010 Olympics, so the pavement is superb. Go at sunrise on a weekday — by 10am it belongs to the tourists.",
         "Start: Horseshoe Bay ferry terminal · Fuel: Squamish midpoint · Best light: golden hour over Howe Sound"),
     "4": ("Highway 4 — Pacific Rim", "BC-4 · Port Alberni → Tofino",
-        "77 km of old-growth rainforest, lake shores, and the tight technical section over Sutton Pass. One of the most engaging full-length drives on Vancouver Island — narrow, shaded, and relentlessly curvy. Watch for logging trucks on weekdays.",
+        "Old-growth rainforest, lake shores, and the technical section over Sutton Pass. One of the most engaging full-length drives on Vancouver Island — narrow, shaded, and relentlessly curvy. Watch for logging trucks on weekdays.",
         "Start: Port Alberni · No fuel until Ucluelet junction — fill up first · Kennedy Lake pull-outs for photos"),
     "BC 12": ("Lytton–Lillooet Road", "BC-12 · Fraser Canyon benchlands",
         "The empty one. BC-12 rides the benches above the Fraser River between two small towns most people skip. Big canyon views, almost zero traffic, and a rhythm of medium-speed corners that never quite ends. Semi-arid desert light — best in late afternoon.",
-        "Start: Lytton · Check conditions after heavy rain (slide-prone) · Cell coverage is patchy — download maps offline"),
+        "Start: Lytton · No fuel or services in Lytton (still rebuilding after the 2021 fire) — fill up in Hope or Lillooet · Cell coverage is patchy — download maps offline"),
     "Cowichan Lake Road": ("Cowichan Lake Road", "Duncan → Lake Cowichan",
         "A local commuter road that happens to be a fantastic drive: farmland, forest tunnels, and a steady stream of corners along the Cowichan River valley. Low traffic outside rush hours. Pairs perfectly with Shawnigan Lake Road for a full-day Island loop.",
         "Start: Duncan (Trans-Canada exit) · Coffee: Lake Cowichan townsite · Combine with Route 5 for a loop"),
     "Shawnigan Lake Road": ("Shawnigan Lake Road", "Mill Bay → Shawnigan Lake loop",
-        "160°/km winding density — the second-highest score in this guide. Tight, tree-lined, constantly turning lakeside tarmac. This is a slow-speed technical drive: narrow lanes, cyclists on weekends, and corners that reward precision, not pace.",
-        "Start: Mill Bay ferry or Trans-Canada · Weekday mornings are quietest · Full lake loop adds 10 km of the same"),
-    "Callaghan Valley Road": ("Callaghan Valley Road", "BC-99 junction → Whistler Olympic Park",
-        "A dead-end alpine climb built for the 2010 Games: wide, smooth, and empty, gaining elevation through 12.7 km of sweeping switchbacks. Because it ends at the Olympic Park, you get to drive it both ways. Highest winding density in this guide.",
-        "Start: 10 min south of Whistler on BC-99 · Out-and-back — 25 km total · Snow closes it in winter"),
+        "Tight, tree-lined, constantly turning lakeside tarmac. This is a slow-speed technical drive: narrow lanes, cyclists on weekends, and corners that reward precision, not power.",
+        "Start: Mill Bay ferry or Trans-Canada · Weekday mornings are quietest · Full lake loop included — the route circles the lake"),
+    "Callaghan Valley Road": ("Callaghan Valley Road", "BC-99 junction → up the Callaghan valley",
+        "A dead-end alpine climb built for the 2010 Games: wide, smooth, and empty, gaining elevation through winding switchbacks. It dead-ends up the valley, so you get to drive it both ways — one of the densest corner counts in this guide.",
+        "Start: 10 min south of Whistler on BC-99 · Out-and-back — about 19 km total · Snow closes it in winter"),
     "Pemberton Meadows Road": ("Pemberton Meadows Road", "Pemberton → Upper Lillooet valley",
-        "Flat valley floor, 2,000-metre walls on both sides. The corners are gentle but the setting is absurd — farmland framed by glaciers. The road quietly dead-ends up the valley, so traffic is nearly zero. A decompression drive after Sea-to-Sky.",
+        "A flat valley floor with 2,000-metre walls on both sides. Corner after flowing corner past farmland framed by glaciers — the setting is absurd. The road quietly dead-ends up the valley, so traffic is nearly zero. A decompression drive after Sea-to-Sky.",
         "Start: Pemberton village · No services past town · Best after driving BC-99 north"),
     "WA 11": ("Chuckanut Drive", "WA-11 · Bellingham → Burlington (USA)",
-        "The Pacific Northwest's original scenic drive — carved into the cliffs over Samish Bay in 1896. Cross-border bonus route: 30 km of ocean-edge corners, oyster shacks, and viewpoints. Combine with a Bellingham coffee run for the perfect half-day.",
+        "The Pacific Northwest's original scenic drive — carved into the cliffs over Samish Bay in 1916. Cross-border bonus route: ocean-edge corners, oyster shacks, and viewpoints. Combine with a Bellingham coffee run for the perfect half-day.",
         "Start: Fairhaven district, Bellingham · US border: bring passport · Oyster stop: Taylor Shellfish Farms"),
     "Fulford-Ganges Road": ("Fulford–Ganges Road", "Salt Spring Island · ferry required",
-        "The hidden gem that algorithms miss and locals love. Take the ferry from Swartz Bay, roll off at Fulford Harbour, and carve 14 km of hilly, winding island road to Ganges village. The ferry ride makes it an event; the Saturday market makes it a day.",
+        "The hidden gem that algorithms miss and locals love. Take the ferry from Swartz Bay, roll off at Fulford Harbour, and carve winding island roads to Ganges village. The ferry ride makes it an event; the Saturday market makes it a day.",
         "Ferry: Swartz Bay → Fulford (35 min) · Saturday market in Ganges · Island speed limits are low — cruise it"),
     "Squamish Valley Road": ("Squamish Valley Road", "Squamish → Upper Squamish valley",
-        "Turn off the tourist highway and follow the Squamish River into the mountains. 22 km of river-valley corners that get wilder and emptier the further you go. Pavement ends eventually — turn around there. Eagles in winter, alpenglow in summer.",
-        "Start: BC-99 north of Squamish · Pavement ends ~22 km in · Winter: bald eagle viewing area"),
+        "Turn off the highway and follow the Squamish River into the mountains. River-valley corners that get wilder and emptier the further you go — the highest winding density in this guide. The route ends where the pavement does; turn around there. Eagles in winter, alpenglow in summer.",
+        "Start: BC-99 north of Squamish · Pavement ends in the upper valley · Winter: bald eagle viewing area"),
 }
 
 def difficulty(d):
-    if d < 60: return "SCENIC", "#4dd0a1"
-    if d < 90: return "SPIRITED", "#ffd166"
-    if d < 130: return "WINDING", "#ff9f43"
+    if d < 72: return "SCENIC", "#4dd0a1"
+    if d < 88: return "SPIRITED", "#ffd166"
+    if d < 98: return "WINDING", "#ff9f43"
     return "TECHNICAL", "#ff3b30"
 
 pages = []
+total_km = 0
+
 for i, r in enumerate(meta):
-    disp = DISPLAY[r["key"]]
+    key = r.get("key", r.get("ref", ""))
+    disp = DISPLAY.get(key)
+    if not disp:
+        print(f"Warning: no display config for {key}")
+        continue
+
     name, sub, desc, tips = disp
     label, color = difficulty(r["turn_per_km"])
-    hours = r["km"] / 55
-    tmin = int(round(hours * 60))
+
+    tmin = r["drive_min"]
     time_s = f"{tmin//60}h {tmin%60:02d}m" if tmin >= 60 else f"{tmin} min"
+
     tip_items = "".join(f"<li>{t.strip()}</li>" for t in tips.split("·"))
+
+    # Google Maps link
+    start_lat, start_lon = r["start"]
+    end_lat, end_lon = r["end"]
+    g = r.get("geometry") or []
+    wp = ""
+    if len(g) > 10:
+        a, b = g[len(g)//3], g[2*len(g)//3]
+        wp = f"&waypoints={a[0]},{a[1]}%7C{b[0]},{b[1]}"
+    gmaps_url = f"https://www.google.com/maps/dir/?api=1&origin={start_lat},{start_lon}&destination={end_lat},{end_lon}{wp}"
+
     pages.append(f"""
 <section class="page route">
   <div class="rhead">
@@ -72,9 +94,14 @@ for i, r in enumerate(meta):
   </div>
   <p class="desc">{desc}</p>
   <ul class="tips">{tip_items}</ul>
+  <p style="margin-top:10px; font-size:11px;"><a href="{gmaps_url}" style="color:#ff3b30; text-decoration:none;">Open in Google Maps ↗</a></p>
   <div class="pfoot"><span>REVV · Hidden Winding Roads Vol. 1</span><span>{i+1:02d} / 10</span></div>
 </section>""")
 
+    total_km += r["km"]
+
+dmin = min(r["turn_per_km"] for r in meta)
+dmax = max(r["turn_per_km"] for r in meta)
 html = f"""<!doctype html><html><head><meta charset="utf-8"><style>
 @page {{ size: 8.5in 11in; margin: 0; }}
 * {{ margin:0; padding:0; box-sizing:border-box; }}
@@ -120,7 +147,7 @@ h2 {{ font-size:26px; font-weight:800; letter-spacing:-0.01em; }}
     <h1>Hidden Winding Roads<br>of the <span class="accent">Pacific Northwest</span></h1>
     <div class="tag">10 driving routes scored by algorithm, not opinion.<br>British Columbia &amp; Washington · Vol. 1</div>
     <div class="coverstats">
-      <div class="stat"><div class="v">385 km</div><div class="k">TOTAL ROUTE LENGTH</div></div>
+      <div class="stat"><div class="v">{total_km:.0f} km</div><div class="k">TOTAL ROUTE LENGTH</div></div>
       <div class="stat"><div class="v">1,579</div><div class="k">WAYS ANALYZED</div></div>
       <div class="stat"><div class="v">10</div><div class="k">ROUTES THAT MADE THE CUT</div></div>
     </div>
@@ -132,28 +159,39 @@ h2 {{ font-size:26px; font-weight:800; letter-spacing:-0.01em; }}
   <h2>How these roads were found</h2>
   <p>Every route in this guide was discovered by an algorithm, not a listicle. We pulled every paved highway, primary and secondary road in each region from OpenStreetMap — 1,579 road segments — and scored each one on how much it actually turns.</p>
   <div class="method">
-    <code>winding density = Σ|Δbearing| / distance&nbsp;&nbsp;→&nbsp;&nbsp;score = density × √km</code>
+    <p><b>Winding density</b>: degrees of direction change per kilometre. A straight freeway scores near zero. The roads in this guide score {dmin:.0f}–{dmax:.0f}°/km — which you feel as a corner every few hundred metres, for kilometres on end.</p>
   </div>
-  <p>The metric is <b>winding density</b>: degrees of direction change per kilometre. A straight freeway scores near zero. The roads in this guide score 50–180°/km — which you feel as a corner every few hundred metres, for kilometres on end. The final score rewards roads that stay interesting over real distance, not just one good hairpin.</p>
-  <p>Then we curated. Algorithms don't know about ferry rides, oyster shacks, or which roads have logging-truck traffic — so every entry was reviewed and annotated by a human who drives these regions.</p>
+  <p>Then we curated. Algorithms don't know about ferry rides, oyster shacks, or which roads have logging-truck traffic — so every entry was reviewed and annotated with local research.</p>
   <div class="safety">Every road here is a public road. Posted limits, oncoming traffic, cyclists and wildlife are all part of the deal — these routes are rewarding at completely legal speeds. Drive smooth, arrive happy.</div>
   <div class="pfoot" style="margin-top:auto"><span>REVV · Hidden Winding Roads Vol. 1</span><span>METHOD</span></div>
 </section>
+
 {''.join(pages)}
+
 <section class="page cta">
   <div>
-    <h2>This guide is a snapshot.<br>The app is <span style="color:#ff3b30">live</span>.</h2>
-    <p>REVV scores every road around you in real time — anywhere in North America. Find your own hidden routes, track your drives, and build your personal driving log.</p>
+    <h2>This guide is a snapshot.<br>The app is <span style="color:#ff3b30">coming</span>.</h2>
+    <p>REVV will score every road around you in real time — anywhere in North America. Find your own winding routes, track your drives, and build your personal driving log.</p>
+    <p style="font-size:13px;color:#7a8087">Vol. 2 is already in the pipeline — Duffey Lake Road and the Mt. Baker Highway lead the list.</p>
     <p><b style="color:#e8eaed">Want routes picked for you?</b><br>Custom Route Drop: tell us your location and how much time you have — we'll send you your 3 best local roads, scored and annotated.</p>
-    <div class="app">GET REVV</div>
+    <div class="app">GET NOTIFIED</div>
   </div>
 </section>
+
 </body></html>"""
 
 fn = os.path.join(OUT, "guide.html")
-open(fn, "w").write(html)
+with open(fn, "w") as f:
+    f.write(html)
+
 chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 pdf = os.path.join(OUT, "REVV_Hidden_Winding_Roads_Vol1.pdf")
 subprocess.run([chrome, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
                 f"--print-to-pdf={pdf}", f"file://{fn}"], check=True, capture_output=True)
-print("PDF:", pdf, os.path.getsize(pdf)//1024, "KB")
+
+size_kb = os.path.getsize(pdf) // 1024
+print(f"PDF generated: {pdf} ({size_kb} KB)")
+import shutil
+dest = os.path.join(os.path.dirname(OUT), "02_판매상품", "REVV_Hidden_Winding_Roads_Vol1.pdf")
+shutil.copy(pdf, dest)
+print(f"copied -> {dest}")
