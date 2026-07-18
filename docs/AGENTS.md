@@ -12,7 +12,7 @@
 ## 폴더 구조
 - `01_전략/` — 마스터 플랜(sns_revenue_plan.md: 상품 사다리·자동화 파이프라인·4주 로드맵), 14일 콘텐츠 캘린더(훅·대본)
 - `02_판매상품/` — 완성된 가이드 PDF + Gumroad 복붙 문안
-- `03_콘텐츠/` — Threads 14포스트 완성문
+- `03_콘텐츠/` — Threads 14포스트 완성문(EN), 자동응답 엔진(auto_reply_engine.md: 댓글/DM 10유형 위트 답변 + ManyChat 키워드 트리거), 한국어 코미디 계정 컨셉(concept_사장vs판매AI.md: 「기능충 사장 vs 갈굼당하는 판매 AI」 캐릭터극, Threads KR 서브계정용 14포스트)
 - `04_파이프라인/` — 가이드 생성 코드 (아래 사용법)
 - `05_TCG카드샵서비스/` — 트랙 B. 카드샵 스토어프론트 판매 (소스: `~/Desktop/tkl-demo`). GO_TO_MARKET.md에 라이선스 판정 포함
 
@@ -48,3 +48,4 @@
 - [ ] AI: 촬영본 나오면 Week 1 배치 생성
 - [ ] AI: 아마존 제휴 계정 승인 후 링크 3종(거치대/대시캠/VEEPEAK OBD) 선정
 - [ ] AI: Vol.2 (Mt Baker + 오리건) 데이터 수집
+- [ ] 민우: 한국 Threads 서브계정 생성 (concept_사장vs판매AI.md 운영용) + ManyChat 연결 15분 (auto_reply_engine.md 자동발사용)
