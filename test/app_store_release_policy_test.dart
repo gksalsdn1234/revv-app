@@ -18,23 +18,27 @@ void main() {
       expect(controller, isNot(contains("sounds/beep.mp3")));
     });
 
-    test('native launch screen matches the in-app loading identity', () {
+    test('native launch screen is the only startup loading identity', () {
       final storyboard = File(
         'ios/Runner/Base.lproj/LaunchScreen.storyboard',
       ).readAsStringSync();
+      final main = File('lib/main.dart').readAsStringSync();
 
       expect(storyboard, isNot(contains('image="LaunchImage"')));
       expect(storyboard, contains('userLabel="Launch F1 Lights"'));
       expect(storyboard, contains('userLabel="Launch Logo RE"'));
       expect(storyboard, contains('userLabel="Launch Logo VV"'));
-      expect(storyboard, contains('Find the road.'));
-      expect(storyboard, contains('Start the drive.'));
+      expect(storyboard, isNot(contains('Find the road.')));
+      expect(storyboard, isNot(contains('Start the drive.')));
+      expect(main, contains('home: const LeanAppShellScreen()'));
+      expect(main, isNot(contains('LoadingScreen')));
 
       for (final locale in ['en', 'fr', 'ko']) {
         final strings = File('ios/Runner/$locale.lproj/LaunchScreen.strings');
         expect(strings.existsSync(), isTrue, reason: '$locale launch copy');
         expect(strings.readAsStringSync(), contains('launch-tagline.text'));
         expect(strings.readAsStringSync(), contains('launch-title.text'));
+        expect(strings.readAsStringSync(), isNot(contains(RegExp(r'[가-힣]'))));
       }
     });
 
@@ -103,12 +107,20 @@ void main() {
 
     test('map controls do not overlap Mapbox ornaments', () {
       final mapWidget = File('lib/widgets/map_widget.dart').readAsStringSync();
+      final shell = File(
+        'lib/screens/lean_app_shell_screen.dart',
+      ).readAsStringSync();
 
       expect(mapWidget, contains('_configureMapOrnaments'));
       expect(mapWidget, contains('mbx.ScaleBarSettings(enabled: false)'));
       expect(mapWidget, contains('_scheduleDifficultyLines'));
       expect(mapWidget, contains('mbx.OrnamentPosition.TOP_LEFT'));
       expect(mapWidget, contains('marginTop: 400'));
+      expect(shell, contains('https://www.openstreetmap.org/copyright'));
+      expect(shell, contains('LinkTarget.blank'));
+      expect(shell, contains('link: true'));
+      expect(shell, contains('linkUrl: _openStreetMapCopyrightUri'));
+      expect(shell, contains('AppCopy.mapDataCreditsDetail(language)'));
     });
 
     test('release target matches the phone-first reviewed UI surface', () {
@@ -160,7 +172,50 @@ void main() {
 
       expect(callAi, contains('readJsonWithLimit(req, maxRequestBytes)'));
       expect(callAi, isNot(contains('await req.json()')));
-      expect(security, contains('rateLimitKeys(verifiedSub, forwardedFor)'));
+      expect(
+        security,
+        contains('rateLimitKeys(verifiedSub, forwardedFor, secret)'),
+      );
+      expect(
+        security,
+        contains('if (!response.ok) return false;'),
+        reason: 'database rate-limit errors must fail closed',
+      );
+    });
+
+    test('account deletion only confirms an explicit server success', () {
+      final service = File(
+        'lib/services/supabase_service.dart',
+      ).readAsStringSync();
+
+      expect(service, isNot(contains('accountMissing')));
+      expect(
+        service,
+        contains(
+          'if (currentUid == null || currentUid != pendingUid) {\n'
+          '      return false;',
+        ),
+      );
+      expect(
+        service,
+        isNot(
+          contains(
+            'await prefs.remove(StorageKeys.pendingAccountDeletionUid);',
+          ),
+        ),
+      );
+    });
+
+    test('account deletion Edge function is gateway-bound and idempotent', () {
+      final config = File('supabase/config.toml').readAsStringSync();
+      final function = File(
+        'supabase/functions/delete-account/index.ts',
+      ).readAsStringSync();
+
+      expect(config, contains('[functions.delete-account]\nverify_jwt = true'));
+      expect(function, contains('gatewayVerifiedJwtSub'));
+      expect(function, isNot(contains('verifiedJwtSub')));
+      expect(function, contains('response.status !== 404'));
     });
   });
 }

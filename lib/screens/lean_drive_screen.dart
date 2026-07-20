@@ -290,14 +290,24 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     required String driveMode,
     double? heading,
   }) {
-    _session?.recordPosition(
-      position.lat,
-      position.lng,
-      speed,
-      lateralG: lateralG,
-      longitudinalG: longitudinalG,
-      driveMode: driveMode,
-    );
+    final accepted =
+        _session?.recordPosition(
+          position.lat,
+          position.lng,
+          speed,
+          lateralG: lateralG,
+          longitudinalG: longitudinalG,
+          driveMode: driveMode,
+          accuracyM: widget.simulated
+              ? null
+              : _location?.currentPosition?.accuracy,
+          sampleTime: widget.simulated
+              ? DateTime.now()
+              : _location?.currentPosition?.timestamp,
+          rejectImplausible: !widget.simulated,
+        ) ??
+        true;
+    if (!accepted) return;
     _session?.recordSharpCorner(position.lat, position.lng, lateralG);
     final language = _settings?.appLanguage ?? AppLanguage.korean;
     final routeState = readDriveRouteState(
@@ -350,6 +360,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       position: position,
       language: language,
       muted: _settings?.ttsMuted ?? true,
+      currentHeading: nextBearing,
     );
     if (!mounted) return;
     setState(() {
@@ -396,6 +407,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     required LatLng position,
     required AppLanguage language,
     required bool muted,
+    required double? currentHeading,
   }) {
     if (previous == next) return;
     final rejoin = nearestRoutePoint(
@@ -411,6 +423,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       rejoinBearing: rejoin == null
           ? _navigationBearing
           : _bearingBetween(position, rejoin),
+      currentHeading: currentHeading,
     );
     if (next != DriveRouteStatus.offRoute) {
       if (previous == DriveRouteStatus.offRoute) {
@@ -657,9 +670,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     final routeNodes = _activeRouteNodes;
     final routeName = routeDisplayName(widget.route, language: language);
     final plan = widget.drivePlan;
-    final windingCount = plan?.legs
-        .where((leg) => leg.kind == DrivePlanLegKind.winding)
-        .length;
+    final windingCount = plan == null ? null : windingRouteCount(plan);
     final chainProgressLabel = plan == null || windingCount == null
         ? null
         : AppCopy.t(

@@ -46,6 +46,7 @@ class RouteDifficultyLine {
   final int colorArgb;
   final double width;
   final double opacity;
+  final bool showNewCasing;
 
   const RouteDifficultyLine({
     required this.routeId,
@@ -53,6 +54,27 @@ class RouteDifficultyLine {
     required this.colorArgb,
     required this.width,
     required this.opacity,
+    this.showNewCasing = false,
+  });
+}
+
+String buildNewRouteCasingGeoJson(List<RouteDifficultyLine> lines) {
+  return jsonEncode({
+    'type': 'FeatureCollection',
+    'features': [
+      for (final line in lines)
+        if (line.showNewCasing && line.points.length > 1)
+          {
+            'type': 'Feature',
+            'geometry': {
+              'type': 'LineString',
+              'coordinates': line.points
+                  .map((point) => [point.lng, point.lat])
+                  .toList(),
+            },
+            'properties': {'routeId': line.routeId},
+          },
+    ],
   });
 }
 
@@ -1097,6 +1119,7 @@ class _MapWidgetState extends State<MapWidget>
           left.colorArgb != right.colorArgb ||
           left.width != right.width ||
           left.opacity != right.opacity ||
+          left.showNewCasing != right.showNewCasing ||
           left.points.length != right.points.length) {
         return false;
       }
@@ -1157,6 +1180,8 @@ class _MapWidgetState extends State<MapWidget>
     'difficulty-tight',
   ];
 
+  static const _newRouteCasingId = 'difficulty-new-route-casing';
+
   String _difficultyLayerId(RouteDifficultyLine line) {
     return switch (line.colorArgb) {
       0xFFFF2E38 => 'difficulty-tight',
@@ -1169,6 +1194,12 @@ class _MapWidgetState extends State<MapWidget>
   Future<void> _clearDifficultyLines() async {
     final map = _mapController;
     if (map == null) return;
+    try {
+      await map.style.removeStyleLayer('$_newRouteCasingId-layer');
+    } catch (_) {}
+    try {
+      await map.style.removeStyleSource('$_newRouteCasingId-source');
+    } catch (_) {}
     for (final id in _difficultyLayerIds) {
       try {
         await map.style.removeStyleLayer('$id-glow-layer');
@@ -1187,6 +1218,33 @@ class _MapWidgetState extends State<MapWidget>
     if (map == null || !_styleLoaded) return;
     await _clearDifficultyLines();
     if (lines.isEmpty) return;
+
+    final newRouteGeoJson = buildNewRouteCasingGeoJson(lines);
+    if (lines.any((line) => line.showNewCasing && line.points.length > 1)) {
+      try {
+        await map.style.addSource(
+          mbx.GeoJsonSource(
+            id: '$_newRouteCasingId-source',
+            data: newRouteGeoJson,
+          ),
+        );
+        await map.style.addLayer(
+          mbx.LineLayer(
+            id: '$_newRouteCasingId-layer',
+            sourceId: '$_newRouteCasingId-source',
+            lineColor: AppColors.cyan.toARGB32(),
+            lineWidth: 5.0,
+            lineOpacity: 0.72,
+            lineCap: mbx.LineCap.ROUND,
+            lineJoin: mbx.LineJoin.ROUND,
+          ),
+        );
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[MapWidget] new route casing: ${e.runtimeType}');
+        }
+      }
+    }
 
     final groups = <String, List<RouteDifficultyLine>>{};
     for (final line in lines) {

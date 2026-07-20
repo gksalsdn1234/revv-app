@@ -18,5 +18,30 @@ void main() {
       'Voice guidance',
     );
     expect(AppCopy.settingsCurveAlerts(AppLanguage.french), 'Alertes virage');
+    expect(AppCopy.mapDataCredits(AppLanguage.korean), '지도 데이터 · 루트 출처');
+    expect(
+      AppCopy.mapDataCredits(AppLanguage.english),
+      'Map data & route sources',
+    );
+    expect(
+      AppCopy.mapDataCredits(AppLanguage.french),
+      'Données cartographiques et sources',
+    );
+    expect(
+      AppCopy.mapDataCreditsDetail(AppLanguage.english),
+      'Generated routes: © OpenStreetMap contributors · ODbL',
+    );
+    expect(
+      AppCopy.mapDataCreditsLinkSemantics(AppLanguage.korean),
+      'OpenStreetMap 저작권 정보 열기',
+    );
+    expect(
+      AppCopy.mapDataCreditsLinkSemantics(AppLanguage.english),
+      'Open OpenStreetMap copyright information',
+    );
+    expect(
+      AppCopy.mapDataCreditsLinkSemantics(AppLanguage.french),
+      'Ouvrir les informations de droit d’auteur OpenStreetMap',
+    );
   });
 }

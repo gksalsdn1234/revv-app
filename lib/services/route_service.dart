@@ -14,12 +14,41 @@ enum SprintStartMode { auto, guideToStart, joinFromCurrent }
 
 typedef RouteOverviewFetcher =
     Future<List<RevvRoute>> Function(LatLng center, int maxResults);
+typedef RouteCatalogFetcher = Future<List<RevvRoute>> Function(int maxResults);
+typedef RouteCatalogEpochFetcher = Future<int> Function();
+typedef RouteNodeFetcher = Future<List<LatLng>> Function(String routeId);
+
+class _RouteOverviewRegionResult {
+  const _RouteOverviewRegionResult({
+    required this.routes,
+    required this.isComplete,
+  });
+
+  final List<RevvRoute> routes;
+  final bool isComplete;
+}
 
 class RouteService extends ChangeNotifier {
   RouteService({
     RouteOverviewFetcher? routeOverviewFetcher,
+    RouteOverviewFetcher? routeMapSegmentFetcher,
+    RouteCatalogFetcher? routeCatalogFetcher,
+    RouteCatalogEpochFetcher? routeCatalogEpochFetcher,
+    RouteOverviewFetcher? routeLocalV2Fetcher,
+    RouteOverviewFetcher? routeLegacyFetcher,
+    RouteOverviewFetcher? routeLegacyDirectFetcher,
+    RouteNodeFetcher? routeNodeV2Fetcher,
+    RouteNodeFetcher? routeLegacyNodeFetcher,
     RouteOverviewCache? routeOverviewCache,
   }) : _routeOverviewFetcher = routeOverviewFetcher,
+       _routeMapSegmentFetcher = routeMapSegmentFetcher,
+       _routeCatalogFetcher = routeCatalogFetcher,
+       _routeCatalogEpochFetcher = routeCatalogEpochFetcher,
+       _routeLocalV2Fetcher = routeLocalV2Fetcher,
+       _routeLegacyFetcher = routeLegacyFetcher,
+       _routeLegacyDirectFetcher = routeLegacyDirectFetcher,
+       _routeNodeV2Fetcher = routeNodeV2Fetcher,
+       _routeLegacyNodeFetcher = routeLegacyNodeFetcher,
        _routeOverviewCache = routeOverviewCache ?? RouteOverviewCache() {
     unawaited(_restorePendingDrive(_pendingGuideMutation));
   }
@@ -71,10 +100,24 @@ class RouteService extends ChangeNotifier {
   int _fetchToken = 0;
   int _overviewFetchToken = 0;
   final RouteOverviewFetcher? _routeOverviewFetcher;
+  final RouteOverviewFetcher? _routeMapSegmentFetcher;
+  final RouteCatalogFetcher? _routeCatalogFetcher;
+  final RouteCatalogEpochFetcher? _routeCatalogEpochFetcher;
+  final RouteOverviewFetcher? _routeLocalV2Fetcher;
+  final RouteOverviewFetcher? _routeLegacyFetcher;
+  final RouteOverviewFetcher? _routeLegacyDirectFetcher;
+  final RouteNodeFetcher? _routeNodeV2Fetcher;
+  final RouteNodeFetcher? _routeLegacyNodeFetcher;
   final RouteOverviewCache _routeOverviewCache;
   List<RevvRoute> _overviewRoutes = const [];
   final Set<String> _overviewCompletedRegionKeys = {};
+  final Map<String, bool> _overviewRegionHadRoutes = {};
   LatLng? _pendingOverviewReferencePoint;
+  Future<int?>? _catalogEpochValidation;
+  int? _validatedCatalogEpoch;
+  bool _catalogAttempted = false;
+  bool _overviewCacheRestored = false;
+  bool _disposed = false;
 
   RevvRoute? get effectiveSprintRoute => sprintRoute ?? selectedRoute;
 
@@ -216,6 +259,7 @@ class RouteService extends ChangeNotifier {
     double lng, {
     bool forceRefresh = false,
   }) async {
+    _catalogEpochValidation = null;
     searchRadiusKm = routeFieldRadiusKm;
     final point = LatLng(lat, lng);
     final token = ++_fetchToken;
@@ -264,93 +308,102 @@ class RouteService extends ChangeNotifier {
       return;
     }
     if (routeOverviewLoaded && _hasOverviewCoverage(referencePoint)) return;
+    _catalogEpochValidation = null;
     routeOverviewLoading = true;
     final token = ++_overviewFetchToken;
     notifyListeners();
 
     try {
-      final cached = await _routeOverviewCache.read();
-      if (token != _overviewFetchToken) return;
-      final staticRegionKeys = {
-        for (final center in routeOverviewCenters) _overviewRegionKey(center),
-      };
-      final completedRegionKeys = <String>{
-        ..._overviewCompletedRegionKeys,
-        ...?cached?.completedRegionKeys,
-      };
-      _overviewCompletedRegionKeys.addAll(completedRegionKeys);
-      if (cached != null) {
-        _overviewRoutes = cached.routes;
-        _refreshMapVisualRoutes();
-        notifyListeners();
-        routeOverviewLoaded = staticRegionKeys.every(
-          completedRegionKeys.contains,
-        );
-        if (routeOverviewLoaded &&
-            _hasOverviewCoverage(
-              referencePoint,
-              completedRegionKeys: completedRegionKeys,
-            )) {
-          return;
-        }
-      }
-
-      final requestCenters = _overviewRequestCenters(
-        referencePoint,
-        completedRegionKeys,
-      );
-      final regionalFields = List<List<RevvRoute>?>.filled(
-        requestCenters.length,
-        null,
-      );
-      final baselineRoutes = _overviewRoutes;
-      var nextRequest = 0;
-      var newlyCompletedRegionCount = 0;
-
-      Future<void> loadNextRegions() async {
-        while (token == _overviewFetchToken) {
-          if (nextRequest >= requestCenters.length) return;
-          final index = nextRequest++;
-          final center = requestCenters[index];
-          List<RevvRoute> field;
-          try {
-            field = await _fetchRouteOverviewRegion(center);
-          } catch (_) {
-            continue;
-          }
-          if (token != _overviewFetchToken) return;
-          regionalFields[index] = field;
-          final regionKey = _overviewRegionKey(center);
-          completedRegionKeys.add(regionKey);
-          _overviewCompletedRegionKeys.add(regionKey);
-          newlyCompletedRegionCount++;
-          _overviewRoutes = mergeRouteOverviewFields([
-            baselineRoutes,
-            ...regionalFields.whereType<List<RevvRoute>>(),
-          ], limit: routeFieldFetchLimit);
+      if (!_overviewCacheRestored) {
+        _overviewCacheRestored = true;
+        final cached = await _routeOverviewCache.read();
+        if (token != _overviewFetchToken) return;
+        if (cached != null) {
+          _overviewCompletedRegionKeys.addAll(cached.completedRegionKeys);
+          _overviewRegionHadRoutes.addAll(cached.regionHadRoutes);
+          _overviewRoutes = await _validatedCachedRoutes(
+            cached.routes,
+            cached.catalogEpoch,
+          );
           _refreshMapVisualRoutes();
           notifyListeners();
         }
       }
 
-      await Future.wait([
-        for (var worker = 0; worker < routeOverviewConcurrencyLimit; worker++)
-          loadNextRegions(),
-      ]);
+      final epoch = await _ensureCatalogEpoch();
       if (token != _overviewFetchToken) return;
+      if (!_catalogAttempted && epoch != null) {
+        _catalogAttempted = true;
+        try {
+          final fetcher = _routeCatalogFetcher;
+          final catalog = fetcher != null
+              ? await fetcher(routeFieldFetchLimit)
+              : await SupabaseService().fetchRouteCatalog(
+                  maxResults: routeFieldFetchLimit,
+                );
+          if (token != _overviewFetchToken) return;
+          _overviewRoutes = mergeRouteOverviewFields([
+            _overviewRoutes.where((route) => !route.isGenerated).toList(),
+            _routesAllowedForEpoch(catalog, epoch),
+          ], limit: routeFieldFetchLimit);
+          _refreshMapVisualRoutes();
+          notifyListeners();
+        } catch (error) {
+          if (kDebugMode) {
+            debugPrint(
+              '[RouteService] route catalog failed: ${error.runtimeType}',
+            );
+          }
+        }
+      }
 
-      if (newlyCompletedRegionCount > 0) {
+      var cacheChanged = false;
+      if (!_hasOverviewCoverage(referencePoint)) {
+        try {
+          final result = await _fetchRouteOverviewRegion(referencePoint);
+          if (token != _overviewFetchToken) return;
+          final field = epoch == null
+              ? result.routes.where((route) => !route.isGenerated).toList()
+              : _routesAllowedForEpoch(result.routes, epoch);
+          _overviewRoutes = mergeRouteOverviewFields([
+            _overviewRoutes,
+            field,
+          ], limit: routeFieldFetchLimit);
+          _refreshMapVisualRoutes();
+          notifyListeners();
+          final key = _overviewRegionKey(referencePoint);
+          if (result.isComplete) {
+            _overviewCompletedRegionKeys.add(key);
+            _overviewRegionHadRoutes[key] = field.isNotEmpty;
+            cacheChanged = true;
+          } else {
+            _overviewCompletedRegionKeys.remove(key);
+            _overviewRegionHadRoutes.remove(key);
+          }
+        } catch (error) {
+          if (kDebugMode) {
+            debugPrint(
+              '[RouteService] viewport supplement failed: ${error.runtimeType}',
+            );
+          }
+        }
+      }
+
+      routeOverviewLoaded = true;
+      if ((_catalogAttempted || cacheChanged) &&
+          _overviewCompletedRegionKeys.isNotEmpty) {
         await _routeOverviewCache.write(
           RouteOverviewCacheEntry(
             routes: _overviewRoutes,
-            completedRegionKeys: completedRegionKeys,
+            completedRegionKeys: _overviewCompletedRegionKeys,
+            regionHadRoutes: {
+              for (final key in _overviewCompletedRegionKeys)
+                key: _overviewRegionHadRoutes[key] ?? false,
+            },
+            catalogEpoch: epoch,
           ),
         );
       }
-
-      routeOverviewLoaded = staticRegionKeys.every(
-        completedRegionKeys.contains,
-      );
     } catch (e) {
       if (token != _overviewFetchToken) return;
       if (kDebugMode) {
@@ -358,7 +411,7 @@ class RouteService extends ChangeNotifier {
       }
     } finally {
       routeOverviewLoading = false;
-      if (token == _overviewFetchToken) {
+      if (token == _overviewFetchToken && !_disposed) {
         notifyListeners();
         final pendingReferencePoint = _pendingOverviewReferencePoint;
         _pendingOverviewReferencePoint = null;
@@ -370,48 +423,30 @@ class RouteService extends ChangeNotifier {
     }
   }
 
-  List<LatLng> _overviewRequestCenters(
-    LatLng referencePoint,
-    Set<String> completedRegionKeys,
-  ) {
-    final missingStaticCenters =
-        routeOverviewCenters
-            .where(
-              (center) =>
-                  !completedRegionKeys.contains(_overviewRegionKey(center)),
-            )
-            .toList()
-          ..sort((a, b) {
-            final distanceA = RevvRoute.haversineKm(referencePoint, a);
-            final distanceB = RevvRoute.haversineKm(referencePoint, b);
-            return distanceA.compareTo(distanceB);
-          });
-    if (_hasOverviewCoverage(
-      referencePoint,
-      completedRegionKeys: completedRegionKeys,
-    )) {
-      return missingStaticCenters;
-    }
-
-    if (missingStaticCenters.isNotEmpty &&
-        RevvRoute.haversineKm(referencePoint, missingStaticCenters.first) <=
-            routeOverviewCoverageReuseKm) {
-      return missingStaticCenters;
-    }
-    return [referencePoint, ...missingStaticCenters];
-  }
-
   bool _hasOverviewCoverage(
     LatLng referencePoint, {
     Set<String>? completedRegionKeys,
   }) {
     final keys = completedRegionKeys ?? _overviewCompletedRegionKeys;
-    return keys.any((key) {
+    final nearbyKeys = keys.where((key) {
       final center = _overviewCenterFromKey(key);
       return center != null &&
           RevvRoute.haversineKm(referencePoint, center) <=
               routeOverviewCoverageReuseKm;
-    });
+    }).toList();
+    if (nearbyKeys.isEmpty) return false;
+    for (final key in nearbyKeys) {
+      if (_overviewRegionHadRoutes[key] != true) return true;
+      final center = _overviewCenterFromKey(key)!;
+      if (_overviewRoutes.any(
+        (route) =>
+            RevvRoute.haversineKm(center, route.centerPoint) <=
+            routeFieldRadiusKm,
+      )) {
+        return true;
+      }
+    }
+    return false;
   }
 
   LatLng? _overviewCenterFromKey(String key) {
@@ -426,22 +461,169 @@ class RouteService extends ChangeNotifier {
   String _overviewRegionKey(LatLng center) =>
       '${center.lat.toStringAsFixed(4)},${center.lng.toStringAsFixed(4)}';
 
-  Future<List<RevvRoute>> _fetchRouteOverviewRegion(LatLng center) {
+  Future<_RouteOverviewRegionResult> _fetchRouteOverviewRegion(
+    LatLng center,
+  ) async {
     final fetcher = _routeOverviewFetcher;
-    if (fetcher != null) {
-      return fetcher(center, routeOverviewPerRegionLimit);
+    final recommended = fetcher != null
+        ? await fetcher(center, routeOverviewPerRegionLimit)
+        : await _fetchLocalRoutes(center, routeOverviewPerRegionLimit);
+    if (recommended.length >= routeOverviewPerRegionLimit) {
+      return _RouteOverviewRegionResult(routes: recommended, isComplete: true);
     }
-    return SupabaseService().fetchNearbyRoutes(
-      center.lat,
-      center.lng,
-      routeFieldRadiusKm.toDouble(),
-      maxResults: routeOverviewPerRegionLimit,
-      throwOnFailure: true,
-      trackFailureReason: false,
-    );
+
+    final segmentFetcher = _routeMapSegmentFetcher;
+    if (segmentFetcher == null && fetcher != null) {
+      return _RouteOverviewRegionResult(routes: recommended, isComplete: true);
+    }
+    try {
+      final mapSegments = segmentFetcher != null
+          ? await segmentFetcher(center, routeOverviewPerRegionLimit)
+          : await SupabaseService().fetchMapSegments(
+              center.lat,
+              center.lng,
+              routeFieldRadiusKm.toDouble(),
+              maxResults: routeOverviewPerRegionLimit,
+              throwOnFailure: true,
+            );
+      return _RouteOverviewRegionResult(
+        routes: mergeRouteOverviewFields([
+          recommended,
+          mapSegments,
+        ], limit: routeOverviewPerRegionLimit),
+        isComplete: true,
+      );
+    } catch (_) {
+      return _RouteOverviewRegionResult(routes: recommended, isComplete: false);
+    }
+  }
+
+  Future<int?> _ensureCatalogEpoch() {
+    return _catalogEpochValidation ??= () async {
+      final previousEpoch = _validatedCatalogEpoch;
+      try {
+        final fetcher = _routeCatalogEpochFetcher;
+        final epoch = fetcher != null
+            ? await fetcher()
+            : await SupabaseService().fetchRouteCatalogEpoch();
+        if (epoch < 0) {
+          _validatedCatalogEpoch = null;
+          _catalogAttempted = false;
+          if (previousEpoch != null) _removeGeneratedRoutes();
+          return null;
+        }
+        if (previousEpoch != null && previousEpoch != epoch) {
+          _catalogAttempted = false;
+          _removeGeneratedRoutes();
+        }
+        _validatedCatalogEpoch = epoch;
+        return epoch;
+      } catch (error) {
+        _validatedCatalogEpoch = null;
+        _catalogAttempted = false;
+        if (previousEpoch != null) _removeGeneratedRoutes();
+        if (kDebugMode) {
+          debugPrint(
+            '[RouteService] catalog epoch failed: ${error.runtimeType}',
+          );
+        }
+        return null;
+      }
+    }();
+  }
+
+  Future<List<RevvRoute>> _validatedCachedRoutes(
+    List<RevvRoute> cachedRoutes,
+    int? cachedEpoch,
+  ) async {
+    if (!cachedRoutes.any((route) => route.isGenerated)) {
+      return cachedRoutes;
+    }
+    final onlineEpoch = await _ensureCatalogEpoch();
+    if (onlineEpoch == null || cachedEpoch != onlineEpoch) {
+      return cachedRoutes
+          .where((route) => !route.isGenerated)
+          .toList(growable: false);
+    }
+    return _routesAllowedForEpoch(cachedRoutes, onlineEpoch);
+  }
+
+  List<RevvRoute> _routesAllowedForEpoch(
+    Iterable<RevvRoute> candidates,
+    int epoch,
+  ) {
+    return candidates
+        .where((route) => !route.isGenerated || route.catalogEpoch == epoch)
+        .take(routeFieldFetchLimit)
+        .toList(growable: false);
+  }
+
+  Future<List<RevvRoute>> _fetchLocalRoutes(
+    LatLng center,
+    int maxResults, {
+    double? radiusKm,
+  }) async {
+    final boundedResults = maxResults.clamp(1, routeFieldInitialFetchLimit);
+    final requestRadiusKm = radiusKm ?? routeFieldRadiusKm.toDouble();
+    final epoch = await _ensureCatalogEpoch();
+    try {
+      final fetcher = _routeLocalV2Fetcher;
+      final routes = fetcher != null
+          ? await fetcher(center, boundedResults)
+          : await SupabaseService().fetchNearbyRoutesV2(
+              center.lat,
+              center.lng,
+              requestRadiusKm,
+              maxResults: boundedResults,
+            );
+      final accepted = epoch == null
+          ? routes
+                .where((route) => !route.isGenerated)
+                .take(boundedResults)
+                .toList(growable: false)
+          : _routesAllowedForEpoch(
+              routes,
+              epoch,
+            ).take(boundedResults).toList(growable: false);
+      if (accepted.isNotEmpty) return accepted;
+    } catch (_) {}
+    try {
+      final fallback = _routeLegacyFetcher;
+      final routes = fallback != null
+          ? await fallback(center, boundedResults)
+          : await SupabaseService().fetchNearbyRoutes(
+              center.lat,
+              center.lng,
+              requestRadiusKm,
+              maxResults: boundedResults,
+            );
+      final accepted = routes
+          .where((route) => !route.isGenerated)
+          .take(boundedResults)
+          .toList(growable: false);
+      if (accepted.isNotEmpty) return accepted;
+    } catch (_) {}
+    final directFetcher = _routeLegacyDirectFetcher;
+    final routes = directFetcher != null
+        ? await directFetcher(center, boundedResults)
+        : await SupabaseService().fetchNearbyRoutesDirect(
+            center.lat,
+            center.lng,
+            requestRadiusKm,
+            limit: requestRadiusKm >= 160
+                ? routeFieldFetchLimit
+                : requestRadiusKm >= 100
+                ? 400
+                : 250,
+          );
+    return routes
+        .where((route) => !route.isGenerated)
+        .take(boundedResults)
+        .toList(growable: false);
   }
 
   Future<void> fetchRoutes(double lat, double lng) async {
+    _catalogEpochValidation = null;
     searchRadiusKm = searchRadiusKm <= 0 ? routeFieldRadiusKm : searchRadiusKm;
     await _fetchRoutesAt(LatLng(lat, lng), radiusKm: searchRadiusKm);
   }
@@ -462,23 +644,12 @@ class RouteService extends ChangeNotifier {
     try {
       final cloud = SupabaseService();
       final cloudReady = cloud.isCloudAvailable;
-      var candidates = await cloud.fetchNearbyRoutes(
-        point.lat,
-        point.lng,
-        radiusKm.toDouble(),
-        maxResults: routeFieldInitialFetchLimit,
+      var candidates = await _fetchLocalRoutes(
+        point,
+        routeFieldInitialFetchLimit,
+        radiusKm: radiusKm.toDouble(),
       );
       lastCloudCandidateCount = candidates.length;
-
-      if (candidates.isEmpty) {
-        candidates = await cloud.fetchNearbyRoutesDirect(
-          point.lat,
-          point.lng,
-          radiusKm.toDouble(),
-          limit: routeFieldInitialFetchLimit,
-        );
-        lastCloudCandidateCount = candidates.length;
-      }
 
       if (candidates.isEmpty) {
         final cached = await _loadRouteFieldCache(point);
@@ -569,7 +740,7 @@ class RouteService extends ChangeNotifier {
         routeDataStatusBody = '연결 상태를 확인한 뒤 다시 시도해 주세요.';
       }
     } finally {
-      if (token == _fetchToken) {
+      if (token == _fetchToken && !_disposed) {
         isLoading = false;
         isLoadingInitial = false;
         backgroundStatusMessage = null;
@@ -584,24 +755,11 @@ class RouteService extends ChangeNotifier {
     bool allowCacheFallback = false,
   }) async {
     try {
-      final cloud = SupabaseService();
-      var candidates = await cloud.fetchNearbyRoutes(
-        point.lat,
-        point.lng,
-        routeFieldRadiusKm.toDouble(),
-        maxResults: routeFieldInitialFetchLimit,
+      var candidates = await _fetchLocalRoutes(
+        point,
+        routeFieldInitialFetchLimit,
       );
       lastCloudCandidateCount = candidates.length;
-
-      if (candidates.isEmpty) {
-        candidates = await cloud.fetchNearbyRoutesDirect(
-          point.lat,
-          point.lng,
-          routeFieldRadiusKm.toDouble(),
-          limit: routeFieldInitialFetchLimit,
-        );
-        lastCloudCandidateCount = candidates.length;
-      }
 
       if (token != _fetchToken) return;
 
@@ -665,7 +823,7 @@ class RouteService extends ChangeNotifier {
         );
       }
     } finally {
-      if (token == _fetchToken) {
+      if (token == _fetchToken && !_disposed) {
         isLoading = false;
         isLoadingInitial = false;
         backgroundStatusMessage = null;
@@ -680,6 +838,14 @@ class RouteService extends ChangeNotifier {
     unawaited(_hydrateSelectedRouteNodes());
   }
 
+  @override
+  void dispose() {
+    _disposed = true;
+    _fetchToken++;
+    _overviewFetchToken++;
+    super.dispose();
+  }
+
   void deselectRoute() {
     selectedRoute = null;
     notifyListeners();
@@ -690,6 +856,11 @@ class RouteService extends ChangeNotifier {
     _pendingOverviewReferencePoint = null;
     _overviewRoutes = const [];
     _overviewCompletedRegionKeys.clear();
+    _overviewRegionHadRoutes.clear();
+    _catalogEpochValidation = null;
+    _validatedCatalogEpoch = null;
+    _catalogAttempted = false;
+    _overviewCacheRestored = false;
     routeOverviewLoaded = false;
     rawCandidateRoutes = [];
     mapVisualRoutes = [];
@@ -700,6 +871,17 @@ class RouteService extends ChangeNotifier {
     routeFieldFromCache = false;
     routeDataSourceLabel = '초기화됨';
     notifyListeners();
+  }
+
+  void _removeGeneratedRoutes() {
+    _overviewRoutes = _overviewRoutes
+        .where((route) => !route.isGenerated)
+        .toList(growable: false);
+    rawCandidateRoutes = rawCandidateRoutes
+        .where((route) => !route.isGenerated)
+        .toList(growable: false);
+    _rebuildRecommendations();
+    _refreshMapVisualRoutes();
   }
 
   List<RevvRoute> _prepareVisibleRoutes(List<RevvRoute> candidates) {
@@ -778,14 +960,32 @@ class RouteService extends ChangeNotifier {
   Future<void> _hydrateSelectedRouteNodes() async {
     final route = selectedRoute;
     if (route == null || route.nodes.isNotEmpty) return;
-    final nodes = await SupabaseService().fetchRouteNodes(route.id);
-    if (nodes.isEmpty || selectedRoute?.id != route.id) return;
-    final hydrated = route.copyWith(nodes: nodes);
+    final hydrated = await hydrateRouteNodes(route);
+    if (hydrated.nodes.isEmpty || selectedRoute?.id != route.id) return;
     selectedRoute = hydrated;
     routes = [
       for (final item in routes) item.id == hydrated.id ? hydrated : item,
     ];
     notifyListeners();
+  }
+
+  Future<RevvRoute> hydrateRouteNodes(RevvRoute route) async {
+    if (route.nodes.isNotEmpty) return route;
+    try {
+      final fetcher = _routeNodeV2Fetcher;
+      final nodes = fetcher != null
+          ? await fetcher(route.id)
+          : await SupabaseService().fetchRouteNodesV2(route.id);
+      if (nodes.isNotEmpty) return route.copyWith(nodes: nodes);
+    } catch (_) {
+      // Generated routes must never cross the legacy direct-select boundary.
+    }
+    if (route.isGenerated) return route;
+    final fallback = _routeLegacyNodeFetcher;
+    final nodes = fallback != null
+        ? await fallback(route.id)
+        : await SupabaseService().fetchRouteNodes(route.id);
+    return nodes.isEmpty ? route : route.copyWith(nodes: nodes);
   }
 
   Future<void> _saveRouteFieldCache(
@@ -798,11 +998,13 @@ class RouteService extends ChangeNotifier {
       await prefs.setString(
         StorageKeys.routeCache,
         jsonEncode({
-          'version': 2,
+          'version': 3,
           'centerLat': center.lat,
           'centerLng': center.lng,
           'radiusKm': radiusKm,
           'fetchedAt': DateTime.now().toIso8601String(),
+          if (_validatedCatalogEpoch != null)
+            'catalogEpoch': _validatedCatalogEpoch,
           'routes': routes.map((route) => route.toJson()).toList(),
         }),
       );
@@ -832,10 +1034,12 @@ class RouteService extends ChangeNotifier {
       final fetchedAt =
           DateTime.tryParse(decoded['fetchedAt']?.toString() ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0);
-      final routes = ((decoded['routes'] as List?) ?? const [])
+      final decodedRoutes = ((decoded['routes'] as List?) ?? const [])
           .whereType<Map<String, dynamic>>()
           .map(RevvRoute.fromJson)
           .toList();
+      final catalogEpoch = (decoded['catalogEpoch'] as num?)?.toInt();
+      final routes = await _validatedCachedRoutes(decodedRoutes, catalogEpoch);
       if (routes.isEmpty) return null;
 
       final cache = _RouteFieldCache(
@@ -843,8 +1047,11 @@ class RouteService extends ChangeNotifier {
         radiusKm: radiusKm,
         fetchedAt: fetchedAt,
         routes: routes,
+        catalogEpoch: catalogEpoch,
       );
-      if (!ignoreTtl && !_isRouteFieldCacheUsable(cache, target)) return null;
+      if (!_isRouteFieldCacheUsable(cache, target, ignoreTtl: ignoreTtl)) {
+        return null;
+      }
       return cache;
     } catch (e) {
       if (kDebugMode) {
@@ -854,13 +1061,21 @@ class RouteService extends ChangeNotifier {
     }
   }
 
-  bool _isRouteFieldCacheUsable(_RouteFieldCache cache, LatLng target) {
-    if (cache.radiusKm < routeFieldRadiusKm) return false;
-    final age = DateTime.now().difference(cache.fetchedAt);
-    if (age > routeFieldCacheTtl) return false;
-    final distanceKm = RevvRoute.haversineKm(cache.center, target);
-    return distanceKm <= routeFieldCacheReuseKm;
-  }
+  bool _isRouteFieldCacheUsable(
+    _RouteFieldCache cache,
+    LatLng target, {
+    bool ignoreTtl = false,
+  }) => isRouteFieldCacheReusable(
+    cacheCenter: cache.center,
+    targetCenter: target,
+    cacheRadiusKm: cache.radiusKm,
+    requiredRadiusKm: routeFieldRadiusKm,
+    fetchedAt: cache.fetchedAt,
+    now: DateTime.now(),
+    maxAge: routeFieldCacheTtl,
+    maxCenterDistanceKm: routeFieldCacheReuseKm,
+    ignoreAge: ignoreTtl,
+  );
 
   List<RevvRoute> _routesRelativeTo(List<RevvRoute> routes, LatLng target) {
     return routes
@@ -878,11 +1093,13 @@ class _RouteFieldCache {
   final int radiusKm;
   final DateTime fetchedAt;
   final List<RevvRoute> routes;
+  final int? catalogEpoch;
 
   const _RouteFieldCache({
     required this.center,
     required this.radiusKm,
     required this.fetchedAt,
     required this.routes,
+    this.catalogEpoch,
   });
 }

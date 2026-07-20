@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
@@ -23,6 +24,13 @@ class RunSessionService extends ChangeNotifier {
 
   void configureRecoveryStore(RunRecoveryStore recoveryStore) {
     _recoveryStore ??= recoveryStore;
+  }
+
+  Future<void> clearRecovery() async {
+    final store = _recoveryStore;
+    if (store == null) return;
+    await _recoveryWrites;
+    await store.clear();
   }
 
   void _enqueueRecoveryWrite(Future<void> Function(RunRecoveryStore) action) {
@@ -63,6 +71,7 @@ class RunSessionService extends ChangeNotifier {
   final List<TelemetrySample> _telemetrySamples = [];
   DriveDynamicsTracker _dynamicsTracker = DriveDynamicsTracker();
   LatLng? _lastPosition;
+  DateTime? _lastPositionAt;
   DateTime? _lastTelemetrySampleTime;
   LatLng? _lastTelemetrySamplePosition;
   double _latestSpeedKmh = 0;
@@ -111,6 +120,7 @@ class RunSessionService extends ChangeNotifier {
     _telemetrySamples.clear();
     _dynamicsTracker = DriveDynamicsTracker();
     _lastPosition = null;
+    _lastPositionAt = null;
     _lastTelemetrySampleTime = null;
     _lastTelemetrySamplePosition = null;
     _latestSpeedKmh = 0;
@@ -127,20 +137,55 @@ class RunSessionService extends ChangeNotifier {
     _scheduleNotify();
   }
 
-  void recordPosition(
+  bool recordPosition(
     double lat,
     double lng,
     double speedKmh, {
     double lateralG = 0,
     double longitudinalG = 0,
     String? driveMode,
+    double? accuracyM,
+    DateTime? sampleTime,
+    bool rejectImplausible = true,
   }) {
-    if (!isRecording) return;
+    if (!isRecording) return false;
+    if (!lat.isFinite ||
+        !lng.isFinite ||
+        lat < -90 ||
+        lat > 90 ||
+        lng < -180 ||
+        lng > 180) {
+      return false;
+    }
+    if (accuracyM != null && (!accuracyM.isFinite || accuracyM > 80)) {
+      return false;
+    }
     final point = LatLng(lat, lng);
+    final now = sampleTime ?? _clock();
     if (_lastPosition != null) {
-      _distanceKm += RevvRoute.haversineKm(_lastPosition!, point);
+      final segmentKm = RevvRoute.haversineKm(_lastPosition!, point);
+      final previousAt = _lastPositionAt;
+      if (rejectImplausible && previousAt != null) {
+        final elapsed = now.difference(previousAt);
+        if (elapsed <= Duration.zero) {
+          if (segmentKm > 0.15) return false;
+        } else {
+          final elapsedHours = elapsed.inMilliseconds / 3600000;
+          final plausibleSpeed = math
+              .max(speedKmh, _latestSpeedKmh)
+              .clamp(0, 300);
+          final accuracyAllowanceKm = ((accuracyM ?? 20) + 30) / 1000;
+          final plausibleKm = math.max(
+            0.15,
+            plausibleSpeed * elapsedHours * 2.5 + accuracyAllowanceKm,
+          );
+          if (segmentKm > plausibleKm) return false;
+        }
+      }
+      _distanceKm += segmentKm;
     }
     _lastPosition = point;
+    _lastPositionAt = now;
     _gpsPath.add(point);
     _latestSpeedKmh = speedKmh;
     if (speedKmh > _maxSpeedKmh) _maxSpeedKmh = speedKmh;
@@ -160,6 +205,7 @@ class RunSessionService extends ChangeNotifier {
     );
     _writeSnapshotIfDue();
     _scheduleNotify();
+    return true;
   }
 
   void _writeSnapshotIfDue() {
@@ -304,7 +350,6 @@ class RunSessionService extends ChangeNotifier {
       telemetrySamples: List.unmodifiable(List.of(_telemetrySamples)),
       simulated: _simulated,
     );
-    _enqueueRecoveryWrite((store) => store.clear());
     _scheduleNotify();
     return session;
   }

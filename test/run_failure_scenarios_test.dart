@@ -180,7 +180,7 @@ class _RetryCloud implements RunHistoryCloudClient {
   Future<Set<String>> fetchRunIds() async => {};
 
   @override
-  Future<void> recordRouteRun(String? routeId, String runId) async {}
+  Future<bool> recordRouteRun(String? routeId, String runId) async => true;
 
   @override
   Future<bool> uploadRouteFeedback(RouteFeedback feedback) async => true;

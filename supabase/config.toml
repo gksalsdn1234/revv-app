@@ -159,6 +159,9 @@ verify_jwt = true
 [functions.synthesize-tts]
 verify_jwt = true
 
+[functions.delete-account]
+verify_jwt = true
+
 [auth]
 enabled = true
 # The base URL of your website. Used as an allow-list for redirects and for constructing URLs used

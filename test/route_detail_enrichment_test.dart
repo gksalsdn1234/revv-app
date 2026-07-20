@@ -157,7 +157,9 @@ void main() {
     expect(find.byType(CustomPaint), findsWidgets);
     expect(find.text('CURVE MIX'), findsOneWidget);
     expect(
-      find.text('Tight 1.4km · Medium 2.1km · Straight/gentle 8.5km'),
+      find.text(
+        'Tight\u00A01.4km · Medium\u00A02.1km · Straight/\u2060gentle\u00A08.5km',
+      ),
       findsOneWidget,
     );
     expect(find.text('Longest winding flow 1.8km'), findsOneWidget);
@@ -183,7 +185,7 @@ void main() {
     _expectNoForbiddenSafetyWords(
       [
         'Delta 58m',
-        'Tight 1.4km · Medium 2.1km · Straight/gentle 8.5km',
+        'Tight\u00A01.4km · Medium\u00A02.1km · Straight/\u2060gentle\u00A08.5km',
         'Longest winding flow 1.8km',
         'Posted speed-limit sections 50 — follow roadside signs',
         'Nearby: Cafe Nord · Belvedere Est · Lookout',
@@ -483,7 +485,7 @@ void main() {
     _expectNoForbiddenSafetyWords(
       [
         'Detail Route',
-        'Tight 1.1km · Medium 1.6km · Straight/gentle 9.3km',
+        'Tight\u00A01.1km · Medium\u00A01.6km · Straight/\u2060gentle\u00A09.3km',
         'Longest winding flow 1.2km',
         'Few stop controls',
         'Details',

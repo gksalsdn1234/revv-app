@@ -118,6 +118,55 @@ void main() {
     expect(activeDrivePlanLegKind(plan, 0.8), DrivePlanLegKind.winding);
     expect(activeDrivePlanLegKind(plan, 1), DrivePlanLegKind.winding);
   });
+
+  test('rest-split legs count one selected winding route', () {
+    const splitPlan = DrivePlan(
+      legs: [
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.winding,
+          nodes: [LatLng(0, 1), LatLng(0, 1.5)],
+          distanceKm: 2,
+          estimatedMinutes: 60,
+          route: first,
+        ),
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.rest,
+          nodes: [],
+          distanceKm: 0,
+          estimatedMinutes: 10,
+        ),
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.winding,
+          nodes: [LatLng(0, 1.5), LatLng(0, 2)],
+          distanceKm: 2,
+          estimatedMinutes: 60,
+          route: first,
+        ),
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.transit,
+          nodes: [LatLng(0, 2), LatLng(0, 3)],
+          distanceKm: 1,
+          estimatedMinutes: 2,
+        ),
+        DrivePlanLeg(
+          kind: DrivePlanLegKind.winding,
+          nodes: [LatLng(0, 3), LatLng(0, 4)],
+          distanceKm: 4,
+          estimatedMinutes: 5,
+          route: second,
+        ),
+      ],
+      totalMinutes: 137,
+      windingMinutes: 125,
+      transitMinutes: 2,
+      restMinutes: 10,
+      waypoints: [LatLng(0, 1), LatLng(0, 4)],
+    );
+
+    expect(windingRouteCount(splitPlan), 2);
+    expect(activeWindingRouteNumber(splitPlan, 0.25), 1);
+    expect(activeWindingRouteNumber(splitPlan, 0.9), 2);
+  });
 }
 
 Matcher samePoint(LatLng expected) => predicate<LatLng>(

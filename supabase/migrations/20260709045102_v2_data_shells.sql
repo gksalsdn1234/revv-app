@@ -13,6 +13,8 @@ create table if not exists public.photo_spots (
   created_at timestamptz not null default now()
 );
 alter table public.photo_spots enable row level security;
+drop policy if exists photo_spots_read on public.photo_spots;
+drop policy if exists photo_spots_owner_insert on public.photo_spots;
 create policy photo_spots_read on public.photo_spots
   for select to authenticated using (true);
 create policy photo_spots_owner_insert on public.photo_spots
@@ -30,6 +32,7 @@ create table if not exists public.route_scores (
   enriched_at timestamptz not null default now()
 );
 alter table public.route_scores enable row level security;
+drop policy if exists route_scores_read on public.route_scores;
 create policy route_scores_read on public.route_scores
   for select to anon, authenticated using (true);
 

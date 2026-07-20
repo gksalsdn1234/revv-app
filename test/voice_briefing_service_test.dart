@@ -608,6 +608,7 @@ void main() {
       language: AppLanguage.korean,
       muted: false,
       rejoinBearing: 90,
+      currentHeading: 0,
     );
     now = now.add(const Duration(seconds: 9));
     voice.onRouteStatusChange(
@@ -618,6 +619,19 @@ void main() {
     );
 
     expect(spoken, ['루트 이탈, 우측 재진입', '온 루트']);
+  });
+
+  test('off-route rejoin side is relative to the vehicle heading', () {
+    voice.onRouteStatusChange(
+      previous: DriveRouteStatus.onRoute,
+      next: DriveRouteStatus.offRoute,
+      language: AppLanguage.korean,
+      muted: false,
+      rejoinBearing: 0,
+      currentHeading: 90,
+    );
+
+    expect(spoken, ['루트 이탈, 좌측 재진입']);
   });
 
   test('phrases avoid forbidden performance language in all languages', () {
@@ -730,12 +744,12 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      expect(fakeTts.spoken, ['루트 이탈, 우측 재진입']);
+      expect(fakeTts.spoken, ['루트 이탈, 진행 방향 재진입']);
 
       firstSpeakGate.complete();
       await Future<void>.delayed(Duration.zero);
 
-      expect(fakeTts.spoken, ['루트 이탈, 우측 재진입', '온 루트']);
+      expect(fakeTts.spoken, ['루트 이탈, 진행 방향 재진입', '온 루트']);
     },
   );
 }

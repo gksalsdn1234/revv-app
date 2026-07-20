@@ -1,0 +1,21 @@
+{
+  "archive_bytes": 2777186,
+  "archive_members": [
+    "lpr_000a21a_e.dbf",
+    "lpr_000a21a_e.prj",
+    "lpr_000a21a_e.shp",
+    "lpr_000a21a_e.shx",
+    "lpr_000a21a_e.xml"
+  ],
+  "archive_sha256": "c4dd830f8a6e9b4a1d80e71bc830ae319aaab37785cc92185e830f5e3da4714e",
+  "archive_url": "https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lpr_000a21a_e.zip",
+  "boundary_reference_url": "https://www150.statcan.gc.ca/n1/pub/92-160-g/92-160-g2021001-eng.htm",
+  "catalogue_number": "92-160-X",
+  "crs": "EPSG:3347 NAD83 Statistics Canada Lambert",
+  "geographic_reference_date": "2021-01-01",
+  "license": "Open Government Licence - Canada",
+  "license_url": "https://open.canada.ca/en/open-government-licence-canada",
+  "producer": "Government of Canada; Statistics Canada",
+  "product": "2021 Census Province and Territory Digital Boundary File",
+  "release_date": "2021-11-17"
+}

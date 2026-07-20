@@ -6,7 +6,7 @@
 
 ## Distribution Status
 
-2026-07-13 최종 심사 후보는 `1.38.0 (55)`다. 탐험 안개와 워키 랩은 비활성이고, 무허가 비프음은 패키지와 함께 제거했다. 모든 코드/UI 수정 후 Release archive를 `build/ios/archive/Runner.xcarchive`에 다시 생성했고, Apple Distribution 인증서/계정이 이 Mac에 없어 IPA export가 차단돼 있다. 최종 빌드의 실제 화면 스크린샷 6장은 완료됐고 App Store Connect 소유자 필드가 남아 있다.
+기존 `1.38.0 (55)` archive는 현재 SQLite/버그 수정 소스보다 오래되어 제출하면 안 된다. 최신 소스는 정적 분석, 전체 Flutter 테스트, iOS 시뮬레이터 빌드·실행, 실제 DB v1→v3 업그레이드를 통과했다. production DB migration은 `20260715141945`까지 적용·검증됐다. 다만 `delete-account` Edge Function 배포, 전체 migration replay, 실기기 업그레이드·백그라운드 주행, 새 signed archive, screenshot 02 재촬영이 남아 있다.
 
 ## P0 - TestFlight 차단 항목
 
@@ -21,7 +21,11 @@
 - [x] `flutter build ios --release --no-codesign --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env`를 통과한다.
 - [ ] Xcode에 Apple Developer 계정을 추가하고 Apple Distribution certificate와 App Store provisioning profile을 설치/갱신한다.
 - [ ] `flutter build ipa --release --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env --build-name=1.38.0 --build-number=55` export를 통과한다.
-- [x] production Supabase에 `20260713120000_bound_route_search_and_canonical_geometry.sql`까지 적용하고 원격 migration/RLS/권한 smoke test를 완료한다.
+- [x] production Supabase에 `20260715141945_keep_map_segments_below_recommendation_threshold.sql`까지 적용하고 원격 migration/RLS/권한 smoke test를 완료한다.
+- [x] `20260714062931_harden_account_deletion_and_rate_limit_retention.sql`을 적용하고 FK/보존키 구조를 live 검증한다.
+- [x] 지도 전용 RPC를 인증 사용자로 live 검증한다. Regina, Saskatoon, Brandon, Edmonton은 추천+지도 루트가 각 30개이며, 지도 전용 결과는 0.3km 이상 4km 미만이고 anon 호출은 거부된다.
+- [ ] `delete-account` Edge Function과 공통 보안 모듈을 배포하고 실제 계정 삭제/cascade를 안전한 테스트 계정으로 검증한다.
+- [ ] 빈 로컬 Supabase DB에서 전체 active migration replay를 통과한다(Docker unavailable로 현재 미검증).
 - [x] 위치 권한 허용/거부 첫 실행 플로우를 확인한다.
 - [ ] Supabase 정상, 미설정, 네트워크 실패, 후보 0개, 캐시 사용 상태 안내를 실기기에서 확인한다.
 - [x] 루트 선택 -> 주행 시작 -> 현재 위치 추적 -> 주행 종료 -> 요약 저장 -> 앱 재시작 후 기록 복원을 확인한다.
@@ -48,10 +52,10 @@
 
 ## Cloud Data Controls
 
-- [ ] 클라우드 기록 저장 토글이 기본 켜짐으로 표시된다.
-- [ ] 토글을 끄면 상세 telemetry가 업로드/영구저장되지 않는다.
-- [ ] 기록 삭제가 로컬 캐시와 Supabase 주행 데이터를 삭제한다.
-- [ ] 업로드 성공 후 로컬 pending detail이 삭제된다.
+- [x] 클라우드 기록 저장 토글은 기본 꺼짐이며 사용자가 켜야 업로드된다.
+- [x] 토글을 끄면 상세 telemetry가 Supabase로 업로드되지 않는다. 로컬 SQLite 기록은 사용자가 삭제할 때까지 유지된다.
+- [ ] 기록/계정 삭제가 로컬 SQLite와 production Supabase 데이터를 모두 삭제하는지 live test한다.
+- [x] 업로드 성공 후 암호화된 pending detail 복사본이 삭제된다. 정상 로컬 SQLite 기록은 유지된다.
 
 ## Local Verification
 
@@ -67,7 +71,7 @@ TestFlight 후보 빌드:
 flutter build ipa --release --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env --build-name=1.38.0 --build-number=55
 ```
 
-인증서가 준비되면 후보 IPA가 `build/ios/ipa/revv_app.ipa`에 생성된다. 현재 검증된 산출물은 `build/ios/archive/Runner.xcarchive`다.
+인증서가 준비되면 후보 IPA가 `build/ios/ipa/revv_app.ipa`에 생성된다. 현재 남아 있는 `build/ios/archive/Runner.xcarchive`는 최신 SQLite/버그 수정 전 산출물이므로 검증·제출 후보가 아니다. 최종 커밋 SHA에서 새 archive를 만들어야 한다.
 
 미사용 의존성 검증:
 

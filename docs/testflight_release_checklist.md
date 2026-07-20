@@ -2,6 +2,8 @@
 
 목표: `codex/exploration-cloud-auto-record` 통합 후보를 iOS TestFlight/App Store Connect에서 검증 가능한 빌드로 올린다.
 
+> 2026-07-15 상태: 기존 build-55 archive는 최신 SQLite/버그 수정 소스보다 오래되어 재사용 금지. production DB migration은 `20260715141945`까지 적용·검증됐다. `delete-account` Edge Function 배포, 전체 migration replay, 실기기 smoke, signed archive 재생성, screenshot 02 교체 후 진행한다.
+
 ## 0. 배포 범위 고정
 
 - [x] 통합 후보 브랜치가 `codex/exploration-cloud-auto-record`인지 확인한다.
@@ -12,8 +14,8 @@
 
 ## 1. 로컬 코드 검증
 
-- [ ] `flutter analyze` 통과.
-- [ ] `flutter test` 통과.
+- [x] `flutter analyze` 통과.
+- [x] `flutter test` 통과(596 passed, 조건부 live test 2 skipped).
 - [x] `flutter build ios --release --no-codesign --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env` 통과.
 - [ ] Firebase, Bluetooth, Speech, `audioplayers`, 무허가 beep/chirp 문자열이 남아 있지 않은지 확인한다. 코파일럿 TTS와 flag-off 워키 오디오 패키지는 의도된 binary 구성이다.
 
@@ -64,8 +66,9 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|audi
 
 ## 5. 릴리즈 빌드 생성
 
-- [x] production Supabase에 release migration `20260713120000`까지 적용한다.
+- [x] production Supabase에 release migration `20260715141945`까지 적용한다.
 - [x] 원격 migration 정렬과 authenticated/anonymous 경계, 중복 제한, run receipt 무효 입력을 live smoke test로 확인한다.
+- [x] Regina, Saskatoon, Brandon, Edmonton에서 인증 사용자 기준 추천+지도 루트가 각 30개로 채워지고, 지도 전용 루트는 0.3km 이상 4km 미만이며 anon 호출이 거부되는지 live smoke test로 확인한다.
 
 ```sh
 flutter clean

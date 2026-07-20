@@ -27,27 +27,7 @@ MAX_ROUTE_NODES = 300
 MAX_ROUTE_NODES_BYTES = 512 * 1024
 
 
-def _load_local_env() -> None:
-    current_dir = Path(__file__).resolve().parent
-    repo_root = current_dir.parents[1]
-    candidate_paths = [
-        current_dir / ".env",
-        repo_root / ".worktrees" / "codex-supabase-curvature" / "tools" / "curvature_pipeline" / ".env",
-    ]
-
-    for env_path in candidate_paths:
-        if not env_path.exists():
-            continue
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#") or "=" not in stripped:
-                continue
-            key, value = stripped.split("=", 1)
-            os.environ.setdefault(key.strip(), value.strip())
-
-
 def get_client() -> Client:
-    _load_local_env()
     url = os.environ.get("SUPABASE_URL", "").strip()
     key = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
     if not url or not key:

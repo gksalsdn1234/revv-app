@@ -400,6 +400,103 @@ void main() {
     expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
   });
 
+  testWidgets('late destination fetch cannot replace the newer selection', (
+    tester,
+  ) async {
+    await useTallSurface(tester);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    const firstPoint = LatLng(45.50, -73.52);
+    const secondPoint = LatLng(45.62, -73.71);
+    final route = _finderRoute(id: 'first', name: 'First Road', lng: -73.00);
+    final routeService =
+        _DelayedDestinationRouteService(
+            firstPoint: firstPoint,
+            secondPoint: secondPoint,
+          )
+          ..routes = [route]
+          ..mapVisualRoutes = [route];
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: MaterialApp(
+          home: LeanRouteFinderScreen(
+            planner: _FinderPlanner(route),
+            placeSearch: _FakePlaceSearch(const [
+              PlaceResult(
+                name: 'First destination',
+                address: 'Quebec',
+                point: firstPoint,
+              ),
+              PlaceResult(
+                name: 'Second destination',
+                address: 'Quebec',
+                point: secondPoint,
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('목적지 또는 지역'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('planner-place-search-field')),
+      'first',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('First destination').first);
+    await tester.pump();
+
+    await tester.tap(find.text('First destination').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('planner-place-search-field')),
+      'second',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Second destination'));
+    await tester.pump();
+
+    routeService.secondFetch.complete();
+    await tester.pumpAndSettle();
+    final firstOverviewCountBeforeLateCompletion = routeService
+        .overviewPrefetched
+        .where((point) => point == firstPoint)
+        .length;
+    routeService.firstFetch.complete();
+    await tester.pumpAndSettle();
+
+    final map = tester.widget<MapWidget>(find.byType(MapWidget));
+    expect(map.cameraTargetPoints, contains(secondPoint));
+    expect(map.cameraTargetPoints, isNot(contains(firstPoint)));
+    expect(routeService.overviewPrefetched, contains(secondPoint));
+    expect(
+      routeService.overviewPrefetched
+          .where((point) => point == firstPoint)
+          .length,
+      firstOverviewCountBeforeLateCompletion,
+    );
+  });
+
   testWidgets('finder journey shows direct comparison and switches options', (
     tester,
   ) async {
@@ -689,6 +786,7 @@ void main() {
   });
 
   testWidgets('route taps preview before opening route detail', (tester) async {
+    final semantics = tester.ensureSemantics();
     await useTallSurface(tester);
     SharedPreferences.setMockInitialValues({});
     final settings = SettingsService();
@@ -697,6 +795,8 @@ void main() {
       id: 'detail-route',
       name: 'Detail Road',
       lng: -73.00,
+      isGenerated: true,
+      activatedAt: DateTime.now().subtract(const Duration(days: 29)),
     );
     final routeService = RouteService()
       ..routes = [route]
@@ -724,13 +824,17 @@ void main() {
     await tester.tap(find.byKey(const Key('route-list-button')));
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.check_circle_rounded), findsOneWidget);
+    expect(find.byKey(const ValueKey('route-new-badge')), findsOneWidget);
+    expect(find.bySemanticsLabel('신규 루트'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('route-list-row-detail-route')));
     await tester.pumpAndSettle();
     expect(find.text('루트 선택'), findsNothing);
     expect(find.byKey(const Key('route-preview-card')), findsOneWidget);
+    expect(find.byKey(const ValueKey('route-new-badge')), findsOneWidget);
     expect(find.byType(LeanRouteDetailScreen), findsNothing);
     expect(find.byKey(const ValueKey('preview-dismiss')), findsOneWidget);
     final previewMap = tester.widget<MapWidget>(find.byType(MapWidget));
+    expect(previewMap.difficultyLines.single.showNewCasing, isTrue);
     previewMap.onCameraViewportChanged?.call(
       const RouteMapViewport(center: LatLng(45.5, -79.0), zoom: 11),
     );
@@ -760,6 +864,8 @@ void main() {
     await tester.tap(find.text('상세'));
     await tester.pumpAndSettle();
     expect(find.byType(LeanRouteDetailScreen), findsOneWidget);
+    expect(find.byKey(const ValueKey('route-new-badge')), findsOneWidget);
+    expect(find.bySemanticsLabel('신규 루트'), findsOneWidget);
 
     tester.state<NavigatorState>(find.byType(Navigator)).pop();
     await tester.pumpAndSettle();
@@ -768,6 +874,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('route-preview-card')), findsOneWidget);
     expect(find.byType(LeanRouteDetailScreen), findsNothing);
+    semantics.dispose();
   });
 
   testWidgets(
@@ -1584,6 +1691,39 @@ void main() {
     expect(routeService.overviewPrefetched.single, const LatLng(45.0, -73.0));
   });
 
+  testWidgets('empty loading state renders one route-loading surface', (
+    tester,
+  ) async {
+    await useTallSurface(tester);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final routeService = _LoadingRouteService();
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: const MaterialApp(home: LeanRouteFinderScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('finder-status-toast')), findsNothing);
+    expect(find.text('커브길 필드 로딩 중'), findsOneWidget);
+  });
+
   testWidgets('wide camera pan refreshes overview after national load', (
     tester,
   ) async {
@@ -1626,6 +1766,38 @@ class _QuietRouteService extends RouteService {
   Future<void> prefetchRouteOverview(LatLng referencePoint) async {
     overviewPrefetched.add(referencePoint);
   }
+}
+
+class _DelayedDestinationRouteService extends _QuietRouteService {
+  _DelayedDestinationRouteService({
+    required this.firstPoint,
+    required this.secondPoint,
+  });
+
+  final LatLng firstPoint;
+  final LatLng secondPoint;
+  final firstFetch = Completer<void>();
+  final secondFetch = Completer<void>();
+
+  @override
+  Future<void> prefetchRouteField(
+    double lat,
+    double lng, {
+    bool forceRefresh = false,
+  }) async {
+    await super.prefetchRouteField(lat, lng, forceRefresh: forceRefresh);
+    final point = LatLng(lat, lng);
+    if (point == firstPoint) await firstFetch.future;
+    if (point == secondPoint) await secondFetch.future;
+  }
+}
+
+class _LoadingRouteService extends _QuietRouteService {
+  @override
+  bool get isLoading => true;
+
+  @override
+  String? get routeDataStatusTitle => '커브길 필드 로딩 중';
 }
 
 class _OutsideCoverageLocationService extends LocationService {
@@ -1915,6 +2087,8 @@ RevvRoute _finderRoute({
   required String id,
   required String name,
   required double lng,
+  bool isGenerated = false,
+  DateTime? activatedAt,
 }) {
   return RevvRoute(
     id: id,
@@ -1931,5 +2105,7 @@ RevvRoute _finderRoute({
     maxContinuousKm: 1,
     routeRankScore: 6,
     flowScore: 1,
+    isGenerated: isGenerated,
+    activatedAt: activatedAt,
   );
 }

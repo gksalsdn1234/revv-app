@@ -60,13 +60,13 @@
                                             <constraint firstAttribute="height" constant="2" id="underline-height"/>
                                         </constraints>
                                     </view>
-                                    <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="ROUTE CHECK · SAFE START" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" minimumFontSize="8" adjustsFontSizeToFit="YES" translatesAutoresizingMaskIntoConstraints="NO" id="launch-tagline" userLabel="Launch Tagline">
+                                    <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" minimumFontSize="8" adjustsFontSizeToFit="YES" translatesAutoresizingMaskIntoConstraints="NO" id="launch-tagline" userLabel="Launch Tagline">
                                         <rect key="frame" x="56.5" y="170" width="182" height="15"/>
                                         <fontDescription key="fontDescription" name="Menlo-Bold" family="Menlo" pointSize="10"/>
                                         <color key="textColor" red="0.5411764706" green="0.5098039216" blue="0.4705882353" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                                         <nil key="highlightedColor"/>
                                     </label>
-                                    <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="Find the road.&#10;Start the drive." textAlignment="center" lineBreakMode="wordWrap" numberOfLines="2" baselineAdjustment="alignBaselines" minimumFontSize="24" adjustsFontSizeToFit="YES" translatesAutoresizingMaskIntoConstraints="NO" id="launch-title" userLabel="Launch Title">
+                                    <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="" textAlignment="center" lineBreakMode="wordWrap" numberOfLines="2" baselineAdjustment="alignBaselines" minimumFontSize="24" adjustsFontSizeToFit="YES" translatesAutoresizingMaskIntoConstraints="NO" id="launch-title" userLabel="Launch Title">
                                         <rect key="frame" x="0.0" y="197" width="295" height="135"/>
                                         <constraints>
                                             <constraint firstAttribute="width" constant="260" id="title-width"/>

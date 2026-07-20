@@ -1,0 +1,151 @@
+{
+  "captured_at": "2026-07-16T00:00:00Z",
+  "known_count_baselines": [
+    {
+      "expected": 5,
+      "metric": "rows_total",
+      "tolerance": 0
+    },
+    {
+      "expected": 2,
+      "metric": "province.AB.raw_rows",
+      "tolerance": 0
+    }
+  ],
+  "project_name": "Revv",
+  "project_ref": "zvwgnduuumksuqazpvsf",
+  "rows": [
+    {
+      "center_lat": 51.12,
+      "center_lng": -114.21,
+      "context_version": "route-context-v1",
+      "distance_km": 18.4,
+      "id": "fixture-ab-eligible",
+      "is_connector_like": false,
+      "is_facility_like": false,
+      "max_continuous_km": 2.4,
+      "name": "Foothills Road",
+      "quality_version": "quality-v1",
+      "region": " Alberta ",
+      "residential_version": "residential-v1",
+      "stop_control_density": 0.1,
+      "stop_control_version": "stop-control-v1",
+      "stop_sign_count": 1,
+      "winding_score": 0.82
+    },
+    {
+      "center_lat": 51.2,
+      "center_lng": -114.3,
+      "context_version": null,
+      "distance_km": 2.2,
+      "id": "fixture-ab-fragment",
+      "is_connector_like": false,
+      "is_facility_like": false,
+      "max_continuous_km": 0.7,
+      "name": "River Bend",
+      "quality_version": null,
+      "region": "alberta",
+      "residential_version": null,
+      "stop_control_density": 0.0,
+      "stop_control_version": null,
+      "stop_sign_count": 0,
+      "winding_score": 0.54
+    },
+    {
+      "center_lat": 50.43,
+      "center_lng": -104.62,
+      "context_version": "route-context-v1",
+      "distance_km": 16.0,
+      "id": "fixture-sk-eligible",
+      "is_connector_like": false,
+      "is_facility_like": false,
+      "max_continuous_km": 2.0,
+      "name": "Prairie Ridge",
+      "quality_version": "quality-v1",
+      "region": "saskatchewan",
+      "residential_version": "residential-v1",
+      "stop_control_density": 0.2,
+      "stop_control_version": "stop-control-v1",
+      "stop_sign_count": 2,
+      "winding_score": 0.76
+    },
+    {
+      "center_lat": 49.9,
+      "center_lng": -97.2,
+      "context_version": null,
+      "distance_km": 7.0,
+      "id": "fixture-mb-rejected",
+      "is_connector_like": true,
+      "is_facility_like": false,
+      "max_continuous_km": 1.0,
+      "name": "Connector",
+      "quality_version": null,
+      "region": "manitoba",
+      "residential_version": null,
+      "stop_control_density": 0.1,
+      "stop_control_version": null,
+      "stop_sign_count": 0,
+      "winding_score": 0.38
+    },
+    {
+      "center_lat": 50.0,
+      "center_lng": -106.0,
+      "context_version": null,
+      "distance_km": 1.1,
+      "id": "fixture-unclassified-fragment",
+      "is_connector_like": false,
+      "is_facility_like": false,
+      "max_continuous_km": 0.5,
+      "name": "Unknown Fragment",
+      "quality_version": null,
+      "region": "western_mystery",
+      "residential_version": null,
+      "stop_control_density": 0.0,
+      "stop_control_version": null,
+      "stop_sign_count": 0,
+      "winding_score": 0.22
+    }
+  ],
+  "rpc_samples": [
+    {
+      "center": "calgary",
+      "lat": 51.0447,
+      "latency_ms": 123.5,
+      "lng": -114.0719,
+      "payload_bytes": 2048,
+      "radius_m": 160000,
+      "returned_rows": 2,
+      "rpc": "find_curvy_roads"
+    },
+    {
+      "center": "calgary",
+      "lat": 51.0447,
+      "latency_ms": 115.0,
+      "lng": -114.0719,
+      "payload_bytes": 1536,
+      "radius_m": 160000,
+      "returned_rows": 1,
+      "rpc": "find_curvy_map_segments"
+    },
+    {
+      "center": "regina",
+      "lat": 50.4452,
+      "latency_ms": 181.25,
+      "lng": -104.6189,
+      "payload_bytes": 1024,
+      "radius_m": 160000,
+      "returned_rows": 1,
+      "rpc": "find_curvy_roads"
+    },
+    {
+      "center": "regina",
+      "lat": 50.4452,
+      "latency_ms": 160.0,
+      "lng": -104.6189,
+      "payload_bytes": 768,
+      "radius_m": 160000,
+      "returned_rows": 1,
+      "rpc": "find_curvy_map_segments"
+    }
+  ]
+}

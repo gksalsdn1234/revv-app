@@ -1,4 +1,5 @@
 const memoryBuckets = new Map<string, { count: number; resetAt: number }>();
+const fallbackRateLimitSecret = crypto.randomUUID();
 
 export async function consumeRateLimit(
   req: Request,
@@ -32,17 +33,44 @@ async function clientKeys(req: Request): Promise<readonly string[]> {
   const verifiedSub = await verifiedJwtSub(req.headers.get("authorization"));
   const forwardedFor = req.headers.get("x-forwarded-for")?.split(",")[0]
     ?.trim() ?? null;
-  return rateLimitKeys(verifiedSub, forwardedFor);
+  const secret = Deno.env.get("RATE_LIMIT_KEY_SECRET") ??
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? fallbackRateLimitSecret;
+  return rateLimitKeys(verifiedSub, forwardedFor, secret);
 }
 
-export function rateLimitKeys(
+export async function rateLimitKeys(
   verifiedSub: string | null,
   forwardedFor: string | null,
-): readonly string[] {
+  secret: string,
+): Promise<readonly string[]> {
   const keys: string[] = [];
-  if (verifiedSub) keys.push(`user:${verifiedSub}`);
-  keys.push(forwardedFor ? `ip:${forwardedFor}` : "ip:unknown");
+  if (verifiedSub) keys.push(await rateLimitKey("user", verifiedSub, secret));
+  keys.push(await rateLimitKey("ip", forwardedFor ?? "unknown", secret));
   return keys;
+}
+
+export async function rateLimitKey(
+  namespace: string,
+  value: string,
+  secret: string,
+): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`${namespace}:${value}`),
+  );
+  return `${namespace}:$${
+    [...new Uint8Array(signature)].map((byte) =>
+      byte.toString(16).padStart(2, "0")
+    ).join("")
+  }`;
 }
 
 async function consumeDbRateLimit(
@@ -70,7 +98,7 @@ async function consumeDbRateLimit(
         window_seconds: windowSeconds,
       }),
     });
-    if (!response.ok) return null;
+    if (!response.ok) return false;
     const allowed = await response.json();
     return allowed === true;
   } catch {
@@ -90,7 +118,7 @@ function consumeMemoryRateLimit(key: string, limit: number, windowMs: number) {
   return true;
 }
 
-async function verifiedJwtSub(authorization: string | null) {
+export async function verifiedJwtSub(authorization: string | null) {
   if (!authorization?.match(/^Bearer\s+.+/i)) return null;
   const url = Deno.env.get("SUPABASE_URL");
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");

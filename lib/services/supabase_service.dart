@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
 
 import '../core/supabase_config.dart';
 import '../core/supabase_tables.dart';
+import '../core/storage_keys.dart';
 import '../models/revv_route.dart';
 import '../models/route_feedback.dart';
 import '../models/run_telemetry_detail.dart';
@@ -18,6 +20,15 @@ import 'secure_session_store.dart';
 enum SyncStatus { idle, syncing, done, error }
 
 enum CloudSessionState { unavailable, anonymous, identified }
+
+enum _AccountDeletionResult { deleted, retryableFailure }
+
+class _RouteCatalogState {
+  const _RouteCatalogState({required this.epoch, required this.routeIds});
+
+  final int epoch;
+  final List<String> routeIds;
+}
 
 class SupabaseService extends ChangeNotifier {
   static final SupabaseService _instance = SupabaseService._();
@@ -36,6 +47,7 @@ class SupabaseService extends ChangeNotifier {
   bool? _debugReadyOverride;
   String? _debugUidOverride;
   bool? _debugAnonymousOverride;
+  _RouteCatalogState? _routeCatalogState;
 
   bool _ready = false;
   bool get isReady => _debugReadyOverride ?? _ready;
@@ -65,6 +77,7 @@ class SupabaseService extends ChangeNotifier {
   }
 
   String? get uid {
+    if (!isReady) return null;
     if (_debugUidOverride != null) return _debugUidOverride;
     try {
       return _client?.auth.currentUser?.id;
@@ -98,6 +111,7 @@ class SupabaseService extends ChangeNotifier {
     _debugReadyOverride = null;
     _debugUidOverride = null;
     _debugAnonymousOverride = null;
+    _routeCatalogState = null;
   }
 
   SupabaseClient? get client {
@@ -120,6 +134,13 @@ class SupabaseService extends ChangeNotifier {
       _client = SupabaseClient(_config!.url, _config!.anonKey);
       final auth = _client!.auth;
       await _recoverPersistedSession();
+      final canContinue = await _resumePendingAccountDeletion();
+      if (!canContinue) {
+        _ready = false;
+        _lastFailureReason = '계정 삭제를 완료하지 못했어요. 연결 후 앱을 다시 시작해 주세요.';
+        _setStatus(SyncStatus.error);
+        return;
+      }
       if (auth.currentUser == null) {
         await auth.signInAnonymously();
         await _persistCurrentSession();
@@ -138,13 +159,32 @@ class SupabaseService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<bool> _resumePendingAccountDeletion() async {
+    final prefs = await SharedPreferences.getInstance();
+    final pendingUid = prefs.getString(StorageKeys.pendingAccountDeletionUid);
+    if (pendingUid == null) return true;
+    final currentUid = _client?.auth.currentUser?.id;
+    if (currentUid == null || currentUid != pendingUid) {
+      return false;
+    }
+
+    final result = await _requestAccountDeletion();
+    if (result == _AccountDeletionResult.retryableFailure) {
+      return false;
+    }
+    await _completeAccountDeletionAuthCleanup(pendingUid);
+    return true;
+  }
+
   Future<void> _recoverPersistedSession() async {
     final stored = await sessionStore.readSession();
     if (stored == null || stored.isEmpty || _client == null) return;
     try {
       await _client!.auth.recoverSession(stored);
     } catch (e) {
-      await sessionStore.deleteSession();
+      final prefs = await SharedPreferences.getInstance();
+      final pendingUid = prefs.getString(StorageKeys.pendingAccountDeletionUid);
+      if (pendingUid == null) await sessionStore.deleteSession();
       _debugLog('[Supabase] stored session recovery failed: ${_safeError(e)}');
     }
   }
@@ -237,7 +277,10 @@ class SupabaseService extends ChangeNotifier {
     try {
       await client!
           .from(SupabaseTables.routeFeedback)
-          .upsert(routeFeedbackToRow(feedback, userId: uid!), onConflict: 'id');
+          .upsert(
+            routeFeedbackToRow(feedback, userId: uid!),
+            onConflict: 'user_id,run_id',
+          );
       _debugLog('[Supabase] route feedback uploaded — ${feedback.id}');
       return true;
     } catch (e) {
@@ -284,8 +327,8 @@ class SupabaseService extends ChangeNotifier {
     }
   }
 
-  Future<List<RunSummary>> fetchMissingRuns(Set<String> localIds) async {
-    if (!_ready || uid == null) return const [];
+  Future<List<RunSummary>?> fetchMissingRuns(Set<String> localIds) async {
+    if (!_ready || uid == null) return null;
     _setStatus(SyncStatus.syncing);
     try {
       final rows = await client!
@@ -304,12 +347,12 @@ class SupabaseService extends ChangeNotifier {
     } catch (e) {
       _debugLog('[Supabase] fetchMissingRuns failed: ${_safeError(e)}');
       _setStatus(SyncStatus.error);
-      return const [];
+      return null;
     }
   }
 
-  Future<Set<String>> fetchRunIds() async {
-    if (!_ready || uid == null) return const {};
+  Future<Set<String>?> fetchRunIds() async {
+    if (!_ready || uid == null) return null;
     try {
       final rows = await client!
           .from(SupabaseTables.runs)
@@ -322,7 +365,7 @@ class SupabaseService extends ChangeNotifier {
           .toSet();
     } catch (e) {
       _debugLog('[Supabase] fetchRunIds failed: ${_safeError(e)}');
-      return const {};
+      return null;
     }
   }
 
@@ -407,6 +450,112 @@ class SupabaseService extends ChangeNotifier {
       throwOnFailure: throwOnFailure,
       trackFailureReason: trackFailureReason,
     );
+  }
+
+  Future<int> fetchRouteCatalogEpoch() async {
+    return (await _loadRouteCatalogState(forceRefresh: true)).epoch;
+  }
+
+  Future<List<RevvRoute>> fetchRouteCatalog({int maxResults = 650}) async {
+    final state = await _loadRouteCatalogState();
+    final routeIds = state.routeIds.take(maxResults.clamp(1, 650)).toList();
+    if (routeIds.isEmpty) return const [];
+    final rows = await client!.rpc(
+      'get_route_nodes_v2',
+      params: {'route_ids_input': routeIds},
+    );
+    return (rows as List)
+        .whereType<Map<String, dynamic>>()
+        .map(_catalogRouteFromNodeRow)
+        .where((route) => route.nodes.length > 1)
+        .take(650)
+        .toList(growable: false);
+  }
+
+  Future<_RouteCatalogState> _loadRouteCatalogState({
+    bool forceRefresh = false,
+  }) async {
+    if (!_ready || uid == null || client == null) {
+      throw StateError('Authenticated Supabase session required');
+    }
+    if (!forceRefresh && _routeCatalogState != null) {
+      return _routeCatalogState!;
+    }
+    final rows = await client!.rpc('get_route_catalog_v2');
+    final row = (rows as List).whereType<Map<String, dynamic>>().firstOrNull;
+    if (row == null) throw StateError('Route catalog is unavailable');
+    final epoch = (row['catalog_epoch'] as num?)?.toInt();
+    if (epoch == null || epoch < 0) {
+      throw const FormatException('Invalid route catalog epoch');
+    }
+    final ids = ((row['route_ids'] as List?) ?? const [])
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .take(650)
+        .toList(growable: false);
+    return _routeCatalogState = _RouteCatalogState(epoch: epoch, routeIds: ids);
+  }
+
+  Future<List<RevvRoute>> fetchNearbyRoutesV2(
+    double lat,
+    double lng,
+    double radiusKm, {
+    int maxResults = 120,
+  }) async {
+    if (!_ready || uid == null || client == null) {
+      throw StateError('Authenticated Supabase session required');
+    }
+    final rows = await client!.rpc(
+      'find_curvy_roads_v2',
+      params: {
+        'user_lat': lat,
+        'user_lng': lng,
+        'radius_m': (radiusKm * 1000).round(),
+        'min_score': 0,
+        'max_results': maxResults.clamp(1, 120),
+      },
+    );
+    return (rows as List)
+        .whereType<Map<String, dynamic>>()
+        .map((row) => routeFromRow(row, userLat: lat, userLng: lng))
+        .take(120)
+        .toList(growable: false);
+  }
+
+  Future<List<RevvRoute>> fetchMapSegments(
+    double lat,
+    double lng,
+    double radiusKm, {
+    int maxResults = 30,
+    bool throwOnFailure = false,
+  }) async {
+    if (!_ready) {
+      if (throwOnFailure) {
+        throw StateError('Supabase is not ready');
+      }
+      return const [];
+    }
+    try {
+      final rows = await client!.rpc(
+        'find_curvy_map_segments',
+        params: {
+          'user_lat': lat,
+          'user_lng': lng,
+          'radius_m': (radiusKm * 1000).round(),
+          'min_distance_km': 0.3,
+          'max_results': maxResults,
+        },
+      );
+      return (rows as List)
+          .whereType<Map<String, dynamic>>()
+          .map((row) => routeFromRow(row, userLat: lat, userLng: lng))
+          .where((route) => route.nodes.length > 1)
+          .toList(growable: false);
+    } catch (e) {
+      _debugLog('[Supabase] fetchMapSegments failed: ${_safeError(e)}');
+      if (throwOnFailure) rethrow;
+      return const [];
+    }
   }
 
   int _nearbyRouteFetchLimit(double radiusKm) {
@@ -558,15 +707,31 @@ class SupabaseService extends ChangeNotifier {
     }
   }
 
-  Future<void> recordRouteRun(String? routeId, String runId) async {
-    if (!_ready || routeId == null) return;
+  Future<List<LatLng>> fetchRouteNodesV2(String routeId) async {
+    if (!_ready || uid == null || client == null) {
+      throw StateError('Authenticated Supabase session required');
+    }
+    final rows = await client!.rpc(
+      'get_route_nodes_v2',
+      params: {
+        'route_ids_input': [routeId],
+      },
+    );
+    final row = (rows as List).whereType<Map<String, dynamic>>().firstOrNull;
+    return _nodesFromJson(row?['nodes']);
+  }
+
+  Future<bool> recordRouteRun(String? routeId, String runId) async {
+    if (!_ready || routeId == null) return false;
     try {
       await client!.rpc(
         'increment_route_run_count',
         params: recordRouteRunRpcParams(routeId, runId),
       );
+      return true;
     } catch (e) {
       _debugLog('[Supabase] recordRouteRun failed: ${_safeError(e)}');
+      return false;
     }
   }
 
@@ -681,6 +846,10 @@ class SupabaseService extends ChangeNotifier {
     if (!_ready || uid == null) return false;
     try {
       await client!
+          .from(SupabaseTables.telemetrySummary)
+          .delete()
+          .eq('user_id', uid!);
+      await client!
           .from(SupabaseTables.runDetails)
           .delete()
           .eq('user_id', uid!);
@@ -703,6 +872,54 @@ class SupabaseService extends ChangeNotifier {
       _debugLog('[Supabase] deleteUserRunData failed: ${_safeError(e)}');
       return false;
     }
+  }
+
+  Future<bool> deleteAccount() async {
+    if (!_ready || uid == null || client == null) return false;
+    final deletedUid = uid!;
+    final result = await _requestAccountDeletion();
+    if (result != _AccountDeletionResult.deleted) return false;
+    await _completeAccountDeletionAuthCleanup(deletedUid);
+    await _authSubscription?.cancel();
+    _authSubscription = null;
+    _client = null;
+    _ready = false;
+    _initialized = false;
+    _lastFailureReason = null;
+    _setStatus(SyncStatus.idle);
+    notifyListeners();
+    return true;
+  }
+
+  Future<_AccountDeletionResult> _requestAccountDeletion() async {
+    final activeClient = client;
+    if (activeClient == null) return _AccountDeletionResult.retryableFailure;
+    try {
+      final response = await activeClient.functions.invoke(
+        'delete-account',
+        method: HttpMethod.post,
+      );
+      final data = response.data;
+      if (response.status != 200 || data is! Map || data['deleted'] != true) {
+        return _AccountDeletionResult.retryableFailure;
+      }
+      return _AccountDeletionResult.deleted;
+    } on FunctionException catch (error) {
+      _debugLog('[Supabase] deleteAccount failed: ${_safeError(error)}');
+      return _AccountDeletionResult.retryableFailure;
+    } catch (e) {
+      _debugLog('[Supabase] deleteAccount failed: ${_safeError(e)}');
+      return _AccountDeletionResult.retryableFailure;
+    }
+  }
+
+  Future<void> _completeAccountDeletionAuthCleanup(String deletedUid) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(StorageKeys.confirmedAccountDeletionUid, deletedUid);
+    try {
+      await client?.auth.signOut(scope: SignOutScope.local);
+    } catch (_) {}
+    await sessionStore.deleteSession();
   }
 
   Future<Map<String, DateTime>> fetchExploredCells() async {
@@ -1047,8 +1264,61 @@ class SupabaseService extends ChangeNotifier {
         elevationProfile: _doubleListFromJson(row['elevation_profile']),
         runCount: (row['run_count'] as num?)?.toInt() ?? 0,
         publishedBy: row['published_by'] as String?,
+        isGenerated: row['is_generated'] as bool? ?? false,
+        activatedAt: DateTime.tryParse(row['activated_at']?.toString() ?? ''),
+        provinceCode: row['province_code'] as String?,
+        catalogEpoch: (row['catalog_epoch'] as num?)?.toInt(),
       ),
     );
+  }
+
+  static RevvRoute _catalogRouteFromNodeRow(Map<String, dynamic> row) {
+    final nodes = _nodesFromJson(row['nodes']);
+    final center = nodes.isEmpty
+        ? const LatLng(0, 0)
+        : LatLng(
+            nodes.fold<double>(0, (sum, node) => sum + node.lat) / nodes.length,
+            nodes.fold<double>(0, (sum, node) => sum + node.lng) / nodes.length,
+          );
+    final id = row['id'] as String? ?? '';
+    return RevvRoute(
+      id: id,
+      name: id,
+      nodes: nodes,
+      distanceKm: _polylineDistanceKm(nodes),
+      windingScore: 0,
+      starRating: 1,
+      sharpCurveCount: 0,
+      centerPoint: center,
+      distanceFromUser: 0,
+      isGenerated: row['is_generated'] as bool? ?? false,
+      activatedAt: DateTime.tryParse(row['activated_at']?.toString() ?? ''),
+      provinceCode: row['province_code'] as String?,
+      catalogEpoch: (row['catalog_epoch'] as num?)?.toInt(),
+    );
+  }
+
+  static List<LatLng> _nodesFromJson(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map<String, dynamic>>()
+        .expand((node) {
+          final lat = (node['lat'] as num?)?.toDouble();
+          final lng = (node['lng'] as num?)?.toDouble();
+          if (lat == null || lng == null || !lat.isFinite || !lng.isFinite) {
+            return const <LatLng>[];
+          }
+          return [LatLng(lat, lng)];
+        })
+        .toList(growable: false);
+  }
+
+  static double _polylineDistanceKm(List<LatLng> nodes) {
+    var distance = 0.0;
+    for (var index = 1; index < nodes.length; index++) {
+      distance += RevvRoute.haversineKm(nodes[index - 1], nodes[index]);
+    }
+    return distance;
   }
 
   static LatLng? _pointFromRow(Map<String, dynamic> row, String prefix) {

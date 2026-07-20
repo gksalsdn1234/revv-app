@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:url_launcher/link.dart';
 
 import '../core/app_language.dart';
 import '../labs/walkie/walkie_lab_screen.dart';
@@ -37,6 +38,10 @@ Future<PackageInfo>? _packageInfoFuture;
 
 Future<PackageInfo> _loadPackageInfo() =>
     _packageInfoFuture ??= PackageInfo.fromPlatform();
+
+final _openStreetMapCopyrightUri = Uri.parse(
+  'https://www.openstreetmap.org/copyright',
+);
 
 class LeanAppShellScreen extends StatefulWidget {
   const LeanAppShellScreen({
@@ -318,13 +323,100 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     );
   }
 
+  Future<void> _confirmDeleteAccount(BuildContext ctx) async {
+    final language = ctx.read<SettingsService>().appLanguage;
+    final confirmed = await showDialog<bool>(
+      context: ctx,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.panel,
+        title: Text(
+          AppCopy.t(
+            language,
+            ko: '게스트 계정을 삭제할까요?',
+            en: 'Delete your guest account?',
+            fr: 'Supprimer votre compte invité?',
+          ),
+          style: AppText.body(size: 20, weight: FontWeight.w900),
+        ),
+        content: Text(
+          AppCopy.t(
+            language,
+            ko: '클라우드 계정과 모든 주행 데이터를 영구 삭제합니다. 다음 실행 시 새 게스트 계정이 만들어질 수 있습니다.',
+            en: 'This permanently deletes your cloud identity and all drive data. A new guest account may be created the next time REVV starts.',
+            fr: 'Votre identité cloud et toutes vos données de conduite seront supprimées définitivement. Un nouveau compte invité pourra être créé au prochain démarrage.',
+          ),
+          style: AppText.body(size: 14, color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(AppCopy.cancel(language)),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(AppCopy.delete(language)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !ctx.mounted) return;
+    final history = ctx.read<RunHistoryService>();
+    final supabase = ctx.read<SupabaseService>();
+    final deletedUid = supabase.uid;
+    if (deletedUid != null) {
+      await history.markAccountDeletionPending(deletedUid);
+    }
+    final deleted = await supabase.deleteAccount();
+    if (deleted && deletedUid != null) {
+      await history.clearLocalAfterAccountDeletion(deletedUid);
+    } else {
+      await history.cancelAccountDeletionPending();
+    }
+    if (!ctx.mounted) return;
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppCopy.t(
+            language,
+            ko: deleted
+                ? '게스트 계정과 저장된 데이터를 삭제했습니다.'
+                : '계정을 삭제하지 못했습니다. 연결을 확인하고 다시 시도해 주세요.',
+            en: deleted
+                ? 'Guest account and saved data deleted.'
+                : 'Could not delete the account. Check your connection and try again.',
+            fr: deleted
+                ? 'Compte invité et données enregistrées supprimés.'
+                : 'Impossible de supprimer le compte. Vérifiez la connexion et réessayez.',
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _toggleCloudRunStorage(BuildContext ctx) async {
     final settings = ctx.read<SettingsService>();
     final history = ctx.read<RunHistoryService>();
     final language = settings.appLanguage;
     final next = !settings.cloudRunStorageEnabled;
     await settings.setCloudRunStorageEnabled(next);
-    if (!next) {
+    if (next) {
+      final synced = await history.syncWithCloud();
+      if (!synced && ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(
+            content: Text(
+              AppCopy.t(
+                language,
+                ko: '클라우드 동기화를 완료하지 못했어요. 자동으로 다시 시도합니다.',
+                en: 'Cloud sync did not finish. REVV will retry automatically.',
+                fr: 'La synchronisation a échoué. REVV réessaiera automatiquement.',
+              ),
+            ),
+          ),
+        );
+      }
+    } else {
       await history.purgePendingUploads();
       if (!ctx.mounted) return;
       ScaffoldMessenger.of(ctx).showSnackBar(
@@ -446,17 +538,21 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
       backgroundColor: AppColors.bg,
       body: Stack(
         children: [
-          switch (_currentTab) {
-            _RaceTab.map => const LeanRouteFinderScreen(showBackButton: false),
-            _RaceTab.history => const HistoryTab(),
-            _RaceTab.settings => SettingsTab(
-              onToggleCloud: () => unawaited(_toggleCloudRunStorage(context)),
-              onDeleteHistory: () => _confirmDeleteRunData(context),
-              onPrivacy: _openPrivacyPolicy,
-              showWalkieLabEntry: widget.walkieLabEntryEnabled,
-              onOpenWalkieLab: () => _openWalkieLab(context),
-            ),
-          },
+          IndexedStack(
+            index: _currentTab.index,
+            children: [
+              const LeanRouteFinderScreen(showBackButton: false),
+              const HistoryTab(),
+              SettingsTab(
+                onToggleCloud: () => unawaited(_toggleCloudRunStorage(context)),
+                onDeleteHistory: () => _confirmDeleteRunData(context),
+                onDeleteAccount: () => _confirmDeleteAccount(context),
+                onPrivacy: _openPrivacyPolicy,
+                showWalkieLabEntry: widget.walkieLabEntryEnabled,
+                onOpenWalkieLab: () => _openWalkieLab(context),
+              ),
+            ],
+          ),
           if (routes.pendingGuideRoute != null)
             Positioned(
               top: MediaQuery.paddingOf(context).top + 14,
@@ -1285,6 +1381,7 @@ class _RouteGlyphPainter extends CustomPainter {
 class SettingsTab extends StatelessWidget {
   final VoidCallback onToggleCloud;
   final VoidCallback onDeleteHistory;
+  final VoidCallback onDeleteAccount;
   final VoidCallback onPrivacy;
   final bool showWalkieLabEntry;
   final VoidCallback onOpenWalkieLab;
@@ -1293,6 +1390,7 @@ class SettingsTab extends StatelessWidget {
     super.key,
     required this.onToggleCloud,
     required this.onDeleteHistory,
+    required this.onDeleteAccount,
     required this.onPrivacy,
     required this.showWalkieLabEntry,
     required this.onOpenWalkieLab,
@@ -1305,6 +1403,7 @@ class SettingsTab extends StatelessWidget {
       child: _SettingsSheet(
         onToggleCloud: onToggleCloud,
         onDeleteHistory: onDeleteHistory,
+        onDeleteAccount: onDeleteAccount,
         onPrivacy: onPrivacy,
         showWalkieLabEntry: showWalkieLabEntry,
         onOpenWalkieLab: onOpenWalkieLab,
@@ -1318,6 +1417,7 @@ class SettingsTab extends StatelessWidget {
 class _SettingsSheet extends StatelessWidget {
   final VoidCallback onToggleCloud;
   final VoidCallback onDeleteHistory;
+  final VoidCallback onDeleteAccount;
   final VoidCallback onPrivacy;
   final bool showWalkieLabEntry;
   final VoidCallback onOpenWalkieLab;
@@ -1327,6 +1427,7 @@ class _SettingsSheet extends StatelessWidget {
   const _SettingsSheet({
     required this.onToggleCloud,
     required this.onDeleteHistory,
+    required this.onDeleteAccount,
     required this.onPrivacy,
     required this.showWalkieLabEntry,
     required this.onOpenWalkieLab,
@@ -1398,6 +1499,7 @@ class _SettingsSheet extends StatelessWidget {
                         supabase: supabase,
                         language: language,
                         cloudStorageEnabled: settings.cloudRunStorageEnabled,
+                        historySyncState: history.cloudSyncState,
                       ),
                     ],
                   ),
@@ -1537,6 +1639,20 @@ class _SettingsSheet extends StatelessWidget {
                   },
                 ),
                 _SettingsTile(
+                  icon: Icons.person_off_outlined,
+                  label: AppCopy.t(
+                    language,
+                    ko: '게스트 계정 삭제',
+                    en: 'Delete guest account',
+                    fr: 'Supprimer le compte invité',
+                  ),
+                  danger: true,
+                  onTap: () {
+                    if (popOnAction) Navigator.pop(context);
+                    onDeleteAccount();
+                  },
+                ),
+                _SettingsTile(
                   icon: Icons.privacy_tip_outlined,
                   label: AppCopy.privacyPolicy(language),
                   onTap: () {
@@ -1545,7 +1661,53 @@ class _SettingsSheet extends StatelessWidget {
                   },
                 ),
                 Padding(
-                  padding: const EdgeInsets.only(top: 10, bottom: 14),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        AppCopy.mapDataCredits(language),
+                        style: AppText.technicalLabel(
+                          size: 10,
+                          letterSpacing: 0.8,
+                          color: AppColors.stone,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Link(
+                        uri: _openStreetMapCopyrightUri,
+                        target: LinkTarget.blank,
+                        builder: (context, followLink) => Semantics(
+                          link: true,
+                          linkUrl: _openStreetMapCopyrightUri,
+                          label: AppCopy.mapDataCreditsLinkSemantics(language),
+                          excludeSemantics: true,
+                          child: InkWell(
+                            onTap: followLink,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Text(
+                                AppCopy.mapDataCreditsDetail(language),
+                                style:
+                                    AppText.body(
+                                      size: 11,
+                                      height: 1.35,
+                                      color: AppColors.stone,
+                                    ).copyWith(
+                                      decoration: TextDecoration.underline,
+                                      decorationColor: AppColors.stone,
+                                    ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(top: 2, bottom: 8),
                   child: FutureBuilder<PackageInfo>(
                     future: _loadPackageInfo(),
                     builder: (context, snapshot) {
@@ -1564,7 +1726,7 @@ class _SettingsSheet extends StatelessWidget {
                     },
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 2),
               ],
             ),
           ),
@@ -1578,15 +1740,41 @@ class _CloudStatusChip extends StatelessWidget {
   final SupabaseService supabase;
   final AppLanguage language;
   final bool cloudStorageEnabled;
+  final CloudHistorySyncState historySyncState;
 
   const _CloudStatusChip({
     required this.supabase,
     required this.language,
     required this.cloudStorageEnabled,
+    required this.historySyncState,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (cloudStorageEnabled &&
+        historySyncState == CloudHistorySyncState.syncing) {
+      return _LeanStatusDot(
+        active: false,
+        label: AppCopy.t(
+          language,
+          ko: '동기화 중',
+          en: 'SYNCING',
+          fr: 'SYNCHRONISATION',
+        ),
+      );
+    }
+    if (cloudStorageEnabled &&
+        historySyncState == CloudHistorySyncState.error) {
+      return _LeanStatusDot(
+        active: false,
+        label: AppCopy.t(
+          language,
+          ko: '동기화 오류',
+          en: 'SYNC ERROR',
+          fr: 'ERREUR SYNC',
+        ),
+      );
+    }
     if (cloudStorageEnabled && supabase.status == SyncStatus.error) {
       return _LeanStatusDot(
         active: false,
@@ -1609,7 +1797,9 @@ class _CloudStatusChip extends StatelessWidget {
         ),
       );
     }
-    if (cloudStorageEnabled && supabase.isCloudAvailable) {
+    if (cloudStorageEnabled &&
+        supabase.isCloudAvailable &&
+        historySyncState == CloudHistorySyncState.synced) {
       return _LeanStatusDot(
         active: true,
         label: AppCopy.t(language, ko: '동기화됨', en: 'SYNCED', fr: 'SYNCHRONISÉ'),

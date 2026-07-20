@@ -13,6 +13,8 @@ create table if not exists public.recommendation_logs (
   created_at timestamptz not null default now()
 );
 alter table public.recommendation_logs enable row level security;
+drop policy if exists recommendation_logs_owner_insert on public.recommendation_logs;
+drop policy if exists recommendation_logs_owner_select on public.recommendation_logs;
 create policy recommendation_logs_owner_insert on public.recommendation_logs
   for insert to authenticated with check (user_id = (select auth.uid()));
 create policy recommendation_logs_owner_select on public.recommendation_logs
@@ -24,6 +26,7 @@ create table if not exists public.user_preferences (
   updated_at timestamptz not null default now()
 );
 alter table public.user_preferences enable row level security;
+drop policy if exists user_preferences_owner_all on public.user_preferences;
 create policy user_preferences_owner_all on public.user_preferences
   for all to authenticated
   using (user_id = (select auth.uid()))

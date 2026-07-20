@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/models/revv_route.dart';
+import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/services/route_auto_record_service.dart';
 import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/run_session_service.dart';
@@ -105,6 +106,73 @@ void main() {
       ),
     );
     expect(sessions.currentDistance, distanceBefore);
+  });
+
+  test('unclaimed background recording stops at its duration limit', () async {
+    final routes = RouteService()..beginGuideToStart(_route);
+    final sessions = RunSessionService();
+    RunSession? completed;
+    final service = RouteAutoRecordService(
+      routes: routes,
+      sessions: sessions,
+      maxUnclaimedDuration: const Duration(minutes: 30),
+      onCompleted: (session) async => completed = session,
+    );
+    final startedAt = DateTime.utc(2026, 7, 12, 20);
+    for (final seconds in [0, 6]) {
+      service.handleFix(
+        AutoRecordFix(
+          point: LatLng(45 + seconds / 100000, -73),
+          speedKmh: 20,
+          accuracyM: 5,
+          timestamp: startedAt.add(Duration(seconds: seconds)),
+        ),
+      );
+    }
+
+    service.handleFix(
+      AutoRecordFix(
+        point: const LatLng(45.005, -73.005),
+        speedKmh: 20,
+        accuracyM: 5,
+        timestamp: startedAt.add(const Duration(minutes: 31)),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(service.state, AutoRecordState.idle);
+    expect(sessions.isRecording, isFalse);
+    expect(completed, isNotNull);
+  });
+
+  test('duration timer stops recording without another GPS fix', () async {
+    final routes = RouteService()..beginGuideToStart(_route);
+    final sessions = RunSessionService();
+    RunSession? completed;
+    final service = RouteAutoRecordService(
+      routes: routes,
+      sessions: sessions,
+      maxUnclaimedDuration: const Duration(milliseconds: 20),
+      onCompleted: (session) async => completed = session,
+    );
+    addTearDown(service.dispose);
+    final startedAt = DateTime.utc(2026, 7, 12, 20);
+    for (final seconds in [0, 6]) {
+      service.handleFix(
+        AutoRecordFix(
+          point: LatLng(45 + seconds / 100000, -73),
+          speedKmh: 20,
+          accuracyM: 5,
+          timestamp: startedAt.add(Duration(seconds: seconds)),
+        ),
+      );
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+
+    expect(service.state, AutoRecordState.idle);
+    expect(sessions.isRecording, isFalse);
+    expect(completed, isNotNull);
   });
 
   test('armed auto record never overwrites a manual session', () {

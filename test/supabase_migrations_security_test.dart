@@ -36,6 +36,24 @@ void main() {
       'supabase/migrations/20260713082759_harden_release_data_boundaries.sql';
   const boundedRouteSearchMigration =
       'supabase/migrations/20260713120000_bound_route_search_and_canonical_geometry.sql';
+  const accountDeletionMigration =
+      'supabase/migrations/20260714062931_harden_account_deletion_and_rate_limit_retention.sql';
+  const routeMapCoverageMigration =
+      'supabase/migrations/20260715054211_expand_route_map_coverage.sql';
+  const mapOnlyBoundaryMigration =
+      'supabase/migrations/20260715141945_keep_map_segments_below_recommendation_threshold.sql';
+  const quebecRegionRepairMigration =
+      'supabase/migrations/20260716040000_repair_empty_quebec_regions.sql';
+  const westernRoutePublicationMigration =
+      'supabase/migrations/20260716043420_western_route_publication_v2.sql';
+  const westernPublicationFixture =
+      'supabase/tests/western_route_publication_v2.sql';
+  const westernCatalogAllocationFixture =
+      'supabase/tests/western_route_catalog_allocation_v2.sql';
+  const westernLegacyBackfillFixture =
+      'supabase/tests/western_route_publication_legacy_backfill.sql';
+  const westernLegacyRejectFixture =
+      'supabase/tests/western_route_publication_legacy_rejects_unmapped.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -66,6 +84,11 @@ void main() {
     exploredCellsMigration,
     releaseHardeningMigration,
     boundedRouteSearchMigration,
+    accountDeletionMigration,
+    routeMapCoverageMigration,
+    mapOnlyBoundaryMigration,
+    quebecRegionRepairMigration,
+    westernRoutePublicationMigration,
   ];
 
   const userTables = [
@@ -111,6 +134,29 @@ void main() {
     expect(migrationFiles, activeMigrations);
   });
 
+  test(
+    'account deletion cascades user data and retains no raw rate-limit ids',
+    () {
+      final sql = _readLower(accountDeletionMigration);
+
+      expect(sql, contains('references auth.users(id) on delete cascade'));
+      expect(sql, contains('references public.runs(id) on delete cascade'));
+      expect(sql, contains('references auth.users(id) on delete set null'));
+      expect(sql, contains("updated_at < current_window - interval '1 day'"));
+      expect(sql, contains('truncate table public.edge_rate_limits'));
+      expect(sql, contains('pg_advisory_xact_lock'));
+      expect(sql, contains('normalized_client_key'));
+      expect(sql, contains("extensions.digest(client_key_input, 'sha256')"));
+      expect(sql, contains("'db-user:' || encode("));
+      expect(
+        sql,
+        contains("extensions.digest(current_user_id::text, 'sha256')"),
+      );
+      expect(sql, contains('route_feedback_user_run_unique'));
+      expect(sql, contains('to service_role'));
+    },
+  );
+
   test('slim find_curvy_roads migration keeps explicit function grants', () {
     final sql = _readLower(findCurvyRoadsSlimMigration);
 
@@ -143,6 +189,307 @@ void main() {
     expect(sql, contains('jsonb_array_length(nodes) between 2 and 1200'));
     expect(sql, contains('pg_column_size(nodes) <= 1048576'));
   });
+
+  test('map coverage RPC is authenticated, bounded, and spatially diverse', () {
+    final sql = _readLower(routeMapCoverageMigration);
+
+    expect(sql, contains('function public.find_curvy_map_segments'));
+    expect(sql, contains('authentication required'));
+    expect(sql, contains('st_dwithin'));
+    expect(sql, contains('st_geohash'));
+    expect(sql, contains('row_number() over'));
+    expect(sql, contains('partition by'));
+    expect(
+      sql,
+      contains('least(greatest(coalesce(radius_m, 50000), 1000), 160000)'),
+    );
+    expect(
+      sql,
+      contains('least(greatest(coalesce(min_distance_km, 0.3), 0.3), 4.0)'),
+    );
+    expect(sql, contains('least(greatest(coalesce(max_results, 30), 1), 60)'));
+    expect(sql, contains("set statement_timeout = '8s'"));
+    expect(sql, contains('from public, anon'));
+    expect(sql, contains('to authenticated, service_role'));
+    expect(sql, isNot(contains('security definer')));
+  });
+
+  test('map supplement stays below the recommendation distance threshold', () {
+    final sql = _readLower(mapOnlyBoundaryMigration);
+
+    expect(
+      sql,
+      contains('create or replace function public.find_curvy_map_segments'),
+    );
+    expect(sql, contains('road.distance_km < 4.0'));
+    expect(sql, contains('from public, anon'));
+    expect(sql, contains('to authenticated, service_role'));
+  });
+
+  test('quebec region repair is receipt-bound and fails closed', () {
+    final sql = _readLower(quebecRegionRepairMigration);
+
+    expect(
+      sql,
+      contains(
+        'e586c43de9425a47c54f20d0b68fb8a3161aef264e5771b47b152046fd999217',
+      ),
+      reason: 'repair must bind the pinned preflight target snapshot sha256.',
+    );
+    expect(
+      RegExp(r"'[0-9a-f]{64}'").allMatches(sql).length,
+      230,
+      reason: 'repair must embed the immutable 230-row id receipt.',
+    );
+    expect(sql, contains("repaired_region constant text := 'quebec'"));
+    expect(sql, contains('receipt row missing from curvy_roads'));
+    expect(sql, contains('refusing to overwrite'));
+    expect(sql, contains('outside the repair receipt'));
+    expect(sql, contains('idempotent no-op'));
+    expect(sql, contains('get diagnostics updated_count = row_count'));
+    expect(sql, isNot(contains('delete from')));
+    expect(sql, isNot(contains('truncate')));
+    expect(sql, isNot(contains('drop table')));
+  });
+
+  test('western publication maps every legacy province and fails closed', () {
+    final sql = _readLower(westernRoutePublicationMigration);
+
+    const legacyProvinceMap = {
+      'alberta': 'ab',
+      'british_columbia': 'bc',
+      'manitoba': 'mb',
+      'new_brunswick': 'nb',
+      'newfoundland_and_labrador': 'nl',
+      'nova_scotia': 'ns',
+      'northwest_territories': 'nt',
+      'nunavut': 'nu',
+      'ontario': 'on',
+      'prince_edward_island': 'pe',
+      'quebec': 'qc',
+      'saskatchewan': 'sk',
+      'yukon': 'yt',
+    };
+    for (final entry in legacyProvinceMap.entries) {
+      expect(sql, contains("= '${entry.key}' then '${entry.value}'"));
+    }
+    expect(sql, contains('legacy province mapping failed'));
+    expect(sql, contains('alter column province_code set not null'));
+    expect(sql, contains('curvy_roads_province_code_allowed'));
+    expect(sql, contains('idx_curvy_roads_province_code'));
+  });
+
+  test('western publication isolates generated rows from legacy clients', () {
+    final sql = _readLower(westernRoutePublicationMigration);
+
+    expect(sql, contains('drop policy if exists curvy_public_read'));
+    expect(sql, contains("publication_kind = 'legacy'"));
+    expect(sql, contains('generation_batch_id is null'));
+    expect(
+      sql,
+      contains('create or replace function public.find_curvy_roads('),
+    );
+    expect(sql, contains('create function public.find_curvy_map_segments('));
+    expect(sql, contains('create function public.find_curvy_roads_v2('));
+    expect(sql, contains('create function public.get_route_nodes_v2('));
+    expect(sql, contains('create function public.get_route_catalog_v2('));
+    expect(sql, contains("batch.status = 'active'"));
+    expect(sql, contains("auth.jwt() ->> 'role'"));
+    expect(sql, contains('from public, anon, authenticated, service_role'));
+    expect(sql, contains('from public, anon'));
+    expect(sql, contains('to authenticated, service_role'));
+    expect(sql, contains('revv_private.find_visible_curvy_roads'));
+    expect(sql, contains('include_generated'));
+    expect(sql, contains("batch.status = 'active'"));
+    expect(sql, contains('road.publication_kind = \'legacy\''));
+  });
+
+  test('western publication protects manifests, state, and catalog', () {
+    final sql = _readLower(westernRoutePublicationMigration);
+
+    for (final table in [
+      'route_generation_batches',
+      'route_generation_sources',
+      'route_catalog_state',
+      'route_batch_transition_receipts',
+    ]) {
+      expect(sql, contains('create table public.$table'));
+      expect(
+        sql,
+        contains('alter table public.$table enable row level security'),
+      );
+      expect(sql, contains('revoke all on table public.$table'));
+    }
+    expect(sql, contains("status in ('shadow', 'active', 'disabled')"));
+    expect(sql, contains("cohort_kind in ('pilot', 'expansion')"));
+    expect(sql, contains('cardinality(route_ids) <= 650'));
+    expect(sql, contains('pg_advisory_xact_lock'));
+    expect(sql, contains('pg_advisory_xact_lock_shared'));
+    expect(sql, contains("'revv-route-batch:'"));
+    expect(sql, contains('shadow->active->disabled'));
+    expect(sql, contains('disabled batch is immutable'));
+    expect(sql, contains('route transition receipts are immutable'));
+    expect(sql, contains('route id cohort mismatch'));
+    expect(sql, contains("length(road.id)::text || ':' || road.id"));
+    expect(sql, contains(r"id ~ '^[a-za-z0-9][a-za-z0-9._:-]{7,191}$'"));
+    expect(sql, contains('source_hub_id'));
+    expect(sql, contains('primary key (batch_id, hub_id)'));
+    expect(sql, isNot(contains('match full')));
+    expect(
+      sql,
+      contains(
+        'unique (batch_id, hub_id, province_code, source_pbf_sha256, source_graph_sha256)',
+      ),
+    );
+    expect(sql, contains('catalog contains unclassified eligible routes'));
+    expect(
+      sql,
+      contains('grant execute on function public.admin_transition_route_batch'),
+    );
+    expect(sql, contains('to service_role'));
+    expect(
+      sql,
+      isNot(
+        matches(
+          RegExp(
+            r'grant\s+execute\s+on\s+function\s+public\.admin_transition_route_batch[^;]*to\s+authenticated',
+          ),
+        ),
+      ),
+    );
+  });
+
+  test('western publication fixtures cover lifecycle and client isolation', () {
+    final sql = _readLower(westernPublicationFixture);
+
+    expect(sql, contains('same-province per-hub graph sources were collapsed'));
+    expect(sql, contains('shadow cohort suppressed the visible legacy'));
+    expect(sql, contains('same-state active transition'));
+    expect(sql, contains('same-state disabled transition'));
+    expect(sql, contains('partial cohort unexpectedly activated'));
+    expect(
+      sql,
+      contains('same-count route id hash mismatch unexpectedly activated'),
+    );
+    expect(sql, contains('wrong manifest checksum unexpectedly succeeded'));
+    expect(sql, contains('shadow to disabled unexpectedly succeeded'));
+    expect(sql, contains('active pilot missing from v2 recommendation rpc'));
+    expect(sql, contains('active pilot missing from v2 node rpc'));
+    expect(
+      sql,
+      contains('active pilot missing from authenticated catalog rpc'),
+    );
+    expect(
+      sql,
+      contains('authenticated client activation unexpectedly succeeded'),
+    );
+    expect(
+      sql,
+      contains('authenticated direct catalog select unexpectedly succeeded'),
+    );
+    expect(sql, contains('generated route delete unexpectedly succeeded'));
+    expect(sql, contains('source provenance delete unexpectedly succeeded'));
+    expect(sql, contains('transition receipt delete unexpectedly succeeded'));
+    expect(sql, contains('multi-province provenance unexpectedly succeeded'));
+    expect(sql, contains('malformed generated id unexpectedly succeeded'));
+    expect(sql, contains('wildcard route id unexpectedly succeeded'));
+    expect(sql, contains('control-character route id unexpectedly succeeded'));
+    expect(
+      sql,
+      contains('legacy map segment was suppressed by generated cohorts'),
+    );
+    expect(sql, contains('explain (costs off)'));
+    expect(
+      sql,
+      contains(
+        '{"role":"authenticated","sub":"00000000-0000-0000-0000-000000000001"}',
+      ),
+    );
+  });
+
+  test('western catalog fixture locks deterministic three-phase allocation', () {
+    final migration = _readLower(westernRoutePublicationMigration);
+    final fixture = _readLower(westernCatalogAllocationFixture);
+
+    expect(migration, contains('revv_catalog_candidates'));
+    expect(migration, contains('revv_catalog_regions'));
+    expect(
+      migration,
+      contains(
+        '(region.capacity - region.selected_count)::numeric / region.capacity desc',
+      ),
+    );
+    expect(migration, contains("distance_km >= 4.0 then 'recommendation'"));
+    expect(migration, contains('selection_order'));
+    expect(
+      migration,
+      contains('capacity integer not null check (capacity between 1 and 80)'),
+    );
+    expect(migration, contains('exhausted boolean not null default false'));
+    expect(fixture, contains('synthetic ab400/bc400/mb10/sk10'));
+    expect(fixture, contains('single 100-row geohash did not clamp to 3'));
+    expect(fixture, contains('recommendation/map 3:2 quota or fallback'));
+    expect(fixture, contains('identical rebuild was not byte-deterministic'));
+    expect(fixture, contains('route-id-only catalog did not clamp to 650'));
+    expect(fixture, contains('route-id-only catalog payload exceeded 2 mib'));
+    expect(
+      fixture,
+      contains('authenticated direct catalog select unexpectedly succeeded'),
+    );
+  });
+
+  test(
+    'western legacy replay fixtures prove exact and fail-closed mapping',
+    () {
+      final backfillSql = _readLower(westernLegacyBackfillFixture);
+      final rejectSql = _readLower(westernLegacyRejectFixture);
+
+      for (final code in [
+        'ab',
+        'bc',
+        'mb',
+        'nb',
+        'nl',
+        'ns',
+        'nt',
+        'nu',
+        'on',
+        'pe',
+        'qc',
+        'sk',
+        'yt',
+      ]) {
+        expect(backfillSql, contains("'legacy-province-$code', '$code'"));
+      }
+      expect(
+        backfillSql,
+        contains('legacy 13-code province backfill mismatch'),
+      );
+      expect(
+        backfillSql,
+        contains('shared-geohash sparse-province catalog mismatch'),
+      );
+      expect(
+        backfillSql,
+        contains('shared-geohash backfill weakened the global cell cap'),
+      );
+      expect(
+        backfillSql,
+        contains(
+          'shared-geohash sparse-province rebuild was not deterministic',
+        ),
+      );
+      expect(rejectSql, contains("'atlantis'"));
+      expect(rejectSql, contains("'legacy-null-region'"));
+      expect(rejectSql, contains('null'));
+      expect(
+        rejectSql,
+        contains(
+          'unmapped legacy fixture unexpectedly passed publication migration',
+        ),
+      );
+    },
+  );
 
   test('explored cells are owner scoped and anonymous Data API is revoked', () {
     final sql = _readLower(exploredCellsMigration);

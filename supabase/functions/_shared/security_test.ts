@@ -27,8 +27,12 @@ Deno.test("bounded JSON rejects a chunked request above its byte budget", async 
   );
 });
 
-Deno.test("rate limiting includes a network bucket for verified users", () => {
-  const keys = rateLimitKeys("user-1", "203.0.113.4");
+Deno.test("rate limiting hashes user and network identifiers", async () => {
+  const keys = await rateLimitKeys("user-1", "203.0.113.4", "test-secret");
 
-  assertEquals(keys, ["user:user-1", "ip:203.0.113.4"]);
+  assertEquals(keys.length, 2);
+  assertEquals(keys[0].startsWith("user:$"), true);
+  assertEquals(keys[1].startsWith("ip:$"), true);
+  assertEquals(keys.some((key) => key.includes("user-1")), false);
+  assertEquals(keys.some((key) => key.includes("203.0.113.4")), false);
 });

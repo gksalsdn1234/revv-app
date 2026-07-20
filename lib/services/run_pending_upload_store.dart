@@ -142,6 +142,10 @@ class RunPendingUploadStore {
 
   Future<void> saveFeedback(RouteFeedback feedback) async {
     final map = await _loadMap(StorageKeys.pendingRouteFeedback);
+    map.removeWhere((_, value) {
+      if (value is! Map) return false;
+      return value['runId'] == feedback.runId;
+    });
     map[feedback.id] = feedback.toJson();
     await _saveMap(StorageKeys.pendingRouteFeedback, map);
   }
@@ -154,10 +158,23 @@ class RunPendingUploadStore {
 
   Future<List<RouteFeedback>> loadFeedback() async {
     final map = await _loadMap(StorageKeys.pendingRouteFeedback);
-    return map.values
+    final items = map.values
         .whereType<Map>()
         .map((item) => RouteFeedback.fromJson(item.cast<String, dynamic>()))
         .toList();
+    final latestByRunId = <String, RouteFeedback>{};
+    for (final item in items) {
+      final previous = latestByRunId[item.runId];
+      if (previous == null || item.createdAt.isAfter(previous.createdAt)) {
+        latestByRunId[item.runId] = item;
+      }
+    }
+    if (latestByRunId.length != map.length) {
+      await _saveMap(StorageKeys.pendingRouteFeedback, {
+        for (final item in latestByRunId.values) item.id: item.toJson(),
+      });
+    }
+    return latestByRunId.values.toList();
   }
 
   Future<bool> hasPending() async {

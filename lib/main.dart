@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'theme/colors.dart';
 import 'theme/text_styles.dart';
-import 'screens/loading_screen.dart';
+import 'screens/lean_app_shell_screen.dart';
 import 'services/location_service.dart';
 import 'services/weather_service.dart';
 import 'services/route_service.dart';
@@ -74,11 +74,18 @@ class RevvApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => RouteService()),
         ChangeNotifierProvider(create: (_) => RunSessionService()),
         ChangeNotifierProvider(
-          create: (context) => RouteAutoRecordService(
-            routes: context.read<RouteService>(),
-            sessions: context.read<RunSessionService>(),
-            location: context.read<LocationService>(),
-          )..attach(),
+          create: (context) {
+            final sessions = context.read<RunSessionService>();
+            return RouteAutoRecordService(
+              routes: context.read<RouteService>(),
+              sessions: sessions,
+              location: context.read<LocationService>(),
+              onCompleted: (session) async {
+                await history.saveSession(session);
+                await sessions.clearRecovery();
+              },
+            )..attach();
+          },
         ),
         ChangeNotifierProvider<RunHistoryService>.value(value: history),
         ChangeNotifierProvider<ExplorationService>.value(value: exploration),
@@ -159,7 +166,7 @@ class RevvApp extends StatelessWidget {
               ),
             ),
           ),
-          home: const LoadingScreen(),
+          home: const LeanAppShellScreen(),
         ),
       ),
     );

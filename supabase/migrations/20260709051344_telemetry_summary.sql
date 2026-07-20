@@ -12,6 +12,8 @@ create table if not exists public.telemetry_summary (
 
 alter table public.telemetry_summary enable row level security;
 
+drop policy if exists telemetry_summary_owner_insert on public.telemetry_summary;
+drop policy if exists telemetry_summary_owner_select on public.telemetry_summary;
 create policy telemetry_summary_owner_insert on public.telemetry_summary
   for insert to authenticated with check (user_id = (select auth.uid()));
 

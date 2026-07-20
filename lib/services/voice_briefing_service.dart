@@ -206,6 +206,7 @@ class VoiceBriefingService {
     required AppLanguage language,
     required bool muted,
     double? rejoinBearing,
+    double? currentHeading,
   }) {
     if (muted || previous == next) return;
     final phrase = switch ((previous, next)) {
@@ -217,9 +218,9 @@ class VoiceBriefingService {
       ),
       (_, DriveRouteStatus.offRoute) => _t(
         language,
-        ko: '루트 이탈, ${_rejoinSide(language, rejoinBearing)} 재진입',
-        en: 'off route, rejoin ${_rejoinSide(language, rejoinBearing)}',
-        fr: 'hors route, reprise à ${_rejoinSide(language, rejoinBearing)}',
+        ko: '루트 이탈, ${_rejoinSide(language, rejoinBearing, currentHeading)} 재진입',
+        en: 'off route, rejoin ${_rejoinSide(language, rejoinBearing, currentHeading)}',
+        fr: 'hors route, reprise à ${_rejoinSide(language, rejoinBearing, currentHeading)}',
       ),
       _ => null,
     };
@@ -442,11 +443,20 @@ class VoiceBriefingService {
     };
   }
 
-  String _rejoinSide(AppLanguage language, double? bearing) {
-    if (bearing == null) {
-      return _t(language, ko: '우측', en: 'right', fr: 'droite');
+  String _rejoinSide(
+    AppLanguage language,
+    double? bearing,
+    double? currentHeading,
+  ) {
+    if (bearing == null || currentHeading == null) {
+      return _t(language, ko: '진행 방향', en: 'ahead', fr: 'devant');
     }
-    final right = (bearing % 360) <= 180;
+    final relative = (bearing - currentHeading) % 360;
+    final normalized = relative < 0 ? relative + 360 : relative;
+    if (normalized <= 20 || normalized >= 340) {
+      return _t(language, ko: '정면', en: 'ahead', fr: 'devant');
+    }
+    final right = normalized < 180;
     return right
         ? _t(language, ko: '우측', en: 'right', fr: 'droite')
         : _t(language, ko: '좌측', en: 'left', fr: 'gauche');

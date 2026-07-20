@@ -40,6 +40,7 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
   List<PlaceResult> _results = const [];
   bool _searching = false;
   bool _hasSearched = false;
+  int _searchGeneration = 0;
 
   @override
   void dispose() {
@@ -51,6 +52,7 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
   void _onQueryChanged(String value) {
     _debounce?.cancel();
     final query = value.trim();
+    final generation = ++_searchGeneration;
     if (query.isEmpty) {
       setState(() {
         _results = const [];
@@ -60,13 +62,13 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 350), () {
-      unawaited(_search(query));
+      unawaited(_search(query, generation));
     });
   }
 
-  Future<void> _search(String query) async {
+  Future<void> _search(String query, int generation) async {
     if (!widget.service.isEnabled) {
-      if (!mounted) return;
+      if (!mounted || generation != _searchGeneration) return;
       setState(() {
         _results = const [];
         _searching = false;
@@ -75,6 +77,7 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
       return;
     }
 
+    if (generation != _searchGeneration) return;
     setState(() {
       _searching = true;
       _hasSearched = true;
@@ -84,7 +87,7 @@ class _PlaceSearchSheetState extends State<PlaceSearchSheet> {
       proximity: widget.proximity,
       language: _languageCode(widget.language),
     );
-    if (!mounted) return;
+    if (!mounted || generation != _searchGeneration) return;
     setState(() {
       _results = results;
       _searching = false;

@@ -11,10 +11,14 @@ class RouteOverviewCacheEntry {
   const RouteOverviewCacheEntry({
     required this.routes,
     required this.completedRegionKeys,
+    this.regionHadRoutes = const {},
+    this.catalogEpoch,
   });
 
   final List<RevvRoute> routes;
   final Set<String> completedRegionKeys;
+  final Map<String, bool> regionHadRoutes;
+  final int? catalogEpoch;
 }
 
 class RouteOverviewCache {
@@ -22,7 +26,9 @@ class RouteOverviewCache {
     : _directoryProvider = directoryProvider ?? getApplicationSupportDirectory;
 
   static const _fileName = 'route_overview_v1.json.gz';
-  static const _version = 2;
+  static const _version = 6;
+  static const maxRoutes = 650;
+  static const maxCompressedBytes = 2 * 1024 * 1024;
   static const ttl = Duration(days: 7);
 
   final RouteOverviewDirectoryProvider _directoryProvider;
@@ -58,9 +64,20 @@ class RouteOverviewCache {
               .whereType<String>()
               .toSet();
       if (completedRegionKeys.isEmpty) return null;
+      final rawPresence = decoded['regionHadRoutes'];
+      if (rawPresence is! Map) return null;
+      final regionHadRoutes = <String, bool>{};
+      for (final entry in rawPresence.entries) {
+        if (entry.key is String && entry.value is bool) {
+          regionHadRoutes[entry.key as String] = entry.value as bool;
+        }
+      }
+      if (!completedRegionKeys.every(regionHadRoutes.containsKey)) return null;
       return RouteOverviewCacheEntry(
         routes: routes,
         completedRegionKeys: completedRegionKeys,
+        regionHadRoutes: regionHadRoutes,
+        catalogEpoch: (decoded['catalogEpoch'] as num?)?.toInt(),
       );
     } catch (_) {
       return null;
@@ -72,16 +89,44 @@ class RouteOverviewCache {
     try {
       final file = await _file();
       await file.parent.create(recursive: true);
-      final bytes = gzip.encode(
+      final boundedRoutes = entry.routes
+          .take(maxRoutes)
+          .toList(growable: false);
+      List<int> encode(int routeCount) => gzip.encode(
         utf8.encode(
           jsonEncode({
             'version': _version,
             'fetchedAt': DateTime.now().toIso8601String(),
+            if (entry.catalogEpoch != null) 'catalogEpoch': entry.catalogEpoch,
             'completedRegionKeys': entry.completedRegionKeys.toList()..sort(),
-            'routes': entry.routes.map((route) => route.toJson()).toList(),
+            'regionHadRoutes': {
+              for (final key in entry.completedRegionKeys.toList()..sort())
+                key: entry.regionHadRoutes[key] ?? false,
+            },
+            'routes': boundedRoutes
+                .take(routeCount)
+                .map((route) => route.toJson())
+                .toList(),
           }),
         ),
       );
+      var low = 0;
+      var high = boundedRoutes.length;
+      var bytes = encode(high);
+      if (bytes.length > maxCompressedBytes) {
+        while (low < high) {
+          final mid = (low + high + 1) ~/ 2;
+          final candidate = encode(mid);
+          if (candidate.length <= maxCompressedBytes) {
+            low = mid;
+            bytes = candidate;
+          } else {
+            high = mid - 1;
+          }
+        }
+        if (low == 0) return;
+        bytes = encode(low);
+      }
       final temporary = File('${file.path}.tmp');
       await temporary.writeAsBytes(bytes, flush: true);
       await temporary.rename(file.path);

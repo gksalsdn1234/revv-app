@@ -11,6 +11,6 @@ Capture and approve these six files in order:
 5. `05_history.png` — post-drive summary or history detail.
 6. `06_settings.png` — cloud storage, deletion, and privacy controls.
 
-Capture completed on the final Simulator build on 2026-07-13. All six files are `1320 × 2868` portrait PNGs with no alpha channel. Visual QA confirmed the route lines and selected-route highlight render, Mapbox ornaments remain unobscured, cards do not collide with the tab bar, and the English detail screen contains no Korean distance suffix.
+The six existing files were captured from the older build-55 source and are not final evidence for the current uncommitted SQLite/bug-fix candidate. Independent QA rejected `02_route_preview.png` because its header is fragmented/occluded and Mapbox attribution is absent. After the source is frozen, retake screenshot 02 and re-review all six files against the exact new archive before upload.
 
 The image under `drafts/iphone_6_9/` is QA evidence only and must not be submitted.

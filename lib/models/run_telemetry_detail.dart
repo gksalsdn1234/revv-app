@@ -47,6 +47,8 @@ class TelemetrySample {
 
 class RunTelemetryDetail {
   static const currentVersion = 3;
+  static const maxStoredSamples = 12000;
+  static const maxStoredSharpEvents = 1000;
 
   final String runId;
   final int version;
@@ -75,7 +77,7 @@ class RunTelemetryDetail {
       runId: runId,
       version: currentVersion,
       routeSnapshot: _routeSnapshot(session.route),
-      samples: session.telemetrySamples,
+      samples: _boundedSamples(session.telemetrySamples),
       sharpEvents: session.sharpCorners
           .map(
             (event) => {
@@ -87,6 +89,7 @@ class RunTelemetryDetail {
               'time': event.time.toIso8601String(),
             },
           )
+          .take(maxStoredSharpEvents)
           .toList(),
       analytics: _analytics(session),
       driveModeSeconds: Map.of(session.driveModeSeconds),
@@ -97,6 +100,18 @@ class RunTelemetryDetail {
       },
       createdAt: DateTime.now(),
     );
+  }
+
+  static List<TelemetrySample> _boundedSamples(List<TelemetrySample> samples) {
+    if (samples.length <= maxStoredSamples) {
+      return List.unmodifiable(samples);
+    }
+    final lastIndex = samples.length - 1;
+    final result = List<TelemetrySample>.generate(maxStoredSamples, (index) {
+      final sourceIndex = (index * lastIndex / (maxStoredSamples - 1)).round();
+      return samples[sourceIndex];
+    }, growable: false);
+    return List.unmodifiable(result);
   }
 
   Map<String, dynamic> toJson() => {

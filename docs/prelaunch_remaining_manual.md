@@ -1,4 +1,6 @@
-# 출시 전 남은 수동 항목 (2026-07-13 최종 후보)
+# 출시 전 남은 수동 항목 (2026-07-13, 보관용)
+
+> 이 문서는 최신 SQLite·계정 삭제·보안 보강 전 상태를 기록한 이력 문서다. 현재 제출 상태와 남은 작업은 `docs/app_store_submission_2026-07-14.md` 및 `docs/release_quality_checklist.md`를 기준으로 한다.
 
 자동화 캠페인(G001~G005)으로 코드 쪽 범위 잠금은 완료. 아래는 민우 판단/손이 필요한 것만.
 
@@ -7,8 +9,9 @@
 - 무허가 `beep.mp3`, 오디오 패키지, chirp 호출을 심사 후보에서 삭제했다.
 - 네이티브/Flutter 로딩 화면의 시각 언어를 하나로 통일했다.
 - 심사 후보는 `1.38.0 (55)`이며 탐험 안개와 워키 랩을 활성화하지 않는다.
-- production Supabase migration과 Edge Function 배포, 익명/인증/중복/무효 run receipt live smoke test를 완료했다.
-- 전국 루트 RPC 반경/결과 제한, 크루 채널 직접 삽입 차단 migration `20260713120000`까지 production에 적용하고 live smoke를 완료했다.
+- 기존 production Supabase migration과 Edge Function 배포, 익명/인증/중복/무효 run receipt live smoke test를 완료했다.
+- 전국 루트 RPC 반경/결과 제한, 크루 채널 직접 삽입 차단을 포함해 DB migration `20260715141945`까지 production에 적용했다.
+- Regina, Saskatoon, Brandon, Edmonton에서 인증 사용자 기준 추천+지도 루트 30개, 지도 전용 0.3km 이상 4km 미만, anon 거부를 live 검증했다.
 - iOS FFI 로더 크래시를 수정한 `objective_c 9.4.1`로 올리고 깨끗한 시뮬레이터 실행에서 예외가 사라진 것을 확인했다.
 - iOS Release archive `build/ios/archive/Runner.xcarchive` 생성을 완료했다.
 
@@ -18,6 +21,11 @@
 - 워키: LTE/터널 재연결, ack:false 음질, 250ms 프리버퍼 체감
 - 기본vs REVV 비교 라인, 커브 칩 표기
 - 학습루프: 실기기에서 추천/선택 후 Supabase recommendation_logs에 행 생기는지 (Table Editor에서 확인)
+
+## 아직 남은 백엔드 출시 게이트
+
+- `delete-account` Edge Function과 공통 보안 모듈 배포 및 안전한 테스트 계정의 실제 삭제/cascade 검증
+- Docker/local Supabase가 가능한 환경에서 빈 DB 전체 active migration replay
 
 ## 내일 App Store Connect에서만 할 일
 

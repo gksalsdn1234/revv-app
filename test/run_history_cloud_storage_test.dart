@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/storage_keys.dart';
+import 'package:revv_app/core/supabase_config.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/route_feedback.dart';
 import 'package:revv_app/models/run_session.dart';
@@ -10,8 +11,10 @@ import 'package:revv_app/models/run_summary.dart';
 import 'package:revv_app/models/run_telemetry_detail.dart';
 import 'package:revv_app/services/drive_dynamics_tracker.dart';
 import 'package:revv_app/services/run_history_service.dart';
+import 'package:revv_app/services/run_local_store.dart';
 import 'package:revv_app/services/run_pending_upload_store.dart';
 import 'package:revv_app/services/secure_session_store.dart';
+import 'package:revv_app/services/supabase_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -48,6 +51,120 @@ void main() {
     await store.clearAll();
 
     expect(prefs.getString('${StorageKeys.runDetailPrefix}run-1'), isNotNull);
+  });
+
+  test('pending feedback keeps only the latest choice for a run', () async {
+    SharedPreferences.setMockInitialValues({});
+    final store = _pendingStore();
+    final first = RouteFeedback(
+      id: 'feedback-1',
+      runId: 'run-1',
+      routeId: 'route-1',
+      routeName: 'Route',
+      feedbackType: 'liked',
+      createdAt: DateTime.utc(2026, 7, 14, 10),
+    );
+    final replacement = RouteFeedback(
+      id: 'feedback-2',
+      runId: 'run-1',
+      routeId: 'route-1',
+      routeName: 'Route',
+      feedbackType: 'disliked',
+      createdAt: DateTime.utc(2026, 7, 14, 11),
+    );
+
+    await store.saveFeedback(first);
+    await store.saveFeedback(replacement);
+
+    final pending = await store.loadFeedback();
+    expect(pending, hasLength(1));
+    expect(pending.single.id, replacement.id);
+    expect(pending.single.feedbackType, 'disliked');
+  });
+
+  test(
+    'unconfirmed account deletion preserves persisted cloud session',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.pendingAccountDeletionUid: 'user-1',
+      });
+      final secure = MemorySecureStringStore({
+        StorageKeys.supabaseSession: 'persisted-session',
+      });
+      final supabase = SupabaseService()..debugResetForTesting();
+      addTearDown(supabase.debugResetForTesting);
+      supabase.sessionStore = SecureSessionStore(store: secure);
+
+      await supabase.init(
+        config: const SupabaseConfig(url: '', anonKey: ''),
+      );
+
+      expect(secure.values[StorageKeys.supabaseSession], 'persisted-session');
+    },
+  );
+
+  test('pending account deletion clears local data on next load', () async {
+    SharedPreferences.setMockInitialValues({});
+    final localStore = PreferencesRunLocalStore();
+    final firstHistory = RunHistoryService(
+      localStore: localStore,
+      cloudClient: _FakeCloud(),
+    );
+    await firstHistory.load();
+    await firstHistory.save(_sessionWithRoute());
+    await (await SharedPreferences.getInstance()).setString(
+      StorageKeys.pendingAccountDeletionUid,
+      'user-1',
+    );
+    await (await SharedPreferences.getInstance()).setString(
+      StorageKeys.confirmedAccountDeletionUid,
+      'user-1',
+    );
+    final history = RunHistoryService(
+      localStore: localStore,
+      cloudClient: _FakeCloud(),
+    );
+
+    await history.load();
+
+    expect(history.history, isEmpty);
+    expect(await localStore.loadRuns(), isEmpty);
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        StorageKeys.pendingAccountDeletionUid,
+      ),
+      isNull,
+    );
+  });
+
+  test('unconfirmed account deletion preserves local data for retry', () async {
+    SharedPreferences.setMockInitialValues({});
+    final localStore = PreferencesRunLocalStore();
+    final firstHistory = RunHistoryService(
+      localStore: localStore,
+      cloudClient: _FakeCloud(),
+    );
+    await firstHistory.load();
+    await firstHistory.save(_sessionWithRoute());
+    await (await SharedPreferences.getInstance()).setString(
+      StorageKeys.pendingAccountDeletionUid,
+      'user-1',
+    );
+    final history = RunHistoryService(
+      localStore: localStore,
+      cloudClient: _FakeCloud(),
+    );
+
+    await history.load();
+
+    expect(history.history, hasLength(1));
+    expect(await localStore.loadRuns(), hasLength(1));
+    expect(
+      (await SharedPreferences.getInstance()).getString(
+        StorageKeys.pendingAccountDeletionUid,
+      ),
+      'user-1',
+    );
   });
 
   test(
@@ -123,6 +240,72 @@ void main() {
     },
   );
 
+  test('enabling cloud backfills runs saved while cloud was off', () async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: false,
+    });
+    final cloud = _FakeCloud();
+    final history = RunHistoryService(cloudClient: cloud);
+    await history.load();
+    await history.save(_sessionWithRoute());
+    expect(cloud.events, isEmpty);
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(StorageKeys.cloudRunStorageEnabled, true);
+    final synced = await history.syncWithCloud();
+
+    expect(synced, isTrue);
+    expect(cloud.events, contains('upload'));
+  });
+
+  test(
+    'cloud backfill uploads local detail even when summary already exists',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: false,
+      });
+      final cloud = _FakeCloud();
+      final pending = _pendingStore();
+      final history = RunHistoryService(
+        cloudClient: cloud,
+        pendingStore: pending,
+      );
+      await history.load();
+      final summary = await history.saveSession(_sessionWithRoute());
+      cloud.remoteRunIds.add(summary.id);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(StorageKeys.cloudRunStorageEnabled, true);
+
+      final synced = await history.syncWithCloud();
+
+      expect(
+        synced,
+        isTrue,
+        reason:
+            'events=${cloud.events} detail=${cloud.uploadDetailCount} pending=${await pending.hasPending()}',
+      );
+      expect(cloud.uploadRunCount, 0);
+      expect(cloud.uploadDetailCount, 1);
+    },
+  );
+
+  test(
+    'cloud sync reports failure when remote run ids cannot be read',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: true,
+      });
+      final cloud = _FakeCloud()..failRunIdFetch = true;
+      final history = RunHistoryService(cloudClient: cloud);
+      await history.load();
+
+      final synced = await history.syncWithCloud();
+
+      expect(synced, isFalse);
+      expect(history.cloudSyncState, CloudHistorySyncState.error);
+    },
+  );
+
   test(
     'RunHistoryService defaults fresh install detail upload to local only',
     () async {
@@ -146,6 +329,23 @@ void main() {
       expect(prefs.getString(StorageKeys.pendingRunDetailsIndex), isNull);
     },
   );
+
+  test('failed atomic local save does not publish a partial run', () async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: false,
+    });
+    final history = RunHistoryService(
+      cloudClient: _FakeCloud(),
+      localStore: _FailingAtomicStore(),
+    );
+
+    await expectLater(
+      history.saveSession(_sessionWithRoute()),
+      throwsStateError,
+    );
+
+    expect(history.history, isEmpty);
+  });
 
   test(
     'RunHistoryService does not record route usage when cloud storage is off',
@@ -247,6 +447,31 @@ void main() {
         prefs.getStringList(StorageKeys.pendingRunDataDeletionUids),
         contains('user-1'),
       );
+    },
+  );
+
+  test(
+    'account deletion cleanup removes stale local deletion queues',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: true,
+        StorageKeys.pendingRunDataDeletionUids: ['user-1', 'user-2'],
+        StorageKeys.pendingExplorationDeletionUids: ['user-1', 'user-3'],
+      });
+      final history = RunHistoryService(cloudClient: _FakeCloud());
+      await history.load();
+      await history.save(_sessionWithRoute());
+
+      await history.clearLocalAfterAccountDeletion('user-1');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(history.history, isEmpty);
+      expect(prefs.getStringList(StorageKeys.pendingRunDataDeletionUids), [
+        'user-2',
+      ]);
+      expect(prefs.getStringList(StorageKeys.pendingExplorationDeletionUids), [
+        'user-3',
+      ]);
     },
   );
 
@@ -439,6 +664,30 @@ void main() {
     expect((await store.loadDetail('fresh-run'))?.runId, 'fresh-run');
     expect(await store.hasPending(), isTrue);
   });
+
+  test(
+    'pending uploads are not reassigned to a different cloud user',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        StorageKeys.cloudRunStorageEnabled: true,
+        StorageKeys.cloudRunStorageOwnerUid: 'user-1',
+      });
+      final pending = _pendingStore();
+      await pending.saveDetail(_detail('old-user-run'));
+      final cloud = _FakeCloud()..userId = 'user-2';
+      final history = RunHistoryService(
+        pendingStore: pending,
+        cloudClient: cloud,
+      );
+
+      final synced = await history.syncWithCloud();
+
+      expect(synced, isFalse);
+      expect(history.cloudSyncState, CloudHistorySyncState.error);
+      expect(cloud.uploadDetailCount, 0);
+      expect(await pending.hasPending(), isFalse);
+    },
+  );
 }
 
 RunPendingUploadStore _pendingStore() =>
@@ -512,9 +761,12 @@ class _FakeCloud implements RunHistoryCloudClient {
   final recordedRouteIds = <String?>[];
   final events = <String>[];
   var uploadDetailCount = 0;
+  var uploadRunCount = 0;
   var uploadTelemetrySummaryCount = 0;
   var deleteCount = 0;
   DriveDynamicsSummary? lastTelemetrySummary;
+  final remoteRunIds = <String>{};
+  bool failRunIdFetch = false;
 
   @override
   bool get isReady => true;
@@ -539,11 +791,13 @@ class _FakeCloud implements RunHistoryCloudClient {
   }
 
   @override
-  Future<Set<String>> fetchRunIds() async => {};
+  Future<Set<String>?> fetchRunIds() async =>
+      failRunIdFetch ? null : Set.of(remoteRunIds);
 
   @override
-  Future<void> recordRouteRun(String? routeId, String runId) async {
+  Future<bool> recordRouteRun(String? routeId, String runId) async {
     recordedRouteIds.add(routeId);
+    return true;
   }
 
   @override
@@ -551,6 +805,7 @@ class _FakeCloud implements RunHistoryCloudClient {
 
   @override
   Future<bool> uploadRun(RunSummary summary) async {
+    uploadRunCount++;
     events.add('upload');
     return uploadRunCompleter?.future ?? true;
   }
@@ -581,5 +836,36 @@ class _RetryRunCloud extends _FakeCloud {
     attempts++;
     if (attempts == 1) firstAttempted.complete();
     return attempts > 1;
+  }
+}
+
+class _FailingAtomicStore implements RunLocalStore {
+  @override
+  Future<void> clearAll() async {}
+
+  @override
+  Future<RunTelemetryDetail?> loadDetail(String runId) async => null;
+
+  @override
+  Future<List<RouteFeedback>> loadFeedback() async => const [];
+
+  @override
+  Future<List<RunSummary>> loadRuns() async => const [];
+
+  @override
+  Future<void> saveDetail(RunTelemetryDetail detail) async {}
+
+  @override
+  Future<void> saveFeedback(RouteFeedback feedback) async {}
+
+  @override
+  Future<void> saveRuns(Iterable<RunSummary> runs) async {}
+
+  @override
+  Future<void> saveRunWithDetail(
+    RunSummary run,
+    RunTelemetryDetail detail,
+  ) async {
+    throw StateError('simulated transaction failure');
   }
 }

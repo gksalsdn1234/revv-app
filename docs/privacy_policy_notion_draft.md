@@ -67,6 +67,7 @@ Users can:
 - Turn cloud drive history storage on or off in the app.
 - Delete saved driving records in the app.
 - Delete explored-map progress together with saved driving records.
+- Delete the guest cloud account and its associated server-side data in the app.
 - Arm automatic recording for one selected route; background location is used only while that armed/active drive is running and remains visibly indicated by the operating system.
 - Change location permission in iOS Settings.
 
@@ -75,6 +76,7 @@ Users can:
 - 앱에서 클라우드 주행 기록 저장을 켜거나 끌 수 있습니다.
 - 앱에서 저장된 주행 기록을 삭제할 수 있습니다.
 - 저장된 주행 기록과 함께 탐험 지도 진행을 삭제할 수 있습니다.
+- 앱에서 게스트 클라우드 계정과 연결된 서버 데이터를 삭제할 수 있습니다.
 - 선택한 루트 한 개에 대해서만 자동 기록을 준비할 수 있습니다. 백그라운드 위치는 해당 준비/주행이 진행 중일 때만 사용되며 운영체제 위치 표시가 유지됩니다.
 - iOS 설정에서 위치 권한을 변경할 수 있습니다.
 

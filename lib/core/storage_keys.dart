@@ -22,6 +22,7 @@ class StorageKeys {
   static const pendingRunDetailsIndex = 'pending_run_details_index_v2';
   static const pendingRunDetailSecurePrefix = 'pending_run_detail_secure_';
   static const pendingRouteFeedback = 'pending_route_feedback';
+  static const cloudRunStorageOwnerUid = 'cloud_run_storage_owner_uid';
 
   // ── 루트 (SavedRouteService, RouteService) ──────────────────
   /// 북마크된 RevvRoute 배열 JSON
@@ -51,6 +52,9 @@ class StorageKeys {
       'revv_pending_exploration_deletion_uids';
   static const pendingRunDataDeletionUids =
       'revv_pending_run_data_deletion_uids';
+  static const pendingAccountDeletionUid = 'revv_pending_account_deletion_uid';
+  static const confirmedAccountDeletionUid =
+      'revv_confirmed_account_deletion_uid';
 
   // ── 집 위치 (HomeLocationService) ──────────────────────────
   static const homeLat = 'home_lat';

@@ -21,6 +21,7 @@ import '../ui/route_share_card_content.dart';
 import '../ui/route_share_card_widget.dart';
 import '../widgets/copilot_start_sheet.dart';
 import '../widgets/route_invite_preview_sheet.dart';
+import '../widgets/route_new_badge.dart';
 import 'lean_drive_screen.dart';
 
 typedef RouteDetailUrlLauncher =
@@ -695,9 +696,9 @@ class _CurveMixSection extends StatelessWidget {
           Text(
             AppCopy.t(
               language,
-              ko: '타이트 ${route.tightCurveKm.toStringAsFixed(1)}km · 중간 ${route.mediumCurveKm.toStringAsFixed(1)}km · 직선/완만 ${gentleKm.toStringAsFixed(1)}km',
-              en: 'Tight ${route.tightCurveKm.toStringAsFixed(1)}km · Medium ${route.mediumCurveKm.toStringAsFixed(1)}km · Straight/gentle ${gentleKm.toStringAsFixed(1)}km',
-              fr: 'Serrés ${route.tightCurveKm.toStringAsFixed(1)}km · Moyens ${route.mediumCurveKm.toStringAsFixed(1)}km · Droits/doux ${gentleKm.toStringAsFixed(1)}km',
+              ko: '타이트\u00A0${route.tightCurveKm.toStringAsFixed(1)}km · 중간\u00A0${route.mediumCurveKm.toStringAsFixed(1)}km · 직선/완만\u00A0${gentleKm.toStringAsFixed(1)}km',
+              en: 'Tight\u00A0${route.tightCurveKm.toStringAsFixed(1)}km · Medium\u00A0${route.mediumCurveKm.toStringAsFixed(1)}km · Straight/\u2060gentle\u00A0${gentleKm.toStringAsFixed(1)}km',
+              fr: 'Serrés\u00A0${route.tightCurveKm.toStringAsFixed(1)}km · Moyens\u00A0${route.mediumCurveKm.toStringAsFixed(1)}km · Droits/\u2060doux\u00A0${gentleKm.toStringAsFixed(1)}km',
             ),
             style: AppText.body(
               size: 13,
@@ -1310,17 +1311,30 @@ class _RouteShapeHero extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  route.difficultyLabel,
-                  style: AppText.mono(
-                    size: 10,
-                    color: AppColors.primaryContainer,
-                    letterSpacing: 1.5,
-                  ),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        route.difficultyLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppText.mono(
+                          size: 10,
+                          color: AppColors.primaryContainer,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    RouteNewBadge(route: route, language: language),
+                  ],
                 ),
                 const SizedBox(height: 7),
                 Text(
-                  routeDisplayName(route, language: language),
+                  routeDisplayName(
+                    route,
+                    language: language,
+                  ).replaceAll(' des ', ' des\u00A0'),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppText.label(

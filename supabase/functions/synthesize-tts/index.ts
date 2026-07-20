@@ -1,4 +1,8 @@
 import { consumeRateLimit } from "../_shared/security.ts";
+import {
+  readJsonWithLimit,
+  RequestBodyTooLargeError,
+} from "../_shared/bounded_json.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +17,7 @@ const allowedVoices = new Set([
   "ko-KR-Chirp3-HD-Charon",
   "ko-KR-Wavenet-D",
 ]);
+const maxRequestBytes = 8 * 1024;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -31,7 +36,11 @@ Deno.serve(async (req) => {
       return json({ audioContent: "", error: "tts_config_missing" });
     }
 
-    const { text, voiceName } = await req.json();
+    const body = await readJsonWithLimit(req, maxRequestBytes);
+    if (body === null || typeof body !== "object") {
+      return json({ audioContent: "", error: "invalid_request" }, 400);
+    }
+    const { text, voiceName } = body as Record<string, unknown>;
     const trimmed = String(text ?? "").trim().slice(0, 500);
     if (!trimmed) return json({ audioContent: "" });
     const selectedVoice = allowedVoices.has(String(voiceName))
@@ -63,7 +72,13 @@ Deno.serve(async (req) => {
     }
     const data = await upstream.json();
     return json({ audioContent: data.audioContent ?? "" });
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return json({ audioContent: "", error: "request_too_large" }, 413);
+    }
+    if (error instanceof SyntaxError) {
+      return json({ audioContent: "", error: "invalid_request" }, 400);
+    }
     return json({ audioContent: "", error: "tts_request_failed" });
   }
 });

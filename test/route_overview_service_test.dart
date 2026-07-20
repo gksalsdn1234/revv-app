@@ -27,7 +27,7 @@ RevvRoute _overviewRoute(String id, LatLng center) {
 
 void main() {
   test(
-    'route overview loads every launch region with a bounded result count',
+    'route overview supplements only the current viewport with a bounded result count',
     () async {
       SharedPreferences.setMockInitialValues({});
       final requestedCenters = <LatLng>[];
@@ -44,15 +44,15 @@ void main() {
 
       await service.prefetchRouteOverview(routeCoverageCenters.first);
 
-      expect(requestedCenters.toSet(), routeOverviewCenters.toSet());
+      expect(requestedCenters, [routeCoverageCenters.first]);
       expect(requestedCenters.first, routeCoverageCenters.first);
-      expect(service.mapVisualRoutes, hasLength(routeOverviewCenters.length));
+      expect(service.mapVisualRoutes, hasLength(1));
       expect(service.routeOverviewLoaded, isTrue);
     },
   );
 
   test(
-    'uncovered viewport is requested before national sample regions',
+    'uncovered viewport replaces the obsolete national center fan-out',
     () async {
       SharedPreferences.setMockInitialValues({});
       final directory = await Directory.systemTemp.createTemp('revv-overview-');
@@ -73,10 +73,7 @@ void main() {
       await service.prefetchRouteOverview(viewportCenter);
 
       expect(requestedCenters.first, viewportCenter);
-      expect(requestedCenters.toSet(), {
-        viewportCenter,
-        ...routeOverviewCenters,
-      });
+      expect(requestedCenters, [viewportCenter]);
       expect(service.routeOverviewLoaded, isTrue);
     },
   );
@@ -101,7 +98,7 @@ void main() {
     expect(service.routeOverviewLoaded, isTrue);
     requestedCenters.clear();
 
-    const newViewport = LatLng(47.5615, -52.7126);
+    const newViewport = LatLng(46.2382, -63.1311);
     await service.prefetchRouteOverview(newViewport);
 
     expect(requestedCenters, [newViewport]);
@@ -227,7 +224,7 @@ void main() {
 
     // Then: its route is visible without waiting for the other regions.
     expect(service.mapVisualRoutes.map((route) => route.id), ['first-ready']);
-    expect(service.routeOverviewLoading, isTrue);
+    expect(service.routeOverviewLoading, isFalse);
 
     remaining.complete(const []);
     await loading;
@@ -256,8 +253,8 @@ void main() {
     final loading = service.prefetchRouteOverview(routeCoverageCenters.first);
     await Future<void>.delayed(Duration.zero);
 
-    // Then: it does not compete with the foreground using all 13 requests.
-    expect(peakRequests, 3);
+    // Then: one viewport supplement stays below the concurrency cap.
+    expect(peakRequests, 1);
     gate.complete();
     await loading;
   });
@@ -278,6 +275,11 @@ void main() {
         completedRegionKeys: {
           for (final center in routeOverviewCenters)
             '${center.lat.toStringAsFixed(4)},${center.lng.toStringAsFixed(4)}',
+        },
+        regionHadRoutes: {
+          for (final center in routeOverviewCenters)
+            '${center.lat.toStringAsFixed(4)},${center.lng.toStringAsFixed(4)}':
+                center == routeOverviewCenters.first,
         },
       ),
     );
@@ -302,13 +304,101 @@ void main() {
     expect(service.routeOverviewLoaded, isTrue);
   });
 
+  test(
+    'cached populated region is refetched when its routes were evicted',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final directory = await Directory.systemTemp.createTemp('revv-overview-');
+      addTearDown(() => directory.delete(recursive: true));
+      final cache = RouteOverviewCache(
+        directoryProvider: () async => directory,
+      );
+      final center = routeOverviewCenters.first;
+      final key =
+          '${center.lat.toStringAsFixed(4)},${center.lng.toStringAsFixed(4)}';
+      await cache.write(
+        RouteOverviewCacheEntry(
+          routes: const [],
+          completedRegionKeys: {key},
+          regionHadRoutes: {key: true},
+        ),
+      );
+      final requested = <LatLng>[];
+      final service = RouteService(
+        routeOverviewCache: cache,
+        routeOverviewFetcher: (requestCenter, _) async {
+          requested.add(requestCenter);
+          return const [];
+        },
+      );
+      addTearDown(service.dispose);
+
+      await service.prefetchRouteOverview(center);
+
+      expect(requested, contains(center));
+    },
+  );
+
+  test(
+    'evicted populated region retries after its first supplement fails',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final directory = await Directory.systemTemp.createTemp('revv-overview-');
+      addTearDown(() => directory.delete(recursive: true));
+      final cache = RouteOverviewCache(
+        directoryProvider: () async => directory,
+      );
+      final center = routeOverviewCenters.first;
+      final completedKeys = {
+        for (final item in routeOverviewCenters)
+          '${item.lat.toStringAsFixed(4)},${item.lng.toStringAsFixed(4)}',
+      };
+      final key =
+          '${center.lat.toStringAsFixed(4)},${center.lng.toStringAsFixed(4)}';
+      await cache.write(
+        RouteOverviewCacheEntry(
+          routes: const [],
+          completedRegionKeys: completedKeys,
+          regionHadRoutes: {
+            for (final completedKey in completedKeys)
+              completedKey: completedKey == key,
+          },
+        ),
+      );
+      var supplementRequests = 0;
+      final service = RouteService(
+        routeOverviewCache: cache,
+        routeOverviewFetcher: (requestCenter, _) async => [
+          _overviewRoute('recommended', requestCenter),
+        ],
+        routeMapSegmentFetcher: (requestCenter, _) async {
+          supplementRequests++;
+          if (supplementRequests == 1) {
+            throw TimeoutException('map supplement timeout');
+          }
+          return [_overviewRoute('map-segment', requestCenter)];
+        },
+      );
+      addTearDown(service.dispose);
+
+      await service.prefetchRouteOverview(center);
+      await service.prefetchRouteOverview(center);
+
+      expect(supplementRequests, 2);
+      expect(
+        service.mapVisualRoutes.map((route) => route.id),
+        contains('map-segment'),
+      );
+    },
+  );
+
   test('partial national cache retries only regions that failed', () async {
     // Given: one regional request fails while the other regions are cached.
     SharedPreferences.setMockInitialValues({});
     final directory = await Directory.systemTemp.createTemp('revv-overview-');
     addTearDown(() => directory.delete(recursive: true));
     final cache = RouteOverviewCache(directoryProvider: () async => directory);
-    final failedCenter = routeOverviewCenters.last;
+    final failedCenter = routeOverviewCenters.first;
     final firstPassRequests = <LatLng>[];
     final firstService = RouteService(
       routeOverviewCache: cache,
@@ -321,7 +411,7 @@ void main() {
 
     await firstService.prefetchRouteOverview(routeOverviewCenters.first);
     firstService.dispose();
-    expect(firstPassRequests.toSet(), routeOverviewCenters.toSet());
+    expect(firstPassRequests, [failedCenter]);
 
     // When: the overview is loaded again from the partial cache.
     final retryRequests = <LatLng>[];
@@ -350,7 +440,7 @@ void main() {
     'partial national load retries missing regions in the same session',
     () async {
       SharedPreferences.setMockInitialValues({});
-      final failedCenter = routeOverviewCenters.last;
+      final failedCenter = routeOverviewCenters.first;
       var shouldFail = true;
       final requests = <LatLng>[];
       final service = RouteService(
@@ -365,7 +455,7 @@ void main() {
       addTearDown(service.dispose);
 
       await service.prefetchRouteOverview(routeOverviewCenters.first);
-      expect(service.routeOverviewLoaded, isFalse);
+      expect(service.routeOverviewLoaded, isTrue);
 
       shouldFail = false;
       requests.clear();
@@ -401,4 +491,92 @@ void main() {
     expect(service.selectedRoute?.id, 'local');
     expect(service.mapVisualRoutes.length, greaterThan(1));
   });
+
+  test(
+    'sparse overview supplements recommendation routes with map-only segments',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final mapRequests = <LatLng>[];
+      final service = RouteService(
+        routeOverviewFetcher: (center, _) async => [
+          _overviewRoute('recommended-${center.lat}-${center.lng}', center),
+        ],
+        routeMapSegmentFetcher: (center, maxResults) async {
+          mapRequests.add(center);
+          expect(maxResults, RouteService.routeOverviewPerRegionLimit);
+          return [
+            _overviewRoute('recommended-${center.lat}-${center.lng}', center),
+            for (var index = 0; index < 29; index++)
+              _overviewRoute(
+                'segment-$index-${center.lat}-${center.lng}',
+                center,
+              ),
+          ];
+        },
+      );
+      addTearDown(service.dispose);
+
+      await service.prefetchRouteOverview(routeOverviewCenters.first);
+
+      expect(mapRequests, [routeOverviewCenters.first]);
+      expect(
+        service.mapVisualRoutes,
+        hasLength(RouteService.routeOverviewPerRegionLimit),
+      );
+      expect(service.routes, isEmpty);
+    },
+  );
+
+  test(
+    'failed map supplement stays visible but retries instead of being cached',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final failedCenter = routeOverviewCenters.first;
+      final primaryRequests = <LatLng>[];
+      final mapRequests = <LatLng>[];
+      var shouldFail = true;
+      final service = RouteService(
+        routeOverviewFetcher: (center, _) async {
+          primaryRequests.add(center);
+          return [
+            _overviewRoute('recommended-${center.lat}-${center.lng}', center),
+          ];
+        },
+        routeMapSegmentFetcher: (center, _) async {
+          mapRequests.add(center);
+          if (center == failedCenter && shouldFail) {
+            throw TimeoutException('map supplement timeout');
+          }
+          return [
+            for (var index = 0; index < 29; index++)
+              _overviewRoute(
+                'segment-$index-${center.lat}-${center.lng}',
+                center,
+              ),
+          ];
+        },
+      );
+      addTearDown(service.dispose);
+
+      await service.prefetchRouteOverview(routeOverviewCenters.first);
+
+      expect(service.routeOverviewLoaded, isTrue);
+      expect(
+        service.mapVisualRoutes.any(
+          (route) =>
+              route.id == 'recommended-${failedCenter.lat}-${failedCenter.lng}',
+        ),
+        isTrue,
+      );
+
+      shouldFail = false;
+      primaryRequests.clear();
+      mapRequests.clear();
+      await service.prefetchRouteOverview(routeOverviewCenters.first);
+
+      expect(primaryRequests, [failedCenter]);
+      expect(mapRequests, [failedCenter]);
+      expect(service.routeOverviewLoaded, isTrue);
+    },
+  );
 }

@@ -53,28 +53,43 @@ void main() {
       expect(store.writeCount, 2);
 
       service.stopSession();
+      await service.clearRecovery();
       await _flushAsync();
       expect(store.clearCount, 2);
     },
   );
 
-  test('snapshot write failure does not stop the drive or later writes', () async {
+  test(
+    'snapshot write failure does not stop the drive or later writes',
+    () async {
+      var now = DateTime.parse('2026-07-11T10:00:00Z');
+      final store = _FakeRecoveryStore(writeFailures: 1);
+      final service = RunSessionService(clock: () => now, recoveryStore: store);
+      service.startSession(_route);
+      await _flushAsync();
+
+      now = now.add(const Duration(seconds: 30));
+      service.recordPosition(45, -73, 30);
+      await _flushAsync();
+      expect(service.isRecording, isTrue);
+
+      now = now.add(const Duration(seconds: 30));
+      service.recordPosition(45.001, -73.001, 40);
+      await _flushAsync();
+      expect(store.writeCount, 2);
+      expect(store.snapshot, isNotNull);
+    },
+  );
+
+  test('a one-second GPS teleport does not inflate run distance', () {
     var now = DateTime.parse('2026-07-11T10:00:00Z');
-    final store = _FakeRecoveryStore(writeFailures: 1);
-    final service = RunSessionService(clock: () => now, recoveryStore: store);
-    service.startSession(_route);
-    await _flushAsync();
+    final service = RunSessionService(clock: () => now)..startSession(_route);
 
-    now = now.add(const Duration(seconds: 30));
     service.recordPosition(45, -73, 30);
-    await _flushAsync();
-    expect(service.isRecording, isTrue);
+    now = now.add(const Duration(seconds: 1));
+    service.recordPosition(46, -74, 30);
 
-    now = now.add(const Duration(seconds: 30));
-    service.recordPosition(45.001, -73.001, 40);
-    await _flushAsync();
-    expect(store.writeCount, 2);
-    expect(store.snapshot, isNotNull);
+    expect(service.currentDistance, lessThan(0.1));
   });
 
   test('snapshot round trip restores run values', () {
@@ -108,7 +123,10 @@ void main() {
     await store.writeSnapshot(_snapshot(distanceKm: 2.0));
 
     expect((await store.readSnapshot())?.distanceKm, 2.0);
-    expect(File('${directory.path}/run_recovery.json.tmp').existsSync(), isFalse);
+    expect(
+      File('${directory.path}/run_recovery.json.tmp').existsSync(),
+      isFalse,
+    );
   });
 
   testWidgets('valid recovery can be saved and cleared', (tester) async {
@@ -168,7 +186,10 @@ void main() {
       routeService: routes,
     );
 
-    expect(find.text('A previous drive is still available. Save it?'), findsOneWidget);
+    expect(
+      find.text('A previous drive is still available. Save it?'),
+      findsOneWidget,
+    );
     expect(find.text('Route reached. Start the drive?'), findsNothing);
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();

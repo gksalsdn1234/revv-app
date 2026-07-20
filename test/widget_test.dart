@@ -23,6 +23,7 @@ import 'package:revv_app/services/settings_service.dart';
 import 'package:revv_app/services/supabase_service.dart';
 import 'package:revv_app/services/weather_service.dart';
 import 'package:revv_app/models/run_summary.dart';
+import 'package:url_launcher/link.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -51,8 +52,8 @@ void main() {
       driveMode: 'cruise',
     );
     service.recordPosition(
-      37.1,
-      127.1,
+      37.001,
+      127.001,
       60,
       lateralG: 0.32,
       longitudinalG: 0.08,
@@ -368,6 +369,7 @@ void main() {
         anonymous: false,
       );
     addTearDown(supabase.debugResetForTesting);
+    final history = _SyncedRunHistoryService();
 
     await tester.pumpWidget(
       MultiProvider(
@@ -378,7 +380,7 @@ void main() {
           ChangeNotifierProvider(
             create: (_) => DrivenRoutesService(history: RunHistoryService()),
           ),
-          ChangeNotifierProvider(create: (_) => RunHistoryService()),
+          ChangeNotifierProvider<RunHistoryService>.value(value: history),
           ChangeNotifierProvider<SettingsService>.value(value: settings),
           ChangeNotifierProvider<LocationService>.value(
             value: _ShellLocationService(hasLocation: true),
@@ -409,6 +411,24 @@ void main() {
     expect(find.text('LOCAL'), findsOneWidget);
     expect(find.text('SYNCED'), findsNothing);
     expect(find.text('Detailed drive cloud storage'), findsOneWidget);
+    expect(find.text('Map data & route sources'), findsOneWidget);
+    expect(
+      find.text('Generated routes: © OpenStreetMap contributors · ODbL'),
+      findsOneWidget,
+    );
+    final osmLink = tester.widget<Link>(find.byType(Link));
+    expect(osmLink.uri.toString(), 'https://www.openstreetmap.org/copyright');
+    expect(osmLink.target, LinkTarget.blank);
+    final englishAttribution = find.bySemanticsLabel(
+      'Open OpenStreetMap copyright information',
+    );
+    expect(englishAttribution, findsOneWidget);
+    final attributionTapTarget = find.descendant(
+      of: englishAttribution,
+      matching: find.byType(InkWell),
+    );
+    expect(attributionTapTarget, findsOneWidget);
+    expect(tester.widget<InkWell>(attributionTapTarget).onTap, isNotNull);
 
     await tester.tap(find.text('Detailed drive cloud storage'));
     await tester.pumpAndSettle();
@@ -420,6 +440,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(settings.appLanguage, AppLanguage.korean);
+    expect(find.bySemanticsLabel('OpenStreetMap 저작권 정보 열기'), findsOneWidget);
+
+    await tester.tap(find.text('FR'));
+    await tester.pumpAndSettle();
+
+    expect(settings.appLanguage, AppLanguage.french);
+    expect(
+      find.bySemanticsLabel(
+        'Ouvrir les informations de droit d’auteur OpenStreetMap',
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('run summary session log expands detailed sections', (
@@ -1181,6 +1213,20 @@ class _ShellLocationService extends LocationService {
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
   }) async => bestKnownLatLng;
+}
+
+class _SyncedRunHistoryService extends RunHistoryService {
+  CloudHistorySyncState _state = CloudHistorySyncState.local;
+
+  @override
+  CloudHistorySyncState get cloudSyncState => _state;
+
+  @override
+  Future<bool> syncWithCloud() async {
+    _state = CloudHistorySyncState.synced;
+    notifyListeners();
+    return true;
+  }
 }
 
 const _pendingRoute = RevvRoute(

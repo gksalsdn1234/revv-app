@@ -33,6 +33,7 @@ import '../widgets/journey_sheet.dart';
 import '../widgets/map_widget.dart';
 import '../widgets/place_search_sheet.dart';
 import '../widgets/revv_ui.dart';
+import '../widgets/route_new_badge.dart';
 import 'lean_drive_screen.dart';
 import 'lean_route_detail_screen.dart';
 
@@ -280,6 +281,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   DrivePlanOptionKind _selectedKind = DrivePlanOptionKind.standard;
   int _selectedFreeRoamIndex = 0;
   bool _planning = false;
+  int _destinationPlanGeneration = 0;
   String? _journeyMode;
   String? _lastShownSignature;
   bool _initialRouteFocused = false;
@@ -401,7 +403,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     return point;
   }
 
-  Future<void> _fetchAtPoint(LatLng point, {bool forceRefresh = false}) async {
+  Future<void> _fetchAtPoint(
+    LatLng point, {
+    bool forceRefresh = false,
+    int? destinationGeneration,
+  }) async {
     final settings = context.read<SettingsService>();
     final routes = context.read<RouteService>();
     routes.filterStrength = settings.routeFilterStrength;
@@ -425,7 +431,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       point.lng,
       forceRefresh: forceRefresh,
     );
-    if (!mounted) return;
+    if (!mounted ||
+        (destinationGeneration != null &&
+            destinationGeneration != _destinationPlanGeneration)) {
+      return;
+    }
     setState(() {
       _lens = _RouteLens.all;
       _localStatusMessage = null;
@@ -475,6 +485,10 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
   Future<void> _openDestinationSearch() async {
     _dismissRoutePreview();
+    setState(() {
+      _destinationPlanGeneration++;
+      _planning = false;
+    });
     final language = context.read<SettingsService>().appLanguage;
     final result = await showModalBottomSheet<Object>(
       context: context,
@@ -492,7 +506,10 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     );
     if (!mounted || result is! PlaceResult) return;
     final browseArea = result.isArea;
+    late final int selectionGeneration;
     setState(() {
+      selectionGeneration = ++_destinationPlanGeneration;
+      _planning = false;
       _destination = browseArea ? null : result.point;
       _destinationName = result.name;
       _mapCenterPoint = result.point;
@@ -502,8 +519,19 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _selectedKind = DrivePlanOptionKind.standard;
       _selectedFreeRoamIndex = 0;
     });
-    await _fetchAtPoint(result.point, forceRefresh: true);
-    if (!mounted) return;
+    await _fetchAtPoint(
+      result.point,
+      forceRefresh: true,
+      destinationGeneration: selectionGeneration,
+    );
+    if (!mounted ||
+        selectionGeneration != _destinationPlanGeneration ||
+        !_sameDestination(
+          result.point,
+          browseArea ? _mapCenterPoint : _destination,
+        )) {
+      return;
+    }
     final fieldRoutes = context.read<RouteService>().mapVisualRoutes.where(
       (route) =>
           RevvRoute.haversineKm(result.point, route.centerPoint) <=
@@ -527,6 +555,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
   void _clearDestination() {
     setState(() {
+      _destinationPlanGeneration++;
+      _planning = false;
       _destination = null;
       _destinationName = null;
       _journeyMode = null;
@@ -545,19 +575,25 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
   Future<void> _buildDestinationJourney() async {
     final destination = _destination;
-    if (destination == null || _planning) return;
-    final origin = await _resolveSearchPoint();
-    if (!mounted || origin == null) return;
+    if (destination == null) return;
+    final generation = ++_destinationPlanGeneration;
     final language = context.read<SettingsService>().appLanguage;
     setState(() {
       _planning = true;
-      _journeyOrigin = origin;
       _journeyMode = 'destination';
       _options = null;
       _freeRoamOptions = null;
       _localStatusMessage = null;
     });
     try {
+      final origin = await _resolveSearchPoint();
+      if (!mounted ||
+          origin == null ||
+          generation != _destinationPlanGeneration ||
+          !_sameDestination(destination, _destination)) {
+        return;
+      }
+      setState(() => _journeyOrigin = origin);
       final options = await _planner.buildPlanOptions(
         DrivePlanRequest(
           origin: origin,
@@ -565,7 +601,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
           windingBudgetMinutes: _budgetMinutes(_driveBudget),
         ),
       );
-      if (!mounted) return;
+      if (!mounted ||
+          generation != _destinationPlanGeneration ||
+          !_sameDestination(destination, _destination)) {
+        return;
+      }
       setState(() {
         _options = options.isEmpty ? null : options;
         _selectedKind = DrivePlanOptionKind.standard;
@@ -583,7 +623,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         _snapSheetOpen();
       }
     } on TimeoutException {
-      if (!mounted) return;
+      if (!mounted || generation != _destinationPlanGeneration) return;
       setState(() {
         _localStatusMessage = AppCopy.t(
           language,
@@ -593,7 +633,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         );
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _destinationPlanGeneration) return;
       setState(() {
         _localStatusMessage = AppCopy.t(
           language,
@@ -603,20 +643,25 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         );
       });
     } finally {
-      if (mounted) setState(() => _planning = false);
+      if (mounted && generation == _destinationPlanGeneration) {
+        setState(() => _planning = false);
+      }
     }
   }
+
+  bool _sameDestination(LatLng expected, LatLng? current) =>
+      current != null &&
+      expected.lat == current.lat &&
+      expected.lng == current.lng;
 
   Future<void> _buildFreeRoamJourney() async {
     if (_planning) return;
     _dismissRoutePreview();
     if (_chainSelection.isNotEmpty) setState(_chainSelection.clear);
-    final origin = await _resolveSearchPoint();
-    if (!mounted || origin == null) return;
+    final generation = ++_destinationPlanGeneration;
     final language = context.read<SettingsService>().appLanguage;
     setState(() {
       _planning = true;
-      _journeyOrigin = origin;
       _journeyMode = 'free';
       _options = null;
       _freeRoamOptions = null;
@@ -624,11 +669,18 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _localStatusMessage = null;
     });
     try {
+      final origin = await _resolveSearchPoint();
+      if (!mounted ||
+          origin == null ||
+          generation != _destinationPlanGeneration) {
+        return;
+      }
+      setState(() => _journeyOrigin = origin);
       final options = await _planner.buildFreeRoamOptions(
         origin: origin,
         totalBudgetMinutes: _budgetMinutes(_driveBudget),
       );
-      if (!mounted) return;
+      if (!mounted || generation != _destinationPlanGeneration) return;
       setState(() {
         _freeRoamOptions = options.isEmpty ? null : options;
         _localStatusMessage = options.isEmpty
@@ -645,7 +697,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         _snapSheetOpen();
       }
     } on TimeoutException {
-      if (!mounted) return;
+      if (!mounted || generation != _destinationPlanGeneration) return;
       setState(() {
         _localStatusMessage = AppCopy.t(
           language,
@@ -655,7 +707,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         );
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _destinationPlanGeneration) return;
       setState(() {
         _localStatusMessage = AppCopy.t(
           language,
@@ -665,7 +717,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         );
       });
     } finally {
-      if (mounted) setState(() => _planning = false);
+      if (mounted && generation == _destinationPlanGeneration) {
+        setState(() => _planning = false);
+      }
     }
   }
 
@@ -761,6 +815,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   Future<void> _startChainDrive() async {
     if (_planning || _chainSelection.length < 2) return;
     _dismissRoutePreview();
+    final generation = ++_destinationPlanGeneration;
     final selectedRoutes = _chainSelection.values.toList();
     final firstRoute = selectedRoutes.first;
     final fallbackOrigin = firstRoute.nodes.isEmpty
@@ -782,7 +837,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         ) ??
         location.bestKnownLatLng ??
         fallbackOrigin;
-    if (!mounted) return;
+    if (!mounted || generation != _destinationPlanGeneration) return;
     setState(() => _journeyOrigin = origin);
     DrivePlan plan;
     try {
@@ -791,7 +846,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         routes: selectedRoutes,
       );
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _destinationPlanGeneration) return;
       setState(() {
         _planning = false;
         _localStatusMessage = AppCopy.t(
@@ -803,7 +858,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       });
       return;
     }
-    if (!mounted) return;
+    if (!mounted || generation != _destinationPlanGeneration) return;
     final option = DrivePlanOption(
       kind: DrivePlanOptionKind.standard,
       budgetMinutes: plan.windingMinutes,
@@ -1231,6 +1286,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         service.lastFilteredRouteCount == 0 &&
         service.filterStrength != RouteFilterStrength.broad;
     final language = context.watch<SettingsService>().appLanguage;
+    final newRouteCount = mapDisplayRoutes
+        .where((route) => route.isNewlyGeneratedAt(DateTime.now()))
+        .length;
     final settings = context.watch<SettingsService>();
     final coverageGrid = _coverageRequestPoint == null
         ? null
@@ -1268,6 +1326,10 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
             fr: 'Aucune option ${_lensLabel(_lens, language)}. Revenez à Tout.',
           )
         : localStatus ?? cacheStatus ?? serviceStatus;
+    final showStatusToast =
+        status != null &&
+        status.isNotEmpty &&
+        (visibleRoutes.isNotEmpty || coverageGrid != null || showingJourney);
     final stateKind = _routeFinderStateKind(
       location: location,
       service: service,
@@ -1378,6 +1440,16 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                           : _clearDestination,
                       onRecenter: () => setState(() => _recenterSignal++),
                     ),
+                    if (!showingJourney && newRouteCount > 0) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: NewRouteMapLegend(
+                          count: newRouteCount,
+                          language: language,
+                        ),
+                      ),
+                    ],
                     // 필터 스트립 제거 (민우 2026-07-10): 지도는 셀렉터에만
                     // 집중한다. 예산은 여정 시트의 옵션 칩이 담당.
                     if (!showingJourney && _searchAreaShown) ...[
@@ -1412,7 +1484,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                 ),
               ),
             ),
-            if (status != null && status.isNotEmpty)
+            if (showStatusToast)
               Positioned(
                 top:
                     MediaQuery.paddingOf(context).top +
@@ -1831,6 +1903,8 @@ class _RoutePreviewCard extends StatelessWidget {
                                   ),
                                 ),
                               ),
+                              const SizedBox(width: 8),
+                              RouteNewBadge(route: route, language: language),
                             ],
                           ),
                           const SizedBox(height: 5),
@@ -2214,6 +2288,8 @@ class _RouteListRow extends StatelessWidget {
                           ),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      RouteNewBadge(route: route, language: language),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -3428,6 +3504,7 @@ List<RouteDifficultyLine> _difficultyLines(
   RevvRoute? selected,
 ) {
   final selectedId = selected?.id;
+  final now = DateTime.now();
   return routes
       .where((route) => route.id != selectedId && route.nodes.length > 1)
       .map((route) {
@@ -3438,6 +3515,7 @@ List<RouteDifficultyLine> _difficultyLines(
           colorArgb: profile.colorArgb,
           width: profile.lineWidth,
           opacity: profile.opacity,
+          showNewCasing: route.isNewlyGeneratedAt(now),
         );
       })
       .toList(growable: false);

@@ -25,6 +25,33 @@ class AppCopy {
   static String routes(AppLanguage language) =>
       t(language, ko: '루트', en: 'Routes', fr: 'Routes');
 
+  static String newRouteLabel(AppLanguage language) =>
+      t(language, ko: '신규', en: 'NEW', fr: 'NOUVEAU');
+
+  static String newRouteSemantics(AppLanguage language) =>
+      t(language, ko: '신규 루트', en: 'New route', fr: 'Nouvel itinéraire');
+
+  static String mapDataCredits(AppLanguage language) => t(
+    language,
+    ko: '지도 데이터 · 루트 출처',
+    en: 'Map data & route sources',
+    fr: 'Données cartographiques et sources',
+  );
+
+  static String mapDataCreditsDetail(AppLanguage language) => t(
+    language,
+    ko: '생성 루트: © OpenStreetMap 기여자 · ODbL',
+    en: 'Generated routes: © OpenStreetMap contributors · ODbL',
+    fr: 'Itinéraires générés : © contributeurs OpenStreetMap · ODbL',
+  );
+
+  static String mapDataCreditsLinkSemantics(AppLanguage language) => t(
+    language,
+    ko: 'OpenStreetMap 저작권 정보 열기',
+    en: 'Open OpenStreetMap copyright information',
+    fr: 'Ouvrir les informations de droit d’auteur OpenStreetMap',
+  );
+
   static String history(AppLanguage language) =>
       t(language, ko: '기록', en: 'History', fr: 'Historique');
 

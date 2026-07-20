@@ -519,6 +519,24 @@ void main() {
       isEmpty,
     );
   });
+  test('stored telemetry is bounded while preserving both endpoints', () {
+    final sampleCount = RunTelemetryDetail.maxStoredSamples + 2;
+    final samples = List.generate(
+      sampleCount,
+      (index) => _sample(index * 1000, speedKmh: 30),
+      growable: false,
+    );
+
+    final detail = RunTelemetryDetail.fromSession(
+      'bounded-run',
+      _session(samples, duration: Duration(seconds: sampleCount)),
+    );
+
+    expect(detail.samples, hasLength(RunTelemetryDetail.maxStoredSamples));
+    expect(detail.samples.first.tMs, samples.first.tMs);
+    expect(detail.samples.last.tMs, samples.last.tMs);
+    expect(detail.analytics['sampleCount'], sampleCount);
+  });
 }
 
 RunSession _session(

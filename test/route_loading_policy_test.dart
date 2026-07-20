@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
+import 'package:revv_app/services/route_service.dart';
 
 RevvRoute _route({
   required String id,
@@ -139,6 +140,15 @@ void main() {
       expect(routeOverviewCenters, contains(const LatLng(49.8880, -119.4960)));
       expect(routeOverviewCenters, contains(const LatLng(49.8951, -97.1384)));
       expect(routeOverviewCenters, contains(const LatLng(44.6488, -63.5752)));
+      expect(routeOverviewCenters, contains(const LatLng(52.1332, -106.6700)));
+      expect(routeOverviewCenters, contains(const LatLng(49.8485, -99.9501)));
+      expect(routeOverviewCenters, contains(const LatLng(46.4917, -80.9930)));
+      expect(routeOverviewCenters, contains(const LatLng(45.9636, -66.6431)));
+      expect(routeOverviewCenters, contains(const LatLng(47.5615, -52.7126)));
+      expect(
+        routeOverviewCenters.length * RouteService.routeOverviewPerRegionLimit,
+        lessThanOrEqualTo(RouteService.routeFieldFetchLimit),
+      );
     },
   );
 
@@ -261,6 +271,23 @@ void main() {
       );
     },
   );
+
+  test('ignoring cache age never ignores the cache region', () {
+    expect(
+      isRouteFieldCacheReusable(
+        cacheCenter: const LatLng(49.2827, -123.1207),
+        targetCenter: const LatLng(43.6532, -79.3832),
+        cacheRadiusKm: 160,
+        requiredRadiusKm: 160,
+        fetchedAt: DateTime.now().subtract(const Duration(days: 3)),
+        now: DateTime.now(),
+        maxAge: const Duration(hours: 24),
+        maxCenterDistanceKm: 40,
+        ignoreAge: true,
+      ),
+      isFalse,
+    );
+  });
 
   test(
     'diversifyRouteSlots keeps top score first and then mixes route styles',

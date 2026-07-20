@@ -1,10 +1,15 @@
 import { consumeRateLimit } from "../_shared/security.ts";
+import {
+  readJsonWithLimit,
+  RequestBodyTooLargeError,
+} from "../_shared/bounded_json.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
+const maxRequestBytes = 4 * 1024;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -24,7 +29,11 @@ Deno.serve(async (req) => {
       return json(defaultWeather("weather_config_missing"));
     }
 
-    const { lat, lng } = await req.json();
+    const body = await readJsonWithLimit(req, maxRequestBytes);
+    if (body === null || typeof body !== "object") {
+      return json(defaultWeather("invalid_request"), 400);
+    }
+    const { lat, lng } = body as Record<string, unknown>;
     const latitude = Number(lat);
     const longitude = Number(lng);
     if (
@@ -53,7 +62,13 @@ Deno.serve(async (req) => {
       weather: data.weather ?? [{ id: 800, description: "맑음", icon: "01d" }],
       main: data.main ?? { temp: 0 },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return json(defaultWeather("request_too_large"), 413);
+    }
+    if (error instanceof SyntaxError) {
+      return json(defaultWeather("invalid_request"), 400);
+    }
     return json(defaultWeather("weather_request_failed"));
   }
 });

@@ -1,0 +1,6 @@
+httpx2[http2,brotli,zstd]==2.7.0
+networkx==3.6.1
+osmium==4.3.1
+pip-tools==7.5.3
+pydantic==2.13.2
+typer==0.21.0

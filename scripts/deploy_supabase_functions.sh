@@ -7,6 +7,7 @@ FUNCTIONS=(
   get-weather
   list-google-tts-voices
   synthesize-tts
+  delete-account
 )
 
 if ! command -v supabase >/dev/null 2>&1; then

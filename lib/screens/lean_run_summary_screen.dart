@@ -17,6 +17,7 @@ import '../models/run_session.dart';
 import '../models/run_summary.dart';
 import '../models/run_telemetry_detail.dart';
 import '../services/run_history_service.dart';
+import '../services/run_session_service.dart';
 import '../services/drive_dynamics_tracker.dart';
 import '../services/external_nav.dart';
 import '../services/location_service.dart';
@@ -87,9 +88,14 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
     final session = widget.session;
     if (session == null) return null;
     final history = context.read<RunHistoryService>();
-    final summary = await history.save(session);
-    final detail = RunTelemetryDetail.fromSession(summary.id, session);
-    unawaited(history.saveDetail(detail));
+    RunSessionService? sessions;
+    try {
+      sessions = context.read<RunSessionService>();
+    } on ProviderNotFoundException {
+      sessions = null;
+    }
+    final summary = await history.saveSession(session);
+    await sessions?.clearRecovery();
     return summary;
   }
 

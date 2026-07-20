@@ -83,10 +83,11 @@ RevvRoute buildDrivePlanRoute({
   );
 }
 
+int windingRouteCount(DrivePlan plan) => _windingRouteIds(plan).length;
+
 int activeWindingRouteNumber(DrivePlan plan, double progress) {
-  final windingCount = plan.legs
-      .where((leg) => leg.kind == DrivePlanLegKind.winding)
-      .length;
+  final routeIds = _windingRouteIds(plan);
+  final windingCount = routeIds.length;
   if (windingCount == 0) return 0;
   final drivingLegs = plan.legs
       .where((leg) => leg.kind != DrivePlanLegKind.rest)
@@ -99,19 +100,38 @@ int activeWindingRouteNumber(DrivePlan plan, double progress) {
 
   final targetKm = progress.clamp(0.0, 1.0) * totalKm;
   var distanceKm = 0.0;
-  var completedWinding = 0;
+  final reachedRouteIds = <String>{};
   for (var index = 0; index < drivingLegs.length; index++) {
     final leg = drivingLegs[index];
     final legEndKm = distanceKm + distancesKm[index];
     if (targetKm <= legEndKm) {
-      if (leg.kind == DrivePlanLegKind.winding) return completedWinding + 1;
-      return math.min(completedWinding + 1, windingCount);
+      if (leg.kind == DrivePlanLegKind.winding) {
+        final routeId = _windingLegId(leg, index);
+        return routeIds.indexOf(routeId) + 1;
+      }
+      return math.min(reachedRouteIds.length + 1, windingCount);
     }
-    if (leg.kind == DrivePlanLegKind.winding) completedWinding++;
+    if (leg.kind == DrivePlanLegKind.winding) {
+      reachedRouteIds.add(_windingLegId(leg, index));
+    }
     distanceKm = legEndKm;
   }
   return windingCount;
 }
+
+List<String> _windingRouteIds(DrivePlan plan) {
+  final ids = <String>[];
+  for (var index = 0; index < plan.legs.length; index++) {
+    final leg = plan.legs[index];
+    if (leg.kind != DrivePlanLegKind.winding) continue;
+    final id = _windingLegId(leg, index);
+    if (!ids.contains(id)) ids.add(id);
+  }
+  return ids;
+}
+
+String _windingLegId(DrivePlanLeg leg, int index) =>
+    leg.route?.id ?? 'winding-leg-$index';
 
 DrivePlanLegKind? activeDrivePlanLegKind(DrivePlan plan, double progress) {
   final drivingLegs = plan.legs
