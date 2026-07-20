@@ -60,6 +60,14 @@ class RevvRoute {
   /// 최초 발견자 uid
   final String? publishedBy;
 
+  /// True only for an OSM-generated route in an active publication batch.
+  final bool isGenerated;
+
+  /// Publication time of the active generated batch. Legacy routes keep null.
+  final DateTime? activatedAt;
+  final String? provinceCode;
+  final int? catalogEpoch;
+
   const RevvRoute({
     required this.id,
     required this.name,
@@ -101,9 +109,21 @@ class RevvRoute {
     this.elevationProfile,
     this.runCount = 0,
     this.publishedBy,
+    this.isGenerated = false,
+    this.activatedAt,
+    this.provinceCode,
+    this.catalogEpoch,
   });
 
   String get starDisplay => '★' * starRating + '☆' * (5 - starRating);
+
+  bool isNewlyGeneratedAt(DateTime now) {
+    final activated = activatedAt;
+    if (!isGenerated || activated == null || now.isBefore(activated)) {
+      return false;
+    }
+    return now.isBefore(activated.add(const Duration(days: 30)));
+  }
 
   String get distanceDisplay => '${distanceKm.toStringAsFixed(0)} km';
 
@@ -307,6 +327,10 @@ class RevvRoute {
     List<double>? elevationProfile,
     int? runCount,
     String? publishedBy,
+    bool? isGenerated,
+    DateTime? activatedAt,
+    String? provinceCode,
+    int? catalogEpoch,
   }) {
     return RevvRoute(
       id: id ?? this.id,
@@ -349,6 +373,10 @@ class RevvRoute {
       elevationProfile: elevationProfile ?? this.elevationProfile,
       runCount: runCount ?? this.runCount,
       publishedBy: publishedBy ?? this.publishedBy,
+      isGenerated: isGenerated ?? this.isGenerated,
+      activatedAt: activatedAt ?? this.activatedAt,
+      provinceCode: provinceCode ?? this.provinceCode,
+      catalogEpoch: catalogEpoch ?? this.catalogEpoch,
     );
   }
 
@@ -397,6 +425,10 @@ class RevvRoute {
     if (elevationProfile != null) 'elevationProfile': elevationProfile,
     if (runCount > 0) 'runCount': runCount,
     if (publishedBy != null) 'publishedBy': publishedBy,
+    'isGenerated': isGenerated,
+    if (activatedAt != null) 'activatedAt': activatedAt!.toIso8601String(),
+    if (provinceCode != null) 'provinceCode': provinceCode,
+    if (catalogEpoch != null) 'catalogEpoch': catalogEpoch,
   };
 
   factory RevvRoute.fromJson(Map<String, dynamic> j) => RevvRoute(
@@ -458,6 +490,10 @@ class RevvRoute {
         .toList(),
     runCount: (j['runCount'] as int?) ?? 0,
     publishedBy: j['publishedBy'] as String?,
+    isGenerated: j['isGenerated'] as bool? ?? false,
+    activatedAt: DateTime.tryParse(j['activatedAt']?.toString() ?? ''),
+    provinceCode: j['provinceCode'] as String?,
+    catalogEpoch: (j['catalogEpoch'] as num?)?.toInt(),
   );
 
   static List<RevvRoute> listFromJson(String raw) {

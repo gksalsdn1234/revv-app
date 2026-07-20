@@ -152,6 +152,10 @@ void main() {
       ],
       'run_count': 7,
       'published_by': 'user-1',
+      'is_generated': true,
+      'activated_at': '2026-07-16T04:30:00Z',
+      'province_code': 'AB',
+      'catalog_epoch': 9,
     });
 
     expect(route.id, 'route-1');
@@ -171,6 +175,10 @@ void main() {
     expect(route.nearbyPoiNames, ['Belvédère Nord']);
     expect(route.runCount, 7);
     expect(route.publishedBy, 'user-1');
+    expect(route.isGenerated, isTrue);
+    expect(route.activatedAt, DateTime.utc(2026, 7, 16, 4, 30));
+    expect(route.provinceCode, 'AB');
+    expect(route.catalogEpoch, 9);
   });
 
   test(

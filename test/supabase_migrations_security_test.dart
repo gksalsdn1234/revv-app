@@ -24,6 +24,8 @@ void main() {
       'supabase/migrations/20260706090000_crew_walkie_presence.sql';
   const learningLoopMigration =
       'supabase/migrations/20260707120000_learning_loop.sql';
+  const westernRoutePublicationV2Migration =
+      'supabase/migrations/20260716043420_western_route_publication_v2.sql';
   const activeMigrations = [
     coreMigration,
     rateLimitMigration,
@@ -36,6 +38,7 @@ void main() {
     crewWalkieRealtimeMigration,
     crewWalkiePresenceMigration,
     learningLoopMigration,
+    westernRoutePublicationV2Migration,
   ];
 
   const userTables = [

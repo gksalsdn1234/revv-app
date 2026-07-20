@@ -18,6 +18,13 @@ enum SyncStatus { idle, syncing, done, error }
 
 enum CloudSessionState { unavailable, anonymous, identified }
 
+class _RouteCatalogState {
+  const _RouteCatalogState({required this.epoch, required this.routeIds});
+
+  final int epoch;
+  final List<String> routeIds;
+}
+
 class SupabaseService extends ChangeNotifier {
   static final SupabaseService _instance = SupabaseService._();
   factory SupabaseService() => _instance;
@@ -35,6 +42,7 @@ class SupabaseService extends ChangeNotifier {
   bool? _debugReadyOverride;
   String? _debugUidOverride;
   bool? _debugAnonymousOverride;
+  _RouteCatalogState? _routeCatalogState;
 
   bool _ready = false;
   bool get isReady => _debugReadyOverride ?? _ready;
@@ -97,6 +105,7 @@ class SupabaseService extends ChangeNotifier {
     _debugReadyOverride = null;
     _debugUidOverride = null;
     _debugAnonymousOverride = null;
+    _routeCatalogState = null;
   }
 
   SupabaseClient? get client {
@@ -387,6 +396,112 @@ class SupabaseService extends ChangeNotifier {
     );
   }
 
+  Future<int> fetchRouteCatalogEpoch() async {
+    return (await _loadRouteCatalogState(forceRefresh: true)).epoch;
+  }
+
+  Future<List<RevvRoute>> fetchRouteCatalog({int maxResults = 650}) async {
+    final state = await _loadRouteCatalogState();
+    final routeIds = state.routeIds.take(maxResults.clamp(1, 650)).toList();
+    if (routeIds.isEmpty) return const [];
+    final rows = await client!.rpc(
+      'get_route_nodes_v2',
+      params: {'route_ids_input': routeIds},
+    );
+    return (rows as List)
+        .whereType<Map<String, dynamic>>()
+        .map(_catalogRouteFromNodeRow)
+        .where((route) => route.nodes.length > 1)
+        .take(650)
+        .toList(growable: false);
+  }
+
+  Future<_RouteCatalogState> _loadRouteCatalogState({
+    bool forceRefresh = false,
+  }) async {
+    if (!_ready || uid == null || client == null) {
+      throw StateError('Authenticated Supabase session required');
+    }
+    if (!forceRefresh && _routeCatalogState != null) {
+      return _routeCatalogState!;
+    }
+    final rows = await client!.rpc('get_route_catalog_v2');
+    final row = (rows as List).whereType<Map<String, dynamic>>().firstOrNull;
+    if (row == null) throw StateError('Route catalog is unavailable');
+    final epoch = (row['catalog_epoch'] as num?)?.toInt();
+    if (epoch == null || epoch < 0) {
+      throw const FormatException('Invalid route catalog epoch');
+    }
+    final ids = ((row['route_ids'] as List?) ?? const [])
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .take(650)
+        .toList(growable: false);
+    return _routeCatalogState = _RouteCatalogState(epoch: epoch, routeIds: ids);
+  }
+
+  Future<List<RevvRoute>> fetchNearbyRoutesV2(
+    double lat,
+    double lng,
+    double radiusKm, {
+    int maxResults = 120,
+  }) async {
+    if (!_ready || uid == null || client == null) {
+      throw StateError('Authenticated Supabase session required');
+    }
+    final rows = await client!.rpc(
+      'find_curvy_roads_v2',
+      params: {
+        'user_lat': lat,
+        'user_lng': lng,
+        'radius_m': (radiusKm * 1000).round(),
+        'min_score': 0,
+        'max_results': maxResults.clamp(1, 120),
+      },
+    );
+    return (rows as List)
+        .whereType<Map<String, dynamic>>()
+        .map((row) => routeFromRow(row, userLat: lat, userLng: lng))
+        .take(120)
+        .toList(growable: false);
+  }
+
+  Future<List<RevvRoute>> fetchMapSegments(
+    double lat,
+    double lng,
+    double radiusKm, {
+    int maxResults = 30,
+    bool throwOnFailure = false,
+  }) async {
+    if (!_ready) {
+      if (throwOnFailure) {
+        throw StateError('Supabase is not ready');
+      }
+      return const [];
+    }
+    try {
+      final rows = await client!.rpc(
+        'find_curvy_map_segments',
+        params: {
+          'user_lat': lat,
+          'user_lng': lng,
+          'radius_m': (radiusKm * 1000).round(),
+          'min_distance_km': 0.3,
+          'max_results': maxResults,
+        },
+      );
+      return (rows as List)
+          .whereType<Map<String, dynamic>>()
+          .map((row) => routeFromRow(row, userLat: lat, userLng: lng))
+          .where((route) => route.nodes.length > 1)
+          .toList(growable: false);
+    } catch (e) {
+      _debugLog('[Supabase] fetchMapSegments failed: ${_safeError(e)}');
+      if (throwOnFailure) rethrow;
+      return const [];
+    }
+  }
+
   int _nearbyRouteFetchLimit(double radiusKm) {
     if (radiusKm >= 160) return 650;
     if (radiusKm >= 100) return 400;
@@ -524,6 +639,20 @@ class SupabaseService extends ChangeNotifier {
       _debugLog('[Supabase] fetchRouteNodes failed: ${_safeError(e)}');
       return const [];
     }
+  }
+
+  Future<List<LatLng>> fetchRouteNodesV2(String routeId) async {
+    if (!_ready || uid == null || client == null) {
+      throw StateError('Authenticated Supabase session required');
+    }
+    final rows = await client!.rpc(
+      'get_route_nodes_v2',
+      params: {
+        'route_ids_input': [routeId],
+      },
+    );
+    final row = (rows as List).whereType<Map<String, dynamic>>().firstOrNull;
+    return _nodesFromJson(row?['nodes']);
   }
 
   Future<void> recordRouteRun(String? routeId) async {
@@ -897,8 +1026,61 @@ class SupabaseService extends ChangeNotifier {
         elevationProfile: _doubleListFromJson(row['elevation_profile']),
         runCount: (row['run_count'] as num?)?.toInt() ?? 0,
         publishedBy: row['published_by'] as String?,
+        isGenerated: row['is_generated'] as bool? ?? false,
+        activatedAt: DateTime.tryParse(row['activated_at']?.toString() ?? ''),
+        provinceCode: row['province_code'] as String?,
+        catalogEpoch: (row['catalog_epoch'] as num?)?.toInt(),
       ),
     );
+  }
+
+  static RevvRoute _catalogRouteFromNodeRow(Map<String, dynamic> row) {
+    final nodes = _nodesFromJson(row['nodes']);
+    final center = nodes.isEmpty
+        ? const LatLng(0, 0)
+        : LatLng(
+            nodes.fold<double>(0, (sum, node) => sum + node.lat) / nodes.length,
+            nodes.fold<double>(0, (sum, node) => sum + node.lng) / nodes.length,
+          );
+    final id = row['id'] as String? ?? '';
+    return RevvRoute(
+      id: id,
+      name: id,
+      nodes: nodes,
+      distanceKm: _polylineDistanceKm(nodes),
+      windingScore: 0,
+      starRating: 1,
+      sharpCurveCount: 0,
+      centerPoint: center,
+      distanceFromUser: 0,
+      isGenerated: row['is_generated'] as bool? ?? false,
+      activatedAt: DateTime.tryParse(row['activated_at']?.toString() ?? ''),
+      provinceCode: row['province_code'] as String?,
+      catalogEpoch: (row['catalog_epoch'] as num?)?.toInt(),
+    );
+  }
+
+  static List<LatLng> _nodesFromJson(dynamic value) {
+    if (value is! List) return const [];
+    return value
+        .whereType<Map<String, dynamic>>()
+        .expand((node) {
+          final lat = (node['lat'] as num?)?.toDouble();
+          final lng = (node['lng'] as num?)?.toDouble();
+          if (lat == null || lng == null || !lat.isFinite || !lng.isFinite) {
+            return const <LatLng>[];
+          }
+          return [LatLng(lat, lng)];
+        })
+        .toList(growable: false);
+  }
+
+  static double _polylineDistanceKm(List<LatLng> nodes) {
+    var distance = 0.0;
+    for (var index = 1; index < nodes.length; index++) {
+      distance += RevvRoute.haversineKm(nodes[index - 1], nodes[index]);
+    }
+    return distance;
   }
 
   static LatLng? _pointFromRow(Map<String, dynamic> row, String prefix) {

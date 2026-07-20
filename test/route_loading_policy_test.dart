@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/services/route_loading_policy.dart';
+import 'package:revv_app/services/route_service.dart';
 
 RevvRoute _route({
   required String id,
@@ -94,6 +95,49 @@ void main() {
     expect(isPointInsideRouteCoverage(toronto), isFalse);
     expect(isPointInsideRouteCoverage(vancouver), isFalse);
   });
+
+  test('coverage includes Trois-Rivieres between Montreal and Quebec City', () {
+    const troisRivieres = LatLng(46.34, -72.54);
+
+    expect(isPointInsideRouteCoverage(troisRivieres), isTrue);
+  });
+
+  test(
+    'overview merge keeps every region visible before filling one region',
+    () {
+      final montreal = [
+        _route(id: 'm1', distanceKm: 12, windingScore: 6),
+        _route(id: 'm2', distanceKm: 13, windingScore: 6),
+        _route(id: 'm3', distanceKm: 14, windingScore: 6),
+      ];
+      final vancouver = [
+        _route(id: 'v1', distanceKm: 12, windingScore: 6),
+        _route(id: 'v2', distanceKm: 13, windingScore: 6),
+      ];
+
+      final merged = mergeRouteOverviewFields([montreal, vancouver], limit: 4);
+
+      expect(merged.map((route) => route.id), ['m1', 'v1', 'm2', 'v2']);
+    },
+  );
+
+  test(
+    'national overview includes populated regions beyond launch presets',
+    () {
+      expect(routeOverviewCenters, contains(const LatLng(49.8880, -119.4960)));
+      expect(routeOverviewCenters, contains(const LatLng(49.8951, -97.1384)));
+      expect(routeOverviewCenters, contains(const LatLng(44.6488, -63.5752)));
+      expect(routeOverviewCenters, contains(const LatLng(52.1332, -106.6700)));
+      expect(routeOverviewCenters, contains(const LatLng(49.8485, -99.9501)));
+      expect(routeOverviewCenters, contains(const LatLng(46.4917, -80.9930)));
+      expect(routeOverviewCenters, contains(const LatLng(45.9636, -66.6431)));
+      expect(routeOverviewCenters, contains(const LatLng(47.5615, -52.7126)));
+      expect(
+        routeOverviewCenters.length * RouteService.routeOverviewPerRegionLimit,
+        lessThanOrEqualTo(RouteService.routeFieldFetchLimit),
+      );
+    },
+  );
 
   test('region request grid rounds coordinates to one decimal place', () {
     final grid = regionRequestGridFor(const LatLng(43.6532, -79.3832));
@@ -214,6 +258,23 @@ void main() {
       );
     },
   );
+
+  test('ignoring cache age never ignores the cache region', () {
+    expect(
+      isRouteFieldCacheReusable(
+        cacheCenter: const LatLng(49.2827, -123.1207),
+        targetCenter: const LatLng(43.6532, -79.3832),
+        cacheRadiusKm: 160,
+        requiredRadiusKm: 160,
+        fetchedAt: DateTime.now().subtract(const Duration(days: 3)),
+        now: DateTime.now(),
+        maxAge: const Duration(hours: 24),
+        maxCenterDistanceKm: 40,
+        ignoreAge: true,
+      ),
+      isFalse,
+    );
+  });
 
   test(
     'diversifyRouteSlots keeps top score first and then mixes route styles',

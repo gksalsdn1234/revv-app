@@ -34,6 +34,64 @@ enum DriveBudget { any, short, medium, long }
 
 const routeCoverageRadiusKm = 150.0;
 const routeCoverageCenters = <LatLng>[LatLng(45.5017, -73.5673)];
+const routeOverviewZoomThreshold = 9.5;
+
+const routeOverviewCenters = <LatLng>[
+  LatLng(49.2827, -123.1207), // Vancouver
+  LatLng(49.8880, -119.4960), // Kelowna
+  LatLng(53.9171, -122.7497), // Prince George
+  LatLng(51.0447, -114.0719), // Calgary
+  LatLng(49.6956, -112.8451), // Lethbridge
+  LatLng(53.5461, -113.4938), // Edmonton
+  LatLng(50.4452, -104.6189), // Regina
+  LatLng(52.1332, -106.6700), // Saskatoon
+  LatLng(49.8951, -97.1384), // Winnipeg
+  LatLng(49.8485, -99.9501), // Brandon
+  LatLng(48.3809, -89.2477), // Thunder Bay
+  LatLng(46.5136, -84.3358), // Sault Ste. Marie
+  LatLng(46.4917, -80.9930), // Sudbury
+  LatLng(43.6532, -79.3832), // Toronto
+  LatLng(45.4215, -75.6972), // Ottawa
+  LatLng(45.5017, -73.5673), // Montreal
+  LatLng(46.8139, -71.2080), // Quebec City
+  LatLng(45.9636, -66.6431), // Fredericton
+  LatLng(44.6488, -63.5752), // Halifax
+  LatLng(47.5615, -52.7126), // St. John's
+  LatLng(60.7212, -135.0568), // Whitehorse
+];
+
+bool isRouteOverviewZoom(double zoom) => zoom <= routeOverviewZoomThreshold;
+
+List<RevvRoute> mergeRouteOverviewFields(
+  Iterable<List<RevvRoute>> fields, {
+  required int limit,
+}) {
+  final sources = fields.where((field) => field.isNotEmpty).toList();
+  final indexes = List<int>.filled(sources.length, 0);
+  final seen = <String>{};
+  final merged = <RevvRoute>[];
+
+  while (merged.length < limit) {
+    var addedInRound = false;
+    for (
+      var sourceIndex = 0;
+      sourceIndex < sources.length && merged.length < limit;
+      sourceIndex++
+    ) {
+      final source = sources[sourceIndex];
+      while (indexes[sourceIndex] < source.length) {
+        final route = source[indexes[sourceIndex]++];
+        if (!seen.add(route.id)) continue;
+        merged.add(route);
+        addedInRound = true;
+        break;
+      }
+    }
+    if (!addedInRound) break;
+  }
+
+  return List<RevvRoute>.unmodifiable(merged);
+}
 
 class RegionRequestGrid {
   final double latRounded;
@@ -419,6 +477,24 @@ bool shouldUseCachedRoutes({
   final distanceKm = RevvRoute.haversineKm(cacheCenter, targetCenter);
   final reuseRadiusKm = (searchRadiusKm * 0.75).clamp(20, 60).toDouble();
   return distanceKm <= reuseRadiusKm;
+}
+
+bool isRouteFieldCacheReusable({
+  required LatLng cacheCenter,
+  required LatLng targetCenter,
+  required int cacheRadiusKm,
+  required int requiredRadiusKm,
+  required DateTime fetchedAt,
+  required DateTime now,
+  required Duration maxAge,
+  required double maxCenterDistanceKm,
+  bool ignoreAge = false,
+}) {
+  if (cacheRadiusKm < requiredRadiusKm) return false;
+  if (RevvRoute.haversineKm(cacheCenter, targetCenter) > maxCenterDistanceKm) {
+    return false;
+  }
+  return ignoreAge || now.difference(fetchedAt) <= maxAge;
 }
 
 bool looksLikeEmptyOverpassPayload(String body) {

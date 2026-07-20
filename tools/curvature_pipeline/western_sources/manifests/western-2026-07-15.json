@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "generator_version": "western-source-v1",
+  "snapshot": "2026-07-15",
+  "sources": [
+    {
+      "province_code": "AB",
+      "snapshot": "2026-07-15",
+      "url": "https://download.geofabrik.de/north-america/canada/alberta-260715.osm.pbf",
+      "checksum_url": "https://download.geofabrik.de/north-america/canada/alberta-260715.osm.pbf.md5",
+      "checksum": "0cfb0454c4e853ab319647398d2a5c0e",
+      "size_bytes": 345640483
+    },
+    {
+      "province_code": "BC",
+      "snapshot": "2026-07-15",
+      "url": "https://download.geofabrik.de/north-america/canada/british-columbia-260715.osm.pbf",
+      "checksum_url": "https://download.geofabrik.de/north-america/canada/british-columbia-260715.osm.pbf.md5",
+      "checksum": "66f5a2b2d63a4442890cdfbe8d7bef86",
+      "size_bytes": 1242530007
+    },
+    {
+      "province_code": "MB",
+      "snapshot": "2026-07-15",
+      "url": "https://download.geofabrik.de/north-america/canada/manitoba-260715.osm.pbf",
+      "checksum_url": "https://download.geofabrik.de/north-america/canada/manitoba-260715.osm.pbf.md5",
+      "checksum": "f0601216f850fb9a3515b9e9483ea822",
+      "size_bytes": 206162578
+    },
+    {
+      "province_code": "SK",
+      "snapshot": "2026-07-15",
+      "url": "https://download.geofabrik.de/north-america/canada/saskatchewan-260715.osm.pbf",
+      "checksum_url": "https://download.geofabrik.de/north-america/canada/saskatchewan-260715.osm.pbf.md5",
+      "checksum": "7b3a687a74e45feae57202023319385e",
+      "size_bytes": 115544832
+    }
+  ],
+  "hubs": [
+    {"hub_id":"ab-banff-canmore","province_code":"AB","bounds":{"min_lat":50.4,"min_lng":-117.0,"max_lat":52.5,"max_lng":-114.0}},
+    {"hub_id":"ab-calgary-foothills","province_code":"AB","bounds":{"min_lat":49.8,"min_lng":-115.8,"max_lat":52.3,"max_lng":-112.5}},
+    {"hub_id":"ab-edmonton","province_code":"AB","bounds":{"min_lat":52.2,"min_lng":-115.8,"max_lat":54.7,"max_lng":-111.5}},
+    {"hub_id":"ab-jasper","province_code":"AB","bounds":{"min_lat":52.0,"min_lng":-120.0,"max_lat":54.5,"max_lng":-116.0}},
+    {"hub_id":"bc-kamloops","province_code":"BC","bounds":{"min_lat":49.9,"min_lng":-122.0,"max_lat":52.0,"max_lng":-119.2}},
+    {"hub_id":"bc-kelowna-okanagan","province_code":"BC","bounds":{"min_lat":49.0,"min_lng":-120.3,"max_lat":51.0,"max_lng":-118.0}},
+    {"hub_id":"bc-kootenays","province_code":"BC","bounds":{"min_lat":48.8,"min_lng":-118.3,"max_lat":52.0,"max_lng":-114.2}},
+    {"hub_id":"bc-vancouver-fraser","province_code":"BC","bounds":{"min_lat":49.0,"min_lng":-123.5,"max_lat":50.5,"max_lng":-121.3}},
+    {"hub_id":"bc-victoria-island","province_code":"BC","bounds":{"min_lat":48.2,"min_lng":-124.2,"max_lat":49.4,"max_lng":-122.9}},
+    {"hub_id":"mb-brandon-riding","province_code":"MB","bounds":{"min_lat":49.0,"min_lng":-102.0,"max_lat":52.5,"max_lng":-98.0}},
+    {"hub_id":"mb-pembina","province_code":"MB","bounds":{"min_lat":48.8,"min_lng":-100.5,"max_lat":50.8,"max_lng":-97.0}},
+    {"hub_id":"mb-winnipeg-interlake","province_code":"MB","bounds":{"min_lat":48.5,"min_lng":-99.5,"max_lat":51.8,"max_lng":-95.0}},
+    {"hub_id":"sk-regina-quappelle","province_code":"SK","bounds":{"min_lat":49.4,"min_lng":-106.7,"max_lat":52.0,"max_lng":-102.7}},
+    {"hub_id":"sk-saskatoon","province_code":"SK","bounds":{"min_lat":50.3,"min_lng":-108.0,"max_lat":53.4,"max_lng":-104.0}},
+    {"hub_id":"sk-swift-current-cypress","province_code":"SK","bounds":{"min_lat":48.9,"min_lng":-110.0,"max_lat":51.5,"max_lng":-105.5}}
+  ]
+}
