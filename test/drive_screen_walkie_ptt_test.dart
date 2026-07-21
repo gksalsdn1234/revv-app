@@ -158,6 +158,34 @@ void main() {
     expect(find.byIcon(Icons.mic_rounded), findsNothing);
   });
 
+  testWidgets('drive controls show elapsed time without remaining distance', (
+    tester,
+  ) async {
+    await _pump(tester, enabled: false, joined: false);
+
+    expect(find.text('Time'), findsOneWidget);
+    expect(find.text('Remain'), findsNothing);
+  });
+
+  testWidgets('drive mode control opens with one tap and updates the label', (
+    tester,
+  ) async {
+    await _pump(tester, enabled: false, joined: false);
+
+    expect(find.byKey(const ValueKey('drive-mode-control')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('drive-mode-control')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('drive-mode-option-winding')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('drive-mode-option-winding')));
+    await tester.pumpAndSettle();
+    expect(find.text('WINDING'), findsOneWidget);
+  });
+
   testWidgets('no PTT button when not joined to a channel', (tester) async {
     await _pump(tester, enabled: true, joined: false);
     expect(find.byIcon(Icons.mic_rounded), findsNothing);
@@ -235,7 +263,9 @@ void main() {
     expect(controller.stopCount, 0);
   });
 
-  testWidgets('starting drive hydrates sparse route nodes once', (tester) async {
+  testWidgets('starting drive hydrates sparse route nodes once', (
+    tester,
+  ) async {
     int loadCount = 0;
     await _pump(
       tester,

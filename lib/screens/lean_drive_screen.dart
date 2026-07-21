@@ -37,6 +37,8 @@ const bool _revvWalkieLabEnabled = bool.fromEnvironment('REVV_WALKIE_LAB');
 
 typedef DriveRouteNodesLoader = Future<List<LatLng>> Function(String routeId);
 
+const _selectableDriveModes = ['cruise', 'winding', 'sport', 'attack'];
+
 double driveRemainingKmForDisplay({
   required double remainingKm,
   required double totalKm,
@@ -105,7 +107,6 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   double _lateralG = 0;
   double _longitudinalG = 0;
   double _progress = 0;
-  double _remainingKm = 0;
   LatLng? _drivePosition;
   double? _navigationBearing;
   List<LatLng>? _matchedRouteNodes;
@@ -126,6 +127,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   DateTime? _routeEventUntil;
   DateTime? _lastGpsUpdateAt;
   bool _gpsWeak = false;
+  String _driveMode = 'cruise';
 
   @override
   void initState() {
@@ -135,6 +137,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     _plannedRouteNodes = widget.drivePlan == null
         ? widget.route.nodes
         : navigableDrivePlanNodes(widget.drivePlan!);
+    if (widget.simulated) _driveMode = 'simulation';
   }
 
   @override
@@ -186,6 +189,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     });
     if (!_resumingAutoRecord) {
       _session?.startSession(widget.route, simulated: widget.simulated);
+      _session?.recordDriveMode(_driveMode);
     }
     unawaited(WakelockPlus.enable());
     if (widget.simulated) {
@@ -203,7 +207,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
         0,
         lateralG: 0,
         longitudinalG: 0,
-        driveMode: 'simulation',
+        driveMode: _driveMode,
       );
       return;
     }
@@ -235,7 +239,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       speed,
       lateralG: lateralG,
       longitudinalG: longitudinalG,
-      driveMode: 'simulation',
+      driveMode: _driveMode,
     );
   }
 
@@ -255,7 +259,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
         speed,
         lateralG: _lateralG,
         longitudinalG: _longitudinalG,
-        driveMode: 'cruise',
+        driveMode: _driveMode,
         heading: loc.heading,
       );
       return;
@@ -280,6 +284,23 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
         setState(() => _gpsWeak = weak);
       }
     });
+  }
+
+  Future<void> _showDriveModePicker(AppLanguage language) async {
+    final selectedMode = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _DriveModePicker(
+        language: language,
+        selectedMode: _driveMode,
+        onSelect: (mode) => Navigator.of(sheetContext).pop(mode),
+      ),
+    );
+    if (!mounted || selectedMode == null || selectedMode == _driveMode) {
+      return;
+    }
+    setState(() => _driveMode = selectedMode);
+    _session?.recordDriveMode(selectedMode);
   }
 
   void _applyDriveSample(
@@ -370,7 +391,6 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       _lateralG = lateralG;
       _longitudinalG = longitudinalG;
       _progress = stableProgress;
-      _remainingKm = routeState.remainingKm;
       _cue = isTransitLeg ? null : routeState.cue;
       _rhythmBrief = isTransitLeg ? null : routeState.rhythmBrief;
       _turnByTurn = turnByTurn;
@@ -657,11 +677,6 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     final routeEvent = _routeEventUntil?.isAfter(DateTime.now()) == true
         ? _routeEventMessage
         : null;
-    final remainingKm = driveRemainingKmForDisplay(
-      remainingKm: _remainingKm,
-      totalKm: widget.route.distanceKm,
-      status: _routeStatus,
-    );
     final settings = context.watch<SettingsService>();
     final language = settings.appLanguage;
     final totalG = math.sqrt(
@@ -709,21 +724,16 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                     _DriveTopBar(
                       routeName: routeName,
                       progress: _progress,
-                      remainingKm: remainingKm,
                       simulated: widget.simulated,
                       language: language,
                       chainProgressLabel: chainProgressLabel,
+                      gpsWeak: _gpsWeak,
+                      gpsPermanentlyDenied:
+                          _location?.permissionStatus.isPermanentlyDenied ??
+                          false,
+                      onOpenGpsSettings: () => openAppSettings(),
                     ),
                     const SizedBox(height: 8),
-                    if (_gpsWeak)
-                      _GpsStatusBanner(
-                        language: language,
-                        permanentlyDenied:
-                            _location?.permissionStatus.isPermanentlyDenied ??
-                            false,
-                        onOpenSettings: () => openAppSettings(),
-                      ),
-                    if (_gpsWeak) const SizedBox(height: 8),
                     _NextCurveBanner(
                       cue: cue,
                       rhythmBrief: _rhythmBrief,
@@ -771,10 +781,11 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                     ),
                     const SizedBox(height: 10),
                     _DriveControlStrip(
-                      remainingKm: remainingKm,
                       elapsed: _formatDuration(_elapsed),
+                      driveMode: _driveMode,
                       muted: settings.ttsMuted,
                       language: language,
+                      onSelectDriveMode: () => _showDriveModePicker(language),
                       onToggleMute: () =>
                           settings.setTtsMuted(!settings.ttsMuted),
                       onEnd: _endDrive,
@@ -1074,18 +1085,22 @@ String? _routeEventFor(
 class _DriveTopBar extends StatelessWidget {
   final String routeName;
   final double progress;
-  final double remainingKm;
   final bool simulated;
   final AppLanguage language;
   final String? chainProgressLabel;
+  final bool gpsWeak;
+  final bool gpsPermanentlyDenied;
+  final VoidCallback onOpenGpsSettings;
 
   const _DriveTopBar({
     required this.routeName,
     required this.progress,
-    required this.remainingKm,
     required this.simulated,
     required this.language,
     required this.chainProgressLabel,
+    required this.gpsWeak,
+    required this.gpsPermanentlyDenied,
+    required this.onOpenGpsSettings,
   });
 
   @override
@@ -1147,14 +1162,14 @@ class _DriveTopBar extends StatelessWidget {
                   color: AppColors.primaryContainer,
                 ),
               ),
-              const SizedBox(width: 8),
-              Text(
-                _formatKm(remainingKm),
-                style: AppText.technicalLabel(
-                  size: 11,
-                  color: AppColors.textHint,
+              if (gpsWeak) ...[
+                const SizedBox(width: 8),
+                _GpsSignalIndicator(
+                  language: language,
+                  permanentlyDenied: gpsPermanentlyDenied,
+                  onOpenSettings: onOpenGpsSettings,
                 ),
-              ),
+              ],
             ],
           ),
           const SizedBox(height: 8),
@@ -1162,9 +1177,9 @@ class _DriveTopBar extends StatelessWidget {
             borderRadius: BorderRadius.circular(999),
             child: LinearProgressIndicator(
               value: progress.clamp(0.0, 1.0),
-              minHeight: 3,
-              backgroundColor: AppColors.surface,
-              color: AppColors.primaryContainer,
+              minHeight: 7,
+              backgroundColor: AppColors.surfaceHigh,
+              color: AppColors.red,
             ),
           ),
         ],
@@ -1173,66 +1188,67 @@ class _DriveTopBar extends StatelessWidget {
   }
 }
 
-class _GpsStatusBanner extends StatelessWidget {
+class _GpsSignalIndicator extends StatefulWidget {
   final AppLanguage language;
   final bool permanentlyDenied;
   final VoidCallback onOpenSettings;
 
-  const _GpsStatusBanner({
+  const _GpsSignalIndicator({
     required this.language,
     required this.permanentlyDenied,
     required this.onOpenSettings,
   });
 
   @override
+  State<_GpsSignalIndicator> createState() => _GpsSignalIndicatorState();
+}
+
+class _GpsSignalIndicatorState extends State<_GpsSignalIndicator>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _blink = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _blink.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.warning.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(14),
+    final label = AppCopy.t(
+      widget.language,
+      ko: widget.permanentlyDenied ? 'GPS 권한이 꺼져 있습니다' : 'GPS 신호 약함',
+      en: widget.permanentlyDenied
+          ? 'GPS permission is off'
+          : 'GPS signal weak',
+      fr: widget.permanentlyDenied
+          ? 'Autorisation GPS désactivée'
+          : 'Signal GPS faible',
+    );
+    final icon = FadeTransition(
+      opacity: Tween<double>(begin: 0.35, end: 1).animate(_blink),
+      child: Icon(
+        Icons.satellite_alt_rounded,
+        size: 20,
+        color: AppColors.red,
+        semanticLabel: label,
       ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.gps_not_fixed_rounded,
-            size: 18,
-            color: AppColors.ink,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              AppCopy.t(
-                language,
-                ko: permanentlyDenied ? 'GPS 권한이 꺼져 있습니다' : 'GPS 신호 약함',
-                en: permanentlyDenied
-                    ? 'GPS permission is off'
-                    : 'GPS signal weak',
-                fr: permanentlyDenied
-                    ? 'Autorisation GPS désactivée'
-                    : 'Signal GPS faible',
-              ),
-              style: AppText.body(
-                size: 12,
-                weight: FontWeight.w900,
-                color: AppColors.ink,
-              ),
-            ),
-          ),
-          if (permanentlyDenied)
-            TextButton(
-              onPressed: onOpenSettings,
-              child: Text(
-                AppCopy.t(language, ko: '설정', en: 'Settings', fr: 'Réglages'),
-                style: AppText.body(
-                  size: 12,
-                  weight: FontWeight.w900,
-                  color: AppColors.ink,
-                ),
-              ),
-            ),
-        ],
+    );
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        label: label,
+        button: widget.permanentlyDenied,
+        child: widget.permanentlyDenied
+            ? IconButton(
+                onPressed: widget.onOpenSettings,
+                icon: icon,
+                visualDensity: VisualDensity.compact,
+              )
+            : SizedBox(width: 24, height: 24, child: Center(child: icon)),
       ),
     );
   }
@@ -1713,18 +1729,20 @@ class _GDot extends StatelessWidget {
 }
 
 class _DriveControlStrip extends StatelessWidget {
-  final double remainingKm;
   final String elapsed;
+  final String driveMode;
   final bool muted;
   final VoidCallback onToggleMute;
+  final VoidCallback onSelectDriveMode;
   final VoidCallback onEnd;
   final AppLanguage language;
 
   const _DriveControlStrip({
-    required this.remainingKm,
     required this.elapsed,
+    required this.driveMode,
     required this.muted,
     required this.onToggleMute,
+    required this.onSelectDriveMode,
     required this.onEnd,
     required this.language,
   });
@@ -1738,23 +1756,16 @@ class _DriveControlStrip extends StatelessWidget {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           SizedBox(
-            width: 82,
-            child: _StripMetric(
-              label: AppCopy.t(
-                language,
-                ko: '남은 거리',
-                en: 'Remain',
-                fr: 'Reste',
-              ),
-              value: _formatKm(remainingKm),
-            ),
-          ),
-          SizedBox(
             width: 72,
             child: _StripMetric(
               label: AppCopy.t(language, ko: '경과', en: 'Time', fr: 'Temps'),
               value: elapsed,
             ),
+          ),
+          _DriveModeControl(
+            mode: driveMode,
+            language: language,
+            onTap: onSelectDriveMode,
           ),
           IconButton(
             tooltip: muted
@@ -1780,6 +1791,194 @@ class _DriveControlStrip extends StatelessWidget {
       ),
     );
   }
+}
+
+class _DriveModeControl extends StatelessWidget {
+  final String mode;
+  final AppLanguage language;
+  final VoidCallback onTap;
+
+  const _DriveModeControl({
+    required this.mode,
+    required this.language,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: AppCopy.t(
+        language,
+        ko: '주행 타입 선택',
+        en: 'Select drive mode',
+        fr: 'Choisir le mode',
+      ),
+      child: InkWell(
+        key: const ValueKey('drive-mode-control'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          width: 96,
+          height: 48,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            color: AppColors.surface.withValues(alpha: 0.74),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: AppColors.primaryContainer.withValues(alpha: 0.46),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.route_rounded,
+                size: 17,
+                color: AppColors.primaryContainer,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      AppCopy.t(language, ko: '타입', en: 'MODE', fr: 'MODE'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.technicalLabel(
+                        size: 8,
+                        color: AppColors.textHint,
+                      ),
+                    ),
+                    Text(
+                      _driveModeLabel(mode, language).toUpperCase(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppText.mono(
+                        size: 11,
+                        weight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DriveModePicker extends StatelessWidget {
+  final AppLanguage language;
+  final String selectedMode;
+  final ValueChanged<String> onSelect;
+
+  const _DriveModePicker({
+    required this.language,
+    required this.selectedMode,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        decoration: const BoxDecoration(
+          color: AppColors.panel,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 34,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.textHint,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              AppCopy.t(
+                language,
+                ko: '주행 타입',
+                en: 'Drive mode',
+                fr: 'Mode de conduite',
+              ),
+              style: AppText.body(
+                size: 20,
+                weight: FontWeight.w900,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              AppCopy.t(
+                language,
+                ko: '한 번 눌러 현재 주행 타입을 바꾸세요',
+                en: 'Tap once to set the current drive mode',
+                fr: 'Touchez une fois pour changer le mode actif',
+              ),
+              style: AppText.body(size: 13, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            for (final mode in _selectableDriveModes)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton(
+                    key: ValueKey('drive-mode-option-$mode'),
+                    onPressed: () => onSelect(mode),
+                    style: OutlinedButton.styleFrom(
+                      alignment: Alignment.centerLeft,
+                      backgroundColor: mode == selectedMode
+                          ? AppColors.primaryContainer.withValues(alpha: 0.18)
+                          : AppColors.surface,
+                      side: BorderSide(
+                        color: mode == selectedMode
+                            ? AppColors.primaryContainer
+                            : AppColors.outlineVariant,
+                      ),
+                    ),
+                    child: Text(
+                      _driveModeLabel(mode, language),
+                      style: AppText.label(
+                        size: 15,
+                        weight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _driveModeLabel(String mode, AppLanguage language) {
+  return switch (mode) {
+    'cruise' => AppCopy.t(language, ko: '크루즈', en: 'Cruise', fr: 'Croisière'),
+    'winding' => AppCopy.t(language, ko: '와인딩', en: 'Winding', fr: 'Virage'),
+    'sport' => AppCopy.t(language, ko: '스포츠', en: 'Sport', fr: 'Sport'),
+    'attack' => AppCopy.t(language, ko: '집중', en: 'Focus', fr: 'Focus'),
+    'simulation' => AppCopy.t(language, ko: '시뮬레이션', en: 'Sim', fr: 'Sim'),
+    _ => mode,
+  };
 }
 
 class _HoldToEndButton extends StatefulWidget {
@@ -1967,12 +2166,6 @@ Color _severityColor(int severity) {
   if (severity >= 2) return AppColors.warning;
   if (severity >= 1) return AppColors.warning; // 중간 커브 — 옐로우
   return AppColors.primaryContainer;
-}
-
-String _formatKm(double km) {
-  if (km >= 10) return '${km.toStringAsFixed(0)}km';
-  if (km >= 1) return '${km.toStringAsFixed(1)}km';
-  return '${(km * 1000).round()}m';
 }
 
 String _formatDuration(Duration duration) {

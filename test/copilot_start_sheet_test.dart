@@ -10,7 +10,7 @@ import 'package:revv_app/widgets/copilot_start_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  testWidgets('Google Maps handoff includes route end and reduced waypoints', (
+  testWidgets('Google Maps handoff navigates to the route start', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -35,13 +35,10 @@ void main() {
 
     final uri = launched.single;
     expect(uri.scheme, 'comgooglemapsurl');
-    expect(uri.queryParameters['origin'], '45.00000,-73.00000');
-    expect(uri.queryParameters['destination'], '45.13000,-73.13000');
+    expect(uri.queryParameters['origin'], isNull);
+    expect(uri.queryParameters['destination'], '45.00000,-73.00000');
+    expect(uri.queryParameters['waypoints'], isNull);
     expect(uri.queryParameters['travelmode'], 'driving');
-    final waypoints = uri.queryParameters['waypoints']!.split('|');
-    expect(waypoints, hasLength(lessThanOrEqualTo(2)));
-    expect(waypoints.first, isNot('45.00000,-73.00000'));
-    expect(waypoints.last, isNot('45.13000,-73.13000'));
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(StorageKeys.pendingDriveRouteId), 'route');
     expect(prefs.getString(StorageKeys.pendingDriveSavedAt), isNotNull);

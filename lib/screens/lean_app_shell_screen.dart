@@ -526,6 +526,28 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     Navigator.of(ctx).push(MaterialPageRoute(builder: builder));
   }
 
+  Future<void> _openHistoryRunReport(
+    BuildContext navigatorContext,
+    RunSummary summary,
+    RunTelemetryDetail? detail,
+  ) {
+    return Navigator.of(navigatorContext).push(
+      MaterialPageRoute(
+        builder: (_) => LeanRunSummaryScreen.history(
+          summary: summary,
+          detail: detail,
+          onReturnHome: _returnToMapHome,
+        ),
+      ),
+    );
+  }
+
+  void _returnToMapHome() {
+    if (!mounted) return;
+    setState(() => _currentTab = _RaceTab.map);
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
   @override
   Widget build(BuildContext context) {
     final location = context.watch<LocationService>();
@@ -541,7 +563,7 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
             index: _currentTab.index,
             children: [
               const LeanRouteFinderScreen(showBackButton: false),
-              const HistoryTab(),
+              HistoryTab(onOpenReport: _openHistoryRunReport),
               SettingsTab(
                 onToggleCloud: () => unawaited(_toggleCloudRunStorage(context)),
                 onDeleteHistory: () => _confirmDeleteRunData(context),

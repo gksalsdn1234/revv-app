@@ -37,12 +37,16 @@ class LeanRunSummaryScreen extends StatefulWidget {
   final RunTelemetryDetail? historyDetail;
   final Future<File> Function()? shareExporter;
   final Future<void> Function(File file)? sharePresenter;
+  final VoidCallback? onReturnHome;
 
-  const LeanRunSummaryScreen({super.key, required this.session})
-    : historySummary = null,
-      historyDetail = null,
-      shareExporter = null,
-      sharePresenter = null;
+  const LeanRunSummaryScreen({
+    super.key,
+    required this.session,
+    this.onReturnHome,
+  }) : historySummary = null,
+       historyDetail = null,
+       shareExporter = null,
+       sharePresenter = null;
 
   const LeanRunSummaryScreen.history({
     super.key,
@@ -50,6 +54,7 @@ class LeanRunSummaryScreen extends StatefulWidget {
     RunTelemetryDetail? detail,
     this.shareExporter,
     this.sharePresenter,
+    this.onReturnHome,
   }) : session = null,
        historySummary = summary,
        historyDetail = detail;
@@ -69,6 +74,20 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
   int _replayIndex = 0;
   bool _replayPlaying = false;
   Timer? _replayTimer;
+
+  void _returnHome() {
+    final onReturnHome = widget.onReturnHome;
+    if (onReturnHome != null) {
+      onReturnHome();
+      return;
+    }
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.popUntil((route) => route.isFirst);
+      return;
+    }
+    unawaited(navigator.pushNamedAndRemoveUntil('/', (_) => false));
+  }
 
   @override
   void initState() {
@@ -577,9 +596,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                                   borderRadius: BorderRadius.circular(22),
                                 ),
                               ),
-                              onPressed: () => Navigator.of(
-                                context,
-                              ).popUntil((route) => route.isFirst),
+                              onPressed: _returnHome,
                               icon: const Icon(Icons.home_rounded),
                               label: Text(
                                 AppCopy.t(

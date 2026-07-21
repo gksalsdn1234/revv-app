@@ -401,23 +401,11 @@ Future<void> _openGoogleMaps(
 ) async {
   final routes = context.read<RouteService>();
   routes.beginGuideToStart(route);
-  final handoffPoints = selectRouteHandoffPoints(route.nodes);
-  final start = handoffPoints.isEmpty
-      ? _routeStart(route)
-      : handoffPoints.first;
-  final end = handoffPoints.isEmpty ? _routeEnd(route) : handoffPoints.last;
-  final waypoints = handoffPoints.length <= 2
-      ? const <LatLng>[]
-      : handoffPoints.sublist(1, handoffPoints.length - 1);
-  final appUri = buildGoogleMapsAppUri(
-    origin: start,
-    destination: end,
-    waypoints: waypoints,
-  );
+  final start = _routeStart(route);
+  final appUri = buildGoogleMapsAppUri(destination: start, waypoints: const []);
   final webUri = buildGoogleMapsDirectionsUri(
-    origin: start,
-    destination: end,
-    waypoints: waypoints,
+    destination: start,
+    waypoints: const [],
   );
   await _launchNavigationUri(
     context,
@@ -477,11 +465,6 @@ Future<void> _launchNavigationUri(
 
 LatLng _routeStart(RevvRoute route) {
   if (route.nodes.isNotEmpty) return route.nodes.first;
-  return route.centerPoint;
-}
-
-LatLng _routeEnd(RevvRoute route) {
-  if (route.nodes.isNotEmpty) return route.nodes.last;
   return route.centerPoint;
 }
 
