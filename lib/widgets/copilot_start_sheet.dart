@@ -409,14 +409,20 @@ Future<void> _openGoogleMaps(
   final waypoints = handoffPoints.length <= 2
       ? const <LatLng>[]
       : handoffPoints.sublist(1, handoffPoints.length - 1);
-  final mapsUri = buildGoogleMapsDirectionsUri(
+  final appUri = buildGoogleMapsAppUri(
+    origin: start,
+    destination: end,
+    waypoints: waypoints,
+  );
+  final webUri = buildGoogleMapsDirectionsUri(
     origin: start,
     destination: end,
     waypoints: waypoints,
   );
   await _launchNavigationUri(
     context,
-    primaryUri: mapsUri,
+    primaryUri: appUri,
+    fallbackUri: webUri,
     launchNavigationUrl: launchNavigationUrl,
     onFailure: routes.clearGuideToStart,
   );

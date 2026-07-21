@@ -34,7 +34,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final uri = launched.single;
-    expect(uri.scheme, 'https');
+    expect(uri.scheme, 'comgooglemapsurl');
     expect(uri.queryParameters['origin'], '45.00000,-73.00000');
     expect(uri.queryParameters['destination'], '45.13000,-73.13000');
     expect(uri.queryParameters['travelmode'], 'driving');
@@ -76,7 +76,7 @@ void main() {
     expect(launched.single.host, 'waze.com');
   });
 
-  testWidgets('Google Maps reports failure when the universal link throws', (
+  testWidgets('Google Maps reports failure when app and web handoffs throw', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -99,8 +99,9 @@ void main() {
     await tester.tap(find.text('Google Maps'));
     await tester.pumpAndSettle();
 
-    expect(launched, hasLength(1));
-    expect(launched.single.scheme, 'https');
+    expect(launched, hasLength(2));
+    expect(launched.first.scheme, 'comgooglemapsurl');
+    expect(launched.last.scheme, 'https');
     expect(find.text('Google Maps'), findsOneWidget);
   });
 

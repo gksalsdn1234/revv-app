@@ -459,11 +459,10 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     await _openRouteNavigation(
       ctx,
       route,
-      primaryUri: (start) => Uri.https('www.google.com', '/maps/dir/', {
-        'api': '1',
-        'destination': '${start.lat},${start.lng}',
-        'travelmode': 'driving',
-      }),
+      primaryUri: (start) =>
+          buildGoogleMapsAppUri(destination: start, waypoints: const []),
+      fallbackUri: (start) =>
+          buildGoogleMapsDirectionsUri(destination: start, waypoints: const []),
     );
   }
 

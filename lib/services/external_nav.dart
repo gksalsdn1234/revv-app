@@ -26,18 +26,55 @@ String googleMapsCoord(LatLng point) {
 }
 
 Uri buildGoogleMapsDirectionsUri({
-  required LatLng origin,
+  LatLng? origin,
   required LatLng destination,
   required List<LatLng> waypoints,
 }) {
-  return Uri.https('www.google.com', '/maps/dir/', {
+  return Uri.https(
+    'www.google.com',
+    '/maps/dir/',
+    _googleMapsDirectionsParameters(
+      origin: origin,
+      destination: destination,
+      waypoints: waypoints,
+    ),
+  );
+}
+
+/// Opens the installed Google Maps app with the Maps URLs API parameters.
+///
+/// `comgooglemapsurl://` wraps the same Maps URL as the web fallback, so it
+/// needs `origin`/`destination` rather than legacy `saddr`/`daddr` keys.
+Uri buildGoogleMapsAppUri({
+  LatLng? origin,
+  required LatLng destination,
+  required List<LatLng> waypoints,
+}) {
+  return Uri(
+    scheme: 'comgooglemapsurl',
+    host: 'www.google.com',
+    path: '/maps/dir/',
+    queryParameters: _googleMapsDirectionsParameters(
+      origin: origin,
+      destination: destination,
+      waypoints: waypoints,
+    ),
+  );
+}
+
+Map<String, String> _googleMapsDirectionsParameters({
+  required LatLng? origin,
+  required LatLng destination,
+  required List<LatLng> waypoints,
+}) {
+  return {
     'api': '1',
-    'origin': googleMapsCoord(origin),
+    if (origin != null) 'origin': googleMapsCoord(origin),
     'destination': googleMapsCoord(destination),
     if (waypoints.isNotEmpty)
       'waypoints': waypoints.map(googleMapsCoord).join('|'),
     'travelmode': 'driving',
-  });
+  };
 }
 
 List<LatLng> selectHandoffWaypoints({

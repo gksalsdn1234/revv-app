@@ -63,7 +63,22 @@ void main() {
     expect(points.map((point) => point.lng), [2, 3]);
   });
 
-  test('Google Maps directions use a universal HTTPS URL', () {
+  test('Google Maps app handoff preserves Maps URL API parameters', () {
+    final uri = buildGoogleMapsAppUri(
+      origin: const LatLng(45, -73),
+      destination: const LatLng(45.1, -73.1),
+      waypoints: const [LatLng(45.05, -73.05)],
+    );
+
+    expect(uri.scheme, 'comgooglemapsurl');
+    expect(uri.host, 'www.google.com');
+    expect(uri.queryParameters['origin'], '45.00000,-73.00000');
+    expect(uri.queryParameters['destination'], '45.10000,-73.10000');
+    expect(uri.queryParameters['waypoints'], '45.05000,-73.05000');
+    expect(uri.queryParameters['travelmode'], 'driving');
+  });
+
+  test('Google Maps web fallback uses a universal HTTPS URL', () {
     final uri = buildGoogleMapsDirectionsUri(
       origin: const LatLng(45, -73),
       destination: const LatLng(45.1, -73.1),

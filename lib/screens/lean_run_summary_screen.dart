@@ -182,14 +182,19 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
       }
       return;
     }
-    final mapsUri = Uri.https('www.google.com', '/maps/dir/', {
-      'api': '1',
-      if (current != null) 'origin': googleMapsCoord(current),
-      'destination': googleMapsCoord(destination),
-      'travelmode': 'driving',
-    });
+    final appUri = buildGoogleMapsAppUri(
+      origin: current,
+      destination: destination,
+      waypoints: const [],
+    );
+    final webUri = buildGoogleMapsDirectionsUri(
+      origin: current,
+      destination: destination,
+      waypoints: const [],
+    );
     final launched = await launchExternalNavigationWithFallback(
-      primaryUri: mapsUri,
+      primaryUri: appUri,
+      fallbackUri: webUri,
       launcher: (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
     );
     if (launched || !mounted) return;

@@ -977,13 +977,19 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       origin: origin,
       destination: destination,
     );
-    final mapsUri = buildGoogleMapsDirectionsUri(
+    final appUri = buildGoogleMapsAppUri(
+      origin: origin,
+      destination: destination,
+      waypoints: waypoints,
+    );
+    final webUri = buildGoogleMapsDirectionsUri(
       origin: origin,
       destination: destination,
       waypoints: waypoints,
     );
     final launched = await launchExternalNavigationWithFallback(
-      primaryUri: mapsUri,
+      primaryUri: appUri,
+      fallbackUri: webUri,
       launcher: (uri) => launchUrl(uri, mode: LaunchMode.externalApplication),
     );
     if (launched || !mounted) return;
