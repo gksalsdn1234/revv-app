@@ -383,9 +383,9 @@ class AppCopy {
       'route' => t(language, ko: '루트', en: 'Route', fr: 'Route'),
       'maxSpeed' => t(
         language,
-        ko: '최고 속도',
-        en: 'Max speed',
-        fr: 'Vitesse max',
+        ko: '속도 상세',
+        en: 'Speed detail',
+        fr: 'Détail vitesse',
       ),
       _ => metricId,
     };
