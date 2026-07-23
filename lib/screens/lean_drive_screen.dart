@@ -268,6 +268,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       navStep: navStepProgress?.step,
       navDistanceM: navStepProgress?.aheadM,
       curveCue: routeState.cue,
+      speedKmh: speed,
       language: language,
       muted: _settings?.ttsMuted ?? true,
     );

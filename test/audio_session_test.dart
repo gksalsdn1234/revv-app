@@ -9,6 +9,7 @@ void main() {
       IosTextToSpeechAudioCategory? category;
       List<IosTextToSpeechAudioCategoryOptions>? options;
       IosTextToSpeechAudioMode? mode;
+      final activations = <bool>[];
 
       await configureMusicDuckingAudioSession(
         setIosAudioCategory:
@@ -18,6 +19,12 @@ void main() {
               mode = capturedMode;
               return null;
             },
+        setSharedInstance: (active) async {
+          // 카테고리 설정 뒤에 활성화되어야 한다.
+          expect(category, isNotNull);
+          activations.add(active);
+          return null;
+        },
       );
 
       expect(category, IosTextToSpeechAudioCategory.playback);
@@ -26,6 +33,16 @@ void main() {
         IosTextToSpeechAudioCategoryOptions.mixWithOthers,
       ]);
       expect(mode, IosTextToSpeechAudioMode.voicePrompt);
+      expect(activations, [true]);
+    },
+  );
+
+  test(
+    'session activation stays optional for callers without the seam',
+    () async {
+      await configureMusicDuckingAudioSession(
+        setIosAudioCategory: (_, _, _) async => null,
+      );
     },
   );
 }

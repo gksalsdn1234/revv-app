@@ -22,6 +22,15 @@ class DriveCurveCue {
   final double horizonM;
   final int severity;
 
+  /// 코너 고유 식별자(루트 시작 기준 진입 지점, m). 같은 코너를 두 번 읽지
+  /// 않게 하는 유일한 근거 — 거리 비교 휴리스틱을 대체한다.
+  final int cornerId;
+
+  /// 이 코너 바로 다음 코너 (연결 콜용). 없으면 null.
+  final String? nextDirectionLabel;
+  final String? nextIntensityLabel;
+  final int? nextCornerId;
+
   const DriveCurveCue({
     required this.label,
     required this.detail,
@@ -35,7 +44,43 @@ class DriveCurveCue {
     required this.curveCountAhead,
     required this.horizonM,
     required this.severity,
+    this.cornerId = 0,
+    this.nextDirectionLabel,
+    this.nextIntensityLabel,
+    this.nextCornerId,
   });
+}
+
+/// 폴리라인에서 뽑아낸 하나의 코너.
+///
+/// 노드 하나의 꺾임각이 아니라 **연속 노드의 편각 합**으로 만든다 —
+/// 그래서 노드 밀도(맵매칭 10m vs OSM 100m)에 결과가 흔들리지 않는다.
+class RouteCorner {
+  /// 루트 시작 기준 코너 진입 거리(m).
+  final double entryM;
+
+  /// 루트 시작 기준 코너 이탈 거리(m).
+  final double exitM;
+
+  /// 부호 있는 총 편각(도). + = 우, - = 좌.
+  final double turnDeg;
+
+  /// 곡률 반경 근사(m). 노드 하나에 꺾임이 몰린 경우 null.
+  final double? radiusM;
+
+  final int severity;
+
+  const RouteCorner({
+    required this.entryM,
+    required this.exitM,
+    required this.turnDeg,
+    required this.radiusM,
+    required this.severity,
+  });
+
+  double get arcM => exitM - entryM;
+  bool get isRight => turnDeg >= 0;
+  int get id => entryM.round();
 }
 
 class DriveRhythmBrief {
@@ -120,17 +165,14 @@ List<TurnInstruction> buildTurnByTurnPlan(
 
   final cumulativeM = _cumulativeMeters(nodes);
   final instructions = <TurnInstruction>[];
-  for (var i = 1; i < nodes.length - 1; i++) {
-    final turn = _turnDegrees(nodes[i - 1], nodes[i], nodes[i + 1]);
-    final absTurn = turn.abs();
-    if (absTurn < 20) continue;
+  for (final corner in detectRouteCorners(nodes, cumulativeM)) {
     instructions.add(
       _turnInstruction(
         sequence: instructions.length + 1,
-        turn: turn,
-        absTurn: absTurn,
-        distanceFromStartM: cumulativeM[i],
-        aheadM: cumulativeM[i],
+        turn: corner.turnDeg,
+        severity: corner.severity,
+        distanceFromStartM: corner.entryM,
+        aheadM: corner.entryM,
         language: language,
       ),
     );
@@ -415,6 +457,84 @@ DriveRouteState readDriveRouteState(
   );
 }
 
+/// 폴리라인 → 코너 목록.
+///
+/// 노드별 편각을 **더해서** 하나의 코너로 묶는다. 맵매칭 지오메트리처럼
+/// 노드가 촘촘하면 노드 하나의 각도는 20도를 넘지 못해 예전 방식(노드 단위
+/// 판정)에서는 코너가 통째로 사라졌다. 편각 합은 노드 밀도와 무관하다.
+List<RouteCorner> detectRouteCorners(
+  List<LatLng> nodes, [
+  List<double>? cumulative,
+]) {
+  if (nodes.length < 3) return const [];
+  final cumulativeM = cumulative ?? _cumulativeMeters(nodes);
+
+  // 노드 편각이 이 값 미만이면 직진 노이즈로 본다.
+  const nodeNoiseDeg = 1.5;
+  // 같은 방향 편각이 이 간격 안에 이어지면 한 코너로 묶는다.
+  const linkGapM = 35.0;
+  // 이보다 작은 총 편각은 코너로 부르지 않는다.
+  const minTurnDeg = 20.0;
+  // 꺾임이 이 길이 안에 몰려 있으면 반경이 무의미 — 편각으로만 판정한다.
+  const pointBendArcM = 25.0;
+
+  final corners = <RouteCorner>[];
+  var startIndex = -1;
+  var lastIndex = -1;
+  var sumDeg = 0.0;
+
+  void flush() {
+    if (startIndex < 0) return;
+    if (sumDeg.abs() >= minTurnDeg) {
+      final entryM = cumulativeM[startIndex];
+      final exitM = cumulativeM[lastIndex];
+      final arcM = exitM - entryM;
+      final radiusM = arcM >= pointBendArcM
+          ? arcM / (sumDeg.abs() * math.pi / 180)
+          : null;
+      corners.add(
+        RouteCorner(
+          entryM: entryM,
+          exitM: exitM,
+          turnDeg: sumDeg,
+          radiusM: radiusM,
+          severity: _cornerSeverity(sumDeg.abs(), radiusM),
+        ),
+      );
+    }
+    startIndex = -1;
+    lastIndex = -1;
+    sumDeg = 0;
+  }
+
+  for (var i = 1; i < nodes.length - 1; i++) {
+    final turn = _turnDegrees(nodes[i - 1], nodes[i], nodes[i + 1]);
+    if (turn.abs() < nodeNoiseDeg) continue;
+    final sameDirection = sumDeg == 0 || turn.sign == sumDeg.sign;
+    // 바로 옆 노드는 사이에 직선이 없다 — 노드 간격이 넓어도 같은 코너다.
+    final adjacent = lastIndex >= 0 && i == lastIndex + 1;
+    final gapM = lastIndex < 0 ? 0.0 : cumulativeM[i] - cumulativeM[lastIndex];
+    if (startIndex < 0 || !sameDirection || (!adjacent && gapM > linkGapM)) {
+      flush();
+      startIndex = i;
+    }
+    lastIndex = i;
+    sumDeg += turn;
+  }
+  flush();
+  return List.unmodifiable(corners);
+}
+
+/// 반경이 있으면 반경이 진실 — 긴 스위퍼를 헤어핀으로 부르지 않는다.
+/// 꺾임이 노드 하나에 몰린 희소 지오메트리에서는 편각으로 판정한다.
+int _cornerSeverity(double absTurnDeg, double? radiusM) {
+  if (radiusM == null) return _curveSeverity(absTurnDeg);
+  if (radiusM <= 30) return 3;
+  if (radiusM <= 70) return 2;
+  if (radiusM <= 140) return 1;
+  return 0;
+}
+
 List<double> _cumulativeMeters(List<LatLng> nodes) {
   final cumulative = List<double>.filled(nodes.length, 0);
   var totalM = 0.0;
@@ -442,16 +562,13 @@ DriveRouteStatus _routeStatus({
 TurnInstruction _turnInstruction({
   required int sequence,
   required double turn,
-  required double absTurn,
+  required int severity,
   required double distanceFromStartM,
   required double aheadM,
   required AppLanguage? language,
 }) {
-  final direction = turn >= 0
-      ? _driveText(language, '우측', 'Right', 'Droite')
-      : _driveText(language, '좌측', 'Left', 'Gauche');
-  final intensity = _curveIntensity(absTurn, language);
-  final severity = _curveSeverity(absTurn);
+  final direction = _sideLabel(turn >= 0, language);
+  final intensity = _intensityForSeverity(severity, language);
   return TurnInstruction(
     sequence: sequence,
     directionLabel: direction,
@@ -471,7 +588,7 @@ TurnInstruction _turnInstruction({
       status: DriveRouteStatus.onRoute,
       language: language,
     ),
-    icon: _curveIcon(turn, absTurn),
+    icon: _severityIcon(turn >= 0, severity),
     distanceFromStartM: distanceFromStartM,
     aheadM: aheadM,
     severity: severity,
@@ -626,35 +743,30 @@ DriveCurveCue? _nextCurveCue(
   double alongM,
   AppLanguage? language,
 ) {
-  final candidates = <_CurveCandidate>[];
-  for (var i = 1; i < nodes.length - 1; i++) {
-    final aheadM = cumulativeM[i] - alongM;
-    if (aheadM < 30) continue;
+  final corners = detectRouteCorners(nodes, cumulativeM);
+  final ahead = <RouteCorner>[];
+  for (final corner in corners) {
+    final aheadM = corner.entryM - alongM;
+    if (aheadM < 0) continue;
     if (aheadM > 1000) break;
-
-    final turn = _turnDegrees(nodes[i - 1], nodes[i], nodes[i + 1]);
-    final absTurn = turn.abs();
-    if (absTurn < 20) continue;
-    candidates.add(
-      _CurveCandidate(index: i, aheadM: aheadM, turn: turn, absTurn: absTurn),
-    );
+    ahead.add(corner);
   }
 
-  if (candidates.isEmpty || candidates.first.aheadM > 800) return null;
+  if (ahead.isEmpty) return null;
+  final first = ahead.first;
+  final firstAheadM = first.entryM - alongM;
+  if (firstAheadM > 800) return null;
 
-  final first = candidates.first;
-  final direction = first.turn >= 0
-      ? _driveText(language, '우측', 'Right', 'Droite')
-      : _driveText(language, '좌측', 'Left', 'Gauche');
-  final severity = _curveSeverity(first.absTurn);
-  final intensity = _curveIntensity(first.absTurn, language);
-  final nextGap = _nextCurveGapM(nodes, cumulativeM, first.index);
-  final countAhead = candidates.length;
-  final horizonM = candidates.last.aheadM;
+  final direction = _sideLabel(first.isRight, language);
+  final intensity = _intensityForSeverity(first.severity, language);
+  final next = ahead.length > 1 ? ahead[1] : null;
+  final nextGap = next == null ? null : next.entryM - first.entryM;
+  final countAhead = ahead.length;
+  final horizonM = ahead.last.entryM - alongM;
   final rhythmLine = _rhythmLineForCue(
     countAhead: countAhead,
     nextGapM: nextGap,
-    firstAheadM: first.aheadM,
+    firstAheadM: firstAheadM,
     horizonM: horizonM,
     language: language,
   );
@@ -664,25 +776,38 @@ DriveCurveCue? _nextCurveCue(
     detail: rhythmLine,
     directionLabel: direction,
     intensityLabel: intensity,
-    headline: '${formatDriveMeters(first.aheadM)} $direction $intensity',
+    headline: '${formatDriveMeters(firstAheadM)} $direction $intensity',
     rhythmLine: rhythmLine,
-    icon: _curveIcon(first.turn, first.absTurn),
-    distanceM: first.aheadM,
+    icon: _severityIcon(first.isRight, first.severity),
+    distanceM: firstAheadM,
     nextGapM: nextGap,
     curveCountAhead: countAhead,
     horizonM: horizonM,
-    severity: severity,
+    severity: first.severity,
+    cornerId: first.id,
+    nextDirectionLabel: next == null
+        ? null
+        : _sideLabel(next.isRight, language),
+    nextIntensityLabel: next == null
+        ? null
+        : _intensityForSeverity(next.severity, language),
+    nextCornerId: next?.id,
   );
 }
 
-IconData _curveIcon(double turn, double absTurn) {
-  final isRight = turn >= 0;
-  if (absTurn >= 68) {
+String _sideLabel(bool isRight, AppLanguage? language) {
+  return isRight
+      ? _driveText(language, '우측', 'Right', 'Droite')
+      : _driveText(language, '좌측', 'Left', 'Gauche');
+}
+
+IconData _severityIcon(bool isRight, int severity) {
+  if (severity >= 3) {
     return isRight
         ? Icons.turn_sharp_right_rounded
         : Icons.turn_sharp_left_rounded;
   }
-  if (absTurn >= 42) {
+  if (severity == 2) {
     return isRight ? Icons.turn_right_rounded : Icons.turn_left_rounded;
   }
   return isRight
@@ -690,6 +815,7 @@ IconData _curveIcon(double turn, double absTurn) {
       : Icons.turn_slight_left_rounded;
 }
 
+/// 꺾임이 노드 하나에 몰린 희소 지오메트리 전용 폴백.
 int _curveSeverity(double absTurn) {
   if (absTurn >= 68) return 3;
   if (absTurn >= 42) return 2;
@@ -697,17 +823,13 @@ int _curveSeverity(double absTurn) {
   return 0;
 }
 
-String _curveIntensity(double absTurn, AppLanguage? language) {
-  if (absTurn >= 68) {
-    return _driveText(language, '헤어핀', 'Hairpin', 'Épingle');
-  }
-  if (absTurn >= 42) {
-    return _driveText(language, '타이트', 'Tight', 'Serré');
-  }
-  if (absTurn >= 26) {
-    return _driveText(language, '중간', 'Medium', 'Moyen');
-  }
-  return _driveText(language, '완만', 'Gentle', 'Doux');
+String _intensityForSeverity(int severity, AppLanguage? language) {
+  return switch (severity) {
+    3 => _driveText(language, '헤어핀', 'Hairpin', 'Épingle'),
+    2 => _driveText(language, '타이트', 'Tight', 'Serré'),
+    1 => _driveText(language, '중간', 'Medium', 'Moyen'),
+    _ => _driveText(language, '완만', 'Gentle', 'Doux'),
+  };
 }
 
 String _rhythmLineForCue({
@@ -767,22 +889,6 @@ String _rhythmLabelForCue(DriveCurveCue cue, AppLanguage? language) {
     return _driveText(language, '흐름 구간', 'Flow section', 'Section fluide');
   }
   return _driveText(language, '단일 커브', 'Single curve', 'Virage isolé');
-}
-
-double? _nextCurveGapM(
-  List<LatLng> nodes,
-  List<double> cumulativeM,
-  int fromIndex,
-) {
-  final fromM = cumulativeM[fromIndex];
-  for (var i = fromIndex + 1; i < nodes.length - 1; i++) {
-    final gapM = cumulativeM[i] - fromM;
-    if (gapM > 900) return null;
-    if (_turnDegrees(nodes[i - 1], nodes[i], nodes[i + 1]).abs() >= 20) {
-      return gapM;
-    }
-  }
-  return null;
 }
 
 _Projection _nearestRouteProjection(
@@ -864,20 +970,6 @@ class _Projection {
   final double distanceM;
 
   const _Projection({required this.alongM, required this.distanceM});
-}
-
-class _CurveCandidate {
-  final int index;
-  final double aheadM;
-  final double turn;
-  final double absTurn;
-
-  const _CurveCandidate({
-    required this.index,
-    required this.aheadM,
-    required this.turn,
-    required this.absTurn,
-  });
 }
 
 class _SegmentProjection {

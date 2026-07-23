@@ -13,6 +13,10 @@ DriveCurveCue cue({
   double? nextGapM,
   String direction = '우측',
   String intensity = '타이트',
+  int cornerId = 1,
+  String? nextDirection,
+  String? nextIntensity,
+  int? nextCornerId,
 }) {
   return DriveCurveCue(
     label: '$direction $intensity',
@@ -27,6 +31,10 @@ DriveCurveCue cue({
     curveCountAhead: curveCountAhead,
     horizonM: distanceM + 400,
     severity: severity,
+    cornerId: cornerId,
+    nextDirectionLabel: nextDirection,
+    nextIntensityLabel: nextIntensity,
+    nextCornerId: nextCornerId,
   );
 }
 
@@ -87,50 +95,67 @@ void main() {
     );
   });
 
-  test('speaks a tight curve once inside the 300m window', () {
-    voice.onCoPilotCue(
-      curveCue: cue(distanceM: 300),
-      language: AppLanguage.korean,
-      muted: false,
-    );
-    voice.onCoPilotCue(
-      curveCue: cue(distanceM: 200),
-      language: AppLanguage.korean,
-      muted: false,
-    );
-    voice.onCoPilotCue(
-      curveCue: cue(distanceM: 90),
-      language: AppLanguage.korean,
-      muted: false,
-    );
+  test('speaks a corner once, at the speed-scaled lead point', () {
+    // 60km/h → 리드 약 117m. 300/200m은 아직 이르고 90m에서 부른다.
+    for (final distanceM in [300.0, 200.0, 90.0, 70.0]) {
+      voice.onCoPilotCue(
+        curveCue: cue(distanceM: distanceM),
+        speedKmh: 60,
+        language: AppLanguage.korean,
+        muted: false,
+      );
+    }
 
     expect(spoken, hasLength(1));
-    expect(spoken.first, '300, 우 타이트');
+    expect(spoken.first, '90, 우 타이트');
   });
 
-  test('stays silent when muted or severity is low', () {
-    voice.onCoPilotCue(curveCue: cue(), language: AppLanguage.korean, muted: true);
+  test('lead point scales with speed — faster means earlier', () {
     voice.onCoPilotCue(
-      curveCue: cue(severity: 1),
+      curveCue: cue(distanceM: 200),
+      speedKmh: 110,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    expect(spoken.single, '200, 우 타이트');
+  });
+
+  test('stays silent when muted or when the cue is not a corner', () {
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 100),
+      speedKmh: 60,
+      language: AppLanguage.korean,
+      muted: true,
+    );
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 100, severity: 0, cornerId: 2),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
     voice.onCoPilotCue(
-      curveCue: cue(severity: 2, curveCountAhead: 0), // 이탈/상태 큐
+      curveCue: cue(distanceM: 100, curveCountAhead: 0, cornerId: 3),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
     expect(spoken, isEmpty);
   });
 
-  test('ignores curves outside the speaking window', () {
+  test('medium corners are called too — not only tight and hairpin', () {
     voice.onCoPilotCue(
-      curveCue: cue(distanceM: 700),
+      curveCue: cue(distanceM: 100, severity: 1, intensity: '중간'),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
+    expect(spoken.single, '100, 우 중간');
+  });
+
+  test('drops a corner that is already too close to call', () {
     voice.onCoPilotCue(
       curveCue: cue(distanceM: 30),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
@@ -139,7 +164,8 @@ void main() {
 
   test('combo pattern announces the chain', () {
     voice.onCoPilotCue(
-      curveCue: cue(curveCountAhead: 4, nextGapM: 150),
+      curveCue: cue(distanceM: 100, curveCountAhead: 4, nextGapM: 150),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
@@ -147,71 +173,118 @@ void main() {
     expect(spoken.single, contains('4개'));
   });
 
-  test('hairpin gets the prepare-early phrasing', () {
+  test('linked corner is read in the same breath and not repeated', () {
     voice.onCoPilotCue(
-      curveCue: cue(severity: 3, intensity: '헤어핀', direction: '좌측'),
+      curveCue: cue(
+        distanceM: 100,
+        nextGapM: 90,
+        nextDirection: '좌측',
+        nextIntensity: '중간',
+        nextCornerId: 2,
+      ),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
-    expect(spoken.single, '200, 헤어핀 좌');
+    expect(spoken.single, '100, 우 타이트 — 짧게 좌 중간');
+
+    // 링크로 이미 읽은 코너가 다음 큐로 올라와도 다시 부르지 않는다.
+    now = now.add(const Duration(seconds: 10));
+    voice.onCoPilotCue(
+      curveCue: cue(
+        distanceM: 100,
+        cornerId: 2,
+        direction: '좌측',
+        intensity: '중간',
+      ),
+      speedKmh: 60,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    expect(spoken, hasLength(1));
   });
 
-  test('cooldown suppresses a second callout within 8 seconds', () {
+  test('minimum gap suppresses a second callout, then releases it', () {
     voice.onCoPilotCue(
-      curveCue: cue(distanceM: 200),
+      curveCue: cue(distanceM: 100),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
-    // 커브 통과(큐 소멸) 후 곧바로 새 커브 — 쿨다운에 걸림
-    voice.onCue(null, language: AppLanguage.korean, muted: false);
-    now = now.add(const Duration(seconds: 4));
+    now = now.add(const Duration(seconds: 3));
     voice.onCoPilotCue(
-      curveCue: cue(distanceM: 250),
+      curveCue: cue(distanceM: 110, cornerId: 2),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
     expect(spoken, hasLength(1));
 
-    now = now.add(const Duration(seconds: 5));
+    // 간격에 막힌 콜은 버려지지 않는다 — 다음 샘플에서 다시 나온다.
+    now = now.add(const Duration(seconds: 2));
     voice.onCoPilotCue(
-      curveCue: cue(distanceM: 240),
+      curveCue: cue(distanceM: 100, cornerId: 2),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
     expect(spoken, hasLength(2));
   });
 
-  test('re-arms for a new farther curve after passing the spoken one', () {
+  test('calls every corner through a continuous curvy section', () {
+    // 연속 코너 구간: 큐가 한 번도 사라지지 않고 코너만 바뀐다.
+    for (var i = 0; i < 5; i++) {
+      voice.onCoPilotCue(
+        curveCue: cue(
+          distanceM: 100,
+          cornerId: 100 + i,
+          curveCountAhead: 5 - i,
+        ),
+        speedKmh: 60,
+        language: AppLanguage.korean,
+        muted: false,
+      );
+      now = now.add(const Duration(seconds: 5));
+    }
+    expect(spoken, hasLength(5));
+  });
+
+  test('a distant nav step no longer silences corner briefings', () {
+    // 교차로 없는 산길: 다음 분기가 6km 앞이어도 코너는 읽어야 한다.
     voice.onCoPilotCue(
-      curveCue: cue(distanceM: 150),
+      navStep: const NavStep(
+        sequence: 1,
+        maneuverType: 'arrive',
+        modifier: null,
+        location: LatLng(45, -73),
+        distanceFromStartM: 6000,
+      ),
+      navDistanceM: 6000,
+      curveCue: cue(distanceM: 100),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
-    now = now.add(const Duration(seconds: 10));
-    // 발화한 커브(150m)보다 충분히 먼 새 커브
-    voice.onCoPilotCue(
-      curveCue: cue(distanceM: 310),
-      language: AppLanguage.korean,
-      muted: false,
-    );
-    expect(spoken, hasLength(2));
+    expect(spoken.single, '100, 우 타이트');
   });
 
   test('long clear gap adds the flow-ending prefix', () {
     // 첫 큐 관측 (발화 없이 창 밖)
     voice.onCoPilotCue(
       curveCue: cue(distanceM: 700),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
     // 20초 이상 큐 없음 → 긴 흐름 구간
     now = now.add(const Duration(seconds: 25));
     voice.onCoPilotCue(
-      curveCue: cue(distanceM: 300),
+      curveCue: cue(distanceM: 100),
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
-    expect(spoken.single, '300, 긴 흐름 구간 — 우 타이트');
+    expect(spoken.single, '100, 긴 흐름 구간 — 우 타이트');
   });
 
   test('merges nearby TBT and curve events into one pacenote', () {
@@ -245,6 +318,7 @@ void main() {
     voice.onCoPilotCue(
       navStep: step,
       navDistanceM: 300,
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
@@ -252,6 +326,7 @@ void main() {
     voice.onCoPilotCue(
       navStep: step,
       navDistanceM: 80,
+      speedKmh: 60,
       language: AppLanguage.korean,
       muted: false,
     );
@@ -286,7 +361,21 @@ void main() {
           cue(curveCountAhead: 4, nextGapM: 150),
           language: language,
         ),
-        voice.buildPhrase(cue(severity: 3), language: language, afterLongClear: true),
+        voice.buildPhrase(
+          cue(severity: 3),
+          language: language,
+          afterLongClear: true,
+        ),
+        // 연결 콜("짧게 좌 중간")도 같은 안전 규칙을 지켜야 한다.
+        voice.buildPhrase(
+          cue(
+            nextGapM: 90,
+            nextDirection: '좌측',
+            nextIntensity: '중간',
+            nextCornerId: 2,
+          ),
+          language: language,
+        ),
       ];
       for (final sample in samples) {
         for (final word in forbidden) {
@@ -296,47 +385,56 @@ void main() {
     }
   });
 
-  test('selects enhanced voice for the active locale and caches voices', () async {
-    final fakeTts = _FakeVoiceTtsClient(
-      voices: const [
-        {'name': 'en-US Standard', 'locale': 'en-US', 'quality': 'default'},
-        {'name': 'en-US Premium', 'locale': 'en-US', 'quality': 'premium'},
-        {'name': 'ko-KR Enhanced', 'locale': 'ko-KR', 'quality': 'enhanced'},
-      ],
-    );
-    final service = VoiceBriefingService(ttsFactory: () => fakeTts);
+  test(
+    'selects enhanced voice for the active locale and caches voices',
+    () async {
+      final fakeTts = _FakeVoiceTtsClient(
+        voices: const [
+          {'name': 'en-US Standard', 'locale': 'en-US', 'quality': 'default'},
+          {'name': 'en-US Premium', 'locale': 'en-US', 'quality': 'premium'},
+          {'name': 'ko-KR Enhanced', 'locale': 'ko-KR', 'quality': 'enhanced'},
+        ],
+      );
+      final service = VoiceBriefingService(ttsFactory: () => fakeTts);
 
-    service.announceStart(AppLanguage.english, muted: false);
-    await Future<void>.delayed(Duration.zero);
-    service.onCue(cue(), language: AppLanguage.english, muted: false);
-    await Future<void>.delayed(Duration.zero);
+      service.announceStart(AppLanguage.english, muted: false);
+      await Future<void>.delayed(Duration.zero);
+      service.onCue(cue(), language: AppLanguage.english, muted: false);
+      await Future<void>.delayed(Duration.zero);
 
-    expect(fakeTts.languages, ['en-US']);
-    expect(fakeTts.speechRates.single, 0.5);
-    expect(fakeTts.pitches.single, 1.0);
-    expect(fakeTts.getVoicesCount, 1);
-    expect(fakeTts.selectedVoices.single, {
-      'name': 'en-US Premium',
-      'locale': 'en-US',
-    });
-  });
+      expect(fakeTts.languages, ['en-US']);
+      expect(fakeTts.speechRates.single, 0.5);
+      expect(fakeTts.pitches.single, 1.0);
+      expect(fakeTts.getVoicesCount, 1);
+      expect(fakeTts.selectedVoices.single, {
+        'name': 'en-US Premium',
+        'locale': 'en-US',
+      });
+    },
+  );
 
-  test('keeps default voice when no enhanced voice matches the locale', () async {
-    final fakeTts = _FakeVoiceTtsClient(
-      voices: const [
-        {'name': 'en-US Standard', 'locale': 'en-US', 'quality': 'default'},
-        {'name': 'ko-KR Premium', 'locale': 'ko-KR', 'quality': 'premium'},
-      ],
-    );
-    final service = VoiceBriefingService(ttsFactory: () => fakeTts);
+  test(
+    'keeps default voice when no enhanced voice matches the locale',
+    () async {
+      final fakeTts = _FakeVoiceTtsClient(
+        voices: const [
+          {'name': 'en-US Standard', 'locale': 'en-US', 'quality': 'default'},
+          {'name': 'ko-KR Premium', 'locale': 'ko-KR', 'quality': 'premium'},
+        ],
+      );
+      final service = VoiceBriefingService(ttsFactory: () => fakeTts);
 
-    service.announceStart(AppLanguage.french, muted: false);
-    await Future<void>.delayed(Duration.zero);
+      service.announceStart(AppLanguage.french, muted: false);
+      await Future<void>.delayed(Duration.zero);
 
-    expect(fakeTts.languages, ['fr-CA']);
-    expect(fakeTts.selectedVoices, isEmpty);
-    expect(fakeTts.spoken.single, 'Le briefing virages est actif. Bonne route.');
-  });
+      expect(fakeTts.languages, ['fr-CA']);
+      expect(fakeTts.selectedVoices, isEmpty);
+      expect(
+        fakeTts.spoken.single,
+        'Le briefing virages est actif. Bonne route.',
+      );
+    },
+  );
 
   test('announceStart speaks once and then no-ops', () async {
     voice.announceStart(AppLanguage.korean, muted: false);
