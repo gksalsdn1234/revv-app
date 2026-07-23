@@ -8,6 +8,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mbx;
 import 'package:provider/provider.dart';
 import '../models/revv_route.dart';
 import '../services/camera_follow_interpolator.dart';
+import '../services/follow_camera_zoom_controller.dart';
 import '../services/location_service.dart';
 import '../services/mapbox_service.dart';
 import '../services/settings_service.dart';
@@ -128,6 +129,10 @@ class MapWidget extends StatefulWidget {
   final ValueChanged<RouteMapViewport>? onCameraViewportChanged;
   final ValueChanged<String>? onRouteLineTap;
 
+  /// 유저가 핀치/더블탭으로 직접 줌을 바꿨는지 (true면 팔로우가 그 줌을 유지 중).
+  /// 화면에서 "내 위치로" 복귀 버튼을 띄우는 신호로 쓴다.
+  final ValueChanged<bool>? onUserZoomOverrideChanged;
+
   const MapWidget({
     super.key,
     this.isSprintMode = false,
@@ -153,6 +158,7 @@ class MapWidget extends StatefulWidget {
     this.onCameraCenterChanged,
     this.onCameraViewportChanged,
     this.onRouteLineTap,
+    this.onUserZoomOverrideChanged,
   });
 
   @override
@@ -191,6 +197,12 @@ class _MapWidgetState extends State<MapWidget>
   late final Ticker _cameraTicker;
   bool _cameraUpdatePending = false;
   Duration? _cameraUpdateStartedAt;
+
+  // ── 유저 줌 보존 ────────────────────────────────
+  // 팔로우 카메라는 center/bearing만 갱신하고, 줌은 유저가 만든 값을 그대로 쓴다.
+  final FollowCameraZoomController _zoomController =
+      FollowCameraZoomController();
+  bool _userZoomOverrideReported = false;
   final Map<String, Object?> _originalLayerVisibility = {};
   bool _routeFocusApplied = false;
   LatLng? _lastReportedCameraCenter;
@@ -201,6 +213,9 @@ class _MapWidgetState extends State<MapWidget>
 
   bool get _shouldDrawCurveHeatmap =>
       widget.curveHeatmap && widget.showCurveHeatmap;
+
+  /// 유저가 줌을 건드리지 않았을 때 쓰는 모드별 기본 줌.
+  double get _defaultFollowZoom => widget.isSprintMode ? 16.5 : 15.0;
 
   double get _routeLineWidth =>
       widget.curveHeatmap ? (widget.routeFocusMode ? 5.5 : 2.8) : 6.5;
@@ -393,6 +408,7 @@ class _MapWidgetState extends State<MapWidget>
     super.initState();
     _cameraClock.start();
     _cameraTicker = createTicker(_onCameraTick);
+    _zoomController.setDefaultZoom(_defaultFollowZoom);
     if (MapboxService.isConfigured) {
       mbx.MapboxOptions.setAccessToken(MapboxService.accessToken);
     } else {
@@ -425,6 +441,9 @@ class _MapWidgetState extends State<MapWidget>
         oldWidget.strongCurveFieldHeatmap != widget.strongCurveFieldHeatmap) {
       if (oldWidget.isSprintMode != widget.isSprintMode) {
         _cameraTicker.stop();
+        // 모드가 바뀌면 기본 줌 자체가 달라지므로 유저 줌은 여기서 정리한다.
+        _zoomController.setDefaultZoom(_defaultFollowZoom);
+        _syncUserZoomOverride();
       }
       _styleLoaded = false;
       _locationPuckEnabled = false;
@@ -596,6 +615,9 @@ class _MapWidgetState extends State<MapWidget>
       }
       return;
     }
+    // 유저가 지도를 만지는 동안에는 프레임을 소비하지 않고 그대로 넘긴다.
+    // (sample()을 부르면 보간 상태가 진행돼 제스처가 끝난 뒤 복귀 프레임을 잃는다)
+    if (_zoomController.isFollowSuppressed(_cameraClock.elapsed)) return;
     final frame = _cameraInterpolator.sample(_cameraClock.elapsed);
     if (frame == null) {
       _cameraTicker.stop();
@@ -612,7 +634,7 @@ class _MapWidgetState extends State<MapWidget>
             coordinates: mbx.Position(frame.center.lng, frame.center.lat),
           ),
           padding: _driveCameraPadding,
-          zoom: 16.5,
+          zoom: _zoomController.followZoom,
           pitch: 22.0,
           bearing: frame.bearing,
         ),
@@ -657,7 +679,64 @@ class _MapWidgetState extends State<MapWidget>
   }
 
   void _onCameraChanged(mbx.CameraChangedEventData data) {
+    // 제스처 구간에서 들어온 줌만 유저 줌으로 기록된다(내부 setCamera는 무시).
+    _zoomController.onCameraZoom(
+      data.cameraState.zoom.toDouble(),
+      now: _cameraClock.elapsed,
+    );
+    _syncUserZoomOverride();
     _reportCameraCenter(data.cameraState);
+  }
+
+  void _onMapScrollGesture(mbx.MapContentGestureContext context) {
+    _handleCameraGesture(MapCameraGesture.pan, context.gestureState);
+  }
+
+  void _onMapZoomGesture(mbx.MapContentGestureContext context) {
+    _handleCameraGesture(MapCameraGesture.zoom, context.gestureState);
+  }
+
+  void _handleCameraGesture(MapCameraGesture gesture, mbx.GestureState state) {
+    final phase = switch (state) {
+      mbx.GestureState.started => MapCameraGesturePhase.start,
+      mbx.GestureState.changed => MapCameraGesturePhase.update,
+      mbx.GestureState.ended => MapCameraGesturePhase.end,
+    };
+    _zoomController.onGesture(gesture, phase, now: _cameraClock.elapsed);
+    if (gesture == MapCameraGesture.zoom &&
+        phase == MapCameraGesturePhase.end) {
+      // 더블탭 줌처럼 카메라 이벤트가 늦게 오는 경우를 위해 마지막 값을 한 번 더 읽는다.
+      _captureSettledZoom();
+    }
+    _syncUserZoomOverride();
+  }
+
+  Future<void> _captureSettledZoom() async {
+    await Future<void>.delayed(const Duration(milliseconds: 380));
+    if (!mounted) return;
+    final map = _mapController;
+    if (map == null) return;
+    try {
+      final cameraState = await map.getCameraState();
+      _zoomController.onCameraZoom(
+        cameraState.zoom.toDouble(),
+        now: _cameraClock.elapsed,
+      );
+      _syncUserZoomOverride();
+    } catch (_) {}
+  }
+
+  void _syncUserZoomOverride() {
+    final overridden = _zoomController.hasUserZoom;
+    if (overridden == _userZoomOverrideReported) return;
+    _userZoomOverrideReported = overridden;
+    if (widget.onUserZoomOverrideChanged == null) return;
+    // didUpdateWidget(리센터 신호) 경로에서도 불리므로 프레임 뒤로 미룬다.
+    // 빌드 단계에서 부모 setState를 부르면 그대로 예외다.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onUserZoomOverrideChanged?.call(overridden);
+    });
   }
 
   Future<void> _onMapIdle(mbx.MapIdleEventData _) async {
@@ -888,6 +967,9 @@ class _MapWidgetState extends State<MapWidget>
   void _recenterOnUser() {
     final loc = _locationService;
     if (loc == null || !_styleLoaded) return;
+    // 리센터 = 기본 줌으로 복귀하는 명시적 수단.
+    _zoomController.reset();
+    _syncUserZoomOverride();
     _activateFollowViewport();
     _moveCamera(
       loc.lat,
@@ -1943,10 +2025,14 @@ class _MapWidgetState extends State<MapWidget>
   }) async {
     if (!_styleLoaded || _mapController == null) return;
 
+    // 유저가 지도를 만지는 중이면 팔로우 카메라 쓰기를 미룬다.
+    // 위치 자체는 보간기에 계속 넣어둬서 제스처가 끝나면 바로 따라잡는다.
+    final suppressed = _zoomController.isFollowSuppressed(_cameraClock.elapsed);
+
     final cameraOpts = mbx.CameraOptions(
       center: mbx.Point(coordinates: mbx.Position(lng, lat)),
       padding: widget.isSprintMode ? _driveCameraPadding : null,
-      zoom: widget.isSprintMode ? 16.5 : 15.0,
+      zoom: _zoomController.followZoom,
       // iOS 실기기에서 높은 pitch가 플랫폼뷰/지도 타일이 잘려 보이는 느낌을 만들 수 있어
       // 출시용 lean HUD에서는 낮은 각도로 안정성을 우선한다.
       pitch: widget.isSprintMode ? 22.0 : 0.0,
@@ -1970,8 +2056,9 @@ class _MapWidgetState extends State<MapWidget>
         targetBearing: heading,
         now: _cameraClock.elapsed,
       );
+      // 틱은 계속 돌려두고, 억제 구간에서는 _onCameraTick이 프레임을 흘려보낸다.
       if (!_cameraTicker.isActive) _cameraTicker.start();
-    } else {
+    } else if (!suppressed) {
       // Cruise 모드: flyTo (느린 이동 OK)
       try {
         await _mapController!.flyTo(
@@ -2136,7 +2223,7 @@ class _MapWidgetState extends State<MapWidget>
                   ),
                 ),
                 padding: widget.isSprintMode ? _driveCameraPadding : null,
-                zoom: widget.isSprintMode ? 16.5 : 15.0,
+                zoom: _zoomController.followZoom,
                 pitch: widget.isSprintMode ? 22.0 : 0.0,
                 bearing: widget.isSprintMode ? widget.navigationBearing : null,
               ),
@@ -2147,6 +2234,9 @@ class _MapWidgetState extends State<MapWidget>
               onCameraChangeListener: _onCameraChanged,
               onMapIdleListener: _onMapIdle,
               onTapListener: _onMapTap,
+              // 핀치/더블탭 줌·팬을 감지해 유저가 만든 줌을 팔로우가 덮어쓰지 않게 한다.
+              onScrollListener: _onMapScrollGesture,
+              onZoomListener: _onMapZoomGesture,
             ),
           );
         },

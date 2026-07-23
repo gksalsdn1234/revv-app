@@ -99,6 +99,12 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   DateTime? _lastGpsUpdateAt;
   bool _gpsWeak = false;
 
+  /// 유저가 핀치로 줌을 바꾸면 지도는 그 줌을 유지한다.
+  /// 기본 줌으로 돌아가는 건 자동 복귀 대신 명시적 탭 하나로만 — 주행 중 카메라가
+  /// 저 혼자 움직이는 게 더 위험하다.
+  bool _mapZoomOverridden = false;
+  int _recenterSignal = 0;
+
   @override
   void initState() {
     super.initState();
@@ -502,6 +508,11 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                             ? routeNodes.first
                             : widget.route.centerPoint))
                   : null,
+              recenterSignal: _recenterSignal,
+              onUserZoomOverrideChanged: (overridden) {
+                if (!mounted || overridden == _mapZoomOverridden) return;
+                setState(() => _mapZoomOverridden = overridden);
+              },
             ),
           ),
           SafeArea(
@@ -581,6 +592,15 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
               ),
             ),
           ),
+          if (_mapZoomOverridden)
+            Positioned(
+              left: 18,
+              bottom: MediaQuery.paddingOf(context).bottom + 96,
+              child: _RecenterMapButton(
+                language: language,
+                onTap: () => setState(() => _recenterSignal++),
+              ),
+            ),
           if (widget.walkieEnabledOverride) _walkieAutoConnect(context),
           if (_walkiePttButton(context, language) case final button?)
             Positioned(
@@ -1713,6 +1733,55 @@ class _StripMetric extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 유저가 지도 줌을 바꿨을 때만 뜨는 복귀 버튼.
+/// 탭 한 번 = 내 위치 + 기본 줌으로 복귀 (자동 복귀는 하지 않는다).
+class _RecenterMapButton extends StatelessWidget {
+  final AppLanguage language;
+  final VoidCallback onTap;
+
+  const _RecenterMapButton({required this.language, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = AppCopy.t(
+      language,
+      ko: '내 위치로',
+      en: 'Recenter',
+      fr: 'Recentrer',
+    );
+    return Semantics(
+      button: true,
+      label: label,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: _DriveGlass(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.my_location,
+                size: 16,
+                color: AppColors.primaryContainer,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: AppText.body(
+                  size: 12,
+                  weight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
