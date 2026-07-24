@@ -68,7 +68,8 @@ void main() {
       ),
       const Size(360, 450),
     );
-    expect(find.text('This weekend · time TBD'), findsOneWidget);
+    // 카드는 일정을 테크니컬 라벨(대문자)로 그린다 — 초안 데이터는 원문 그대로.
+    expect(find.text('THIS WEEKEND · TIME TBD'), findsOneWidget);
     expect(find.text('No meeting area'), findsOneWidget);
     expect(find.text('Share invite'), findsOneWidget);
 

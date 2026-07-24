@@ -139,7 +139,8 @@ void main() {
       expect(content.tags.length, lessThanOrEqualTo(2));
       expect(content.silhouette, hasLength(3));
       expect(content.silhouette.first.x, 0);
-      expect(content.silhouette.first.y, 1);
+      // Shape-preserving normalization centers in unit square; y no longer spans 0..1 independently.
+      expect(content.silhouette.first.y, closeTo(0.8567, 0.0001));
       expect(content.footer, 'REVV');
     });
 
@@ -240,15 +241,19 @@ void main() {
 
     test('keeps the public silhouette bounded and translation-invariant', () {
       // Given: the same route shape at two different absolute locations.
+      // The translation is longitude-only: the shape-preserving normalization
+      // applies a latitude-dependent aspect correction (cos midLat), so only a
+      // same-latitude move keeps the silhouette bit-identical. Latitude moves
+      // still leak no absolute coordinate — they only change the aspect scale.
       const localNodes = [
         LatLng(1.125, 2.25),
         LatLng(1.875, 3.75),
         LatLng(1.5, 4.25),
       ];
       const translatedNodes = [
-        LatLng(51.125, -70.75),
-        LatLng(51.875, -69.25),
-        LatLng(51.5, -68.75),
+        LatLng(1.125, -70.75),
+        LatLng(1.875, -69.25),
+        LatLng(1.5, -68.75),
       ];
 
       // When: public card content is built for both routes.

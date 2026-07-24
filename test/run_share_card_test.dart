@@ -28,8 +28,10 @@ void main() {
     expect(content.subtitle, 'Forest hairpins');
     expect(content.subtitle, isNot(contains('Jun 30, 2026')));
     expect(content.subtitle, isNot(contains('Square')));
-    expect(chipLabels, containsAll(['Distance', 'Duration', 'REVV Score']));
-    expect(listLabels, containsAll(['Flow', 'Smoothness', 'Winding']));
+    // Hero metric (Distance) is extracted from chips and shown separately
+    expect(content.heroMetric?.label, 'Distance');
+    expect(chipLabels, containsAll(['Duration', 'REVV Score']));
+    expect(listLabels, containsAll(['Distance', 'Flow', 'Smoothness', 'Winding']));
     expect(content.pathPreview, isNotNull);
     expect(content.pathPreview!.length, lessThanOrEqualTo(240));
     expect(

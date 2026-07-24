@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../core/app_language.dart';
 import '../models/run_session.dart';
 import '../models/run_summary.dart';
@@ -20,6 +22,7 @@ class RunShareCardContent {
   final List<RunShareCardMetric> metricList;
   final List<RunSharePathPoint>? pathPreview;
   final String footer;
+  final RunShareCardMetric? heroMetric;
 
   const RunShareCardContent({
     required this.preset,
@@ -32,6 +35,7 @@ class RunShareCardContent {
     required this.metricList,
     this.pathPreview,
     required this.footer,
+    this.heroMetric,
   });
 
   List<RunShareCardMetric> get metrics => metricChips;
@@ -41,6 +45,10 @@ class RunShareCardContent {
     yield subtitle;
     yield routeName;
     yield dateLabel;
+    if (heroMetric != null) {
+      yield heroMetric!.label;
+      yield heroMetric!.value;
+    }
     for (final metric in metricChips) {
       yield metric.label;
       yield metric.value;
@@ -101,15 +109,60 @@ RunShareCardContent buildRunShareCardContent({
     detail: detail,
     language: language,
   ).defaultShareMetrics;
-  final safeMetrics = [
-    for (final metric in shareMetrics)
-      if (!metric.internalOnly &&
-          _isSafeText(metric.label) &&
-          _isSafeText(metric.value))
-        RunShareCardMetric(label: metric.label, value: metric.value),
-  ];
+
+  // Build safe metrics with source metric tracking
+  final safeMetricsWithSource = <({RunShareCardMetric metric, RunShareDisplayMetric source})>[];
+  for (final metric in shareMetrics) {
+    if (!metric.internalOnly &&
+        _isSafeText(metric.label) &&
+        _isSafeText(metric.value)) {
+      safeMetricsWithSource.add(
+        (
+          metric: RunShareCardMetric(label: metric.label, value: metric.value),
+          source: metric,
+        ),
+      );
+    }
+  }
+
   final presetInfo = _presetInfo(preset, language);
   final chipLimit = presetInfo.isCompact ? 4 : 5;
+
+  // Pick hero metric: cornerEvents first, then distance. Compact presets never
+  // render the hero overlay, so keep every metric in the chips there instead.
+  RunShareCardMetric? heroMetric;
+  int heroIndex = -1;
+  if (!presetInfo.isCompact) {
+    for (int i = 0; i < safeMetricsWithSource.length; i++) {
+      if (safeMetricsWithSource[i].source.id == 'cornerEvents') {
+        heroIndex = i;
+        break;
+      }
+    }
+
+    if (heroIndex < 0) {
+      for (int i = 0; i < safeMetricsWithSource.length; i++) {
+        if (safeMetricsWithSource[i].source.id == 'distance') {
+          heroIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (heroIndex >= 0) {
+      heroMetric = safeMetricsWithSource[heroIndex].metric;
+    }
+  }
+
+  // Build metric chips, excluding hero
+  final metricChips = <RunShareCardMetric>[];
+  for (int i = 0; i < safeMetricsWithSource.length; i++) {
+    if (i != heroIndex) {
+      metricChips.add(safeMetricsWithSource[i].metric);
+    }
+  }
+
+  final safeMetrics = safeMetricsWithSource.map((x) => x.metric).toList();
 
   return RunShareCardContent(
     preset: preset,
@@ -122,10 +175,11 @@ RunShareCardContent buildRunShareCardContent({
     ),
     routeName: routeName,
     dateLabel: dateLabel,
-    metricChips: safeMetrics.take(chipLimit).toList(),
+    metricChips: metricChips.take(chipLimit).toList(),
     metricList: safeMetrics,
     pathPreview: _pathPreview(detail: detail, session: session),
     footer: _weatherFooter(summary),
+    heroMetric: heroMetric,
   );
 }
 
@@ -236,13 +290,34 @@ List<RunSharePathPoint> _normalize(List<_GeoPoint> points) {
 
   final latRange = maxLat - minLat;
   final lngRange = maxLng - minLng;
+
+  // Convert to meters to preserve geographic aspect ratio.
+  final latMeters = latRange * 111320.0;
+  final midLat = (minLat + maxLat) / 2;
+  final lngMeters = lngRange * 111320.0 * math.cos(midLat * math.pi / 180);
+  final maxMeters = math.max(latMeters, lngMeters);
+
+  if (maxMeters <= 0) {
+    return [
+      for (final _ in points) const RunSharePathPoint(x: 0.5, y: 0.5),
+    ];
+  }
+
+  final xExtent = lngMeters / maxMeters;
+  final yExtent = latMeters / maxMeters;
+
+  // Shape-preserving: both axes share one meters-per-unit scale, centered in the unit square.
   return [
     for (final point in points)
       RunSharePathPoint(
-        x: lngRange == 0 ? 0.5 : ((point.lng - minLng) / lngRange).clamp(0, 1),
-        y: latRange == 0
-            ? 0.5
-            : (1 - (point.lat - minLat) / latRange).clamp(0, 1),
+        x: (0.5 +
+                (lngRange == 0 ? 0 : ((point.lng - minLng) / lngRange - 0.5)) *
+                    xExtent)
+            .clamp(0.0, 1.0),
+        y: (0.5 -
+                (latRange == 0 ? 0 : ((point.lat - minLat) / latRange - 0.5)) *
+                    yExtent)
+            .clamp(0.0, 1.0),
       ),
   ];
 }
