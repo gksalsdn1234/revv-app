@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -41,9 +42,9 @@ void main() {
     expect(find.bySemanticsLabel('Route invitation card'), findsOneWidget);
     expect(find.bySemanticsLabel('Route silhouette'), findsOneWidget);
     expect(find.text('Drive together this weekend?'), findsOneWidget);
-    expect(find.text(_content().routeName), findsOneWidget);
     expect(find.text('84 km'), findsOneWidget);
     expect(find.text('1h 24m'), findsOneWidget);
+    expect(find.text('CURVE MIX'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -52,13 +53,9 @@ void main() {
   ) async {
     // Given: every supported card language without a selected meeting area.
     const labels = {
-      AppLanguage.korean: ('거리', '주행 시간', '공개 초대'),
-      AppLanguage.english: ('DISTANCE', 'DRIVE TIME', 'OPEN INVITE'),
-      AppLanguage.french: (
-        'DISTANCE',
-        'DURÉE DE CONDUITE',
-        'INVITATION OUVERTE',
-      ),
+      AppLanguage.korean: ('거리', '주행 시간', '코너', '커브 구성'),
+      AppLanguage.english: ('DISTANCE', 'DURATION', 'CORNERS', 'CURVE MIX'),
+      AppLanguage.french: ('DISTANCE', 'DURÉE', 'VIRAGES', 'TYPE DE VIRAGES'),
     };
 
     // When: each language is rendered through the card content contract.
@@ -74,11 +71,16 @@ void main() {
         ),
       );
 
-      // Then: every static, visible label matches the card language.
-      final (distance, duration, openInvite) = labels[language]!;
+      // Then: every static, visible label matches the card language. The spec
+      // row and curve-mix heading render uppercased, so Korean (which has no
+      // case) is asserted as-is while the Latin locales are asserted uppercase.
+      final (distance, duration, corners, curveMix) = labels[language]!;
       expect(find.text(distance), findsOneWidget);
       expect(find.text(duration), findsOneWidget);
-      expect(find.text(openInvite), findsOneWidget);
+      expect(find.text(corners), findsOneWidget);
+      expect(find.text(curveMix), findsOneWidget);
+      expect(find.text(content.headline), findsOneWidget);
+      expect(find.text('REVV'), findsOneWidget);
       expect(tester.takeException(), isNull);
     }
   });
@@ -109,9 +111,12 @@ void main() {
         ),
       );
 
-      expect(find.text(content.routeName), findsOneWidget);
-      expect(find.text(content.schedule), findsOneWidget);
-      expect(find.text(content.meetingAreaLabel!), findsOneWidget);
+      expect(find.text(content.headline), findsOneWidget);
+      expect(find.text(content.schedule.toUpperCase()), findsOneWidget);
+      expect(
+        find.textContaining(content.meetingAreaLabel!.toUpperCase()),
+        findsOneWidget,
+      );
       expect(tester.takeException(), isNull);
     }
   });
@@ -186,6 +191,40 @@ class _TestHost extends StatelessWidget {
   }
 }
 
+/// Road-resolution winding geometry (~15 m sampling). The curve-mix block only
+/// renders for routes that actually contain corners, so a four-point fixture
+/// would silently drop it from every assertion below.
+List<LatLng> _windingNodes() {
+  const mPerDegLat = 111320.0;
+  final mPerDegLng = 111320.0 * math.cos(45.5 * math.pi / 180);
+  var lat = 45.50;
+  var lng = -73.57;
+  var bearing = math.pi / 2;
+  final out = <LatLng>[LatLng(lat, lng)];
+
+  void addArc(double radiusMeters, double sweepDegrees) {
+    final sweep = sweepDegrees * math.pi / 180;
+    final arcLength = radiusMeters * sweep.abs();
+    final steps = math.max(3, (arcLength / 15).round());
+    for (var i = 0; i < steps; i++) {
+      final stepLength = arcLength / steps;
+      lat += stepLength * math.cos(bearing) / mPerDegLat;
+      lng += stepLength * math.sin(bearing) / mPerDegLng;
+      bearing += sweep / steps;
+      out.add(LatLng(lat, lng));
+    }
+  }
+
+  for (var i = 0; i < 4; i++) {
+    addArc(220, 70);
+    addArc(180, -80);
+    addArc(60, 95);
+    addArc(1200, -40);
+    addArc(24, -150);
+  }
+  return out;
+}
+
 RouteShareCardContent _content({
   AppLanguage language = AppLanguage.english,
   String name = 'Lakeside Sweepers',
@@ -197,12 +236,7 @@ RouteShareCardContent _content({
     route: RevvRoute(
       id: 'route-1',
       name: name,
-      nodes: const [
-        LatLng(45.50, -73.57),
-        LatLng(45.52, -73.56),
-        LatLng(45.51, -73.53),
-        LatLng(45.54, -73.54),
-      ],
+      nodes: _windingNodes(),
       distanceKm: 84,
       windingScore: 5,
       starRating: 4,

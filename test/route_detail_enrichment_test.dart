@@ -230,7 +230,7 @@ void main() {
 
       expect(sharedInvite, isNull);
       expect(find.text('Share invite'), findsOneWidget);
-      expect(find.text('This weekend · time TBD'), findsOneWidget);
+      expect(find.text('THIS WEEKEND · TIME TBD'), findsOneWidget);
 
       await tester.tap(
         find.byKey(const ValueKey('invite-meeting-area-selector')),

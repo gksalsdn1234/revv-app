@@ -29,7 +29,8 @@ void main() {
     );
 
     expect(find.text('Forest Sweep'), findsOneWidget);
-    expect(find.text('Jun 30, 2026'), findsOneWidget);
+    // The kicker renders the date uppercased.
+    expect(find.text('JUN 30, 2026'), findsOneWidget);
     expect(find.textContaining('REVV'), findsWidgets);
     expect(find.text('DISTANCE'), findsOneWidget);
     expect(find.text('12.3 km'), findsOneWidget);
