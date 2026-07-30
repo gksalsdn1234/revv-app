@@ -675,7 +675,9 @@ void main() {
     expect(find.text('Winding'), findsOneWidget);
     expect(find.text('Flow'), findsWidgets);
     expect(find.text('Smoothness'), findsWidgets);
-    expect(find.text('Distance'), findsNWidgets(2));
+    // Distance now appears once: the recap grid no longer repeats the headline
+    // distance/duration stats shown directly above it.
+    expect(find.text('Distance'), findsOneWidget);
     expect(find.text('6.4 km'), findsWidgets);
     expect(find.textContaining('MAX SPEED'), findsNothing);
     expect(find.textContaining('118'), findsNothing);
