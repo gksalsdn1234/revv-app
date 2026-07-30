@@ -314,6 +314,23 @@ class _SilhouettePainter extends CustomPainter {
 
   const _SilhouettePainter(this.points, this.onDark, this.stroke);
 
+  // Same ladder as the map. Straight and gentle stay neutral greys so only the
+  // real corners carry colour — amber for the mid ones, brand red for hairpins.
+  // Colouring the gentle band too made the mild curves the loudest thing on the
+  // card, which is the opposite of the point.
+  static const _sevOnDark = [0xFF6E675F, 0xFFB8AFA2, 0xFFFFB020, 0xFFE2231A];
+  static const _sevOnLight = [0xFFBDB6AA, 0xFF6B645B, 0xFFC97F0A, 0xFFE2231A];
+  static const _sevWidth = [0.74, 0.92, 1.08, 1.3];
+  static const _sevAlpha = [0.9, 1.0, 1.0, 1.0];
+
+  /// Turn angle at one node → severity band (0 straight … 3 hairpin).
+  static int _severityOf(double turn) {
+    if (turn < math.pi * 0.055) return 0; // < ~10°
+    if (turn < math.pi * 0.13) return 1; // < ~23°
+    if (turn < math.pi * 0.25) return 2; // < ~45°
+    return 3;
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
@@ -356,6 +373,32 @@ class _SilhouettePainter extends CustomPainter {
       path.cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p2.dx, p2.dy);
     }
 
+    // How hard the road turns at each node, read from the card's own
+    // normalized shape — the card never receives raw geometry.
+    final severity = List<int>.filled(offsets.length, 0);
+    for (var i = 1; i < offsets.length - 1; i++) {
+      final a = offsets[i] - offsets[i - 1];
+      final b = offsets[i + 1] - offsets[i];
+      if (a.distance < 0.5 || b.distance < 0.5) continue;
+      final raw = (math.atan2(b.dy, b.dx) - math.atan2(a.dy, a.dx)).abs();
+      severity[i] = _severityOf(raw > math.pi ? 2 * math.pi - raw : raw);
+    }
+
+    // One subpath per severity so each band can carry its own weight. Drawn
+    // straight-first, so the tight corners land on top.
+    final bands = List.generate(4, (_) => Path());
+    for (var i = 0; i < offsets.length - 1; i++) {
+      final p0 = offsets[i == 0 ? 0 : i - 1];
+      final p1 = offsets[i];
+      final p2 = offsets[i + 1];
+      final p3 = offsets[i + 2 < offsets.length ? i + 2 : offsets.length - 1];
+      final c1 = p1 + (p2 - p0) / 6;
+      final c2 = p2 - (p3 - p1) / 6;
+      bands[math.max(severity[i], severity[i + 1])]
+        ..moveTo(p1.dx, p1.dy)
+        ..cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, p2.dx, p2.dy);
+    }
+
     if (onDark) {
       canvas.drawPath(
         path,
@@ -367,27 +410,25 @@ class _SilhouettePainter extends CustomPainter {
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
       );
     }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = onDark ? AppColors.cream : AppColors.ink
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
+    final palette = onDark ? _sevOnDark : _sevOnLight;
+    for (var b = 0; b < 4; b++) {
+      canvas.drawPath(
+        bands[b],
+        Paint()
+          ..color = Color(palette[b]).withValues(alpha: _sevAlpha[b])
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stroke * _sevWidth[b]
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
 
-    // Corner ticks
-    final tick = Paint()..color = AppColors.red;
+    // Tick only the hairpins — the coloured bands already carry the milder
+    // corners, so a dot on every bend would just add noise.
+    final tick = Paint()..color = Color(palette[3]);
     Offset? last;
     for (var i = 1; i < offsets.length - 1; i++) {
-      final a = offsets[i] - offsets[i - 1];
-      final b = offsets[i + 1] - offsets[i];
-      if (a.distance < 1 || b.distance < 1) continue;
-      final turn =
-          (math.atan2(b.dy, b.dx) - math.atan2(a.dy, a.dx)).abs();
-      final n = turn > math.pi ? 2 * math.pi - turn : turn;
-      if (n < math.pi * 0.13) continue;
+      if (severity[i] < 3) continue;
       if (last != null && (offsets[i] - last).distance < 16) continue;
       canvas.drawCircle(offsets[i], stroke * 0.72, tick);
       last = offsets[i];
@@ -496,11 +537,13 @@ class _CurveMixBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Shares the silhouette's ladder so this block reads as its legend rather
+    // than a second, unrelated colour scheme.
     final colorMap = <RouteCurveKind, Color>{
       RouteCurveKind.hairpin: const Color(0xFFE2231A),
-      RouteCurveKind.switchback: const Color(0xFFE8833A),
-      RouteCurveKind.sweeper: const Color(0xFF1FA85F),
-      RouteCurveKind.straight: const Color(0xFF6E6A63),
+      RouteCurveKind.switchback: const Color(0xFFFFB020),
+      RouteCurveKind.sweeper: const Color(0xFFB8AFA2),
+      RouteCurveKind.straight: const Color(0xFF6E675F),
     };
 
     return Column(
