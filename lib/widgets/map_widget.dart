@@ -1793,8 +1793,20 @@ class _MapWidgetState extends State<MapWidget>
   }
 
   // ── 커브 히트맵 레이어 ────────────────────────────────────────────
+  // 직선은 물러나고 코너는 다가온다. 색·굵기·불투명도를 같은 방향으로 함께
+  // 올려 한 눈에 도로의 리듬이 읽히게 한다. 팔레트는 테마 토큰만 사용하며,
+  // 브랜드 레드는 가장 타이트한 구간에만 남겨 흔한 색이 되지 않게 한다.
   static const _hmIds = ['hm-straight', 'hm-gentle', 'hm-medium', 'hm-tight'];
-  static const _hmColors = [0xFF3B82F6, 0xFF22C55E, 0xFFF59E0B, 0xFFEF4444];
+  // 직선·완만 구간은 중립 회색으로 두고 실제 코너만 색을 갖는다. 완만한 커브까지
+  // 채색해보니 제일 흔한 구간이 제일 튀어서 의도가 뒤집혔다.
+  static const _hmColors = [
+    0xFF6E675F, // 직선 — 물러나지만 사라지진 않는다
+    0xFFB8AFA2, // 완만한 커브 — 아직 중립, 밝기만 올린다
+    0xFFFFB020, // 중간 커브 — 여기서 색이 붙는다
+    0xFFE2231A, // 타이트한 커브(헤어핀) — 브랜드 레드는 여기만
+  ];
+  static const _hmWidths = [2.6, 3.4, 4.4, 5.6];
+  static const _hmOpacities = [0.88, 1.0, 1.0, 1.0];
   static const _fieldHmBuckets = [1, 2, 3];
   static const _fieldHmIds = [
     'curve-field-gentle',
@@ -2073,8 +2085,8 @@ class _MapWidgetState extends State<MapWidget>
             id: layerId,
             sourceId: sourceId,
             lineColor: _hmColors[b],
-            lineWidth: 3.0,
-            lineOpacity: 1.0,
+            lineWidth: _hmWidths[b],
+            lineOpacity: _hmOpacities[b],
             lineCap: mbx.LineCap.ROUND,
             lineJoin: mbx.LineJoin.ROUND,
           ),

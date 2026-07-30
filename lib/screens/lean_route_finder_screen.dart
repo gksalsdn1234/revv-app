@@ -1402,6 +1402,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                   routePolyline: showingJourney ? null : _previewRoute?.nodes,
                   routePolylines: showingJourney ? _windingPolylines : null,
                   curveHeatmap: !showingJourney,
+                  // 선택된 루트를 커브 강도별로 칠한다. 단색 라인은 "굽은 길"이라는
+                  // 주장만 하고 근거를 못 보여줬다 — 구간 색이 그 근거다.
+                  showCurveHeatmap: !showingJourney,
                   planMarkers: showingJourney ? _planMarkers : null,
                   clusterMarkers: const [],
                   candidatePolylines: showingJourney
@@ -1411,9 +1414,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       ? null
                       : _drivenGlowPolylines(visibleClusters, drivenService),
                   curveHeatmapPolylines: const [],
+                  // 미리보기 중인 루트는 제외한다. 난이도 라인은 루트 전체를 단색
+                  // 하나로 칠하므로, 그대로 두면 커브별 색을 덮어 다시 빨간 줄이 된다.
                   difficultyLines: showingJourney
                       ? const []
-                      : _difficultyLines(mapDisplayRoutes, null),
+                      : _difficultyLines(mapDisplayRoutes, _previewRoute),
                   explorationFogCells: explorationFogCells,
                   strongCurveFieldHeatmap: _curveRoadView,
                   routeFocusMode: false,
