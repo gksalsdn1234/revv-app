@@ -25,6 +25,7 @@ import '../theme/colors.dart';
 import '../theme/text_styles.dart';
 import '../ui/app_copy.dart';
 import '../ui/copilot_run_summary.dart';
+import 'lean_route_finder_screen.dart';
 import '../ui/run_share_card_content.dart';
 import '../ui/run_share_card_widget.dart';
 import '../ui/run_share_metrics.dart';
@@ -208,6 +209,16 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
     );
   }
 
+  /// Takes the copilot note's suggestion somewhere real: back to the same route
+  /// when it was left unfinished, otherwise to the finder to pick a new one.
+  void _openRouteFinder(CopilotRunSummaryCopy copy) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => LeanRouteFinderScreen(initialRouteId: copy.nextRouteId),
+      ),
+    );
+  }
+
   void _showSharePreview({
     required RunSummary summary,
     required RunTelemetryDetail? detail,
@@ -386,7 +397,7 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                                   const SizedBox(height: 8),
                                   Text(
                                     summary?.routeName ??
-                                        copy?.headline ??
+                                        session?.routeName ??
                                         AppCopy.t(
                                           language,
                                           ko: '저장할 주행이 없어요',
@@ -484,7 +495,10 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
 
                             if (session != null && copy != null) ...[
                               const SizedBox(height: 16),
-                              _CopilotNextCard(text: copy.nextSuggestion),
+                              _CopilotNextCard(
+                                copy: copy,
+                                onAction: () => _openRouteFinder(copy),
+                              ),
                               const SizedBox(height: 16),
                               _RouteFeedbackCard(
                                 enabled: summary != null,
@@ -1113,16 +1127,9 @@ class _RevvRecapSection extends StatelessWidget {
           value: value,
           accent: false,
         ),
-      _StatItem(
-        label: AppCopy.shareMetricLabel(language, 'distance'),
-        value: displayed['distance'] ?? '0.0 km',
-        accent: false,
-      ),
-      _StatItem(
-        label: AppCopy.shareMetricLabel(language, 'duration'),
-        value: displayed['duration'] ?? '0s',
-        accent: false,
-      ),
+      // Distance and duration are already the two headline stats directly
+      // above this grid — repeating them here was the screen's main source of
+      // duplicated numbers.
       if (displayed['cornerEvents'] case final value?)
         _StatItem(
           label: AppCopy.shareMetricLabel(language, 'cornerEvents'),
@@ -2397,13 +2404,17 @@ const _feedbackOptions = [
   _FeedbackOption(type: 'hide_route', icon: Icons.visibility_off_rounded),
 ];
 
+/// The coach card: one observation about the run, then the single next step —
+/// as a real button, not a sentence the driver has to act on themselves.
 class _CopilotNextCard extends StatelessWidget {
-  final String text;
+  final CopilotRunSummaryCopy copy;
+  final VoidCallback onAction;
 
-  const _CopilotNextCard({required this.text});
+  const _CopilotNextCard({required this.copy, required this.onAction});
 
   @override
   Widget build(BuildContext context) {
+    final language = context.watch<SettingsService>().appLanguage;
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
@@ -2411,43 +2422,90 @@ class _CopilotNextCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: AppColors.ink.withValues(alpha: 0.10)),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.psychology_rounded,
-            color: AppColors.primaryContainer,
-            size: 20,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.psychology_rounded,
+                color: AppColors.primaryContainer,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      AppCopy.t(
+                        language,
+                        ko: '코파일럿 노트',
+                        en: 'Copilot note',
+                        fr: 'Note du copilote',
+                      ),
+                      style: AppText.mono(
+                        size: 10,
+                        color: AppColors.primaryContainer,
+                        letterSpacing: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      copy.coachNote,
+                      style: AppText.body(
+                        size: 14,
+                        height: 1.4,
+                        weight: FontWeight.w800,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      copy.nextSuggestion,
+                      style: AppText.body(
+                        size: 12,
+                        height: 1.36,
+                        weight: FontWeight.w700,
+                        color: AppColors.stone,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  AppCopy.t(
-                    context.watch<SettingsService>().appLanguage,
-                    ko: '다음 추천 힌트',
-                    en: 'Next suggestion',
-                    fr: 'Prochaine suggestion',
-                  ),
-                  style: AppText.mono(
-                    size: 10,
-                    color: AppColors.primaryContainer,
-                    letterSpacing: 1.3,
-                  ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: OutlinedButton.icon(
+              key: const ValueKey('copilot-next-action'),
+              onPressed: onAction,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primaryContainer,
+                side: BorderSide(
+                  color: AppColors.primaryContainer.withValues(alpha: 0.45),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  text,
-                  style: AppText.body(
-                    size: 13,
-                    height: 1.36,
-                    weight: FontWeight.w800,
-                    color: AppColors.stone,
-                  ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-              ],
+              ),
+              icon: Icon(
+                copy.nextAction == CopilotNextAction.retryRoute
+                    ? Icons.replay_rounded
+                    : Icons.explore_rounded,
+                size: 18,
+              ),
+              label: Text(
+                copy.nextActionLabel,
+                style: AppText.label(
+                  size: 14,
+                  weight: FontWeight.w800,
+                  color: AppColors.primaryContainer,
+                ),
+              ),
             ),
           ),
         ],

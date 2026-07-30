@@ -95,7 +95,8 @@ void main() {
     // When: all public run copy is collected.
     final visibleText = [
       ...card.visibleText,
-      copy.headline,
+      copy.coachNote,
+      copy.nextActionLabel,
       copy.summaryLine,
       copy.nextSuggestion,
       ...copy.notableStats.expand((stat) => [stat.label, stat.value]),
