@@ -62,10 +62,16 @@
 | `reject` | 180 | 6.1 km | 1,021 |
 | `keep` | 157 | 7.6 km | 1,676 |
 
-**이 표가 이 설계의 핵심 근거다.** 82,657행은 평균 1.2km짜리 조각이라
-"루트"로는 쓸 수 없어 파인더가 거의 다 걸러낸다. 그런데 히트맵은 정확히
-그런 물건이다 — 짧은 조각 수만 개를 곡률로 칠한 것. **파인더에게 쓰레기인
-데이터가 히트맵에게는 완성품이다.** 추가 보강 없이 지금 그대로 쓸 수 있다.
+**이 표가 이 설계의 핵심 근거다.** 82,657행은 평균 1.2km짜리 조각이다.
+파인더가 이걸 못 쓰는 이유는 품질 라벨이 아니라 `find_curvy_roads`의
+**`distance_km >= 4.0` 하한**이다 (`20260712100000_find_curvy_roads_slim.sql:134`).
+평균 1.2km짜리는 이 문턱을 구조적으로 못 넘는다. 같은 함수가 거는
+`is_facility_like` / `is_connector_like` / 정지선 밀도 제외 조건도 마찬가지로
+루트 추천용 기준이다.
+
+그런데 히트맵은 정확히 그 조각들로 만드는 물건이다 — 짧은 세그먼트 수만 개를
+곡률로 칠한 것. **파인더가 버리는 데이터가 히트맵에게는 완성품이다.**
+추가 보강 없이 지금 그대로 쓸 수 있다.
 
 ## 한국 msgpack 경로를 버리는 이유
 
@@ -106,18 +112,25 @@ $$;
 
 - `max_rows` 상한이 페이로드 폭주 방지장치다. 곡률 내림차순이므로 잘려도
   **가장 굽은 길부터 남는다**
-- 기존 `find_curvy_roads`와 별개 함수로 둔다. 그쪽은 루트 추천용이고 품질
-  필터가 걸려 있어 히트맵에 쓰면 157행밖에 안 나온다
+- 기존 `find_curvy_roads`를 재사용하지 않는 이유는 위의 `distance_km >= 4.0`
+  하한과 주행 적합성 제외 조건이다. 그건 루트 추천의 올바른 기준이지만
+  히트맵에는 정반대로 작동한다 — 필요한 조각을 전부 버린다
 - RLS: 익명 읽기 허용 (기존 `curvy_roads` 정책과 동일 수준). 보안 인벤토리
   등록 필요 — `96971c8` 커밋이 남긴 전례를 따를 것
 
 **앱**
 
-1. `SupabaseService`에 `fetchCurveField(bbox)` 추가 → `List<List<LatLng>>` 반환
-2. 파인더에 `_curveFieldPolylines` 상태 추가. 카메라 이동 디바운스
-   (`_cameraDebounce` 이미 있음)에 묶어 bbox 변경 시 재조회
+1. `SupabaseService`에 `fetchCurveField(...)` 추가 → `List<List<LatLng>>` 반환.
+   기존 `findCurvyRoads`의 호출·로깅·실패 처리 패턴을 그대로 따른다
+2. 파인더에 `_curveFieldPolylines` 상태 추가. **bbox를 새로 만들 필요가 없다** —
+   `_handleCameraViewportChanged`(`lean_route_finder_screen.dart:1108`)가 이미
+   400ms 디바운스로 돌고 있고, 같은 파일의 `RouteClusterBounds` 계산이
+   center+zoom에서 뷰포트 박스를 만든다 (wide 180km / balanced 95km /
+   close 35km). 그 값을 그대로 넘긴다
 3. `curveHeatmapPolylines: const []` → `_curveFieldPolylines`
-4. 줌 임계값 아래(z < 9)에서는 조회 생략 — 광역 뷰는 Phase 2에서 처리
+4. `_RouteMapMode.wide`(줌아웃)에서는 조회 생략 — 광역 뷰는 Phase 2에서 처리
+5. 재조회 억제: 새 center가 직전 조회 center에서 일정 거리 안이고 모드가
+   같으면 스킵. `shouldOfferSearchArea`가 쓰는 것과 같은 발상
 
 **페이로드 추산** (⚠️ 뷰포트 실측 쿼리는 커넥터 장애로 못 돌림 — 아래는 추정)
 행당 노드 JSON 평균 743B 기준, `max_rows=600`이면 원시 약 **450KB**,
