@@ -63,5 +63,24 @@ void main() {
     expect(geometry['type'], 'Polygon');
     expect(ring, hasLength(5));
     expect(ring.first, ring.last);
+  test('active curve heatmap covers both segments touching a sharp curve node', () {
+    const nodes = [
+      LatLng(45.000000, -73.000000),
+      LatLng(45.000000, -72.999900),
+      LatLng(45.000010, -72.999900),
+      LatLng(45.000020, -72.999900),
+      LatLng(45.000030, -72.999900),
+    ];
+
+    final buckets = buildCurveHeatmapSegments(nodes);
+
+    // Node 1 is the sharp, unevenly spaced bend. Its tight bucket must start
+    // one segment before the node and end one segment after it.
+    expect(buckets[3], [
+      [nodes[0], nodes[1], nodes[2]],
+    ]);
+    expect(buckets[0], [
+      [nodes[2], nodes[3]],
+    ]);
   });
 }
