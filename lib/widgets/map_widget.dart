@@ -90,6 +90,73 @@ String buildPolylineGeoJson(List<List<LatLng>> polylines) {
   });
 }
 
+/// Splits the active route into curve buckets. A node's curvature is measured
+/// across its incoming and outgoing segments, so either segment touching that
+/// node inherits its bucket.
+@visibleForTesting
+List<List<List<LatLng>>> buildCurveHeatmapSegments(List<LatLng> nodes) {
+  final buckets = List.generate(4, (_) => <List<LatLng>>[]);
+  if (nodes.length < 2) return buckets;
+
+  final nodeBuckets = List<int>.filled(nodes.length, 1);
+  for (var i = 1; i < nodes.length - 1; i++) {
+    final previous = nodes[i - 1];
+    final current = nodes[i];
+    final next = nodes[i + 1];
+    final before = _heatmapBearing(previous, current);
+    final after = _heatmapBearing(current, next);
+    final distanceKm = RevvRoute.haversineKm(previous, next);
+    final rate = distanceKm > 0.00001
+        ? _heatmapBearingDiff(before, after) / distanceKm
+        : 0.0;
+    nodeBuckets[i] = _heatmapCurveBucket(rate);
+  }
+
+  List<LatLng>? curSeg;
+  var curBucket = -1;
+  for (var i = 0; i < nodes.length - 1; i++) {
+    // Both i and i+1 touch this segment. Choosing the stronger bucket makes
+    // the curve measured at either node cover its incoming and outgoing side.
+    final bucket = math.max(nodeBuckets[i], nodeBuckets[i + 1]);
+    if (bucket != curBucket) {
+      if (curSeg != null && curSeg.length >= 2) {
+        buckets[curBucket].add(curSeg);
+      }
+      curBucket = bucket;
+      curSeg = [nodes[i]];
+    }
+    curSeg!.add(nodes[i + 1]);
+  }
+  if (curSeg != null && curSeg.length >= 2) {
+    buckets[curBucket].add(curSeg);
+  }
+  return buckets;
+}
+
+double _heatmapBearing(LatLng from, LatLng to) {
+  final lat1 = from.lat * math.pi / 180;
+  final lat2 = to.lat * math.pi / 180;
+  final dLng = (to.lng - from.lng) * math.pi / 180;
+  final y = math.sin(dLng) * math.cos(lat2);
+  final x =
+      math.cos(lat1) * math.sin(lat2) -
+      math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+  return math.atan2(y, x) * 180 / math.pi;
+}
+
+double _heatmapBearingDiff(double first, double second) {
+  var diff = (second - first).abs();
+  if (diff > 180) diff = 360 - diff;
+  return diff;
+}
+
+int _heatmapCurveBucket(double ratePerKm) {
+  if (ratePerKm < 60) return 0;
+  if (ratePerKm < 200) return 1;
+  if (ratePerKm < 400) return 2;
+  return 3;
+}
+
 class MapWidget extends StatefulWidget {
   final bool isSprintMode;
 
@@ -1678,7 +1745,11 @@ class _MapWidgetState extends State<MapWidget>
         if (dist <= 0.00001) continue;
         final bucket = _curveBucket(_bearingDiff(b1, b2) / dist);
         if (bucket < 1) continue;
+        // 곡률은 prev-current-next로 재는데 current→next만 칠하면 커브의 뒤쪽
+        // 절반만 색이 들어가 굽이보다 한 세그먼트 뒤로 밀려 보인다. 잰 구간을
+        // 그대로 칠한다.
         buckets[bucket]?.add([
+          [prev.lng, prev.lat],
           [current.lng, current.lat],
           [next.lng, next.lat],
         ]);
@@ -1788,48 +1859,21 @@ class _MapWidgetState extends State<MapWidget>
     await _clearHeatmap();
 
     // Build 4 bucket FeatureCollections (each bucket = list of LineString coordinates)
-    final buckets = List.generate(4, (_) => <List<List<double>>>[]);
-    List<List<double>>? curSeg;
-    int curBucket = -1;
-
-    for (int i = 0; i < nodes.length - 1; i++) {
-      final n = nodes[i];
-      final n1 = nodes[i + 1];
-
-      // Compute curvature rate at node i (use i-1..i..i+1 bearing change)
-      int bucket = 1; // default gentle
-      if (i > 0 && i < nodes.length - 2) {
-        final prev = nodes[i - 1];
-        final b1 = _bearing(prev.lat, prev.lng, n.lat, n.lng);
-        final b2 = _bearing(n.lat, n.lng, n1.lat, n1.lng);
-        final dist = _haversineKm(prev.lat, prev.lng, n1.lat, n1.lng);
-        final rate = dist > 0.00001 ? _bearingDiff(b1, b2) / dist : 0.0;
-        bucket = _curveBucket(rate);
-      }
-
-      if (bucket != curBucket) {
-        if (curSeg != null && curSeg.length >= 2) {
-          buckets[curBucket].add(curSeg);
-        }
-        curBucket = bucket;
-        curSeg = [
-          [n.lng, n.lat],
-        ];
-      }
-      curSeg!.add([n1.lng, n1.lat]);
-    }
-    if (curSeg != null && curSeg.length >= 2) {
-      buckets[curBucket].add(curSeg);
-    }
+    final bucketSegments = buildCurveHeatmapSegments(nodes);
 
     // Draw each bucket as one GeoJSON FeatureCollection
     for (int b = 0; b < 4; b++) {
-      if (buckets[b].isEmpty) continue;
-      final features = buckets[b]
+      if (bucketSegments[b].isEmpty) continue;
+      final features = bucketSegments[b]
           .map(
-            (coords) => {
+            (segment) => {
               'type': 'Feature',
-              'geometry': {'type': 'LineString', 'coordinates': coords},
+              'geometry': {
+                'type': 'LineString',
+                'coordinates': segment
+                    .map((point) => [point.lng, point.lat])
+                    .toList(),
+              },
               'properties': {},
             },
           )
