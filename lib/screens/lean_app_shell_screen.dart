@@ -540,8 +540,11 @@ class _RaceBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 홈 인디케이터가 있는 기기에서 탭 바가 바닥에 붙어 콘텐츠가 밀려 올라간다.
+    // Scaffold의 bottomNavigationBar는 하단 inset을 대신 넣어주지 않는다.
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     return Container(
-      padding: const EdgeInsets.only(top: 15),
+      padding: EdgeInsets.only(top: 15, bottom: bottomInset > 0 ? bottomInset : 12),
       decoration: BoxDecoration(
         border: Border(
           top: BorderSide(
