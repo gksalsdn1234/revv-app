@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/app_language.dart';
 import '../labs/walkie/walkie_lab_screen.dart';
 import '../services/crew_channel_service.dart';
+import '../services/external_nav.dart';
 import '../services/route_loading_policy.dart';
 import '../core/app_links.dart';
 import '../models/revv_route.dart';
@@ -296,8 +297,9 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
     await _openRouteNavigation(
       ctx,
       route,
-      appUri: (start) => Uri.parse(
-        'comgooglemaps://?daddr=${start.lat},${start.lng}&directionsmode=driving',
+      appUri: (start) => buildGoogleMapsAppUri(
+        destination: start,
+        waypoints: const [],
       ),
       webUri: (start) => Uri.https('www.google.com', '/maps/dir/', {
         'api': '1',
