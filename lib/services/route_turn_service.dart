@@ -127,6 +127,7 @@ class RouteTurnService {
         'geometries': 'geojson',
         'alternatives': 'false',
         'language': 'en',
+        'waypoints': '0;${waypoints.length - 1}',
       },
     );
   }
@@ -162,7 +163,6 @@ List<NavStep> _parseSteps(Map<String, dynamic> body) {
       if (maneuver is! Map<String, dynamic>) continue;
       final location = _locationFrom(maneuver['location']);
       if (location == null) continue;
-      distanceFromStartM += _doubleFrom(rawStep['distance']);
       steps.add(
         NavStep(
           sequence: steps.length + 1,
@@ -172,9 +172,32 @@ List<NavStep> _parseSteps(Map<String, dynamic> body) {
           distanceFromStartM: distanceFromStartM,
         ),
       );
+      distanceFromStartM += _doubleFrom(rawStep['distance']);
     }
   }
   return List.unmodifiable(steps);
+}
+
+/// Rebases a recovery route from its local 0 m origin onto the active route's
+/// cumulative-distance coordinate system.
+List<NavStep> offsetNavSteps(List<NavStep> steps, double offsetM) {
+  if (steps.isEmpty || offsetM == 0) return List.unmodifiable(steps);
+  return List.unmodifiable([
+    for (final step in steps)
+      NavStep(
+        sequence: step.sequence,
+        maneuverType: step.maneuverType,
+        modifier: step.modifier,
+        location: step.location,
+        distanceFromStartM: step.distanceFromStartM + offsetM,
+      ),
+  ]);
+}
+
+double routeDistanceFromStart(LatLng position, List<LatLng> routeNodes) {
+  if (routeNodes.length < 2) return 0;
+  final cumulativeM = _cumulativeMeters(routeNodes);
+  return _nearestAlongM(position, routeNodes, cumulativeM);
 }
 
 NavStepProgress? nextStepProgress(
@@ -183,8 +206,7 @@ NavStepProgress? nextStepProgress(
   List<NavStep> steps,
 ) {
   if (routeNodes.length < 2 || steps.isEmpty) return null;
-  final cumulativeM = _cumulativeMeters(routeNodes);
-  final alongM = _nearestAlongM(position, routeNodes, cumulativeM);
+  final alongM = routeDistanceFromStart(position, routeNodes);
   for (final step in steps) {
     final aheadM = step.distanceFromStartM - alongM;
     if (aheadM >= -18) {

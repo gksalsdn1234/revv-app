@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:revv_app/labs/walkie/walkie_ptt_controller.dart';
 import 'package:revv_app/models/revv_route.dart';
@@ -10,8 +13,10 @@ import 'package:revv_app/services/location_service.dart';
 import 'package:revv_app/services/ptt_service.dart';
 import 'package:revv_app/services/run_session_service.dart';
 import 'package:revv_app/services/settings_service.dart';
+import 'package:revv_app/services/route_turn_service.dart';
 import 'package:revv_app/services/voice_briefing_service.dart';
 import 'package:revv_app/theme/text_styles.dart';
+import 'package:revv_app/widgets/map_widget.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 // ignore: depend_on_referenced_packages
@@ -85,6 +90,8 @@ Future<void> _pump(
   _RecordingController? controller,
   RevvRoute route = _route,
   DriveRouteNodesLoader? routeNodesLoader,
+  DriveRouteGeometryMatcher? routeGeometryMatcher,
+  RouteTurnService? routeTurnService,
 }) async {
   SharedPreferences.setMockInitialValues({});
   AppText.forceSystemFonts = true;
@@ -117,6 +124,8 @@ Future<void> _pump(
           pttControllerOverride: controller,
           voiceOverride: VoiceBriefingService(speak: (_, _) async {}),
           routeNodesLoader: routeNodesLoader,
+          routeGeometryMatcher: routeGeometryMatcher,
+          routeTurnService: routeTurnService,
         ),
       ),
     ),
@@ -288,7 +297,132 @@ void main() {
 
     expect(loadCount, 0);
   });
+
+  testWidgets('matched geometry reloads turn steps on the same snapshot', (
+    tester,
+  ) async {
+    final turns = _RecordingTurnService(
+      client: _FakeTurnClient((request) async {
+        final isMatchedSnapshot = request.url.pathSegments.last.contains(
+          '-73.60003,45.50003',
+        );
+        return http.Response(
+          _turnFixture(isMatchedSnapshot ? 'roundabout' : 'fork'),
+          200,
+        );
+      }),
+    );
+    const route = RevvRoute(
+      id: 'matched-route',
+      name: 'Matched route',
+      // 총 길이가 45m 이하이면 시작 즉시 완주 판정이라 턴 배너가 뜨지 않는다.
+      nodes: [
+        LatLng(45.5000, -73.6000),
+        LatLng(45.5050, -73.6050),
+        LatLng(45.5100, -73.6100),
+      ],
+      distanceKm: 1,
+      windingScore: 5,
+      starRating: 3,
+      sharpCurveCount: 1,
+      centerPoint: LatLng(45.5001, -73.6001),
+      distanceFromUser: 1,
+    );
+    // Map matching은 도로에 스냅하는 것이므로 원본에서 수십 m 수준으로만 어긋난다.
+    // 수백 m 이상 옮기면 오프루트로 판정돼 턴 대신 이탈 배너가 뜬다.
+    const matched = [
+      LatLng(45.50003, -73.60003),
+      LatLng(45.50503, -73.60503),
+      LatLng(45.51003, -73.61003),
+    ];
+
+    await _pump(
+      tester,
+      enabled: false,
+      joined: false,
+      route: route,
+      routeNodesLoader: (_) async => const [],
+      routeTurnService: turns,
+      routeGeometryMatcher: (_) async => matched,
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final map = tester.widget<MapWidget>(find.byType(MapWidget));
+    expect(map.routePolyline, same(matched));
+    expect(turns.requestedSnapshots, hasLength(2));
+    expect(
+      turns.requestedSnapshots.last
+          .map((point) => '${point.lat},${point.lng}'),
+      orderedEquals(matched.map((point) => '${point.lat},${point.lng}')),
+    );
+    expect(turns.generatedSteps, hasLength(2));
+    final reloadedSteps = turns.generatedSteps.singleWhere(
+      (steps) => steps.last.maneuverType == 'roundabout',
+    );
+    expect(reloadedSteps.last.distanceFromStartM, 720.0);
+  });
 }
+
+class _RecordingTurnService extends RouteTurnService {
+  _RecordingTurnService({required super.client}) : super(accessToken: 'token');
+
+  final List<List<LatLng>> requestedSnapshots = [];
+  final List<List<NavStep>> generatedSteps = [];
+
+  @override
+  Future<List<NavStep>> fetchSteps(List<LatLng> routeNodes) async {
+    requestedSnapshots.add(List<LatLng>.unmodifiable(routeNodes));
+    final steps = await super.fetchSteps(routeNodes);
+    generatedSteps.add(steps);
+    return steps;
+  }
+}
+
+class _FakeTurnClient extends http.BaseClient {
+  _FakeTurnClient(this.handler);
+
+  final Future<http.Response> Function(http.Request request) handler;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final response = await handler(request as http.Request);
+    return http.StreamedResponse(
+      Stream.value(response.bodyBytes),
+      response.statusCode,
+      headers: response.headers,
+    );
+  }
+}
+
+/// Mapbox의 `distance`는 해당 maneuver에서 다음 maneuver까지의 거리다.
+/// 따라서 depart 뒤의 실제 maneuver는 누적 720m에서 재생성된다.
+String _turnFixture(String maneuverType) => jsonEncode({
+  'routes': [
+    {
+      'legs': [
+        {
+          'steps': [
+            {
+              'distance': 720.0,
+              'maneuver': {
+                'type': 'depart',
+                'location': [-73.60003, 45.50003],
+              },
+            },
+            {
+              'distance': 50.0,
+              'maneuver': {
+                'type': maneuverType,
+                'location': [-73.60013, 45.50013],
+              },
+            },
+          ],
+        },
+      ],
+    },
+  ],
+});
 
 class _RecordingWakelockPlatform extends WakelockPlusPlatformInterface {
   final List<bool> toggles = [];

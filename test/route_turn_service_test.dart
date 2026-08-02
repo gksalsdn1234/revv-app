@@ -22,6 +22,7 @@ void main() {
     );
 
     expect(requested.single.pathSegments.last.split(';'), hasLength(25));
+    expect(requested.single.queryParameters['waypoints'], '0;24');
     expect(steps, hasLength(2));
     expect(steps.first.maneuverType, 'fork');
     expect(steps.first.location.lat, 45.001);
@@ -29,7 +30,26 @@ void main() {
     expect(steps.first.call(AppLanguage.korean), '우측 갈림길');
     expect(steps.first.call(AppLanguage.english), 'fork right');
     expect(steps.first.call(AppLanguage.french), 'bifurcation droite');
-    expect(steps.first.distanceFromStartM, 120);
+    // Mapbox step.distance is the distance from this maneuver to the next.
+    expect(steps.first.distanceFromStartM, 0);
+    expect(steps.last.distanceFromStartM, 120);
+  });
+
+  test('fetchSteps keeps only the first and last sampled nodes as waypoints', () async {
+    final requested = <Uri>[];
+    final service = RouteTurnService(
+      accessToken: 'token',
+      client: _FakeClient((request) async {
+        requested.add(request.url);
+        return http.Response(_directionsFixture, 200);
+      }),
+    );
+
+    await service.fetchSteps(
+      List.generate(8, (index) => LatLng(45 + index * 0.001, -73)),
+    );
+
+    expect(requested.single.queryParameters['waypoints'], '0;7');
   });
 
   test('fetchSteps returns an empty list when Mapbox fails', () async {
@@ -92,6 +112,41 @@ void main() {
 
     expect(progress?.step.sequence, 1);
     expect(progress?.aheadM, inInclusiveRange(40, 70));
+  });
+
+  test('recalculated turns stay ahead through route rejoin', () async {
+    const routeNodes = [
+      LatLng(45.000, -73),
+      LatLng(45.003, -73),
+      LatLng(45.006, -73),
+      LatLng(45.009, -73),
+    ];
+    const offRoute = LatLng(45.004, -73);
+    const rejoin = LatLng(45.006, -73);
+    final service = RouteTurnService(
+      accessToken: 'token',
+      client: _FakeClient((_) async => http.Response(_directionsFixture, 200)),
+    );
+    final recalculated = await service.recalculateSteps(
+      current: offRoute,
+      rejoin: rejoin,
+    );
+    final recoverySteps = offsetNavSteps(
+      recalculated.where((step) => step.sequence == 2).toList(),
+      routeDistanceFromStart(rejoin, routeNodes),
+    );
+
+    final beforeRejoin = nextStepProgress(
+      offRoute,
+      routeNodes,
+      recoverySteps,
+    );
+    final atRejoin = nextStepProgress(rejoin, routeNodes, recoverySteps);
+
+    expect(beforeRejoin?.step.sequence, 2);
+    expect(atRejoin?.step.sequence, 2);
+    expect(beforeRejoin!.aheadM, greaterThan(atRejoin!.aheadM));
+    expect(atRejoin.aheadM, inInclusiveRange(118, 122));
   });
 }
 

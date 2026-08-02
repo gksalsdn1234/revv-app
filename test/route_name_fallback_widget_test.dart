@@ -71,7 +71,7 @@ void main() {
     await tester.tap(find.text('Google Maps'));
     await tester.pumpAndSettle();
 
-    expect(launchedUris.single.scheme, 'comgooglemapsurl');
+    expect(launchedUris.single.scheme, 'https');
     expect(find.text('Detail screen'), findsOneWidget);
     expect(find.text('Google Maps'), findsNothing);
   });

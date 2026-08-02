@@ -33,6 +33,7 @@ import 'lean_run_summary_screen.dart';
 const bool _revvWalkieLabEnabled = bool.fromEnvironment('REVV_WALKIE_LAB');
 
 typedef DriveRouteNodesLoader = Future<List<LatLng>> Function(String routeId);
+typedef DriveRouteGeometryMatcher = Future<List<LatLng>> Function(RevvRoute route);
 
 class LeanDriveScreen extends StatefulWidget {
   final RevvRoute route;
@@ -45,6 +46,7 @@ class LeanDriveScreen extends StatefulWidget {
   final bool walkieEnabledOverride;
   final VoiceBriefingService? voiceOverride;
   final DriveRouteNodesLoader? routeNodesLoader;
+  final DriveRouteGeometryMatcher? routeGeometryMatcher;
   final RouteTurnService? routeTurnService;
 
   const LeanDriveScreen({
@@ -56,6 +58,7 @@ class LeanDriveScreen extends StatefulWidget {
     this.walkieEnabledOverride = _revvWalkieLabEnabled,
     this.voiceOverride,
     this.routeNodesLoader,
+    this.routeGeometryMatcher,
     this.routeTurnService,
   });
 
@@ -88,6 +91,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   double? _navigationBearing;
   List<LatLng>? _matchedRouteNodes;
   bool _matchingRouteGeometry = false;
+  int _routeGeometryRevision = 0;
   DriveCurveCue? _cue;
   DriveRhythmBrief? _rhythmBrief;
   TurnByTurnState? _turnByTurn;
@@ -134,7 +138,12 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     _voice.announceStart(language, muted: _settings?.ttsMuted ?? true);
     await _hydrateSparseRouteNodes();
     primeRouteCueGeometry(_activeRouteNodes, routeId: widget.route.id);
-    unawaited(_loadRouteTurns(_activeRouteNodes));
+    unawaited(
+      _loadRouteTurns(
+        _activeRouteNodes,
+        geometryRevision: _routeGeometryRevision,
+      ),
+    );
     unawaited(_prepareMatchedRouteGeometry());
     if (!mounted) return;
     _startedAt = DateTime.now();
@@ -323,9 +332,14 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     });
   }
 
-  Future<void> _loadRouteTurns(List<LatLng> nodes) async {
+  Future<void> _loadRouteTurns(
+    List<LatLng> nodes, {
+    required int geometryRevision,
+  }) async {
     final steps = await _turnService.fetchSteps(nodes);
-    if (!mounted || steps.isEmpty) return;
+    if (!mounted || steps.isEmpty || geometryRevision != _routeGeometryRevision) {
+      return;
+    }
     setState(() => _navSteps = steps);
   }
 
@@ -353,12 +367,17 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   }
 
   Future<void> _recalculateRouteTurns(LatLng position, LatLng rejoin) async {
+    final routeNodes = _activeRouteNodes;
+    final geometryRevision = _routeGeometryRevision;
     final steps = await _turnService.recalculateSteps(
       current: position,
       rejoin: rejoin,
     );
-    if (!mounted || steps.isEmpty) return;
-    setState(() => _navSteps = steps);
+    if (!mounted || steps.isEmpty || geometryRevision != _routeGeometryRevision) {
+      return;
+    }
+    final rejoinOffsetM = routeDistanceFromStart(rejoin, routeNodes);
+    setState(() => _navSteps = offsetNavSteps(steps, rejoinOffsetM));
   }
 
   double? _nextNavigationBearing(LatLng position, double? heading) {
@@ -417,16 +436,15 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   Future<void> _prepareMatchedRouteGeometry() async {
     if (_matchingRouteGeometry || widget.route.nodes.length < 2) return;
     _matchingRouteGeometry = true;
-    final matched = await RouteGeometryMatcher.instance.matchRoute(
-      widget.route,
-    );
+    final matcher =
+        widget.routeGeometryMatcher ?? RouteGeometryMatcher.instance.matchRoute;
+    final matched = await matcher(widget.route);
     if (!mounted) return;
     _matchingRouteGeometry = false;
     if (matched.length < 2 || _sameRouteNodes(matched, widget.route.nodes)) {
       return;
     }
-    setState(() => _matchedRouteNodes = matched);
-    primeRouteCueGeometry(_activeRouteNodes, routeId: widget.route.id);
+    _replaceRouteGeometry(matched, reloadTurns: true);
   }
 
   Future<void> _hydrateSparseRouteNodes() async {
@@ -437,8 +455,27 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     if (!mounted || nodes.length < 2 || _sameRouteNodes(nodes, widget.route.nodes)) {
       return;
     }
-    setState(() => _matchedRouteNodes = nodes);
-    primeRouteCueGeometry(_activeRouteNodes, routeId: widget.route.id);
+    _replaceRouteGeometry(nodes, reloadTurns: false);
+  }
+
+  void _replaceRouteGeometry(
+    List<LatLng> nodes, {
+    required bool reloadTurns,
+  }) {
+    setState(() {
+      _matchedRouteNodes = nodes;
+      _navSteps = const [];
+      _navStepProgress = null;
+      _routeGeometryRevision++;
+    });
+    final routeNodes = _activeRouteNodes;
+    final geometryRevision = _routeGeometryRevision;
+    primeRouteCueGeometry(routeNodes, routeId: widget.route.id);
+    if (reloadTurns) {
+      unawaited(
+        _loadRouteTurns(routeNodes, geometryRevision: geometryRevision),
+      );
+    }
   }
 
   bool _sameRouteNodes(List<LatLng> a, List<LatLng> b) {
