@@ -28,6 +28,8 @@
 	<false/>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
+		<string>comgooglemaps</string>
+		<string>comgooglemapsurl</string>
 		<string>google.streetview</string>
 	</array>
 	<key>LSRequiresIPhoneOS</key>

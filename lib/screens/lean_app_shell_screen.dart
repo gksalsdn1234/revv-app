@@ -463,6 +463,15 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
           buildGoogleMapsAppUri(destination: start, waypoints: const []),
       fallbackUri: (start) =>
           buildGoogleMapsDirectionsUri(destination: start, waypoints: const []),
+      appUri: (start) => buildGoogleMapsAppUri(
+        destination: start,
+        waypoints: const [],
+      ),
+      webUri: (start) => Uri.https('www.google.com', '/maps/dir/', {
+        'api': '1',
+        'destination': '${start.lat},${start.lng}',
+        'travelmode': 'driving',
+      }),
     );
   }
 

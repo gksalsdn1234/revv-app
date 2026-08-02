@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'dart:math' as math;
 
 import '../models/drive_plan.dart';
@@ -45,11 +46,33 @@ Uri buildGoogleMapsDirectionsUri({
 ///
 /// `comgooglemapsurl://` wraps the same Maps URL as the web fallback, so it
 /// needs `origin`/`destination` rather than legacy `saddr`/`daddr` keys.
+String googleMapsCoord(LatLng point) {
+  return '${point.lat.toStringAsFixed(6)},${point.lng.toStringAsFixed(6)}';
+}
+
 Uri buildGoogleMapsAppUri({
   LatLng? origin,
   required LatLng destination,
   required List<LatLng> waypoints,
+  bool? isIOS,
 }) {
+  final queryParameters = {
+    'api': '1',
+    if (origin != null) 'origin': googleMapsCoord(origin),
+    'destination': googleMapsCoord(destination),
+    if (waypoints.isNotEmpty)
+      'waypoints': waypoints.map(googleMapsCoord).join('|'),
+    'travelmode': 'driving',
+  };
+
+  if (!(isIOS ?? Platform.isIOS)) {
+    return Uri.https('www.google.com', '/maps/dir/', queryParameters);
+  }
+
+  // comgooglemapsurl://는 구글맵 앱에 "이 웹 URL을 열어라"로 전달되므로
+  // Maps URLs API 규격(origin/destination/travelmode)을 써야 한다.
+  // saddr/daddr는 구형 comgooglemaps:// 스킴 전용이라 여기선 무시되어
+  // 출발·도착 없이 waypoints만 찍히는 깨진 경로가 됐다 (2026-07-12).
   return Uri(
     scheme: 'comgooglemapsurl',
     host: 'www.google.com',
@@ -59,6 +82,7 @@ Uri buildGoogleMapsAppUri({
       destination: destination,
       waypoints: waypoints,
     ),
+    queryParameters: queryParameters,
   );
 }
 
