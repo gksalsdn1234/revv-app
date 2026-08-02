@@ -4,9 +4,63 @@ import 'package:flutter/material.dart';
 
 import '../core/app_language.dart';
 import '../models/revv_route.dart';
+import '../services/route_turn_service.dart';
 import 'app_copy.dart';
 
 enum DriveRouteStatus { approachingStart, onRoute, offRoute, completed }
+enum CurveConfidence { reliable, unknown }
+
+/// Resampling keeps the source segment length so synthetic density never
+/// disguises a sparse source corner as reliable geometry.
+class ResampledPolyline {
+  final List<LatLng> points;
+  final double effectiveStepM;
+  final List<double> sourceSegmentM;
+
+  const ResampledPolyline({
+    required this.points,
+    required this.effectiveStepM,
+    required this.sourceSegmentM,
+  });
+}
+
+class CornerEvent {
+  final int entryIndex;
+  final double distanceFromStartM;
+  final double radiusM;
+  final int grade;
+  final int turnSign;
+
+  const CornerEvent({
+    required this.entryIndex,
+    required this.distanceFromStartM,
+    required this.radiusM,
+    required this.grade,
+    required this.turnSign,
+  });
+}
+
+/// Route-level geometry compiled once per route content. Position is projected
+/// against this immutable structure separately, so GPS ticks do not rebuild it.
+class RouteCueGeometry {
+  final ResampledPolyline poly;
+  final List<double> cumulativeM;
+  final List<double> radiusM;
+  final List<int> grade;
+  final List<CurveConfidence> conf;
+  final List<CornerEvent> corners;
+  final List<TurnInstruction> turnPlan;
+
+  const RouteCueGeometry({
+    required this.poly,
+    required this.cumulativeM,
+    required this.radiusM,
+    required this.grade,
+    required this.conf,
+    required this.corners,
+    required this.turnPlan,
+  });
+}
 
 class DriveCurveCue {
   final String label;
@@ -21,6 +75,8 @@ class DriveCurveCue {
   final int curveCountAhead;
   final double horizonM;
   final int severity;
+  final int grade;
+  final int? clusterId;
 
   const DriveCurveCue({
     required this.label,
@@ -35,6 +91,8 @@ class DriveCurveCue {
     required this.curveCountAhead,
     required this.horizonM,
     required this.severity,
+    this.grade = 0,
+    this.clusterId,
   });
 }
 
@@ -82,6 +140,7 @@ class TurnInstruction {
   final double distanceFromStartM;
   final double aheadM;
   final int severity;
+  final int grade;
   final bool finish;
 
   const TurnInstruction({
@@ -94,6 +153,7 @@ class TurnInstruction {
     required this.distanceFromStartM,
     required this.aheadM,
     required this.severity,
+    this.grade = 0,
     this.finish = false,
   });
 }
@@ -115,58 +175,23 @@ class TurnByTurnState {
 List<TurnInstruction> buildTurnByTurnPlan(
   List<LatLng> nodes, {
   AppLanguage? language,
+  String? routeId,
 }) {
-  if (nodes.length < 2) return const [];
-
-  final cumulativeM = _cumulativeMeters(nodes);
-  final instructions = <TurnInstruction>[];
-  for (var i = 1; i < nodes.length - 1; i++) {
-    final turn = _turnDegrees(nodes[i - 1], nodes[i], nodes[i + 1]);
-    final absTurn = turn.abs();
-    if (absTurn < 20) continue;
-    instructions.add(
-      _turnInstruction(
-        sequence: instructions.length + 1,
-        turn: turn,
-        absTurn: absTurn,
-        distanceFromStartM: cumulativeM[i],
-        aheadM: cumulativeM[i],
-        language: language,
-      ),
-    );
-  }
-
-  final finishM = cumulativeM.last;
-  instructions.add(
-    TurnInstruction(
-      sequence: instructions.length + 1,
-      directionLabel: _driveText(language, '피니시', 'Finish', 'Arrivée'),
-      intensityLabel: _driveText(language, '완료', 'Done', 'Terminé'),
-      headline:
-          '${formatTurnMeters(finishM)} ${_driveText(language, '피니시', 'Finish', 'Arrivée')}',
-      command: _driveText(
-        language,
-        '루트 완료 지점까지 흐름 유지',
-        'Hold the rhythm to the finish',
-        'Gardez le rythme jusqu’à l’arrivée',
-      ),
-      icon: Icons.sports_score_rounded,
-      distanceFromStartM: finishM,
-      aheadM: finishM,
-      severity: 0,
-      finish: true,
-    ),
-  );
-  return instructions;
+  final geometry = _geometryFor(nodes, routeId: routeId);
+  if (geometry.poly.points.length < 2) return const [];
+  if (language == null) return geometry.turnPlan;
+  return _turnPlanForGeometry(geometry, language);
 }
 
 TurnByTurnState readTurnByTurnState(
   LatLng position,
   List<LatLng> nodes, {
   AppLanguage? language,
+  String? routeId,
 }) {
-  final plan = buildTurnByTurnPlan(nodes, language: language);
-  if (plan.isEmpty || nodes.length < 2) {
+  final geometry = _geometryFor(nodes, routeId: routeId);
+  final plan = language == null ? geometry.turnPlan : _turnPlanForGeometry(geometry, language);
+  if (plan.isEmpty || geometry.poly.points.length < 2) {
     return const TurnByTurnState(
       instruction: null,
       completedInstructions: 0,
@@ -175,10 +200,10 @@ TurnByTurnState readTurnByTurnState(
     );
   }
 
-  final cumulativeM = _cumulativeMeters(nodes);
-  final totalM = cumulativeM.last;
-  final nearest = _nearestRouteProjection(position, nodes, cumulativeM);
-  final distanceToStartM = RevvRoute.haversineKm(position, nodes.first) * 1000;
+  final totalM = geometry.cumulativeM.last;
+  final nearest = _projectionFor(geometry, position);
+  final distanceToStartM =
+      RevvRoute.haversineKm(position, geometry.poly.points.first) * 1000;
   final remainingM = math.max(0.0, totalM - nearest.alongM);
   final status = _routeStatus(
     distanceFromRouteM: nearest.distanceM,
@@ -212,8 +237,10 @@ DriveRouteState readDriveRouteState(
   LatLng position,
   List<LatLng> nodes, {
   AppLanguage? language,
+  String? routeId,
 }) {
-  if (nodes.length < 3) {
+  final geometry = _geometryFor(nodes, routeId: routeId);
+  if (geometry.poly.points.length < 3) {
     return DriveRouteState(
       progress: 0,
       remainingKm: 0,
@@ -240,7 +267,7 @@ DriveRouteState readDriveRouteState(
     );
   }
 
-  final cumulativeM = _cumulativeMeters(nodes);
+  final cumulativeM = geometry.cumulativeM;
   final totalM = cumulativeM.last;
   if (totalM <= 0) {
     return DriveRouteState(
@@ -269,8 +296,9 @@ DriveRouteState readDriveRouteState(
     );
   }
 
-  final nearest = _nearestRouteProjection(position, nodes, cumulativeM);
-  final distanceToStartM = RevvRoute.haversineKm(position, nodes.first) * 1000;
+  final nearest = _projectionFor(geometry, position);
+  final distanceToStartM =
+      RevvRoute.haversineKm(position, geometry.poly.points.first) * 1000;
   final remainingM = math.max(0.0, totalM - nearest.alongM);
   final progress = (nearest.alongM / totalM).clamp(0.0, 1.0).toDouble();
   final status = _routeStatus(
@@ -403,7 +431,7 @@ DriveRouteState readDriveRouteState(
     );
   }
 
-  final cue = _nextCurveCue(nodes, cumulativeM, nearest.alongM, language);
+  final cue = _nextCurveCue(geometry, nearest.alongM, language);
   return DriveRouteState(
     progress: progress,
     remainingKm: remainingM / 1000,
@@ -413,6 +441,565 @@ DriveRouteState readDriveRouteState(
     cue: cue,
     rhythmBrief: _rhythmForOnRoute(cue, language),
   );
+}
+
+/// Removes invalid points and zero-length source segments before resampling.
+List<LatLng> normalizePolyline(List<LatLng> nodes) {
+  final normalized = <LatLng>[];
+  for (final node in nodes) {
+    if (!node.lat.isFinite || !node.lng.isFinite) continue;
+    if (normalized.isNotEmpty &&
+        RevvRoute.haversineKm(normalized.last, node) * 1000 <= 0.000001) {
+      continue;
+    }
+    normalized.add(node);
+  }
+  return List.unmodifiable(normalized);
+}
+
+/// Samples a polyline at equal arc-length intervals while retaining the length
+/// of the original segment that supplied every sample.
+ResampledPolyline resampleByArcLength(
+  List<LatLng> nodes, {
+  double stepM = 10,
+}) {
+  final normalized = normalizePolyline(nodes);
+  if (normalized.length < 2) {
+    return ResampledPolyline(
+      points: normalized,
+      effectiveStepM: 0,
+      sourceSegmentM: List<double>.filled(normalized.length, 0),
+    );
+  }
+
+  final sourceSegments = List<double>.generate(
+    normalized.length - 1,
+    (index) =>
+        RevvRoute.haversineKm(normalized[index], normalized[index + 1]) * 1000,
+  );
+  final cumulative = List<double>.filled(normalized.length, 0);
+  for (var i = 1; i < normalized.length; i++) {
+    cumulative[i] = cumulative[i - 1] + sourceSegments[i - 1];
+  }
+  final totalM = cumulative.last;
+  if (!totalM.isFinite || totalM <= 0) {
+    return ResampledPolyline(
+      points: List.unmodifiable([normalized.first]),
+      effectiveStepM: 0,
+      sourceSegmentM: const [0],
+    );
+  }
+
+  final requestedStepM = stepM.isFinite && stepM > 0 ? stepM : 10.0;
+  final segmentCount = math.min(3999, math.max(1, (totalM / requestedStepM).ceil()));
+  final effectiveStepM = totalM / segmentCount;
+  final points = <LatLng>[];
+  final sourceForPoint = <double>[];
+  var sourceIndex = 0;
+  for (var sampleIndex = 0; sampleIndex <= segmentCount; sampleIndex++) {
+    final targetM = sampleIndex == segmentCount
+        ? totalM
+        : sampleIndex * effectiveStepM;
+    while (sourceIndex < sourceSegments.length - 1 &&
+        cumulative[sourceIndex + 1] < targetM) {
+      sourceIndex++;
+    }
+    final startM = cumulative[sourceIndex];
+    final sourceM = sourceSegments[sourceIndex];
+    final t = sourceM <= 0
+        ? 0.0
+        : ((targetM - startM) / sourceM).clamp(0.0, 1.0).toDouble();
+    final a = normalized[sourceIndex];
+    final b = normalized[sourceIndex + 1];
+    points.add(LatLng(a.lat + (b.lat - a.lat) * t, a.lng + (b.lng - a.lng) * t));
+    sourceForPoint.add(sourceM);
+  }
+  points[0] = normalized.first;
+  points[points.length - 1] = normalized.last;
+  sourceForPoint[sourceForPoint.length - 1] = sourceSegments.last;
+  return ResampledPolyline(
+    points: List.unmodifiable(points),
+    effectiveStepM: effectiveStepM,
+    sourceSegmentM: List.unmodifiable(sourceForPoint),
+  );
+}
+
+/// Circumcircle radius at [i]. The lookaround is a physical span, not an
+/// adjacent-point count, so the result stays stable if resampling is capped.
+double curveRadiusM(
+  ResampledPolyline poly,
+  int i, {
+  double spanM = 20,
+}) {
+  final k = _spanIndex(poly, spanM);
+  if (i - k < 0 || i + k >= poly.points.length) return double.infinity;
+  final a = _metersFrom(poly.points[i], poly.points[i - k]);
+  final c = _metersFrom(poly.points[i], poly.points[i + k]);
+  final sideA = math.sqrt(c.x * c.x + c.y * c.y);
+  final sideB = math.sqrt(a.x * a.x + a.y * a.y);
+  final dx = c.x - a.x;
+  final dy = c.y - a.y;
+  final sideC = math.sqrt(dx * dx + dy * dy);
+  final twiceArea = (a.x * c.y - a.y * c.x).abs();
+  if (twiceArea < 0.000002) return double.infinity;
+  return sideA * sideB * sideC / (2 * twiceArea);
+}
+
+CurveConfidence curveConfidenceAt(
+  ResampledPolyline poly,
+  int i, {
+  double spanM = 20,
+}) {
+  final k = _spanIndex(poly, spanM);
+  if (i - k < 0 || i + k >= poly.sourceSegmentM.length) {
+    return CurveConfidence.unknown;
+  }
+  final maxSourceM = math.max(
+    poly.sourceSegmentM[i - k],
+    math.max(poly.sourceSegmentM[i], poly.sourceSegmentM[i + k]),
+  );
+  return maxSourceM <= 60
+      ? CurveConfidence.reliable
+      : CurveConfidence.unknown;
+}
+
+int rallyGradeFromRadius(double radiusM) {
+  if (!radiusM.isFinite || radiusM >= 400) return 0;
+  if (radiusM < 25) return 1;
+  if (radiusM < 45) return 2;
+  if (radiusM < 80) return 3;
+  if (radiusM < 140) return 4;
+  if (radiusM < 250) return 5;
+  return 6;
+}
+
+int _spanIndex(ResampledPolyline poly, double spanM) {
+  final stepM = poly.effectiveStepM;
+  if (!stepM.isFinite || stepM <= 0) return 2;
+  return math.max(2, (spanM / stepM).round());
+}
+
+List<double> medianRadius5(List<double> radii) {
+  final filtered = List<double>.filled(radii.length, double.infinity);
+  for (var index = 0; index < radii.length; index++) {
+    final start = math.max(0, index - 2);
+    final end = math.min(radii.length, index + 3);
+    switch (end - start) {
+      case 1:
+        filtered[index] = radii[start];
+        break;
+      case 2:
+        filtered[index] = _upperMedian2(radii[start], radii[start + 1]);
+        break;
+      case 3:
+        filtered[index] = _median3(
+          radii[start],
+          radii[start + 1],
+          radii[start + 2],
+        );
+        break;
+      case 4:
+        filtered[index] = _upperMedian4(
+          radii[start],
+          radii[start + 1],
+          radii[start + 2],
+          radii[start + 3],
+        );
+        break;
+      default:
+        filtered[index] = _median5(
+          radii[start],
+          radii[start + 1],
+          radii[start + 2],
+          radii[start + 3],
+          radii[start + 4],
+        );
+    }
+  }
+  return filtered;
+}
+
+double _upperMedian2(double a, double b) => a > b ? a : b;
+
+double _median3(double a, double b, double c) {
+  if (a > b) {
+    final value = a;
+    a = b;
+    b = value;
+  }
+  if (b > c) {
+    final value = b;
+    b = c;
+    c = value;
+  }
+  if (a > b) {
+    final value = a;
+    a = b;
+    b = value;
+  }
+  return b;
+}
+
+double _upperMedian4(double a, double b, double c, double d) {
+  if (a > b) {
+    final value = a;
+    a = b;
+    b = value;
+  }
+  if (b > c) {
+    final value = b;
+    b = c;
+    c = value;
+  }
+  if (a > b) {
+    final value = a;
+    a = b;
+    b = value;
+  }
+  if (c > d) {
+    final value = c;
+    c = d;
+    d = value;
+  }
+  if (b > c) {
+    final value = b;
+    b = c;
+    c = value;
+  }
+  if (a > b) {
+    final value = a;
+    a = b;
+    b = value;
+  }
+  return c;
+}
+
+double _median5(double a, double b, double c, double d, double e) {
+  if (a > b) {
+    final value = a;
+    a = b;
+    b = value;
+  }
+  if (b > c) {
+    final value = b;
+    b = c;
+    c = value;
+  }
+  if (a > b) {
+    final value = a;
+    a = b;
+    b = value;
+  }
+  if (c > d) {
+    final value = c;
+    c = d;
+    d = value;
+  }
+  if (b > c) {
+    final value = b;
+    b = c;
+    c = value;
+  }
+  if (a > b) {
+    final value = a;
+    a = b;
+    b = value;
+  }
+  if (d > e) {
+    final value = d;
+    d = e;
+    e = value;
+  }
+  if (c > d) {
+    final value = c;
+    c = d;
+    d = value;
+  }
+  if (b > c) {
+    final value = b;
+    b = c;
+    c = value;
+  }
+  if (a > b) {
+    final value = a;
+    a = b;
+    b = value;
+  }
+  return c;
+}
+
+int _routeCueCompileCount = 0;
+int get debugRouteCueCompileCount => _routeCueCompileCount;
+_RouteCueCache? _routeCueCache;
+
+void debugResetRouteCueCache() {
+  _routeCueCache = null;
+  _routeCueCompileCount = 0;
+}
+
+RouteCueGeometry compileRouteCueGeometry(List<LatLng> nodes) {
+  _routeCueCompileCount++;
+  final poly = resampleByArcLength(nodes);
+  final cumulativeM = _cumulativeMeters(poly.points);
+  final rawRadius = List<double>.filled(poly.points.length, double.infinity);
+  final conf = List<CurveConfidence>.generate(
+    poly.points.length,
+    (index) => curveConfidenceAt(poly, index),
+  );
+  final span = _spanIndex(poly, 20);
+  for (var index = span; index + span < poly.points.length; index++) {
+    if (!_isCoarseCurveCandidate(poly, index, span)) continue;
+    if (conf[index] == CurveConfidence.reliable) {
+      rawRadius[index] = curveRadiusM(poly, index);
+    }
+  }
+  final radiusM = medianRadius5(rawRadius);
+  final grade = List<int>.generate(
+    poly.points.length,
+    (index) => conf[index] == CurveConfidence.reliable
+        ? rallyGradeFromRadius(radiusM[index])
+        : 0,
+  );
+  final corners = _mergeCorners(poly, cumulativeM, radiusM, grade);
+  final draft = RouteCueGeometry(
+    poly: poly,
+    cumulativeM: List.unmodifiable(cumulativeM),
+    radiusM: List.unmodifiable(radiusM),
+    grade: List.unmodifiable(grade),
+    conf: List.unmodifiable(conf),
+    corners: List.unmodifiable(corners),
+    turnPlan: const [],
+  );
+  return RouteCueGeometry(
+    poly: draft.poly,
+    cumulativeM: draft.cumulativeM,
+    radiusM: draft.radiusM,
+    grade: draft.grade,
+    conf: draft.conf,
+    corners: draft.corners,
+    turnPlan: List.unmodifiable(_turnPlanForGeometry(draft, null)),
+  );
+}
+
+/// Rejects straight samples with only vector arithmetic before the more
+/// expensive local circumcircle calculation. A one-degree threshold is below
+/// the smallest turn that can yield a 400m rally-grade radius at a 20m span.
+bool _isCoarseCurveCandidate(ResampledPolyline poly, int index, int span) {
+  final a = poly.points[index - span];
+  final b = poly.points[index];
+  final c = poly.points[index + span];
+  final inX = a.lng - b.lng;
+  final inY = a.lat - b.lat;
+  final outX = c.lng - b.lng;
+  final outY = c.lat - b.lat;
+  final inSquared = inX * inX + inY * inY;
+  final outSquared = outX * outX + outY * outY;
+  if (inSquared <= 0 || outSquared <= 0) return false;
+  final cross = inX * outY - inY * outX;
+  const sinOneDegreeSquared = 0.000304586490452;
+  return cross * cross > inSquared * outSquared * sinOneDegreeSquared;
+}
+
+RouteCueGeometry primeRouteCueGeometry(
+  List<LatLng> nodes, {
+  String? routeId,
+}) => _geometryFor(nodes, routeId: routeId);
+
+RouteCueGeometry _geometryFor(List<LatLng> nodes, {String? routeId}) {
+  final cached = _routeCueCache;
+  if (cached != null &&
+      cached.routeId == routeId &&
+      _sameRouteNodeContent(cached.nodes, nodes)) {
+    return cached.geometry;
+  }
+  final geometry = compileRouteCueGeometry(nodes);
+  _routeCueCache = _RouteCueCache(
+    routeId: routeId,
+    nodes: List.unmodifiable(List<LatLng>.from(nodes)),
+    geometry: geometry,
+  );
+  return geometry;
+}
+
+bool _sameRouteNodeContent(List<LatLng> a, List<LatLng> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i].lat != b[i].lat || a[i].lng != b[i].lng) return false;
+  }
+  return true;
+}
+
+_Projection _projectionFor(RouteCueGeometry geometry, LatLng position) {
+  final cached = _routeCueCache;
+  if (cached != null && identical(cached.geometry, geometry)) {
+    final lastPosition = cached.projectionPosition;
+    final lastProjection = cached.projection;
+    if (lastPosition != null &&
+        lastProjection != null &&
+        lastPosition.lat == position.lat &&
+        lastPosition.lng == position.lng) {
+      return lastProjection;
+    }
+    final projection = _nearestRouteProjection(
+      position,
+      geometry.poly.points,
+      geometry.cumulativeM,
+    );
+    cached.projectionPosition = position;
+    cached.projection = projection;
+    return projection;
+  }
+  return _nearestRouteProjection(position, geometry.poly.points, geometry.cumulativeM);
+}
+
+/// Uses the same cached projection as the drive cue and turn book for a GPS
+/// tick; the route-turn service remains the owner of NavStep parsing/networking.
+NavStepProgress? nextStepProgressWithRouteCueGeometry(
+  LatLng position,
+  List<LatLng> routeNodes,
+  List<NavStep> steps, {
+  String? routeId,
+}) {
+  if (steps.isEmpty) return null;
+  final geometry = _geometryFor(routeNodes, routeId: routeId);
+  if (geometry.poly.points.length < 2) return null;
+  final alongM = _projectionFor(geometry, position).alongM;
+  for (final step in steps) {
+    final aheadM = step.distanceFromStartM - alongM;
+    if (aheadM >= -18) {
+      return NavStepProgress(step: step, aheadM: math.max(0.0, aheadM));
+    }
+  }
+  return null;
+}
+
+List<CornerEvent> _mergeCorners(
+  ResampledPolyline poly,
+  List<double> cumulativeM,
+  List<double> radiusM,
+  List<int> grade,
+) {
+  final signs = List<int>.generate(grade.length, (index) {
+    if (grade[index] == 0) return 0;
+    final k = _spanIndex(poly, 20);
+    if (index - k < 0 || index + k >= poly.points.length) return 0;
+    final turn = _turnDegrees(poly.points[index - k], poly.points[index], poly.points[index + k]);
+    return turn >= 0 ? 1 : -1;
+  });
+  final stabilizedSigns =
+      stabilizeCornerSigns(signs, grade, cumulativeM, poly.effectiveStepM);
+  final candidateIndexes = <int>[
+    for (var i = 0; i < grade.length; i++)
+      if (grade[i] > 0 && stabilizedSigns[i] != 0) i,
+  ];
+  return mergeCornerEvents([
+    for (final index in candidateIndexes)
+      CornerEvent(
+        entryIndex: index,
+        distanceFromStartM: cumulativeM[index],
+        radiusM: radiusM[index],
+        grade: grade[index],
+        turnSign: stabilizedSigns[index],
+      ),
+  ]);
+}
+
+/// Merges already confidence-gated, sign-stabilized corner samples into the
+/// clusters used by the UI, turn book, and voice budget.
+List<CornerEvent> mergeCornerEvents(List<CornerEvent> corners) {
+  final merged = <CornerEvent>[];
+  var cursor = 0;
+  while (cursor < corners.length) {
+    final entry = corners[cursor];
+    var last = entry;
+    var minRadius = entry.radiusM;
+    var minGrade = entry.grade;
+    cursor++;
+    while (cursor < corners.length) {
+      final next = corners[cursor];
+      if (next.turnSign != entry.turnSign ||
+          next.distanceFromStartM - last.distanceFromStartM > 30) {
+        break;
+      }
+      minRadius = math.min(minRadius, next.radiusM);
+      minGrade = math.min(minGrade, next.grade);
+      last = next;
+      cursor++;
+    }
+    merged.add(CornerEvent(
+      entryIndex: entry.entryIndex,
+      distanceFromStartM: entry.distanceFromStartM,
+      radiusM: minRadius,
+      grade: minGrade,
+      turnSign: entry.turnSign,
+    ));
+  }
+  return List.unmodifiable(merged);
+}
+
+List<int> stabilizeCornerSigns(
+  List<int> signs,
+  List<int> grade,
+  List<double> cumulativeM,
+  double stepM,
+) {
+  final stabilized = List<int>.from(signs);
+  final runs = <_SignRun>[];
+  var index = 0;
+  while (index < stabilized.length) {
+    if (grade[index] == 0 || stabilized[index] == 0) {
+      index++;
+      continue;
+    }
+    final sign = stabilized[index];
+    final start = index;
+    while (index + 1 < stabilized.length &&
+        grade[index + 1] > 0 &&
+        stabilized[index + 1] == sign) {
+      index++;
+    }
+    runs.add(_SignRun(sign: sign, start: start, end: index));
+    index++;
+  }
+  for (var runIndex = 1; runIndex < runs.length - 1; runIndex++) {
+    final previous = runs[runIndex - 1];
+    final current = runs[runIndex];
+    final next = runs[runIndex + 1];
+    final sustainedM = math.max(
+      stepM,
+      cumulativeM[current.end] - cumulativeM[current.start],
+    );
+    if (previous.sign == next.sign &&
+        current.sign != previous.sign &&
+        sustainedM < 15) {
+      for (var point = current.start; point <= current.end; point++) {
+        stabilized[point] = previous.sign;
+      }
+    }
+  }
+  return List.unmodifiable(stabilized);
+}
+
+class _SignRun {
+  final int sign;
+  final int start;
+  final int end;
+
+  const _SignRun({required this.sign, required this.start, required this.end});
+}
+
+class _RouteCueCache {
+  final String? routeId;
+  final List<LatLng> nodes;
+  final RouteCueGeometry geometry;
+  LatLng? projectionPosition;
+  _Projection? projection;
+
+  _RouteCueCache({
+    required this.routeId,
+    required this.nodes,
+    required this.geometry,
+  });
 }
 
 List<double> _cumulativeMeters(List<LatLng> nodes) {
@@ -441,17 +1028,17 @@ DriveRouteStatus _routeStatus({
 
 TurnInstruction _turnInstruction({
   required int sequence,
-  required double turn,
-  required double absTurn,
+  required int turnSign,
+  required int grade,
   required double distanceFromStartM,
   required double aheadM,
   required AppLanguage? language,
 }) {
-  final direction = turn >= 0
+  final direction = turnSign >= 0
       ? _driveText(language, '우측', 'Right', 'Droite')
       : _driveText(language, '좌측', 'Left', 'Gauche');
-  final intensity = _curveIntensity(absTurn, language);
-  final severity = _curveSeverity(absTurn);
+  final intensity = _curveIntensityForGrade(grade, language);
+  final severity = _curveSeverityForGrade(grade);
   return TurnInstruction(
     sequence: sequence,
     directionLabel: direction,
@@ -471,11 +1058,50 @@ TurnInstruction _turnInstruction({
       status: DriveRouteStatus.onRoute,
       language: language,
     ),
-    icon: _curveIcon(turn, absTurn),
+    icon: _curveIconForGrade(turnSign, grade),
     distanceFromStartM: distanceFromStartM,
     aheadM: aheadM,
     severity: severity,
+    grade: grade,
   );
+}
+
+List<TurnInstruction> _turnPlanForGeometry(
+  RouteCueGeometry geometry,
+  AppLanguage? language,
+) {
+  if (geometry.poly.points.length < 2) return const [];
+  final instructions = <TurnInstruction>[];
+  for (final corner in geometry.corners) {
+    instructions.add(_turnInstruction(
+      sequence: instructions.length + 1,
+      turnSign: corner.turnSign,
+      grade: corner.grade,
+      distanceFromStartM: corner.distanceFromStartM,
+      aheadM: corner.distanceFromStartM,
+      language: language,
+    ));
+  }
+  final finishM = geometry.cumulativeM.last;
+  instructions.add(TurnInstruction(
+    sequence: instructions.length + 1,
+    directionLabel: _driveText(language, '피니시', 'Finish', 'Arrivée'),
+    intensityLabel: _driveText(language, '완료', 'Done', 'Terminé'),
+    headline:
+        '${formatTurnMeters(finishM)} ${_driveText(language, '피니시', 'Finish', 'Arrivée')}',
+    command: _driveText(
+      language,
+      '루트 완료 지점까지 흐름 유지',
+      'Hold the rhythm to the finish',
+      'Gardez le rythme jusqu’à l’arrivée',
+    ),
+    icon: Icons.sports_score_rounded,
+    distanceFromStartM: finishM,
+    aheadM: finishM,
+    severity: 0,
+    finish: true,
+  ));
+  return instructions;
 }
 
 TurnInstruction _turnWithLiveTiming(
@@ -507,6 +1133,7 @@ TurnInstruction _turnWithLiveTiming(
     distanceFromStartM: instruction.distanceFromStartM,
     aheadM: aheadM,
     severity: instruction.severity,
+    grade: instruction.grade,
     finish: instruction.finish,
   );
 }
@@ -621,34 +1248,86 @@ DriveRhythmBrief _rhythmForOnRoute(DriveCurveCue? cue, AppLanguage? language) {
 }
 
 DriveCurveCue? _nextCurveCue(
-  List<LatLng> nodes,
-  List<double> cumulativeM,
+  RouteCueGeometry geometry,
   double alongM,
   AppLanguage? language,
 ) {
-  final candidates = <_CurveCandidate>[];
-  for (var i = 1; i < nodes.length - 1; i++) {
-    final aheadM = cumulativeM[i] - alongM;
-    if (aheadM < 30) continue;
-    if (aheadM > 1000) break;
-
-    final turn = _turnDegrees(nodes[i - 1], nodes[i], nodes[i + 1]);
-    final absTurn = turn.abs();
-    if (absTurn < 20) continue;
-    candidates.add(
-      _CurveCandidate(index: i, aheadM: aheadM, turn: turn, absTurn: absTurn),
-    );
-  }
+  final candidates = _cornerCandidates(
+    geometry,
+    alongM,
+    minAheadM: 30,
+    maxAheadM: 1000,
+  );
 
   if (candidates.isEmpty || candidates.first.aheadM > 800) return null;
+  return _cueForCornerCandidates(candidates, language);
+}
 
+/// Voice selection is deliberately separate from the UI's next-corner cue:
+/// among eligible clusters it chooses the smallest grade (highest risk).
+DriveCurveCue? readVoiceCurveCue(
+  LatLng position,
+  List<LatLng> nodes, {
+  required double? trustedSpeedMps,
+  AppLanguage? language,
+  String? routeId,
+}) {
+  final geometry = _geometryFor(nodes, routeId: routeId);
+  if (geometry.poly.points.length < 2) return null;
+  final alongM = _projectionFor(geometry, position).alongM;
+  final all = _cornerCandidates(
+    geometry,
+    alongM,
+    minAheadM: 0,
+    maxAheadM: 1000,
+  );
+  final eligible = all.where((candidate) {
+    final speedMps = trustedSpeedMps;
+    if (speedMps != null && speedMps.isFinite && speedMps > 0) {
+      final ttc = candidate.aheadM / speedMps;
+      return ttc >= 4 && ttc <= 10;
+    }
+    return candidate.aheadM >= 50 && candidate.aheadM <= 320;
+  }).toList();
+  if (eligible.isEmpty) return null;
+  eligible.sort((a, b) {
+    final grade = a.corner.grade.compareTo(b.corner.grade);
+    return grade != 0 ? grade : a.aheadM.compareTo(b.aheadM);
+  });
+  final selected = eligible.first;
+  final tail = all.where((candidate) => candidate.aheadM >= selected.aheadM).toList();
+  return _cueForCornerCandidates([selected, ...tail.skip(1)], language);
+}
+
+List<_CornerCandidate> _cornerCandidates(
+  RouteCueGeometry geometry,
+  double alongM, {
+  required double minAheadM,
+  required double maxAheadM,
+}) {
+  final candidates = <_CornerCandidate>[];
+  for (final corner in geometry.corners) {
+    final aheadM = corner.distanceFromStartM - alongM;
+    if (aheadM < minAheadM) continue;
+    if (aheadM > maxAheadM) break;
+    candidates.add(_CornerCandidate(corner: corner, aheadM: aheadM));
+  }
+  return candidates;
+}
+
+DriveCurveCue _cueForCornerCandidates(
+  List<_CornerCandidate> candidates,
+  AppLanguage? language,
+) {
   final first = candidates.first;
-  final direction = first.turn >= 0
+  final direction = first.corner.turnSign >= 0
       ? _driveText(language, '우측', 'Right', 'Droite')
       : _driveText(language, '좌측', 'Left', 'Gauche');
-  final severity = _curveSeverity(first.absTurn);
-  final intensity = _curveIntensity(first.absTurn, language);
-  final nextGap = _nextCurveGapM(nodes, cumulativeM, first.index);
+  final severity = _curveSeverityForGrade(first.corner.grade);
+  final intensity = _curveIntensityForGrade(first.corner.grade, language);
+  final nextGap = candidates.length < 2
+      ? null
+      : candidates[1].aheadM - first.aheadM;
   final countAhead = candidates.length;
   final horizonM = candidates.last.aheadM;
   final rhythmLine = _rhythmLineForCue(
@@ -666,23 +1345,25 @@ DriveCurveCue? _nextCurveCue(
     intensityLabel: intensity,
     headline: '${formatDriveMeters(first.aheadM)} $direction $intensity',
     rhythmLine: rhythmLine,
-    icon: _curveIcon(first.turn, first.absTurn),
+    icon: _curveIconForGrade(first.corner.turnSign, first.corner.grade),
     distanceM: first.aheadM,
     nextGapM: nextGap,
     curveCountAhead: countAhead,
     horizonM: horizonM,
     severity: severity,
+    grade: first.corner.grade,
+    clusterId: first.corner.entryIndex,
   );
 }
 
-IconData _curveIcon(double turn, double absTurn) {
-  final isRight = turn >= 0;
-  if (absTurn >= 68) {
+IconData _curveIconForGrade(int turnSign, int grade) {
+  final isRight = turnSign >= 0;
+  if (grade == 1) {
     return isRight
         ? Icons.turn_sharp_right_rounded
         : Icons.turn_sharp_left_rounded;
   }
-  if (absTurn >= 42) {
+  if (grade == 2 || grade == 3) {
     return isRight ? Icons.turn_right_rounded : Icons.turn_left_rounded;
   }
   return isRight
@@ -690,21 +1371,21 @@ IconData _curveIcon(double turn, double absTurn) {
       : Icons.turn_slight_left_rounded;
 }
 
-int _curveSeverity(double absTurn) {
-  if (absTurn >= 68) return 3;
-  if (absTurn >= 42) return 2;
-  if (absTurn >= 26) return 1;
+int _curveSeverityForGrade(int grade) {
+  if (grade == 1) return 3;
+  if (grade == 2 || grade == 3) return 2;
+  if (grade == 4) return 1;
   return 0;
 }
 
-String _curveIntensity(double absTurn, AppLanguage? language) {
-  if (absTurn >= 68) {
+String _curveIntensityForGrade(int grade, AppLanguage? language) {
+  if (grade == 1) {
     return _driveText(language, '헤어핀', 'Hairpin', 'Épingle');
   }
-  if (absTurn >= 42) {
+  if (grade == 2 || grade == 3) {
     return _driveText(language, '타이트', 'Tight', 'Serré');
   }
-  if (absTurn >= 26) {
+  if (grade == 4) {
     return _driveText(language, '중간', 'Medium', 'Moyen');
   }
   return _driveText(language, '완만', 'Gentle', 'Doux');
@@ -767,22 +1448,6 @@ String _rhythmLabelForCue(DriveCurveCue cue, AppLanguage? language) {
     return _driveText(language, '흐름 구간', 'Flow section', 'Section fluide');
   }
   return _driveText(language, '단일 커브', 'Single curve', 'Virage isolé');
-}
-
-double? _nextCurveGapM(
-  List<LatLng> nodes,
-  List<double> cumulativeM,
-  int fromIndex,
-) {
-  final fromM = cumulativeM[fromIndex];
-  for (var i = fromIndex + 1; i < nodes.length - 1; i++) {
-    final gapM = cumulativeM[i] - fromM;
-    if (gapM > 900) return null;
-    if (_turnDegrees(nodes[i - 1], nodes[i], nodes[i + 1]).abs() >= 20) {
-      return gapM;
-    }
-  }
-  return null;
 }
 
 _Projection _nearestRouteProjection(
@@ -866,17 +1531,13 @@ class _Projection {
   const _Projection({required this.alongM, required this.distanceM});
 }
 
-class _CurveCandidate {
-  final int index;
+class _CornerCandidate {
+  final CornerEvent corner;
   final double aheadM;
-  final double turn;
-  final double absTurn;
 
-  const _CurveCandidate({
-    required this.index,
+  const _CornerCandidate({
+    required this.corner,
     required this.aheadM,
-    required this.turn,
-    required this.absTurn,
   });
 }
 

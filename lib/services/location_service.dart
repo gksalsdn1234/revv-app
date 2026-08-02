@@ -6,6 +6,104 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/storage_keys.dart';
 import '../models/revv_route.dart';
 
+/// GPS speed is only used for cue timing after it has remained both fresh and
+/// stable. It never changes the speed shown or recorded elsewhere.
+class TrustedSpeedGate {
+  static const Duration maxPositionAge = Duration(seconds: 3);
+  static const Duration enterDuration = Duration(seconds: 2);
+  static const Duration exitDuration = Duration(milliseconds: 1500);
+  static const double maxAccuracyM = 50;
+
+  final List<double> _samples = <double>[];
+  double? _emaMps;
+  DateTime? _aboveEnterSince;
+  DateTime? _belowExitSince;
+  DateTime? _lastValidTimestamp;
+  bool _speedMode = false;
+
+  bool get isSpeedMode => _speedMode;
+
+  double? speedFor(DateTime now) {
+    final timestamp = _lastValidTimestamp;
+    if (!_speedMode || timestamp == null) return null;
+    if (_belowExitSince != null) return null;
+    final age = now.difference(timestamp);
+    if (age.isNegative || age > maxPositionAge) {
+      final invalidSince = age.isNegative
+          ? now
+          : timestamp.add(maxPositionAge);
+      _belowExitSince ??= invalidSince;
+      if (now.difference(_belowExitSince!) >= exitDuration) {
+        _speedMode = false;
+      }
+      return null;
+    }
+    return _emaMps;
+  }
+
+  void update({
+    required double speedMps,
+    required DateTime timestamp,
+    required double accuracyM,
+    required DateTime now,
+  }) {
+    final age = now.difference(timestamp);
+    final valid = speedMps.isFinite &&
+        speedMps >= 0 &&
+        accuracyM.isFinite &&
+        accuracyM >= 0 &&
+        accuracyM <= maxAccuracyM &&
+        !age.isNegative &&
+        age <= maxPositionAge;
+    if (!valid) {
+      _aboveEnterSince = null;
+      _belowExitSince ??= age > maxPositionAge
+          ? timestamp.add(maxPositionAge)
+          : now;
+      if (_speedMode && now.difference(_belowExitSince!) >= exitDuration) {
+        _speedMode = false;
+      }
+      return;
+    }
+
+    final previousTimestamp = _lastValidTimestamp;
+    if (_speedMode &&
+        previousTimestamp != null &&
+        now.difference(previousTimestamp) > maxPositionAge + exitDuration) {
+      _speedMode = false;
+      _aboveEnterSince = null;
+    }
+    _lastValidTimestamp = timestamp;
+    _samples.add(speedMps);
+    if (_samples.length > 3) _samples.removeAt(0);
+    final sorted = List<double>.from(_samples)..sort();
+    final median = sorted[sorted.length ~/ 2];
+    _emaMps = _emaMps == null ? median : _emaMps! * 0.6 + median * 0.4;
+    final filtered = _emaMps!;
+
+    if (!_speedMode) {
+      if (filtered >= 6) {
+        _aboveEnterSince ??= now;
+        if (now.difference(_aboveEnterSince!) >= enterDuration) {
+          _speedMode = true;
+        }
+      } else {
+        _aboveEnterSince = null;
+      }
+      return;
+    }
+
+    if (filtered < 4) {
+      _belowExitSince ??= now;
+      if (now.difference(_belowExitSince!) >= exitDuration) {
+        _speedMode = false;
+      }
+    } else {
+      _belowExitSince = null;
+    }
+  }
+}
+
 class LocationService extends ChangeNotifier {
   static const LocationSettings _trackingSettings = LocationSettings(
     accuracy: LocationAccuracy.bestForNavigation,
@@ -21,6 +119,7 @@ class LocationService extends ChangeNotifier {
   PermissionStatus _permissionStatus = PermissionStatus.denied;
   bool isTracking = false;
   bool _hydrated = false;
+  final TrustedSpeedGate _trustedSpeedGate = TrustedSpeedGate();
 
   StreamSubscription<Position>? _subscription;
   bool _notifyPending = false;
@@ -67,6 +166,13 @@ class LocationService extends ChangeNotifier {
           onError: (_) {
             // GPS 신호 없을 때 마지막 위치 유지, 속도 0
             speedKmh = 0;
+            final now = DateTime.now();
+            _trustedSpeedGate.update(
+              speedMps: double.nan,
+              timestamp: now,
+              accuracyM: double.infinity,
+              now: now,
+            );
             _scheduleNotify();
           },
         );
@@ -107,6 +213,9 @@ class LocationService extends ChangeNotifier {
   }
 
   bool get hasLiveLocation => currentPosition != null;
+
+  /// Null means distance timing must be used for the next voice cue.
+  double? get trustedSpeedMps => _trustedSpeedGate.speedFor(DateTime.now());
 
   LatLng? get liveLatLng => currentPosition == null
       ? null
@@ -163,6 +272,12 @@ class LocationService extends ChangeNotifier {
   void _applyPosition(Position position) {
     currentPosition = position;
     speedKmh = (position.speed * 3.6).clamp(0, 300);
+    _trustedSpeedGate.update(
+      speedMps: position.speed,
+      timestamp: position.timestamp,
+      accuracyM: position.accuracy,
+      now: DateTime.now(),
+    );
     if (position.heading >= 0) heading = position.heading;
     _persistedLatLng = LatLng(position.latitude, position.longitude);
     unawaited(_persistLastKnownLocation());

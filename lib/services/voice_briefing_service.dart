@@ -89,7 +89,8 @@ class VoiceBriefingService {
   AppLanguage? _voicesLanguage;
   Object? _cachedVoices;
   DateTime? _lastSpokenAt;
-  double? _spokenDistanceM;
+  int? _lastSpokenGrade;
+  bool _dangerousCooldownInterruptionUsed = false;
   final Set<String> _spokenStages = {};
   DateTime? _lastCueSeenAt;
   bool _startAnnounced = false;
@@ -118,6 +119,7 @@ class VoiceBriefingService {
     NavStep? navStep,
     double? navDistanceM,
     DriveCurveCue? curveCue,
+    double? trustedSpeedMps,
     required AppLanguage language,
     required bool muted,
   }) {
@@ -125,8 +127,6 @@ class VoiceBriefingService {
     final cue = curveCue;
     if (navStep == null && (cue == null || cue.severity <= 0)) {
       // 큐가 사라짐 = 커브 통과/흐름 구간. 다음 커브를 위해 재무장.
-      _spokenDistanceM = null;
-      _spokenStages.removeWhere((key) => key.startsWith('c:'));
       return;
     }
 
@@ -138,9 +138,14 @@ class VoiceBriefingService {
 
     if (muted) return;
     final distanceM = navDistanceM ?? cue?.distanceM ?? double.infinity;
-    final stageKey = _stageKey(navStep, navDistanceM, cue);
+    final stageKey = _stageKey(
+      navStep,
+      navDistanceM,
+      cue,
+      trustedSpeedMps,
+    );
     if (stageKey == null || _spokenStages.contains(stageKey)) return;
-    if (distanceM < speakWindowMinM || distanceM > speakWindowMaxM) {
+    if (!_isInSpeakWindow(distanceM, trustedSpeedMps)) {
       return;
     }
     if (navStep == null &&
@@ -148,14 +153,15 @@ class VoiceBriefingService {
       return;
     }
 
-    // 같은 커브 접근 중 재발화 방지: 발화 후 거리가 크게 늘어나야(=새 커브) 재무장
-    final spokenAt = _spokenDistanceM;
-    if (navStep == null && spokenAt != null && distanceM <= spokenAt + 120) {
-      return;
-    }
-
     final last = _lastSpokenAt;
-    if (last != null && now.difference(last) < cooldown) return;
+    final inCooldown = last != null && now.difference(last) < cooldown;
+    final canInterruptCooldown = inCooldown &&
+        !_dangerousCooldownInterruptionUsed &&
+        cue != null &&
+        cue.grade > 0 &&
+        _lastSpokenGrade != null &&
+        cue.grade < _lastSpokenGrade!;
+    if (inCooldown && !canInterruptCooldown) return;
 
     final phrase = buildCoPilotPhrase(
       language: language,
@@ -165,7 +171,9 @@ class VoiceBriefingService {
       afterLongClear: hadLongClear,
     );
     _lastSpokenAt = now;
-    _spokenDistanceM = distanceM;
+    _lastSpokenGrade = cue?.grade;
+    if (!inCooldown) _dangerousCooldownInterruptionUsed = false;
+    if (canInterruptCooldown) _dangerousCooldownInterruptionUsed = true;
     _spokenStages.add(stageKey);
     _speak(phrase, language);
   }
@@ -254,10 +262,27 @@ class VoiceBriefingService {
     ].join(' — ');
   }
 
-  String? _stageKey(NavStep? navStep, double? navDistanceM, DriveCurveCue? cue) {
+  bool _isInSpeakWindow(double distanceM, double? trustedSpeedMps) {
+    final speedMps = trustedSpeedMps;
+    if (speedMps != null && speedMps.isFinite && speedMps > 0) {
+      final ttc = distanceM / speedMps;
+      return ttc >= 4 && ttc <= 10;
+    }
+    return distanceM >= speakWindowMinM && distanceM <= speakWindowMaxM;
+  }
+
+  String? _stageKey(
+    NavStep? navStep,
+    double? navDistanceM,
+    DriveCurveCue? cue,
+    double? trustedSpeedMps,
+  ) {
     final distanceM = navDistanceM ?? cue?.distanceM;
     if (distanceM == null) return null;
-    final stage = distanceM <= 95
+    final speedMps = trustedSpeedMps;
+    final stage = speedMps != null && speedMps.isFinite && speedMps > 0
+        ? (distanceM / speedMps <= 5.5 ? 'near' : 'far')
+        : distanceM <= 95
         ? '80'
         : distanceM <= speakWindowMaxM
         ? '300'
@@ -265,8 +290,10 @@ class VoiceBriefingService {
     if (stage == null) return null;
     if (navStep != null) return 'n:${navStep.sequence}:$stage';
     if (cue == null) return null;
-    return 'c:${_pacedDistance(distanceM)}:${cue.directionLabel}:'
-        '${cue.intensityLabel}:${cue.curveCountAhead}:$stage';
+    final cluster = cue.clusterId?.toString() ??
+        '${_pacedDistance(distanceM)}:${cue.directionLabel}:'
+            '${cue.intensityLabel}:${cue.curveCountAhead}';
+    return 'c:$cluster:$stage';
   }
 
   String _curveCall(DriveCurveCue cue, AppLanguage language) {

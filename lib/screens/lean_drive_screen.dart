@@ -133,6 +133,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     final language = _settings?.appLanguage ?? AppLanguage.korean;
     _voice.announceStart(language, muted: _settings?.ttsMuted ?? true);
     await _hydrateSparseRouteNodes();
+    primeRouteCueGeometry(_activeRouteNodes, routeId: widget.route.id);
     unawaited(_loadRouteTurns(_activeRouteNodes));
     unawaited(_prepareMatchedRouteGeometry());
     if (!mounted) return;
@@ -212,6 +213,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
         longitudinalG: _longitudinalG,
         driveMode: 'cruise',
         heading: loc.heading,
+        trustedSpeedMps: loc.trustedSpeedMps,
       );
       return;
     }
@@ -243,6 +245,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     required double longitudinalG,
     required String driveMode,
     double? heading,
+    double? trustedSpeedMps,
   }) {
     _session?.recordPosition(
       position.lat,
@@ -258,16 +261,26 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       position,
       _activeRouteNodes,
       language: language,
+      routeId: widget.route.id,
     );
-    final navStepProgress = nextStepProgress(
+    final navStepProgress = nextStepProgressWithRouteCueGeometry(
       position,
       _activeRouteNodes,
       _navSteps,
+      routeId: widget.route.id,
+    );
+    final voiceCurveCue = readVoiceCurveCue(
+      position,
+      _activeRouteNodes,
+      trustedSpeedMps: trustedSpeedMps,
+      language: language,
+      routeId: widget.route.id,
     );
     _voice.onCoPilotCue(
       navStep: navStepProgress?.step,
       navDistanceM: navStepProgress?.aheadM,
-      curveCue: routeState.cue,
+      curveCue: voiceCurveCue,
+      trustedSpeedMps: trustedSpeedMps,
       language: language,
       muted: _settings?.ttsMuted ?? true,
     );
@@ -275,6 +288,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       position,
       _activeRouteNodes,
       language: language,
+      routeId: widget.route.id,
     );
     final nextEvent = _routeEventFor(_routeStatus, routeState.status, language);
     final nextBearing = _nextNavigationBearing(position, heading);
@@ -412,6 +426,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       return;
     }
     setState(() => _matchedRouteNodes = matched);
+    primeRouteCueGeometry(_activeRouteNodes, routeId: widget.route.id);
   }
 
   Future<void> _hydrateSparseRouteNodes() async {
@@ -423,6 +438,7 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       return;
     }
     setState(() => _matchedRouteNodes = nodes);
+    primeRouteCueGeometry(_activeRouteNodes, routeId: widget.route.id);
   }
 
   bool _sameRouteNodes(List<LatLng> a, List<LatLng> b) {

@@ -9,7 +9,9 @@ import 'package:revv_app/ui/route_drive_cue.dart';
 DriveCurveCue cue({
   double distanceM = 200,
   int severity = 2,
+  int grade = 3,
   int curveCountAhead = 1,
+  int? clusterId,
   double? nextGapM,
   String direction = '우측',
   String intensity = '타이트',
@@ -27,6 +29,8 @@ DriveCurveCue cue({
     curveCountAhead: curveCountAhead,
     horizonM: distanceM + 400,
     severity: severity,
+    grade: grade,
+    clusterId: clusterId,
   );
 }
 
@@ -257,6 +261,87 @@ void main() {
     );
 
     expect(spoken, ['300, 우측 갈림길', '80, 우측 갈림길']);
+  });
+
+  test('uses a 4-10 second TTC window only when speed is trusted', () {
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 200, clusterId: 1),
+      trustedSpeedMps: 25,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    expect(spoken, hasLength(1)); // 200m / 25mps = 8s
+
+    final slowSpoken = <String>[];
+    final slowVoice = VoiceBriefingService(
+      speak: (text, _) async => slowSpoken.add(text),
+      clock: () => now,
+    );
+    slowVoice.onCoPilotCue(
+      curveCue: cue(distanceM: 200, clusterId: 2),
+      trustedSpeedMps: 8,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    expect(slowSpoken, isEmpty); // 25s: outside the TTC window
+  });
+
+  test('null trusted speed preserves the existing distance window', () {
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 200),
+      trustedSpeedMps: null,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken, hasLength(1));
+  });
+
+  test('limits one merged corner cluster to far and near calls', () {
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 220, clusterId: 44),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 9));
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 90, clusterId: 44),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 9));
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 60, clusterId: 44),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken, hasLength(2));
+  });
+
+  test('a more dangerous grade can interrupt cooldown once', () {
+    const step = NavStep(
+      sequence: 9,
+      maneuverType: 'fork',
+      modifier: 'right',
+      location: LatLng(45, -73),
+      distanceFromStartM: 200,
+    );
+    voice.onCoPilotCue(
+      navStep: step,
+      navDistanceM: 200,
+      curveCue: cue(severity: 1, grade: 4, clusterId: 1),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 1));
+    voice.onCoPilotCue(
+      curveCue: cue(severity: 3, grade: 1, intensity: '헤어핀', clusterId: 2),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    expect(spoken, hasLength(2));
   });
 
   test('off-route and back-on-route phrases use rally tone', () {
