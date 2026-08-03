@@ -131,6 +131,56 @@ void main() {
     expect(routeInformativeCautionLine(route), contains('타이트 커브'));
   });
 
+  test('zero sharp-curve count uses curve distances in all languages', () {
+    final route = _route(
+      id: 'zero-sharp-curves',
+      distanceKm: 19,
+      tightCurveKm: 3.3,
+      mediumCurveKm: 13.3,
+      maxContinuousKm: 2.1,
+      sharpCurveCount: 0,
+      routeCharacter: 'tight_technical',
+    );
+
+    for (final language in AppLanguage.values) {
+      final copy = RouteDetailCopy.fromRoute(
+        route,
+        startDistanceKm: 2.5,
+        language: language,
+      );
+      final body = [copy.heroReason, ...copy.decisionBullets].join('\n');
+
+      expect(body, isNot(contains('0개')));
+      expect(body, isNot(contains('0 notable corners')));
+      expect(body, isNot(contains('0 virages notables')));
+      expect(body, contains('3.3km'));
+      expect(body, contains('13.3km'));
+    }
+  });
+
+  test('positive sharp-curve count keeps the existing technical copy', () {
+    final route = _route(
+      distanceKm: 18,
+      tightCurveKm: 0.2,
+      mediumCurveKm: 0.4,
+      sharpCurveCount: 9,
+      routeCharacter: 'tight_technical',
+    );
+
+    expect(
+      routeInformativePreviewLine(route),
+      '9개 주요 코너가 18km 안에 모여 있고 타이트 커브는 0.2km예요.',
+    );
+    expect(
+      routeInformativePreviewLine(route, language: AppLanguage.english),
+      '9 notable corners within 18km, including 0.2km of tight curves.',
+    );
+    expect(
+      routeInformativePreviewLine(route, language: AppLanguage.french),
+      '9 virages notables sur 18km, dont 0.2km serrés.',
+    );
+  });
+
   test('caution generator follows data rules and avoids unsafe wording', () {
     final cases = [
       routeInformativeCautionLine(
