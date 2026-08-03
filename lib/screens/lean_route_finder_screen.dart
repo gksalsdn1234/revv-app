@@ -263,6 +263,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   DriveBudget _driveBudget = DriveBudget.any;
   LatLng? _coverageRequestPoint;
   RevvRoute? _previewRoute;
+  bool _routeReadyPromptDismissed = false;
   final Map<String, RevvRoute> _chainSelection = {};
   List<RevvRoute> _plannedChainRoutes = const [];
   late final DrivePlannerService _planner =
@@ -768,6 +769,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       return;
     }
     setState(() {
+      _routeReadyPromptDismissed = true;
       if (_chainSelection.containsKey(route.id)) {
         _chainSelection.remove(route.id);
       } else {
@@ -1046,6 +1048,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   void _showRouteDetails(RevvRoute route) {
+    if (!_routeReadyPromptDismissed) {
+      setState(() => _routeReadyPromptDismissed = true);
+    }
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => LeanRouteDetailScreen(route: route)),
@@ -1054,6 +1059,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
   void _showRoutePreview(RevvRoute route) {
     setState(() {
+      _routeReadyPromptDismissed = true;
       _previewRoute = route;
       _mapCenterPoint = route.centerPoint;
       _mapFocusPoints = const [];
@@ -1310,6 +1316,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         _routeStatusNeedsAttention(service.routeDataStatusTitle)
         ? routeFinderStatusBodyFor(service.routeDataStatusTitle, language)
         : null;
+    final serviceStatus = service.routeDataStatusTitle == null ||
+            (_routeReadyPromptDismissed &&
+                _isRouteReadyPromptStatus(service.routeDataStatusTitle))
+        ? null
+        : routeFinderStatusBodyFor(service.routeDataStatusTitle, language);
     final status = service.isLoading
         ? AppCopy.t(
             language,
@@ -3774,6 +3785,15 @@ _RouteServiceStatusKey _routeServiceStatusKeyFor(String? title) {
     '캐시 유지 중' => _RouteServiceStatusKey.keepingCache,
     '커브길 준비 완료' => _RouteServiceStatusKey.fieldReady,
     _ => _RouteServiceStatusKey.unknown,
+  };
+}
+
+bool _isRouteReadyPromptStatus(String? title) {
+  return switch (_routeServiceStatusKeyFor(title)) {
+    _RouteServiceStatusKey.picksRefreshed ||
+    _RouteServiceStatusKey.routesReady ||
+    _RouteServiceStatusKey.fieldReady => true,
+    _ => false,
   };
 }
 
