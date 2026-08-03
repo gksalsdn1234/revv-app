@@ -90,6 +90,21 @@ class LeanRouteDetailScreen extends StatefulWidget {
 
 class _LeanRouteDetailScreenState extends State<LeanRouteDetailScreen> {
   bool _sharingInvite = false;
+  final GlobalKey _stickyStartBarKey = GlobalKey();
+  double _stickyStartBarHeight = 0;
+
+  void _measureStickyStartBar() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final renderBox =
+          _stickyStartBarKey.currentContext?.findRenderObject() as RenderBox?;
+      final height = renderBox?.size.height;
+      if (height == null || (height - _stickyStartBarHeight).abs() < 0.5) {
+        return;
+      }
+      setState(() => _stickyStartBarHeight = height);
+    });
+  }
 
   Future<void> _startDrive(BuildContext context) async {
     final startChoice = await showCopilotStartSheet(
@@ -217,6 +232,9 @@ class _LeanRouteDetailScreenState extends State<LeanRouteDetailScreen> {
     );
     final turnPlan = buildTurnByTurnPlan(route.nodes, language: language);
     final cautionBody = _cautionBody(copy);
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
+    final bottomContentPadding = _stickyStartBarHeight + bottomInset + 28;
+    _measureStickyStartBar();
 
     return Scaffold(
       backgroundColor: AppColors.cream,
@@ -355,7 +373,7 @@ class _LeanRouteDetailScreenState extends State<LeanRouteDetailScreen> {
                           language: language,
                         ),
                         SizedBox(
-                          height: MediaQuery.paddingOf(context).bottom + 86,
+                          height: bottomContentPadding,
                         ),
                       ],
                     ),
@@ -367,10 +385,16 @@ class _LeanRouteDetailScreenState extends State<LeanRouteDetailScreen> {
           Positioned(
             left: 18,
             right: 18,
-            bottom: MediaQuery.paddingOf(context).bottom + 14,
-            child: _StickyStartBar(
-              onStart: () => _startDrive(context),
-              onBack: () => Navigator.pop(context),
+            bottom: bottomInset + 14,
+            child: KeyedSubtree(
+              key: _stickyStartBarKey,
+              child: KeyedSubtree(
+                key: const ValueKey('route-detail-sticky-start-bar'),
+                child: _StickyStartBar(
+                  onStart: () => _startDrive(context),
+                  onBack: () => Navigator.pop(context),
+                ),
+              ),
             ),
           ),
         ],
@@ -388,6 +412,45 @@ class _QuickStatRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isFar = route.distanceFromUser >= 1.0;
+    final curveTile = route.sharpCurveCount > 0
+        ? _QuickStatTile(
+            icon: Icons.route_rounded,
+            label: AppCopy.t(
+              language,
+              ko: '커브',
+              en: 'Curves',
+              fr: 'Virages',
+            ),
+            value: AppCopy.t(
+              language,
+              ko: '${route.sharpCurveCount}개',
+              en: '${route.sharpCurveCount}',
+              fr: '${route.sharpCurveCount}',
+            ),
+          )
+        : route.tightCurveKm > 0
+        ? _QuickStatTile(
+            icon: Icons.route_rounded,
+            label: AppCopy.t(
+              language,
+              ko: '타이트',
+              en: 'Tight',
+              fr: 'Serrés',
+            ),
+            value: '${route.tightCurveKm.toStringAsFixed(1)}km',
+          )
+        : route.maxContinuousKm > 0
+        ? _QuickStatTile(
+            icon: Icons.timeline_rounded,
+            label: AppCopy.t(
+              language,
+              ko: '연속',
+              en: 'Flow',
+              fr: 'Enchaîné',
+            ),
+            value: '${route.maxContinuousKm.toStringAsFixed(1)}km',
+          )
+        : null;
     return Container(
       key: const ValueKey('route-detail-stat-strip'),
       width: double.infinity,
@@ -425,24 +488,8 @@ class _QuickStatRow extends StatelessWidget {
                   value: _driveMinutesLabel(route, language),
                 ),
               ),
-              SizedBox(
-                width: tileWidth,
-                child: _QuickStatTile(
-                  icon: Icons.route_rounded,
-                  label: AppCopy.t(
-                    language,
-                    ko: '커브',
-                    en: 'Curves',
-                    fr: 'Virages',
-                  ),
-                  value: AppCopy.t(
-                    language,
-                    ko: '${route.sharpCurveCount}개',
-                    en: '${route.sharpCurveCount}',
-                    fr: '${route.sharpCurveCount}',
-                  ),
-                ),
-              ),
+              if (curveTile != null)
+                SizedBox(width: tileWidth, child: curveTile),
               SizedBox(
                 width: tileWidth,
                 child: _QuickStatTile(

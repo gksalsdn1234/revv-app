@@ -112,6 +112,14 @@ String _localizedShapeBullet(
       fr: '${route.distanceDisplay} · ${curvyKm.toStringAsFixed(1)}km de virages',
     );
   }
+  if (route.sharpCurveCount <= 0) {
+    return AppCopy.t(
+      language,
+      ko: '${route.distanceDisplay} 루트 · 지도 라인을 먼저 확인',
+      en: '${route.distanceDisplay} route · read the map line first',
+      fr: '${route.distanceDisplay} · lire la ligne sur carte d’abord',
+    );
+  }
   return AppCopy.t(
     language,
     ko: '${route.distanceDisplay} 루트 · 주요 코너 ${route.sharpCurveCount}개',
@@ -244,6 +252,14 @@ String routeInformativePreviewLine(RevvRoute route, {AppLanguage? language}) {
       ? route.routeCharacter
       : routeCharacter(route);
   if (_tightCurveRatio(route) >= 0.12 && route.tightCurveKm >= 0.8) {
+    if (route.sharpCurveCount <= 0) {
+      return _text(
+        language,
+        '타이트 ${route.tightCurveKm.toStringAsFixed(1)}km · 중간 ${route.mediumCurveKm.toStringAsFixed(1)}km가 ${route.distanceKm.toStringAsFixed(0)}km 안에 모여 있어요.',
+        'Tight ${route.tightCurveKm.toStringAsFixed(1)}km · medium ${route.mediumCurveKm.toStringAsFixed(1)}km are grouped within ${route.distanceKm.toStringAsFixed(0)}km.',
+        'Serrés ${route.tightCurveKm.toStringAsFixed(1)}km · moyens ${route.mediumCurveKm.toStringAsFixed(1)}km sont regroupés sur ${route.distanceKm.toStringAsFixed(0)}km.',
+      );
+    }
     return _pickInformativeText(route, 'preview_tight', [
       _text(
         language,
@@ -284,6 +300,14 @@ String routeInformativePreviewLine(RevvRoute route, {AppLanguage? language}) {
     );
   }
   if (character == 'tight_technical') {
+    if (route.sharpCurveCount <= 0) {
+      return _text(
+        language,
+        '타이트 ${route.tightCurveKm.toStringAsFixed(1)}km와 중간 ${route.mediumCurveKm.toStringAsFixed(1)}km가 ${route.distanceKm.toStringAsFixed(0)}km 안에 모여 있어요.',
+        'Tight ${route.tightCurveKm.toStringAsFixed(1)}km and medium ${route.mediumCurveKm.toStringAsFixed(1)}km are grouped within ${route.distanceKm.toStringAsFixed(0)}km.',
+        'Les segments serrés (${route.tightCurveKm.toStringAsFixed(1)}km) et moyens (${route.mediumCurveKm.toStringAsFixed(1)}km) sont regroupés sur ${route.distanceKm.toStringAsFixed(0)}km.',
+      );
+    }
     return _text(
       language,
       '${route.sharpCurveCount}개 주요 코너가 ${route.distanceKm.toStringAsFixed(0)}km 안에 모여 있고 타이트 커브는 ${route.tightCurveKm.toStringAsFixed(1)}km예요.',
@@ -319,6 +343,9 @@ String _shapeBullet(RevvRoute route) {
   final curvyKm = route.tightCurveKm + route.mediumCurveKm;
   if (curvyKm >= 0.5) {
     return '${route.distanceDisplay} 루트 · 커브 집중 구간 ${curvyKm.toStringAsFixed(1)}km';
+  }
+  if (route.sharpCurveCount <= 0) {
+    return '${route.distanceDisplay} 루트 · 지도 라인을 먼저 확인';
   }
   return '${route.distanceDisplay} 루트 · 코너 ${route.sharpCurveCount}개 기준으로 검토';
 }
