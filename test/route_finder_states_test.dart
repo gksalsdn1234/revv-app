@@ -116,6 +116,57 @@ void main() {
     expect(unknownFrench, isNot(contains(RegExp(r'[가-힣]'))));
   });
 
+  testWidgets(
+    'ready prompt dismisses after route preview while failure status remains visible',
+    (tester) async {
+      await useTallSurface(tester);
+      SharedPreferences.setMockInitialValues({});
+      final settings = SettingsService();
+      await settings.setAppLanguage(AppLanguage.korean);
+      final route = _finderRoute(id: 'ready', name: 'Ready Road', lng: -73.00);
+      final routeService = _QuietRouteService()
+        ..routes = [route]
+        ..mapVisualRoutes = [route]
+        ..routeDataStatusTitle = '루트 준비 완료';
+
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(
+              create: (_) => DrivenRoutesService(history: RunHistoryService()),
+            ),
+            ChangeNotifierProvider<SettingsService>.value(value: settings),
+            ChangeNotifierProvider<RouteService>.value(value: routeService),
+            ChangeNotifierProvider<LocationService>.value(
+              value: _ReadyLocationService(),
+            ),
+            ChangeNotifierProvider<SupabaseService>.value(
+              value: SupabaseService(),
+            ),
+          ],
+          child: const MaterialApp(home: LeanRouteFinderScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('루트를 지도에서 확인해 보세요.'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('route-list-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('route-list-row-ready')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('route-preview-card')), findsOneWidget);
+      expect(find.text('루트를 지도에서 확인해 보세요.'), findsNothing);
+
+      routeService.routeDataStatusTitle = '루트 로드 실패';
+      routeService.notifyListeners();
+      await tester.pumpAndSettle();
+
+      expect(find.text('연결 상태를 확인한 뒤 다시 시도해 주세요.'), findsOneWidget);
+    },
+  );
+
   testWidgets('temporary location denial renders retry permission action', (
     tester,
   ) async {
