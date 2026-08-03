@@ -602,7 +602,9 @@ class _RaceNavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? AppColors.ink : AppColors.stone;
+    // ink는 배경(#100E0C)과 거의 같은 값이라 활성 탭이 오히려 사라진다.
+    // 같은 화면의 다른 토글들처럼 활성은 cream, 비활성은 stone으로 둔다.
+    final color = active ? AppColors.cream : AppColors.stone;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
