@@ -1911,7 +1911,7 @@ class _MapWidgetState extends State<MapWidget>
     final map = _mapController;
     if (map == null) return;
 
-    // ── 나침반 ──────────────────────────────────────────────────────
+    // ── 지도 오너먼트 ────────────────────────────────────────────────
     try {
       await map.compass.updateSettings(
         mbx.CompassSettings(
@@ -1922,9 +1922,24 @@ class _MapWidgetState extends State<MapWidget>
           marginRight: 14,
         ),
       );
+      await map.scaleBar.updateSettings(mbx.ScaleBarSettings(enabled: false));
+      await map.logo.updateSettings(
+        mbx.LogoSettings(
+          position: mbx.OrnamentPosition.BOTTOM_LEFT,
+          marginLeft: 14,
+          marginBottom: 120,
+        ),
+      );
+      await map.attribution.updateSettings(
+        mbx.AttributionSettings(
+          position: mbx.OrnamentPosition.BOTTOM_LEFT,
+          marginLeft: 102,
+          marginBottom: 120,
+        ),
+      );
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[MapWidget] compass: ${e.runtimeType}');
+        debugPrint('[MapWidget] ornaments: ${e.runtimeType}');
       }
     }
 
@@ -2002,7 +2017,7 @@ class _MapWidgetState extends State<MapWidget>
     final cameraOpts = mbx.CameraOptions(
       center: mbx.Point(coordinates: mbx.Position(lng, lat)),
       padding: widget.isSprintMode ? _driveCameraPadding : null,
-      zoom: widget.isSprintMode ? 16.5 : 15.0,
+      zoom: widget.isSprintMode ? 16.5 : 11.0,
       // iOS 실기기에서 높은 pitch가 플랫폼뷰/지도 타일이 잘려 보이는 느낌을 만들 수 있어
       // 출시용 lean HUD에서는 낮은 각도로 안정성을 우선한다.
       pitch: widget.isSprintMode ? 22.0 : 0.0,
@@ -2192,7 +2207,7 @@ class _MapWidgetState extends State<MapWidget>
                   ),
                 ),
                 padding: widget.isSprintMode ? _driveCameraPadding : null,
-                zoom: widget.isSprintMode ? 16.5 : 15.0,
+                zoom: widget.isSprintMode ? 16.5 : 11.0,
                 pitch: widget.isSprintMode ? 22.0 : 0.0,
                 bearing: widget.isSprintMode ? widget.navigationBearing : null,
               ),

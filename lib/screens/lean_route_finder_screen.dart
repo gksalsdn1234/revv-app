@@ -1214,6 +1214,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _mapCenterPoint,
       _mapZoom,
     );
+    final noRenderedRoutes = mapDisplayRoutes.isEmpty;
     final plan = _plan;
     final showingJourney = _journeyMode != null && plan != null;
     final filterEmpty =
@@ -1239,7 +1240,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     final cacheStatus = service.routeFieldFromCache
         ? _cacheInlineStatus(service, language)
         : null;
-    final serviceStatus = service.routeDataStatusTitle == null ||
+    final serviceStatus =
+        noRenderedRoutes ||
+            service.routeDataStatusTitle == null ||
             (_routeReadyPromptDismissed &&
                 _isRouteReadyPromptStatus(service.routeDataStatusTitle))
         ? null
@@ -1266,12 +1269,16 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
             fr: 'Aucune option ${_lensLabel(_lens, language)}. Revenez à Tout.',
           )
         : localStatus ?? cacheStatus ?? serviceStatus;
-    final stateKind = _routeFinderStateKind(
-      location: location,
-      service: service,
-      visibleRoutes: visibleRoutes,
-      filterEmpty: filterEmpty || budgetEmpty,
-    );
+    final stateKind =
+        _routeFinderStateKind(
+          location: location,
+          service: service,
+          visibleRoutes: visibleRoutes,
+          filterEmpty: filterEmpty || budgetEmpty,
+        ) ??
+        (noRenderedRoutes && !service.isLoading
+            ? RouteFinderStateKind.emptyRoutes
+            : null);
     final emptyTitle = budgetEmpty
         ? AppCopy.t(
             language,
@@ -3531,9 +3538,9 @@ String routeFinderStateTitle(RouteFinderStateKind kind, AppLanguage language) {
     ),
     RouteFinderStateKind.emptyRoutes => AppCopy.t(
       language,
-      ko: '이 반경엔 아직 발견된 루트가 없어요',
-      en: 'No routes found in this radius yet',
-      fr: 'Aucune route trouvée dans ce rayon',
+      ko: '이 근처엔 아직 루트가 없어요',
+      en: 'No routes nearby yet',
+      fr: 'Aucune route à proximité',
     ),
     RouteFinderStateKind.loadFailed => AppCopy.t(
       language,
@@ -3566,9 +3573,9 @@ String routeFinderStateBody(RouteFinderStateKind kind, AppLanguage language) {
     ),
     RouteFinderStateKind.emptyRoutes => AppCopy.t(
       language,
-      ko: '반경을 넓히거나 지역 프리셋으로 다른 도시를 살펴보세요.',
-      en: 'Broaden the radius or use a region preset to check another city.',
-      fr: 'Élargissez le rayon ou choisissez une autre région.',
+      ko: '반경을 넓히거나 지역을 바꿔 보세요.',
+      en: 'Broaden the radius or choose a region.',
+      fr: 'Élargissez le rayon ou choisissez une région.',
     ),
     RouteFinderStateKind.loadFailed => AppCopy.t(
       language,

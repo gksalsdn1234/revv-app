@@ -167,6 +167,41 @@ void main() {
     },
   );
 
+  testWidgets('route-ready banner stays hidden when no route is rendered', (
+    tester,
+  ) async {
+    await useTallSurface(tester);
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.korean);
+    final routeService = _QuietRouteService()
+      ..routeDataStatusTitle = '루트 준비 완료';
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(
+            create: (_) => DrivenRoutesService(history: RunHistoryService()),
+          ),
+          ChangeNotifierProvider<SettingsService>.value(value: settings),
+          ChangeNotifierProvider<RouteService>.value(value: routeService),
+          ChangeNotifierProvider<LocationService>.value(
+            value: _ReadyLocationService(),
+          ),
+          ChangeNotifierProvider<SupabaseService>.value(
+            value: SupabaseService(),
+          ),
+        ],
+        child: const MaterialApp(home: LeanRouteFinderScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('루트를 지도에서 확인해 보세요.'), findsNothing);
+    expect(find.text('이 근처엔 아직 루트가 없어요'), findsOneWidget);
+    expect(find.textContaining('반경을 넓히거나'), findsOneWidget);
+  });
+
   testWidgets('temporary location denial renders retry permission action', (
     tester,
   ) async {
@@ -201,11 +236,42 @@ void main() {
   testWidgets('empty routes state nudges region presets', (tester) async {
     await pumpStateCard(tester, RouteFinderStateKind.emptyRoutes);
 
-    const expected = ['이 반경엔 아직 발견된 루트가 없어요', '지역 프리셋'];
+    const expected = ['이 근처엔 아직 루트가 없어요', '지역 프리셋'];
     expect(find.text(expected[0]), findsOneWidget);
     expect(find.text(expected[1]), findsOneWidget);
     expect(find.textContaining('반경을 넓히거나'), findsOneWidget);
     expectSafeCopy(expected);
+  });
+
+  test('empty routes copy omits a missing region in every language', () {
+    expect(
+      routeFinderStateTitle(
+        RouteFinderStateKind.emptyRoutes,
+        AppLanguage.english,
+      ),
+      'No routes nearby yet',
+    );
+    expect(
+      routeFinderStateTitle(
+        RouteFinderStateKind.emptyRoutes,
+        AppLanguage.french,
+      ),
+      'Aucune route à proximité',
+    );
+    expect(
+      routeFinderStateBody(
+        RouteFinderStateKind.emptyRoutes,
+        AppLanguage.english,
+      ),
+      'Broaden the radius or choose a region.',
+    );
+    expect(
+      routeFinderStateBody(
+        RouteFinderStateKind.emptyRoutes,
+        AppLanguage.french,
+      ),
+      'Élargissez le rayon ou choisissez une région.',
+    );
   });
 
   testWidgets('load failure renders retry action without backend terms', (
