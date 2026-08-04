@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'theme/colors.dart';
 import 'theme/text_styles.dart';
@@ -22,6 +23,12 @@ Future<void> main() => runWithCrashReporting(_startApp);
 
 Future<void> _startApp() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 서체는 google_fonts/ 에 동봉돼 있다. 런타임 다운로드를 꺼서 구글 폰트
+  // 서버로 나가는 요청 자체를 없앤다 — 오프라인에서도 서체가 유지되고,
+  // 기기 IP가 제3자에게 노출되지 않는다.
+  GoogleFonts.config.allowRuntimeFetching = false;
+
   await SupabaseService().init();
 
   final history = RunHistoryService();
