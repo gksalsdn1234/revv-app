@@ -2145,7 +2145,7 @@ class _MapWidgetState extends State<MapWidget>
     final map = _mapController;
     if (map == null) return;
 
-    // ── 나침반 ──────────────────────────────────────────────────────
+    // ── 지도 오너먼트 ────────────────────────────────────────────────
     try {
       await map.compass.updateSettings(
         mbx.CompassSettings(
@@ -2156,9 +2156,24 @@ class _MapWidgetState extends State<MapWidget>
           marginRight: 14,
         ),
       );
+      await map.scaleBar.updateSettings(mbx.ScaleBarSettings(enabled: false));
+      await map.logo.updateSettings(
+        mbx.LogoSettings(
+          position: mbx.OrnamentPosition.BOTTOM_LEFT,
+          marginLeft: 14,
+          marginBottom: 120,
+        ),
+      );
+      await map.attribution.updateSettings(
+        mbx.AttributionSettings(
+          position: mbx.OrnamentPosition.BOTTOM_LEFT,
+          marginLeft: 102,
+          marginBottom: 120,
+        ),
+      );
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[MapWidget] compass: ${e.runtimeType}');
+        debugPrint('[MapWidget] ornaments: ${e.runtimeType}');
       }
     }
 
@@ -2236,7 +2251,7 @@ class _MapWidgetState extends State<MapWidget>
     final cameraOpts = mbx.CameraOptions(
       center: mbx.Point(coordinates: mbx.Position(lng, lat)),
       padding: widget.isSprintMode ? _driveCameraPadding : null,
-      zoom: widget.isSprintMode ? 16.5 : 15.0,
+      zoom: widget.isSprintMode ? 16.5 : 11.0,
       // iOS 실기기에서 높은 pitch가 플랫폼뷰/지도 타일이 잘려 보이는 느낌을 만들 수 있어
       // 출시용 lean HUD에서는 낮은 각도로 안정성을 우선한다.
       pitch: widget.isSprintMode ? 22.0 : 0.0,
@@ -2435,6 +2450,7 @@ class _MapWidgetState extends State<MapWidget>
     // !_debugDoingThisLayout assertion + touch 먹통 유발.
     // TLHC_VD(Texture Layer Hybrid Composition + VirtualDisplay fallback) +
     // textureView=true → 텍스처 기반 합성으로 layout phase 간섭 차단.
+<<<<<<< HEAD
     final fogActive = widget.explorationFogCells.isNotEmpty;
     return Semantics(
       label: fogActive
@@ -2449,6 +2465,37 @@ class _MapWidgetState extends State<MapWidget>
               ko: '루트 지도',
               en: 'Route map',
               fr: 'Carte des routes',
+=======
+    return ClipRect(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return SizedBox.expand(
+            child: mbx.MapWidget(
+              styleUri: widget.isSprintMode
+                  ? MapboxService.sprintStyle(weatherIcon)
+                  : widget.strongCurveFieldHeatmap
+                  ? 'mapbox://styles/mapbox/navigation-night-v1'
+                  : MapboxService.cruiseStyle,
+              cameraOptions: mbx.CameraOptions(
+                center: mbx.Point(
+                  coordinates: mbx.Position(
+                    initialCenter.lng,
+                    initialCenter.lat,
+                  ),
+                ),
+                padding: widget.isSprintMode ? _driveCameraPadding : null,
+                zoom: widget.isSprintMode ? 16.5 : 11.0,
+                pitch: widget.isSprintMode ? 22.0 : 0.0,
+                bearing: widget.isSprintMode ? widget.navigationBearing : null,
+              ),
+              // FollowPuckViewportState: 스타일 로드 후 활성화 → Mapbox 네이티브 GPS 추적
+              viewport: _viewportState,
+              onMapCreated: _onMapCreated,
+              onStyleLoadedListener: _onStyleLoaded,
+              onCameraChangeListener: _onCameraChanged,
+              onMapIdleListener: _onMapIdle,
+              onTapListener: _onMapTap,
+>>>>>>> c754f0c (Open the finder on an area worth searching)
             ),
       child: ClipRect(
         child: LayoutBuilder(

@@ -1266,6 +1266,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _mapCenterPoint,
       _mapZoom,
     );
+<<<<<<< HEAD
     ExplorationService? exploration;
     if (_explorationFogEnabled) {
       try {
@@ -1274,6 +1275,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         exploration = null;
       }
     }
+=======
+    final noRenderedRoutes = mapDisplayRoutes.isEmpty;
+>>>>>>> c754f0c (Open the finder on an area worth searching)
     final plan = _plan;
     final showingJourney = _journeyMode != null && plan != null;
     final explorationFogCells =
@@ -1313,10 +1317,15 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         ? _cacheInlineStatus(service, language)
         : null;
     final serviceStatus =
+<<<<<<< HEAD
         _routeStatusNeedsAttention(service.routeDataStatusTitle)
         ? routeFinderStatusBodyFor(service.routeDataStatusTitle, language)
         : null;
     final serviceStatus = service.routeDataStatusTitle == null ||
+=======
+        noRenderedRoutes ||
+            service.routeDataStatusTitle == null ||
+>>>>>>> c754f0c (Open the finder on an area worth searching)
             (_routeReadyPromptDismissed &&
                 _isRouteReadyPromptStatus(service.routeDataStatusTitle))
         ? null
@@ -1343,6 +1352,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
             fr: 'Aucune option ${_lensLabel(_lens, language)}. Revenez à Tout.',
           )
         : localStatus ?? cacheStatus ?? serviceStatus;
+<<<<<<< HEAD
     final showStatusToast =
         status != null &&
         status.isNotEmpty &&
@@ -1353,6 +1363,18 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       visibleRoutes: visibleRoutes,
       filterEmpty: filterEmpty || budgetEmpty,
     );
+=======
+    final stateKind =
+        _routeFinderStateKind(
+          location: location,
+          service: service,
+          visibleRoutes: visibleRoutes,
+          filterEmpty: filterEmpty || budgetEmpty,
+        ) ??
+        (noRenderedRoutes && !service.isLoading
+            ? RouteFinderStateKind.emptyRoutes
+            : null);
+>>>>>>> c754f0c (Open the finder on an area worth searching)
     final emptyTitle = budgetEmpty
         ? AppCopy.t(
             language,
@@ -3596,9 +3618,9 @@ String routeFinderStateTitle(RouteFinderStateKind kind, AppLanguage language) {
     ),
     RouteFinderStateKind.emptyRoutes => AppCopy.t(
       language,
-      ko: '이 반경엔 아직 발견된 루트가 없어요',
-      en: 'No routes found in this radius yet',
-      fr: 'Aucune route trouvée dans ce rayon',
+      ko: '이 근처엔 아직 루트가 없어요',
+      en: 'No routes nearby yet',
+      fr: 'Aucune route à proximité',
     ),
     RouteFinderStateKind.loadFailed => AppCopy.t(
       language,
@@ -3631,9 +3653,15 @@ String routeFinderStateBody(RouteFinderStateKind kind, AppLanguage language) {
     ),
     RouteFinderStateKind.emptyRoutes => AppCopy.t(
       language,
+<<<<<<< HEAD
       ko: '지도를 옮기거나 축척을 바꾼 뒤 이 지도에서 다시 찾아보세요.',
       en: 'Move or zoom the map, then search this map again.',
       fr: 'Déplacez ou zoomez la carte, puis relancez la recherche ici.',
+=======
+      ko: '반경을 넓히거나 지역을 바꿔 보세요.',
+      en: 'Broaden the radius or choose a region.',
+      fr: 'Élargissez le rayon ou choisissez une région.',
+>>>>>>> c754f0c (Open the finder on an area worth searching)
     ),
     RouteFinderStateKind.loadFailed => AppCopy.t(
       language,
