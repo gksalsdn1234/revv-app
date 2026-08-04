@@ -5,13 +5,14 @@ Notion 페이지에 붙여넣을 전체 문안. 근거는 `docs/privacy_data_inv
 **바뀐 곳은 §4와 §5 두 군데다.** 나머지 섹션은 현행 문안을 그대로 유지하고
 프랑스어만 추가했다. 앱이 한/영/불 3개 언어를 지원하므로 처리방침도 맞춘다.
 
-- **§4**: 제3자 4곳 추가 (OpenStreetMap/Overpass · OpenWeatherMap · Google Fonts),
+- **§4**: 제3자 2곳 추가 (OpenStreetMap/Overpass · OpenWeatherMap),
   Mapbox 설명에 목적지 검색(지오코딩) 포함
 - **§5**: 백그라운드 위치·자동 기록 항목 **삭제** — 앱에 없는 기능이다
   (`UIBackgroundModes`는 `audio` 하나뿐, always 권한 요청 없음)
 
-> ⚠️ **폰트를 번들하기로 하면** §4의 Google Fonts 항목을 빼야 한다. 아래 문안에
-> 해당 문단은 `[폰트 번들 시 삭제]`로 표시해 두었다.
+> ✅ **폰트 번들 완료** (`fab77c8`). 서체가 앱에 동봉되고 런타임 다운로드가
+> 꺼졌으므로 Google로 나가는 요청이 없다. 따라서 §4에 Google Fonts 항목을
+> **넣지 않는다** — 공개할 전송 자체가 사라졌다.
 
 ---
 
@@ -118,9 +119,6 @@ processes data only as needed for that purpose:
   servers.
 - **OpenWeatherMap** — weather conditions shown for a drive. Your coordinates are
   sent through our own server rather than directly from your device.
-- **Google Fonts** — the app loads its typefaces from Google's font service at
-  runtime, which makes your device's IP address visible to Google.
-  *[폰트 번들 시 이 항목 삭제]*
 
 When you choose to open external navigation, REVV sends the selected route
 coordinates, and when applicable your current or saved home location, to Google
@@ -142,8 +140,6 @@ REVV는 앱 기능 제공을 위해 다음 서비스 제공자를 사용합니�
   지도 영역에 대한 쿼리가 공개 Overpass 서버로 전달됩니다.
 - **OpenWeatherMap** — 주행 날씨 표시. 좌표가 기기에서 직접이 아니라 REVV 서버를
   거쳐 전달됩니다.
-- **Google Fonts** — 앱 실행 시 Google 폰트 서비스에서 서체를 불러오며, 이 과정에서
-  기기 IP 주소가 Google에 노출됩니다. *[폰트 번들 시 이 항목 삭제]*
 
 사용자가 외부 내비게이션 열기를 선택하면 REVV는 경로 계산과 표시를 위해 선택한 루트
 좌표와 필요한 경우 현재 위치 또는 저장한 집 위치를 HTTPS 링크로 Google Maps 또는
@@ -166,9 +162,6 @@ ne traite les données que dans la mesure nécessaire :
   serveurs Overpass publics.
 - **OpenWeatherMap** — conditions météo affichées pour un trajet. Vos coordonnées
   transitent par notre serveur plutôt que directement depuis votre appareil.
-- **Google Fonts** — l'application charge ses polices depuis le service Google au
-  moment de l'exécution, ce qui rend l'adresse IP de votre appareil visible par
-  Google. *[폰트 번들 시 이 항목 삭제]*
 
 Lorsque vous choisissez d'ouvrir une navigation externe, REVV transmet les
 coordonnées de l'itinéraire sélectionné, et le cas échéant votre position actuelle
@@ -260,7 +253,8 @@ d'historique précis de trajets ou de positions.
    확인하지 못했으므로 실제 구현과 맞는지 민우가 확인할 것
 2. **§5 "게스트 클라우드 계정 삭제"** — 마찬가지로 현행 문안 유지. 앱에서
    `deleteAllRunData`는 확인했으나 서버 계정 삭제까지 되는지는 미확인
-3. **Google Fonts 문단** — 폰트를 번들하기로 하면 3개 언어 모두에서 삭제
+3. **Google Fonts** — 번들 완료(`fab77c8`)로 전송이 사라져 문안에서 제외했다.
+   서체를 다시 원격 로딩으로 되돌리면 §4에 복원해야 한다
 4. **마이크·음성인식**은 처리방침에 없다. 워키토키가 심사 빌드에서 제외되므로
    현재는 맞지만, 나중에 켜면 §2·§4에 추가해야 한다
 5. **Sentry**는 현재 `SENTRY_DSN` 미설정으로 비활성이라 뺐다. 켜면 §4에 추가
