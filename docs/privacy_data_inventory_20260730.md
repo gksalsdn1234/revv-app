@@ -42,7 +42,7 @@
 | Supabase | 주행 기록·텔레메트리·피드백 (옵트인 시) | ✅ 기재됨 |
 | Mapbox | 지도 타일 요청, **검색어+위치**, 기기 IP | ⚠️ "지도 표시"로만 기재 — 검색/지오코딩 누락 |
 | Google Maps / Waze | 사용자가 외부 내비 선택 시 좌표 | ✅ 기재됨 (상세히) |
-| **Google (폰트 서버)** | 앱 실행 시 기기 IP | ❌ **미기재** |
+| ~~Google (폰트 서버)~~ | ~~앱 실행 시 기기 IP~~ | ✅ **전송 제거됨** (`fab77c8`) |
 | **Overpass / OpenStreetMap** | 위치 기반 bbox 쿼리 | ❌ **미기재** |
 | **OpenWeatherMap** | 좌표 (Supabase 서버 경유, 기기 IP는 미노출) | ❌ **미기재** |
 | Sentry | (현재 비활성) | — |
@@ -85,14 +85,16 @@
 → 처리방침 §5에서 백그라운드 위치·자동 기록 문단을 **삭제하거나** 실제에 맞게
 고칠 것. 심사관은 처리방침과 Info.plist를 둘 다 본다.
 
-### G2 [높음] Google Fonts 런타임 다운로드가 미기재
+### G2 [높음] Google Fonts 런타임 다운로드가 미기재 — ✅ 해결됨 (`fab77c8`)
 
 번들 폰트가 없어(`pubspec.yaml`의 fonts 블록은 전부 주석) `google_fonts`가 실행 시
 Google 서버에서 Inter·Archivo·Rajdhani를 받아온다. 기기 IP가 Google로 간다.
 
-→ **폰트를 앱에 번들하는 쪽을 권장한다.** 제3자 전송이 사라지고, 오프라인/터널
-구간에서 폰트가 깨지지 않는다. 드라이빙 앱이라 오프라인 이점이 실질적이다.
-번들하지 않을 거면 처리방침 §4에 Google을 추가해야 한다.
+**조치 완료**: 5개 패밀리 27종을 `google_fonts/`에 동봉하고 `main.dart`에서
+`GoogleFonts.config.allowRuntimeFetching = false`로 런타임 다운로드를 차단했다.
+구글 폰트 서버로 나가는 요청이 사라졌으므로 처리방침에 Google을 **추가하지 않는다**.
+가변 마스터에서 굵기를 추출하고 라틴 계열로 서브셋해 4.9MB → 2.0MB.
+부수 효과로 터널·오프라인에서도 서체가 유지된다.
 
 ### G3 [중간] Overpass / OpenStreetMap 미기재
 
@@ -135,8 +137,9 @@ Sentry 추가. **민우 결정 사항.**
 ## 6. 배포 전 체크리스트
 
 - [ ] G1 처리방침 §5 백그라운드 위치 문구 수정 (**필수** — 사실과 다름)
-- [ ] G2 폰트 번들 or 처리방침에 Google 추가
+- [x] G2 폰트 번들 완료 (`fab77c8`) — 처리방침에 Google 추가 불필요
 - [ ] G3·G4·G5 처리방침 §4에 Overpass·OpenWeatherMap 추가, Mapbox 범위 확장
+      → 문안 작성됨: `docs/privacy_policy_revision_20260804.md`
 - [ ] G6 마이크·음성인식 권한 처리 결정
 - [ ] G7 크래시 리포팅 on/off 결정
 - [ ] App Store Connect 앱 개인정보에 위 3번 표 입력
