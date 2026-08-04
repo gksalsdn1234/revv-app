@@ -113,12 +113,18 @@ Supabase Edge Function `get-weather` 경유로 좌표가 전달된다. 서버 �
 `api.mapbox.com`으로 직접 나간다.
 → §4의 Mapbox 설명에 검색/지오코딩을 포함.
 
-### G6 [낮음] 쓰지 않는 권한 문구가 남아 있다
+### G6 [낮음] 쓰지 않는 권한 문구가 남아 있다 — ✅ 해결됨
 
 `NSMicrophoneUsageDescription` · `NSSpeechRecognitionUsageDescription`이 Info.plist에
 있으나 워키토키는 `REVV_WALKIE_LAB` 게이트로 심사 빌드에서 제외된다.
-→ 심사관이 "왜 마이크 권한을 요구하나" 물을 수 있다. 심사 빌드에서 두 키를 빼거나,
-심사 노트에 "해당 기능은 이 빌드에서 비활성"이라고 명시할 것.
+**조치 완료**: 두 키를 Info.plist에서 제거했다. 심사 빌드는 시작 시 위치만
+요청하고(`loading_screen.dart:79`), 마이크를 만지는 `PttService`는
+`labs/walkie/walkie_ptt_controller.dart`에서만 생성되므로 요청 경로가 없다.
+음성인식은 애초에 쓰는 코드가 없었다.
+
+⚠️ **워키 랩 빌드 주의**: `--dart-define=REVV_WALKIE_LAB=true`로 실기기 빌드를
+하면 PTT가 `hasPermission()`을 호출하는데 사용 목적 문자열이 없어 iOS가 앱을
+종료시킨다. 워키를 다시 테스트하려면 그때 두 키를 임시로 되돌려야 한다.
 
 ### G7 [결정 필요] 크래시 리포팅을 켤 것인가
 
@@ -140,7 +146,7 @@ Sentry 추가. **민우 결정 사항.**
 - [x] G2 폰트 번들 완료 (`fab77c8`) — 처리방침에 Google 추가 불필요
 - [ ] G3·G4·G5 처리방침 §4에 Overpass·OpenWeatherMap 추가, Mapbox 범위 확장
       → 문안 작성됨: `docs/privacy_policy_revision_20260804.md`
-- [ ] G6 마이크·음성인식 권한 처리 결정
+- [x] G6 마이크·음성인식 권한 키 제거 완료 (워키 랩 빌드는 위 주의 참고)
 - [ ] G7 크래시 리포팅 on/off 결정
 - [ ] App Store Connect 앱 개인정보에 위 3번 표 입력
 - [ ] 처리방침 갱신 후 "마지막 업데이트" 날짜 변경
