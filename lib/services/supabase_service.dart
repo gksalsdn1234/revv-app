@@ -456,20 +456,36 @@ class SupabaseService extends ChangeNotifier {
     return (await _loadRouteCatalogState(forceRefresh: true)).epoch;
   }
 
+  /// 한 번에 요청하는 루트 수. 650개를 한 요청에 담으면 nodes JSONB가 3MB를
+  /// 넘고, 루트 필드 조회와 겹치는 순간 `get_route_nodes_v2`의 8초
+  /// statement_timeout(57014)에 걸려 카탈로그가 통째로 날아간다. 나눠 받으면
+  /// 각 요청이 자기 예산을 갖고, 한 덩어리가 실패해도 나머지는 남는다.
+  static const int _routeCatalogChunkSize = 150;
+
   Future<List<RevvRoute>> fetchRouteCatalog({int maxResults = 650}) async {
     final state = await _loadRouteCatalogState();
     final routeIds = state.routeIds.take(maxResults.clamp(1, 650)).toList();
     if (routeIds.isEmpty) return const [];
-    final rows = await client!.rpc(
-      'get_route_nodes_v2',
-      params: {'route_ids_input': routeIds},
-    );
-    return (rows as List)
-        .whereType<Map<String, dynamic>>()
-        .map(_catalogRouteFromNodeRow)
-        .where((route) => route.nodes.length > 1)
-        .take(650)
-        .toList(growable: false);
+    final routes = <RevvRoute>[];
+    for (
+      var start = 0;
+      start < routeIds.length;
+      start += _routeCatalogChunkSize
+    ) {
+      final end = min(start + _routeCatalogChunkSize, routeIds.length);
+      final rows = await client!.rpc(
+        'get_route_nodes_v2',
+        params: {'route_ids_input': routeIds.sublist(start, end)},
+      );
+      routes.addAll(
+        (rows as List)
+            .whereType<Map<String, dynamic>>()
+            .map(_catalogRouteFromNodeRow)
+            .where((route) => route.nodes.length > 1),
+      );
+      if (routes.length >= 650) break;
+    }
+    return routes.take(650).toList(growable: false);
   }
 
   Future<_RouteCatalogState> _loadRouteCatalogState({

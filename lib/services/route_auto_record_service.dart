@@ -163,6 +163,14 @@ class RouteAutoRecordService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 주행 화면은 `didChangeDependencies`에서 claim을 부른다 — 그 시점은 빌드
+  /// 중이라 곧바로 notify하면 `setState() called during build`로 터진다.
+  /// 상태 변경은 그대로 즉시 반영하고(호출자가 반환값을 동기적으로 쓴다),
+  /// 알림만 마이크로태스크로 미뤄 빌드 단계를 벗어난다.
+  void _notifyOutsideBuild() {
+    scheduleMicrotask(notifyListeners);
+  }
+
   bool claimRecording(String routeId) {
     if (_state != AutoRecordState.recording || _activeRoute?.id != routeId) {
       return false;
@@ -172,7 +180,7 @@ class RouteAutoRecordService extends ChangeNotifier {
     _maxDurationTimer = null;
     _recordingStartedAt = null;
     _offRouteSince = null;
-    notifyListeners();
+    _notifyOutsideBuild();
     return true;
   }
 
@@ -186,7 +194,7 @@ class RouteAutoRecordService extends ChangeNotifier {
     _firstQualifyingAt = null;
     _qualifyingFixes = 0;
     unawaited(_location?.stopArmedTracking());
-    notifyListeners();
+    _notifyOutsideBuild();
   }
 
   void finish() {

@@ -139,12 +139,20 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 주행 시작 경로(`claimManualDrive`)가 이 메서드를 빌드 중에 부른다 —
+  /// 그 시점의 notify는 `setState() called during build`가 된다. 마이크로태스크는
+  /// 현재 프레임의 동기 실행이 끝난 뒤에 돌아서 빌드 단계를 벗어난다.
+  /// (`SchedulerBinding.instance`를 쓰면 바인딩 없는 순수 단위 테스트가 깨진다.)
+  void _notifyOutsideBuild() {
+    scheduleMicrotask(notifyListeners);
+  }
+
   void clearGuideToStart() {
     _pendingGuideMutation++;
     pendingGuideRoute = null;
     pendingGuideStartedAt = null;
     unawaited(_clearPendingDrive());
-    notifyListeners();
+    _notifyOutsideBuild();
   }
 
   Future<void> _savePendingDrive(RevvRoute route, DateTime savedAt) {
@@ -350,8 +358,9 @@ class RouteService extends ChangeNotifier {
           notifyListeners();
         } catch (error) {
           if (kDebugMode) {
+            // 타입만 찍으면 어느 RPC가 왜 죽었는지 알 수 없다 — 메시지까지 남긴다.
             debugPrint(
-              '[RouteService] route catalog failed: ${error.runtimeType}',
+              '[RouteService] route catalog failed: ${error.runtimeType}: $error',
             );
           }
         }
