@@ -169,6 +169,11 @@ class RunTelemetryDetail {
     final routeDistance = session.route?.distanceKm;
     final sampleCount = samples.length;
     final movingSampleCount = movingSamples.length;
+    // 점수는 "어떻게 달렸는가"를 설명한다. 움직인 표본이 없으면 설명할 주행이
+    // 없는데도 감점식인 smoothness는 뺄 게 없어 만점이 되고, technical·flow는
+    // 도로 특성에서 채워져, 0km 주행이 확신에 찬 숫자를 받는다. 그럴 땐 점수를
+    // 아예 내보내지 않는다 — 소비처는 모두 이 키들을 nullable로 읽는다.
+    final hasDriveData = movingSampleCount > 0 && session.distanceKm > 0;
     final durationSeconds = session.duration.inSeconds;
     final movingDurationSeconds =
         (durationSeconds * _ratio(movingSampleCount, sampleCount)).round();
@@ -245,10 +250,10 @@ class RunTelemetryDetail {
       'accelerationEventCount': eventAnalysis.accelerationEventCount,
       'windingSampleCount': eventAnalysis.windingSampleCount,
       'windingSamplePct': windingSamplePct,
-      'technicalScore': technicalScore,
-      'smoothnessScore': smoothnessScore,
-      'flowScoreDisplay': flowScoreDisplay,
-      'revvScore': revvScore,
+      if (hasDriveData) 'technicalScore': technicalScore,
+      if (hasDriveData) 'smoothnessScore': smoothnessScore,
+      if (hasDriveData) 'flowScoreDisplay': flowScoreDisplay,
+      if (hasDriveData) 'revvScore': revvScore,
       'driveModeSeconds': Map.of(session.driveModeSeconds),
       'speedBuckets': _speedBuckets(samples),
     };

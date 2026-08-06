@@ -340,7 +340,7 @@ void main() {
     expect(fastAnalytics['revvScore'], analytics['revvScore']);
   });
 
-  test('scores stay finite with empty denominators', () {
+  test('an empty session reports measurements but no scores', () {
     // Given: no samples, no route, and zero duration.
     final session = _session(const [], duration: Duration.zero);
 
@@ -350,12 +350,14 @@ void main() {
       session,
     ).analytics;
 
-    // Then: denominator guards produce exact finite score values.
+    // Then: measurements still come back guarded and finite.
     expect(analytics['windingSamplePct'], 0);
-    expect(analytics['technicalScore'], 0);
-    expect(analytics['smoothnessScore'], 100);
-    expect(analytics['flowScoreDisplay'], 15);
-    expect(analytics['revvScore'], 29);
+    // And the scores are withheld. This used to read 100 smoothness and a
+    // revvScore of 29 for a session that never happened.
+    expect(analytics['technicalScore'], isNull);
+    expect(analytics['smoothnessScore'], isNull);
+    expect(analytics['flowScoreDisplay'], isNull);
+    expect(analytics['revvScore'], isNull);
   });
 
   test('derives rich non-OBD ride metrics', () {
@@ -505,13 +507,15 @@ void main() {
       expect((analytics[key] as num).isFinite, isTrue, reason: key);
       expect(analytics[key], 0, reason: key);
     }
+    // Scores describe how the drive went, so empty telemetry withholds them
+    // rather than defaulting to a full-marks smoothness.
     for (final key in [
       'technicalScore',
       'smoothnessScore',
       'flowScoreDisplay',
       'revvScore',
     ]) {
-      expect((analytics[key] as num).isFinite, isTrue, reason: key);
+      expect(analytics.containsKey(key), isFalse, reason: key);
     }
     expect(analytics['driveModeSeconds'], isEmpty);
     expect(
@@ -536,6 +540,60 @@ void main() {
     expect(detail.samples.first.tMs, samples.first.tMs);
     expect(detail.samples.last.tMs, samples.last.tMs);
     expect(detail.analytics['sampleCount'], sampleCount);
+  });
+
+  test('a drive that never moved reports no scores', () {
+    // Given: start and end pressed without driving, on a curvy route.
+    // The route is what used to fill technical and flow, and smoothness
+    // had nothing to deduct, so this scored 66 with 0.0 km driven.
+    final parked = _session(
+      [
+        _sample(0, speedKmh: 0),
+        _sample(1000, speedKmh: 0),
+        _sample(2000, speedKmh: 0),
+      ],
+      distanceKm: 0,
+      duration: const Duration(seconds: 113),
+      route: _route(
+        tightCurveKm: 5.1,
+        mediumCurveKm: 3.6,
+        maxContinuousKm: 9,
+      ),
+    );
+
+    final analytics = RunTelemetryDetail.fromSession('parked', parked).analytics;
+
+    expect(analytics['revvScore'], isNull);
+    expect(analytics['flowScoreDisplay'], isNull);
+    expect(analytics['technicalScore'], isNull);
+    expect(analytics['smoothnessScore'], isNull);
+    // Measurements stay — only the judgements go.
+    expect(analytics['distanceKm'], 0);
+    expect(analytics['sampleCount'], 3);
+  });
+
+  test('a drive that moved still reports scores', () {
+    final driven = _session(
+      [
+        _sample(0, speedKmh: 40, lateralG: 0.3),
+        _sample(1000, speedKmh: 55, lateralG: 0.35),
+        _sample(2000, speedKmh: 50, lateralG: 0.3),
+      ],
+      distanceKm: 4.2,
+      duration: const Duration(seconds: 300),
+      route: _route(
+        tightCurveKm: 5.1,
+        mediumCurveKm: 3.6,
+        maxContinuousKm: 9,
+      ),
+    );
+
+    final analytics = RunTelemetryDetail.fromSession('driven', driven).analytics;
+
+    expect(analytics['revvScore'], isNotNull);
+    expect(analytics['flowScoreDisplay'], isNotNull);
+    expect(analytics['technicalScore'], isNotNull);
+    expect(analytics['smoothnessScore'], isNotNull);
   });
 }
 
