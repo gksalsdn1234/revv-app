@@ -248,6 +248,9 @@ class RouteTurnService {
         'geometries': 'geojson',
         'alternatives': 'false',
         'language': 'en',
+        // 중간 노드는 경유점일 뿐 정차지가 아니다. 이 파라미터가 없으면
+        // Mapbox가 모든 좌표를 stop으로 읽어 노드마다 arrive를 만든다.
+        'waypoints': '0;${waypoints.length - 1}',
       },
     );
   }
