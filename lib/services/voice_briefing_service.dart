@@ -593,10 +593,13 @@ class VoiceBriefingService {
   String _navStageKey(NavStep step, String namespace) =>
       'n:$namespace:${step.sequence}:approach';
 
+  /// 이미 말한 커브인지 가리는 키. 표시용 번역 문자열을 신원에 넣으면 주행 중
+  /// 언어를 바꾸는 것만으로 같은 커브가 새 커브가 되므로, 강도는 `severity`로
+  /// 잡는다.
   String _curveStageKey(DriveCurveCue cue, {String? stage}) {
     final distanceStage = stage ?? (cue.distanceM <= 95 ? '80' : '300');
     return 'c:${_pacedDistance(cue.distanceM)}:${cue.directionLabel}:'
-        '${cue.intensityLabel}:${cue.curveCountAhead}:$distanceStage';
+        '${cue.severity}:${cue.curveCountAhead}:$distanceStage';
   }
 
   /// 중간 강도 커브의 콜은 방향어 하나뿐이라("right"), nav 콜이 이미 같은 방향을
@@ -634,10 +637,13 @@ class VoiceBriefingService {
         : right
         ? _t(language, ko: '우측', en: 'right', fr: 'droite')
         : null;
-    final intensity = cue.intensityLabel.toLowerCase();
-    if (cue.intensityLabel.contains('헤어핀') ||
-        intensity.contains('hairpin') ||
-        intensity.contains('épingle')) {
+    // 강도는 `severity`로 읽는다. 예전에는 `intensityLabel`에 'tight'/'gentle'이
+    // 들어있는지 검사했는데, 그 라벨은 화면에 그대로 찍히는 번역 문자열이라
+    // 표시 문구를 바꾸는 순간 조용히 끊어졌다 (8db6043이 '타이트'를 '급커브'로
+    // 바꾸면서 실제로 끊어졌고, 모든 코너가 등급 없이 "turn right"로 나왔다).
+    // severity는 라벨과 같은 임계값(_curveSeverity)에서 나오고 이미
+    // `_briefableCurve`가 쓰는 값이라, 문구를 바꿔도 음성은 안 깨진다.
+    if (cue.severity >= 3) {
       return _t(
         language,
         ko: side == null ? '급회전' : '$side 급회전',
@@ -645,18 +651,9 @@ class VoiceBriefingService {
         fr: side == null ? 'virage très serré' : '$side très serrée',
       );
     }
-    final tight =
-        cue.intensityLabel.contains('타이트') ||
-        intensity.contains('tight') ||
-        intensity.contains('serré');
-    final gentle =
-        cue.intensityLabel.contains('완만') ||
-        intensity.contains('gentle') ||
-        intensity.contains('doux');
-    final medium =
-        cue.intensityLabel.contains('중간') ||
-        intensity.contains('medium') ||
-        intensity.contains('moyen');
+    final tight = cue.severity == 2;
+    final gentle = cue.severity <= 0;
+    final medium = cue.severity == 1;
     return switch (language) {
       AppLanguage.korean =>
         '${side == null ? '' : '$side '}${tight

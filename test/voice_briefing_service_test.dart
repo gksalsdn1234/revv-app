@@ -618,6 +618,50 @@ void main() {
     expect(phrase, '120, sharp left, crest');
   });
 
+  test('every severity gets its own call', () {
+    // The regression this pins: severity used to reach the voice only through
+    // intensityLabel, a translated display string. When that wording was
+    // renamed the match silently stopped and all four severities collapsed
+    // onto the same "turn right".
+    final spoken = <int, String>{
+      for (final severity in [0, 1, 2, 3])
+        severity: voice.buildCoPilotPhrase(
+          language: AppLanguage.english,
+          curveCue: cue(
+            distanceM: 200,
+            direction: 'right',
+            severity: severity,
+          ),
+          preferCurve: true,
+        ),
+    };
+
+    expect(spoken.values.toSet(), hasLength(4), reason: spoken.toString());
+    expect(spoken[3], contains('very sharp'));
+    expect(spoken[2], contains('sharp right'));
+    expect(spoken[0], contains('gentle'));
+  });
+
+  test('the call ignores the display wording and follows severity', () {
+    // route_drive_cue labels a severity-2 curve "Sharp" today and called it
+    // "Tight" before. Neither word may decide what gets spoken.
+    final phrases = ['Sharp', 'Tight', '급커브', 'anything at all'].map(
+      (label) => voice.buildCoPilotPhrase(
+        language: AppLanguage.english,
+        curveCue: cue(
+          distanceM: 200,
+          direction: 'right',
+          intensity: label,
+          severity: 2,
+        ),
+        preferCurve: true,
+      ),
+    );
+
+    expect(phrases.toSet(), hasLength(1));
+    expect(phrases.first, contains('sharp right'));
+  });
+
   test('a merged call does not say the same side twice', () {
     // Observed on a real drive: the curve called "turn right" and the colocated
     // maneuver called "right", so the phrase came out "210, turn right, right".
@@ -633,16 +677,11 @@ void main() {
         segmentDistanceM: 200,
       ),
       navDistanceM: 210,
-      curveCue: cue(
-        distanceM: 210,
-        direction: 'right',
-        intensity: 'unknown',
-        curveCountAhead: 3,
-      ),
+      curveCue: cue(distanceM: 210, direction: 'right', curveCountAhead: 3),
       preferCurve: true,
     );
 
-    expect(phrase, startsWith('210, turn right'));
+    expect(phrase, startsWith('210, sharp right'));
     expect(phrase, isNot(contains('right, right')));
   });
 
@@ -1089,7 +1128,9 @@ void main() {
       language: AppLanguage.english,
     );
 
-    expect(phrase, '200, turn');
+    // The grade still comes through — severity knows the corner is sharp even
+    // when the direction cannot be read. What must never appear is a side.
+    expect(phrase, '200, sharp turn');
     expect(phrase, isNot(contains('right')));
   });
 
