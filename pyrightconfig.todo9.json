@@ -1,0 +1,8 @@
+{
+  "include": [
+    "tools/curvature_pipeline/western_audit_cli",
+    "test/western_audit_cli_test.py"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "all"
+}

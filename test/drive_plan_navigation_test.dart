@@ -12,6 +12,10 @@ void main() {
     windingScore: 6,
     starRating: 4,
     sharpCurveCount: 3,
+    elevationDelta: 40,
+    stopSignCount: 2,
+    surfaceSummary: 'asphalt',
+    elevationProfile: [100, 150],
     centerPoint: LatLng(0, 1.5),
     distanceFromUser: 0,
   );
@@ -23,6 +27,11 @@ void main() {
     windingScore: 8,
     starRating: 5,
     sharpCurveCount: 5,
+    elevationDelta: 60,
+    trafficSignalCount: 1,
+    isBridgeLike: true,
+    surfaceSummary: 'gravel',
+    elevationProfile: [250, 180],
     centerPoint: LatLng(0, 3.5),
     distanceFromUser: 0,
   );
@@ -102,6 +111,12 @@ void main() {
     expect(route.distanceKm, 10);
     expect(route.nodes, hasLength(5));
     expect(route.sharpCurveCount, 8);
+    expect(route.stopSignCount, 2);
+    expect(route.trafficSignalCount, 1);
+    expect(route.isBridgeLike, isTrue);
+    expect(route.surfaceSummary, 'asphalt / gravel');
+    expect(route.elevationDelta, 100);
+    expect(route.elevationProfile, isNull);
   });
 
   test('activeWindingRouteNumber advances during the connector leg', () {

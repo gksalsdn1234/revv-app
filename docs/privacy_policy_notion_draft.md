@@ -1,6 +1,6 @@
 # REVV Privacy Policy / 개인정보 처리방침
 
-Last updated / 마지막 업데이트: 2026-07-13
+Last updated / 마지막 업데이트: 2026-08-05
 
 ## 1. Overview / 개요
 
@@ -50,13 +50,17 @@ We use data only for app functionality, including:
 
 REVV does not sell personal data and does not use collected data for third-party advertising tracking.
 
-REVV may use service providers required for app functionality, including Supabase for data storage and Mapbox for map display. These services process data only as needed to provide app functionality.
+REVV uses Supabase for anonymous authentication, cloud storage, and server functions; Mapbox for map display, place search and geocoding, directions, route matching, and SDK telemetry; and OpenWeatherMap for weather information. Place searches send the entered search text and, when available, a proximity coordinate directly to Mapbox. Directions and route matching send the required route coordinates to Mapbox. The Mapbox SDK may also send de-identified location, usage, performance, and diagnostic data, with telemetry controls available through the Mapbox attribution control. Weather requests send coordinates to REVV's Supabase server function, which forwards coordinates to OpenWeatherMap to retrieve current conditions.
+
+The shipped app does not send per-user location queries to the Overpass API. Overpass may be used only in offline/internal route-data enrichment, not for a user's live in-app route search.
 
 When a user chooses to open external navigation, REVV sends the selected route coordinates, and when applicable the current or saved home location, to Google Maps or Waze through an HTTPS link so that the provider can calculate and display directions. This transfer occurs only after the user selects the external navigation action and is then governed by the provider's privacy policy.
 
 REVV는 개인정보를 판매하지 않으며, 제3자 광고 추적 목적으로 데이터를 사용하지 않습니다.
 
-REVV는 앱 기능 제공을 위해 Supabase(데이터 저장)와 Mapbox(지도 표시) 같은 서비스 제공자를 사용할 수 있습니다. 해당 서비스는 앱 기능 제공에 필요한 범위에서만 데이터를 처리합니다.
+REVV는 익명 인증·클라우드 저장·서버 기능을 위해 Supabase를, 지도 표시·장소 검색 및 지오코딩·경로 안내·경로 매칭·SDK 텔레메트리를 위해 Mapbox를, 날씨 정보 제공을 위해 OpenWeatherMap을 사용합니다. 장소 검색 시 입력한 검색어와 가능한 경우 근접 좌표가 Mapbox에 직접 전달됩니다. 경로 안내와 경로 매칭에는 필요한 루트 좌표가 Mapbox에 전달됩니다. Mapbox SDK는 비식별 위치·사용·성능·진단 데이터를 전송할 수 있으며, Mapbox 저작자 표시 컨트롤에서 텔레메트리 설정을 이용할 수 있습니다. 날씨 요청 시 좌표가 REVV의 Supabase 서버 함수로 전달되고, 해당 함수가 현재 날씨 조회를 위해 좌표를 OpenWeatherMap에 전달합니다.
+
+출시 앱은 사용자별 위치 질의를 Overpass API로 보내지 않습니다. Overpass는 사용자의 실시간 앱 내 루트 검색이 아니라 오프라인/내부 루트 데이터 보강에만 사용될 수 있습니다.
 
 사용자가 외부 내비게이션 열기를 선택하면 REVV는 경로 계산과 표시를 위해 선택한 루트 좌표와 필요한 경우 현재 위치 또는 저장한 집 위치를 HTTPS 링크로 Google Maps 또는 Waze에 전달합니다. 이 전달은 사용자가 외부 내비게이션 동작을 직접 선택한 경우에만 발생하며, 이후 처리는 각 제공자의 개인정보 처리방침을 따릅니다.
 
@@ -68,7 +72,7 @@ Users can:
 - Delete saved driving records in the app.
 - Delete explored-map progress together with saved driving records.
 - Delete the guest cloud account and its associated server-side data in the app.
-- Arm automatic recording for one selected route; background location is used only while that armed/active drive is running and remains visibly indicated by the operating system.
+- Arm automatic recording for one selected route; background location is used only while that armed/active drive is running and remains visibly indicated by the operating system. On iOS, REVV requests When-In-Use authorization, not Always authorization.
 - Change location permission in iOS Settings.
 
 사용자는 다음을 제어할 수 있습니다.
@@ -77,7 +81,7 @@ Users can:
 - 앱에서 저장된 주행 기록을 삭제할 수 있습니다.
 - 저장된 주행 기록과 함께 탐험 지도 진행을 삭제할 수 있습니다.
 - 앱에서 게스트 클라우드 계정과 연결된 서버 데이터를 삭제할 수 있습니다.
-- 선택한 루트 한 개에 대해서만 자동 기록을 준비할 수 있습니다. 백그라운드 위치는 해당 준비/주행이 진행 중일 때만 사용되며 운영체제 위치 표시가 유지됩니다.
+- 선택한 루트 한 개에 대해서만 자동 기록을 준비할 수 있습니다. 백그라운드 위치는 해당 준비/주행이 진행 중일 때만 사용되며 운영체제 위치 표시가 유지됩니다. iOS에서는 Always 권한이 아닌 사용 중(When-In-Use) 위치 권한을 요청합니다.
 - iOS 설정에서 위치 권한을 변경할 수 있습니다.
 
 ## 6. Data Retention / 데이터 보관
@@ -90,8 +94,18 @@ Drive records may be stored until the user deletes them. Pending local upload da
 
 For privacy questions or deletion requests, contact:
 
-Email: [replace-with-contact-email]
+Email: gksalsdn1234559@gmail.com
 
 개인정보 관련 문의 또는 삭제 요청은 아래로 연락해 주세요.
 
-이메일: [replace-with-contact-email]
+이메일: gksalsdn1234559@gmail.com
+
+## 8. App Support / 앱 지원
+
+For help with REVV, email gksalsdn1234559@gmail.com. Include the app version,
+iOS version, device model, and a short description of the issue. Do not send
+passwords, authentication codes, or precise trip and location history.
+
+REVV 사용 관련 지원은 gksalsdn1234559@gmail.com으로 문의해 주세요. 앱 버전,
+iOS 버전, 기기 모델, 문제에 대한 간단한 설명을 포함해 주세요. 비밀번호, 인증
+코드, 상세 주행 또는 위치 기록은 보내지 마세요.

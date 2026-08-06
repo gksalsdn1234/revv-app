@@ -10,6 +10,7 @@ class CopilotRouteBriefing {
   final String primaryAdvice;
   final String startAdvice;
   final String riskAdvice;
+  final String routeContextAdvice;
   final String fitLabel;
   final String nextActionLabel;
   final List<String> decisionChips;
@@ -19,6 +20,7 @@ class CopilotRouteBriefing {
     required this.primaryAdvice,
     required this.startAdvice,
     required this.riskAdvice,
+    required this.routeContextAdvice,
     required this.fitLabel,
     required this.nextActionLabel,
     required this.decisionChips,
@@ -47,6 +49,7 @@ class CopilotRouteBriefing {
       primaryAdvice: primary,
       startAdvice: start,
       riskAdvice: risk,
+      routeContextAdvice: _routeContextAdvice(route, language),
       fitLabel: fit,
       nextActionLabel: _nextActionLabel(startKm, language),
       decisionChips: _dedupe([
@@ -77,6 +80,52 @@ class CopilotRouteBriefing {
       ]).take(5).toList(),
     );
   }
+}
+
+String _routeContextAdvice(RevvRoute route, AppLanguage? language) {
+  final facts = <String>[
+    if (route.stopSignCount > 0)
+      _text(
+        language,
+        '정지표지 ${route.stopSignCount}',
+        '${route.stopSignCount} stop signs',
+        '${route.stopSignCount} arrêts',
+      ),
+    if (route.trafficSignalCount > 0)
+      _text(
+        language,
+        '신호 ${route.trafficSignalCount}',
+        '${route.trafficSignalCount} signals',
+        '${route.trafficSignalCount} feux',
+      ),
+    if (route.surfaceSummary.trim().isNotEmpty)
+      _text(
+        language,
+        '노면 ${route.surfaceSummary.trim()}',
+        'surface ${route.surfaceSummary.trim()}',
+        'surface ${route.surfaceSummary.trim()}',
+      ),
+    if (route.speedLimitSummary.trim().isNotEmpty)
+      _text(
+        language,
+        '제한속도 정보 ${route.speedLimitSummary.trim()}',
+        'limit data ${route.speedLimitSummary.trim()}',
+        'limites ${route.speedLimitSummary.trim()}',
+      ),
+  ];
+  final caution = route.cautionNote?.trim();
+  if ((language == null || language == AppLanguage.korean) &&
+      caution != null &&
+      caution.isNotEmpty) {
+    facts.add(caution);
+  }
+  if (facts.isEmpty) return '';
+  return _text(
+    language,
+    '루트 전체 · ${facts.join(' · ')}',
+    'Route-wide · ${facts.join(' · ')}',
+    'Route entière · ${facts.join(' · ')}',
+  );
 }
 
 String _headline(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/models/revv_route.dart';
+import 'package:revv_app/services/drive_elevation_cue.dart';
 import 'package:revv_app/services/route_turn_service.dart';
 import 'package:revv_app/services/voice_briefing_service.dart';
 import 'package:revv_app/ui/route_drive_cue.dart';
@@ -133,6 +134,231 @@ void main() {
     expect(spoken, isEmpty);
   });
 
+  test(
+    'debug candidate trace matches the selected phrase before TTS',
+    () async {
+      final delivered = <String>[];
+      final debugLogs = <String>[];
+      final service = VoiceBriefingService(
+        speak: (text, _) async {
+          expect(debugLogs, ['[REVV][VoiceBriefing][candidate] $text']);
+          delivered.add(text);
+        },
+        debugLog: debugLogs.add,
+      );
+
+      service.onCue(
+        cue(distanceM: 200),
+        language: AppLanguage.korean,
+        muted: false,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(delivered, ['200, 우측 급커브']);
+      expect(debugLogs, [
+        '[REVV][VoiceBriefing][candidate] ${delivered.single}',
+      ]);
+    },
+  );
+
+  test('debug candidate trace survives TTS failure', () async {
+    final debugLogs = <String>[];
+    final service = VoiceBriefingService(
+      speak: (_, _) async => throw StateError('TTS unavailable'),
+      debugLog: debugLogs.add,
+    );
+
+    service.onCue(cue(), language: AppLanguage.korean, muted: false);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(debugLogs, ['[REVV][VoiceBriefing][candidate] 200, 우측 급커브']);
+  });
+
+  test('debug candidate trace excludes filtered speech paths', () async {
+    final debugLogs = <String>[];
+    final service = VoiceBriefingService(
+      speak: (_, _) async {},
+      clock: () => now,
+      debugLog: debugLogs.add,
+    );
+
+    service.announceStart(AppLanguage.korean, muted: false);
+    service.onCue(cue(), language: AppLanguage.korean, muted: true);
+    service.onCue(cue(severity: 1), language: AppLanguage.korean, muted: false);
+    service.onCue(
+      cue(distanceM: 700),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    expect(debugLogs, isEmpty);
+
+    service.onCue(
+      cue(distanceM: 100),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    service.onCue(
+      cue(distanceM: 100),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    service.onCue(
+      cue(distanceM: 300),
+      language: AppLanguage.korean,
+      muted: false,
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(debugLogs, ['[REVV][VoiceBriefing][candidate] 100, 우측 급커브']);
+  });
+
+  test('finds a meaningful upcoming climb from the route profile', () {
+    final elevation = nextDriveElevationCue(
+      elevationProfile: const [100, 100, 145],
+      routeDistanceKm: 1,
+      routeProgress: 0.1,
+    );
+
+    expect(elevation, isNotNull);
+    expect(elevation!.trend, DriveElevationTrend.uphill);
+    expect(elevation.changeM, 45);
+    expect(elevation.distanceM, 400);
+    expect(elevation.stageId, 'uphill:1:2');
+  });
+
+  test('finds a descent already in progress', () {
+    final elevation = nextDriveElevationCue(
+      elevationProfile: const [180, 130, 130],
+      routeDistanceKm: 1,
+      routeProgress: 0.2,
+    );
+
+    expect(elevation, isNotNull);
+    expect(elevation!.trend, DriveElevationTrend.downhill);
+    expect(elevation.changeM, 30);
+    expect(elevation.distanceM, 0);
+    expect(elevation.stageId, 'downhill:0:2');
+  });
+
+  test('ignores small, gentle, and malformed elevation profiles', () {
+    expect(
+      nextDriveElevationCue(
+        elevationProfile: const [100, 110, 105, 115],
+        routeDistanceKm: 1,
+        routeProgress: 0,
+      ),
+      isNull,
+    );
+    expect(
+      nextDriveElevationCue(
+        elevationProfile: const [100, 140],
+        routeDistanceKm: 3,
+        routeProgress: 0,
+      ),
+      isNull,
+    );
+    expect(
+      nextDriveElevationCue(
+        elevationProfile: const [100, double.nan],
+        routeDistanceKm: 1,
+        routeProgress: 0,
+      ),
+      isNull,
+    );
+  });
+
+  test('finds only an evidence-backed local crest', () {
+    final crest = nextDriveElevationCue(
+      elevationProfile: const [100, 150, 100],
+      routeDistanceKm: 1,
+      routeProgress: 0.2,
+    );
+
+    expect(crest, isNotNull);
+    expect(crest!.isCrest, isTrue);
+    expect(crest.distanceM, 300);
+    expect(crest.changeM, 50);
+    expect(crest.followingChangeM, 50);
+    expect(crest.stageId, 'crest:1');
+    expect(
+      voice.buildElevationPhrase(crest, language: AppLanguage.english),
+      '300, crest, 50 up, 50 down',
+    );
+    expect(
+      voice.buildElevationPhrase(crest, language: AppLanguage.korean),
+      '300, 크레스트, 상승 50, 하강 50',
+    );
+    expect(
+      voice.buildElevationPhrase(crest, language: AppLanguage.french),
+      '300, crête, montée 50, descente 50',
+    );
+
+    final monotonic = nextDriveElevationCue(
+      elevationProfile: const [100, 150, 200],
+      routeDistanceKm: 1,
+      routeProgress: 0,
+    );
+    expect(monotonic?.isCrest ?? false, isFalse);
+  });
+
+  test('curve call wins first, then elevation speaks once after cooldown', () {
+    const elevation = DriveElevationCue(
+      trend: DriveElevationTrend.uphill,
+      changeM: 44,
+      distanceM: 210,
+      stageId: 'uphill:2:6',
+    );
+
+    voice.onCue(cue(), language: AppLanguage.korean, muted: false);
+    voice.onElevationCue(elevation, language: AppLanguage.korean, muted: false);
+    expect(spoken, ['200, 우측 급커브']);
+
+    now = now.add(const Duration(seconds: 6));
+    voice.onElevationCue(elevation, language: AppLanguage.korean, muted: false);
+    now = now.add(const Duration(seconds: 6));
+    voice.onElevationCue(elevation, language: AppLanguage.korean, muted: false);
+
+    expect(spoken, ['200, 우측 급커브', '210, 오르막, 상승 40미터']);
+  });
+
+  test('a merged grade is consumed and does not speak twice', () {
+    const climb = DriveElevationCue(
+      trend: DriveElevationTrend.uphill,
+      changeM: 44,
+      distanceM: 210,
+      stageId: 'uphill:2:6',
+    );
+
+    voice.onCoPilotCue(
+      curveCue: cue(distanceM: 200),
+      elevationCue: climb,
+      language: AppLanguage.english,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 6));
+    voice.onElevationCue(climb, language: AppLanguage.english, muted: false);
+
+    expect(spoken, ['200, sharp right, climb 40']);
+  });
+
+  test('elevation phrases are short and localized', () {
+    const descent = DriveElevationCue(
+      trend: DriveElevationTrend.downhill,
+      changeM: 53,
+      distanceM: 0,
+      stageId: 'downhill:3:8',
+    );
+
+    expect(
+      voice.buildElevationPhrase(descent, language: AppLanguage.english),
+      'descent, 50 meters',
+    );
+    expect(
+      voice.buildElevationPhrase(descent, language: AppLanguage.french),
+      'descente, 50 mètres',
+    );
+  });
+
   test('ignores curves outside the speaking window', () {
     voice.onCoPilotCue(
       curveCue: cue(distanceM: 700),
@@ -153,8 +379,8 @@ void main() {
       language: AppLanguage.korean,
       muted: false,
     );
-    expect(spoken.single, contains('좌우 커브'));
-    expect(spoken.single, contains('4개'));
+    expect(spoken.single, '200, 우측 급커브, 연속 커브');
+    expect(spoken.single, isNot(contains('좌우')));
   });
 
   test('medium curves speak only when they form a meaningful sequence', () {
@@ -176,7 +402,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken.single, '200, 우측 커브. 좌우 커브 4개');
+    expect(spoken.single, '200, 우측 커브, 연속 커브');
   });
 
   test('a close pair of medium curves is worth briefing', () {
@@ -191,7 +417,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken.single, '200, 우측 커브. 연속 커브 2개');
+    expect(spoken.single, '200, 우측 커브, 연속 커브');
   });
 
   test('curve wording changes with tight and hairpin severity', () {
@@ -219,11 +445,11 @@ void main() {
 
     expect(
       voice.buildPhrase(mediumPair, language: AppLanguage.english),
-      '200, right turn. 2-curve sequence',
+      '200, right, bends continue',
     );
     expect(
       voice.buildPhrase(mediumPair, language: AppLanguage.french),
-      '200, virage à droite. série de 2 virages',
+      '200, droite, virages enchaînés',
     );
   });
 
@@ -261,6 +487,46 @@ void main() {
     expect(spoken, hasLength(2));
   });
 
+  test('cooldown opens at exactly five seconds', () {
+    voice.onCue(
+      cue(distanceM: 150),
+      language: AppLanguage.english,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 5));
+    voice.onCue(
+      cue(distanceM: 300, direction: 'left'),
+      language: AppLanguage.english,
+      muted: false,
+    );
+
+    expect(spoken, ['150, sharp right', '300, sharp left']);
+  });
+
+  test('a navigation call does not falsely dedupe the next curve', () {
+    voice.onCoPilotCue(
+      navStep: const NavStep(
+        sequence: 1,
+        maneuverType: 'turn',
+        modifier: 'left',
+        location: LatLng(45, -73),
+        distanceFromStartM: 200,
+        segmentDistanceM: 400,
+      ),
+      navDistanceM: 200,
+      language: AppLanguage.english,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 6));
+    voice.onCue(
+      cue(distanceM: 100),
+      language: AppLanguage.english,
+      muted: false,
+    );
+
+    expect(spoken, ['200, left', '100, sharp right']);
+  });
+
   test('re-arms for a new farther curve after passing the spoken one', () {
     voice.onCoPilotCue(
       curveCue: cue(distanceM: 150),
@@ -294,7 +560,7 @@ void main() {
     expect(spoken.single, '300, 우측 급커브');
   });
 
-  test('merges nearby TBT and curve events into one pacenote', () {
+  test('does not merge TBT and curve events at different positions', () {
     final phrase = voice.buildCoPilotPhrase(
       language: AppLanguage.korean,
       navStep: const NavStep(
@@ -309,9 +575,47 @@ void main() {
       curveCue: cue(distanceM: 120, direction: '좌측'),
     );
 
-    expect(phrase, '300, 우측 갈림길. 좌측 급커브');
+    expect(phrase, '300, 우측 유지');
     expect(phrase, isNot(contains('미터 앞')));
     expect(phrase, isNot(contains('하세요')));
+  });
+
+  test('merges only colocated curve and maneuver into one compact call', () {
+    final phrase = voice.buildCoPilotPhrase(
+      language: AppLanguage.korean,
+      navStep: const NavStep(
+        sequence: 1,
+        maneuverType: 'fork',
+        modifier: 'right',
+        location: LatLng(45, -73),
+        distanceFromStartM: 100,
+        segmentDistanceM: 200,
+      ),
+      navDistanceM: 180,
+      curveCue: cue(distanceM: 120, direction: '좌측'),
+      preferCurve: true,
+    );
+
+    expect(phrase, '120, 좌측 급커브, 우측 유지');
+  });
+
+  test('crest can be the single secondary fact beside a curve', () {
+    const crest = DriveElevationCue(
+      trend: DriveElevationTrend.uphill,
+      feature: DriveElevationFeature.crest,
+      changeM: 50,
+      followingChangeM: 40,
+      distanceM: 150,
+      stageId: 'crest:4',
+    );
+    final phrase = voice.buildCoPilotPhrase(
+      language: AppLanguage.english,
+      curveCue: cue(distanceM: 120, direction: 'left'),
+      elevationCue: crest,
+      preferCurve: true,
+    );
+
+    expect(phrase, '120, sharp left, crest');
   });
 
   test('winding mode speaks the curve before a nearby maneuver', () {
@@ -330,7 +634,7 @@ void main() {
       preferCurve: true,
     );
 
-    expect(phrase, '120, 좌측 급커브. 우측 갈림길');
+    expect(phrase, '120, 좌측 급커브');
   });
 
   test('combined speech marks the included curve as already spoken', () {
@@ -345,7 +649,7 @@ void main() {
     final curve = cue(distanceM: 120, direction: '좌측');
     voice.onCoPilotCue(
       navStep: nav,
-      navDistanceM: 300,
+      navDistanceM: 200,
       curveCue: curve,
       language: AppLanguage.korean,
       muted: false,
@@ -357,7 +661,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken, hasLength(1));
+    expect(spoken, ['200, 우측 유지, 좌측 급커브']);
   });
 
   test('short straight navigation stays silent without a curve', () {
@@ -400,7 +704,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken.single, '220, 우측 급커브. 좌우 커브 4개');
+    expect(spoken.single, '220, 우측 급커브, 연속 커브');
     expect(spoken.single, isNot(contains('직진')));
   });
 
@@ -426,7 +730,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken.single, '220, 우측 급커브. 좌우 커브 4개');
+    expect(spoken.single, '220, 우측 급커브, 연속 커브');
     expect(spoken.single, isNot(contains('직진')));
   });
 
@@ -454,7 +758,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken, ['300, 1.2킬로 직진']);
+    expect(spoken, ['300, 직진 1.2킬로']);
   });
 
   test('one kilometer is the exact straight briefing threshold', () {
@@ -488,14 +792,14 @@ void main() {
       muted: false,
     );
 
-    expect(spoken, ['300, 1킬로 직진']);
+    expect(spoken, ['300, 직진 1킬로']);
     expect(
       voice.buildCoPilotPhrase(
         language: AppLanguage.english,
         navStep: longStep,
         navDistanceM: 300,
       ),
-      '300, straight for 1 kilometer',
+      '300, straight 1 kilometer',
     );
     expect(
       voice.buildCoPilotPhrase(
@@ -503,7 +807,7 @@ void main() {
         navStep: longStep,
         navDistanceM: 300,
       ),
-      '300, tout droit sur 1 kilomètre',
+      '300, tout droit 1 kilomètre',
     );
   });
 
@@ -524,7 +828,7 @@ void main() {
         muted: false,
       );
 
-      expect(spoken, ['1.2킬로 직진']);
+      expect(spoken, ['직진 1.2킬로']);
     },
   );
 
@@ -552,7 +856,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken, ['300, 우측 갈림길']);
+    expect(spoken, ['300, 우측 유지']);
   });
 
   test('rejoin navigation has a separate spoken-step namespace', () {
@@ -581,7 +885,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken, ['300, 우측 갈림길', '280, 우측 갈림길']);
+    expect(spoken, ['300, 우측', '280, 우측']);
   });
 
   test('finish omits a meaningless zero-distance prefix', () {
@@ -599,6 +903,31 @@ void main() {
     );
 
     expect(phrase, '피니시');
+  });
+
+  test('completed frame speaks finish exactly once at zero distance', () {
+    const finish = NavStep(
+      sequence: 9,
+      maneuverType: 'arrive',
+      modifier: null,
+      location: LatLng(45, -73),
+      distanceFromStartM: 6400,
+      segmentDistanceM: 0,
+    );
+    final frame = DriveCoPilotFrame(
+      previousStatus: DriveRouteStatus.onRoute,
+      nextStatus: DriveRouteStatus.completed,
+      navStep: finish,
+      navDistanceM: 0,
+      language: AppLanguage.korean,
+      muted: false,
+    );
+
+    voice.onDriveFrame(frame);
+    now = now.add(const Duration(seconds: 9));
+    voice.onDriveFrame(frame);
+
+    expect(spoken, ['피니시']);
   });
 
   test('off-route and back-on-route phrases use rally tone', () {
@@ -619,6 +948,114 @@ void main() {
     );
 
     expect(spoken, ['루트 이탈, 우측 재진입', '온 루트']);
+  });
+
+  test('route transition preempts every lower-priority frame event', () {
+    const climb = DriveElevationCue(
+      trend: DriveElevationTrend.uphill,
+      changeM: 40,
+      distanceM: 120,
+      stageId: 'uphill:1:2',
+    );
+    voice.onDriveFrame(
+      DriveCoPilotFrame(
+        previousStatus: DriveRouteStatus.onRoute,
+        nextStatus: DriveRouteStatus.offRoute,
+        navStep: const NavStep(
+          sequence: 1,
+          maneuverType: 'turn',
+          modifier: 'left',
+          location: LatLng(45, -73),
+          distanceFromStartM: 100,
+          segmentDistanceM: 200,
+        ),
+        navDistanceM: 100,
+        curveCue: cue(distanceM: 100),
+        elevationCue: climb,
+        preferCurve: true,
+        language: AppLanguage.english,
+        muted: false,
+      ),
+    );
+
+    expect(spoken, ['off route, rejoin ahead']);
+  });
+
+  test('one-sample curve dropout does not repeat the same curve', () {
+    voice.onCue(
+      cue(distanceM: 200),
+      language: AppLanguage.english,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 6));
+    voice.onCue(null, language: AppLanguage.english, muted: false);
+    now = now.add(const Duration(seconds: 1));
+    voice.onCue(
+      cue(distanceM: 130),
+      language: AppLanguage.english,
+      muted: false,
+    );
+
+    expect(spoken, ['200, sharp right']);
+  });
+
+  test('navigation-only clear gap rearms a later physical curve', () {
+    const navigation = NavStep(
+      sequence: 3,
+      maneuverType: 'fork',
+      modifier: 'left',
+      location: LatLng(45, -73),
+      distanceFromStartM: 800,
+      segmentDistanceM: 200,
+    );
+    voice.onCue(
+      cue(distanceM: 200),
+      language: AppLanguage.english,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 6));
+    voice.onCoPilotCue(
+      navStep: navigation,
+      navDistanceM: 300,
+      language: AppLanguage.english,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 4));
+    voice.onCoPilotCue(
+      navStep: navigation,
+      navDistanceM: 280,
+      language: AppLanguage.english,
+      muted: false,
+    );
+    now = now.add(const Duration(seconds: 2));
+    voice.onCue(
+      cue(distanceM: 250, direction: 'left'),
+      language: AppLanguage.english,
+      muted: false,
+    );
+
+    expect(spoken, ['200, sharp right', '300, keep left', '250, sharp left']);
+  });
+
+  test('unknown curve labels never invent a right-hand bend', () {
+    final phrase = voice.buildPhrase(
+      cue(direction: 'unknown', intensity: 'unknown'),
+      language: AppLanguage.english,
+    );
+
+    expect(phrase, '200, turn');
+    expect(phrase, isNot(contains('right')));
+  });
+
+  test('unproven alternation wording is absent in every language', () {
+    for (final language in AppLanguage.values) {
+      final phrase = voice.buildPhrase(
+        cue(curveCountAhead: 11, nextGapM: 70),
+        language: language,
+      );
+      expect(phrase.toLowerCase(), isNot(contains('alternat')));
+      expect(phrase, isNot(contains('좌우')));
+    }
   });
 
   test('off-route rejoin side is relative to the vehicle heading', () {
@@ -698,7 +1135,7 @@ void main() {
 
       expect(fakeTts.languages, ['fr-CA']);
       expect(fakeTts.selectedVoices, isEmpty);
-      expect(fakeTts.spoken.single, '200, virage serré à droite');
+      expect(fakeTts.spoken.single, '200, droite serrée');
     },
   );
 

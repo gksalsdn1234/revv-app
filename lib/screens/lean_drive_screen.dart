@@ -11,6 +11,7 @@ import '../core/app_language.dart';
 import '../models/drive_plan.dart';
 import '../models/revv_route.dart';
 import '../services/drive_plan_navigation.dart';
+import '../services/drive_elevation_cue.dart';
 import '../services/imu_service.dart';
 import '../services/location_service.dart';
 import '../services/route_geometry_matcher.dart';
@@ -354,16 +355,43 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
         ? null
         : activeDrivePlanLegKind(widget.drivePlan!, stableProgress);
     final isTransitLeg = activePlanLegKind == DrivePlanLegKind.transit;
-    _voice.onCoPilotCue(
-      navStep: navStepProgress?.step,
-      navDistanceM: navStepProgress?.aheadM,
-      navNamespace: rejoinStepProgress == null
-          ? 'route'
-          : 'rejoin:$_recalculationGeneration',
-      curveCue: isTransitLeg ? null : routeState.cue,
-      preferCurve: !isTransitLeg,
-      language: language,
-      muted: _settings?.ttsMuted ?? true,
+    final elevationCue =
+        routeState.status == DriveRouteStatus.onRoute &&
+            !isTransitLeg &&
+            widget.drivePlan == null
+        ? nextDriveElevationCue(
+            elevationProfile: widget.route.elevationProfile,
+            routeDistanceKm: widget.route.distanceKm,
+            routeProgress: stableProgress,
+          )
+        : null;
+    final nextBearing = _nextNavigationBearing(position, heading);
+    final rejoin = routeState.status == DriveRouteStatus.offRoute
+        ? nearestRoutePoint(
+            position,
+            _activeRouteNodes,
+            routeProgress: stableProgress,
+          )
+        : null;
+    _voice.onDriveFrame(
+      DriveCoPilotFrame(
+        previousStatus: _routeStatus,
+        nextStatus: routeState.status,
+        navStep: navStepProgress?.step,
+        navDistanceM: navStepProgress?.aheadM,
+        navNamespace: rejoinStepProgress == null
+            ? 'route'
+            : 'rejoin:$_recalculationGeneration',
+        curveCue: isTransitLeg ? null : routeState.cue,
+        elevationCue: elevationCue,
+        preferCurve: !isTransitLeg,
+        language: language,
+        muted: _settings?.ttsMuted ?? true,
+        rejoinBearing: rejoin == null
+            ? _navigationBearing
+            : _bearingBetween(position, rejoin),
+        currentHeading: nextBearing,
+      ),
     );
     final turnByTurn = isTransitLeg
         ? null
@@ -374,14 +402,10 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
             routeProgress: stableProgress,
           );
     final nextEvent = _routeEventFor(_routeStatus, routeState.status, language);
-    final nextBearing = _nextNavigationBearing(position, heading);
     _handleRouteStatusTransition(
       previous: _routeStatus,
       next: routeState.status,
       position: position,
-      language: language,
-      muted: _settings?.ttsMuted ?? true,
-      currentHeading: nextBearing,
     );
     if (!mounted) return;
     setState(() {
@@ -425,25 +449,12 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     required DriveRouteStatus previous,
     required DriveRouteStatus next,
     required LatLng position,
-    required AppLanguage language,
-    required bool muted,
-    required double? currentHeading,
   }) {
     if (previous == next) return;
     final rejoin = nearestRoutePoint(
       position,
       _activeRouteNodes,
       routeProgress: _progress,
-    );
-    _voice.onRouteStatusChange(
-      previous: previous,
-      next: next,
-      language: language,
-      muted: muted,
-      rejoinBearing: rejoin == null
-          ? _navigationBearing
-          : _bearingBetween(position, rejoin),
-      currentHeading: currentHeading,
     );
     if (next != DriveRouteStatus.offRoute) {
       if (previous == DriveRouteStatus.offRoute) {

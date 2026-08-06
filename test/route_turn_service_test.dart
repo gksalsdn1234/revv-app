@@ -28,9 +28,9 @@ void main() {
       expect(steps.first.maneuverType, 'fork');
       expect(steps.first.location.lat, 45.001);
       expect(steps.first.location.lng, -73.001);
-      expect(steps.first.call(AppLanguage.korean), '우측 갈림길');
-      expect(steps.first.call(AppLanguage.english), 'fork right');
-      expect(steps.first.call(AppLanguage.french), 'bifurcation à droite');
+      expect(steps.first.call(AppLanguage.korean), '우측 유지');
+      expect(steps.first.call(AppLanguage.english), 'keep right');
+      expect(steps.first.call(AppLanguage.french), 'restez à droite');
       expect(steps.first.distanceFromStartM, 0);
       expect(steps.first.segmentDistanceM, 120);
       expect(steps.last.distanceFromStartM, 120);
@@ -165,6 +165,36 @@ void main() {
     expect(step.call(AppLanguage.korean), '직진');
     expect(step.call(AppLanguage.english), 'straight');
     expect(step.call(AppLanguage.french), 'tout droit');
+  });
+
+  test('maneuver calls are concise, localized, and case-insensitive', () {
+    NavStep step(String type, String? modifier) => NavStep(
+      sequence: 1,
+      maneuverType: type,
+      modifier: modifier,
+      location: const LatLng(45, -73),
+      distanceFromStartM: 100,
+      segmentDistanceM: 200,
+    );
+
+    expect(step('TURN', 'RIGHT').call(AppLanguage.english), 'right');
+    expect(step('fork', 'Left').call(AppLanguage.korean), '좌측 유지');
+    expect(step('off ramp', 'right').call(AppLanguage.english), 'exit right');
+    expect(
+      step('on ramp', 'left').call(AppLanguage.french),
+      'bretelle à gauche',
+    );
+    expect(step('merge', 'right').call(AppLanguage.korean), '우측 합류');
+    expect(
+      step('roundabout turn', null).call(AppLanguage.english),
+      'roundabout',
+    );
+    expect(
+      step('exit rotary', null).call(AppLanguage.french),
+      'sortie du rond-point',
+    );
+    expect(step('turn', 'uturn').call(AppLanguage.korean), '유턴');
+    expect(step('unknown', 'unknown').call(AppLanguage.english), 'straight');
   });
 
   test(

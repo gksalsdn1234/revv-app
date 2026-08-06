@@ -1,0 +1,34 @@
+{
+ "brief": "task-13 levers: gate-preserving yield improvements + 2x deterministic 15-hub real dry-run into task-13-dryrun-20260718-levers",
+ "created": "2026-07-18T13:50:04.774813+00:00",
+ "goals": [
+  {
+   "id": "G001",
+   "title": "ceiling-25",
+   "objective": "Raise per-hub candidate ceiling 20 to 25 in model, validation, tests, README",
+   "status": "complete",
+   "evidence": "max_candidates default+ceiling 25; tests updated; README/CLI help updated; suite green"
+  },
+  {
+   "id": "G002",
+   "title": "residential-levers",
+   "objective": "Residential-aware ranking, connector penalty, repair and reverse extension in western_seeds/batch.py with unit tests",
+   "status": "complete",
+   "evidence": "residential bucket ranking, x4 connector penalty w/ real 12km bound, U-turn guard, repair extension, reverse extension; lever tests pass; full suite 210 OK"
+  },
+  {
+   "id": "G003",
+   "title": "quality-gates",
+   "objective": "Full test suite green plus ruff format/check and basedpyright on changed files",
+   "status": "in_progress",
+   "evidence": null
+  },
+  {
+   "id": "G004",
+   "title": "dryrun-x2",
+   "objective": "run1 and run2 all 15 hubs seed-source real no-upload, byte-identical comparison, funnel reconciles, budgets honored, notes.json written",
+   "status": "pending",
+   "evidence": null
+  }
+ ]
+}

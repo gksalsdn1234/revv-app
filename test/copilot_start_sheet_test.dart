@@ -6,6 +6,7 @@ import 'package:revv_app/core/storage_keys.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/services/route_service.dart';
 import 'package:revv_app/services/settings_service.dart';
+import 'package:revv_app/ui/copilot_briefing.dart';
 import 'package:revv_app/widgets/copilot_start_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -71,6 +72,87 @@ void main() {
 
     expect(launched.single.scheme, 'https');
     expect(launched.single.host, 'waze.com');
+  });
+
+  testWidgets('far route shows briefing before test drive action', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.english);
+    final route = _routeWithNodes(4);
+    final briefing = CopilotRouteBriefing.fromRoute(
+      route,
+      startDistanceKm: route.distanceFromUser,
+      language: AppLanguage.english,
+    );
+
+    await _pumpSheet(
+      tester,
+      route: route,
+      settings: settings,
+      launcher: (_, {required mode}) async => true,
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Google Maps'), findsOneWidget);
+    expect(find.text('Start here'), findsOneWidget);
+    expect(find.text(briefing.startAdvice), findsOneWidget);
+    expect(find.text(briefing.primaryAdvice), findsOneWidget);
+    expect(find.text(briefing.riskAdvice), findsOneWidget);
+    expect(find.text('Test drive from here'), findsOneWidget);
+
+    final labels = tester
+        .widgetList<Text>(find.byType(Text))
+        .map((text) => text.data)
+        .whereType<String>()
+        .toList();
+    expect(
+      labels.indexOf(briefing.primaryAdvice),
+      lessThan(labels.indexOf('Test drive from here')),
+    );
+    expect(
+      labels.indexOf(briefing.riskAdvice),
+      lessThan(labels.indexOf('Test drive from here')),
+    );
+  });
+
+  testWidgets('near route shows route-wide safety context before starting', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsService();
+    await settings.setAppLanguage(AppLanguage.english);
+    final route = _routeWithNodes(4).copyWith(
+      distanceFromUser: 0.2,
+      stopSignCount: 5,
+      trafficSignalCount: 2,
+      surfaceSummary: 'asphalt',
+      speedLimitSummary: '80',
+    );
+    final briefing = CopilotRouteBriefing.fromRoute(
+      route,
+      language: AppLanguage.english,
+    );
+
+    await _pumpSheet(
+      tester,
+      route: route,
+      settings: settings,
+      launcher: (_, {required mode}) async => true,
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text(briefing.riskAdvice), findsOneWidget);
+    expect(find.text(briefing.routeContextAdvice), findsOneWidget);
+    expect(briefing.riskAdvice, contains('7 stops'));
+    expect(
+      briefing.routeContextAdvice,
+      'Route-wide · 5 stop signs · 2 signals · surface asphalt · limit data 80',
+    );
   });
 
   testWidgets('Google Maps reports failure when app and web handoffs throw', (

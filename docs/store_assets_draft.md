@@ -65,7 +65,7 @@ Cloud drive storage can be turned on or off in settings, and drive data can be d
 | Identifiers / User ID | 예 | `SupabaseService.init`, `uid`, `SecureSessionStore` | Supabase 익명 인증 ID와 세션 토큰으로 개인 기록을 분리합니다. 이메일, 이름, 전화번호는 코드상 수집하지 않습니다. |
 | Usage Data / Product Interaction | 예 | `RunHistoryService.saveFeedback`, `recordRouteRun`, `saveRouteBookmark`, `saveDiscoveredRoutes` | 루트 피드백, 루트 실행 카운트, 저장한 루트, 발견한 루트 캐시가 앱 기능 복원과 루트 품질 개선에 사용됩니다. |
 | Other Data | 예 | `RunSession`, `RunTelemetryDetail`, `RunHistoryService.save` | 거리, 시간, 주행 속도 표본, 관성 센서 요약, 코너 이벤트를 기록 복기와 공유 카드 생성에 사용합니다. Apple의 Fitness 분류로 과장하지 않고 Other Data로 신고합니다. |
-| Diagnostics | 아니오 | `sentry_flutter`는 binary에 포함되지만 release `SENTRY_DSN`이 비어 있어 초기화/전송이 비활성 | 이 심사 후보에서는 진단 데이터를 전송하지 않습니다. DSN을 켜는 후속 빌드는 App Privacy 답변을 다시 검토해야 합니다. |
+| Diagnostics | 예 (Mapbox) / Crash Data는 아니오 | build-59의 `MapboxCommon` privacy manifest가 Performance Data와 Other Diagnostic Data를 비연결·비추적, App Functionality + Analytics로 선언합니다. `SENTRY_DSN`은 비어 있어 Sentry는 초기화·전송하지 않습니다. | App Store Connect에 Mapbox 기준 Performance Data와 Other Diagnostic Data를 2026-08-05 게시했습니다. Sentry DSN을 켜는 후속 빌드는 Crash Data도 다시 검토해야 합니다. |
 | Contact Info | 아니오 | 익명 인증 유지, 입력 필드 없음 | 이메일, 이름, 전화번호 수집 근거 없음. |
 | Tracking | 아니오 | `release_quality_checklist.md` App Store Privacy Notes | 타사 광고 추적 또는 교차 앱 추적 근거 없음. |
 

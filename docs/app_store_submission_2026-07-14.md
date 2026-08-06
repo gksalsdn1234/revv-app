@@ -1,4 +1,8 @@
-# REVV App Store submission packet — 2026-07-14
+# Historical REVV App Store submission packet — 2026-07-14
+
+> Superseded for submission by `docs/app_store_submission_2026-07-21.md`.
+> This file documents the former build-55 candidate only; do not use its
+> commands, screenshots, or readiness status to submit the current build.
 
 Release candidate: `1.38.0 (55)`
 Bundle ID: `com.revv.revvApp`

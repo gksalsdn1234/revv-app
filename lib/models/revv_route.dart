@@ -318,6 +318,7 @@ class RevvRoute {
     String? speedLimitSummary,
     List<String>? nearbyPoiNames,
     List<double>? elevationProfile,
+    bool clearElevationProfile = false,
     int? runCount,
     String? publishedBy,
     bool? isGenerated,
@@ -363,7 +364,9 @@ class RevvRoute {
       surfaceSummary: surfaceSummary ?? this.surfaceSummary,
       speedLimitSummary: speedLimitSummary ?? this.speedLimitSummary,
       nearbyPoiNames: nearbyPoiNames ?? this.nearbyPoiNames,
-      elevationProfile: elevationProfile ?? this.elevationProfile,
+      elevationProfile: clearElevationProfile
+          ? null
+          : elevationProfile ?? this.elevationProfile,
       runCount: runCount ?? this.runCount,
       publishedBy: publishedBy ?? this.publishedBy,
       isGenerated: isGenerated ?? this.isGenerated,

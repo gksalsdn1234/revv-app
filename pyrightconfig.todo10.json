@@ -1,0 +1,11 @@
+{
+  "include": [
+    "tools/curvature_pipeline/western_upload",
+    "tools/curvature_pipeline/upload_western_batch.py",
+    "test/western_upload_contract_test.py",
+    "test/western_upload_fixture.py",
+    "test/western_upload_lifecycle_test.py"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "all"
+}

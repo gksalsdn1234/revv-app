@@ -29,13 +29,13 @@ class NavStep {
   });
 
   bool get isStraightAhead {
-    final normalizedModifier = modifier?.toLowerCase();
+    final normalizedModifier = modifier?.trim().toLowerCase();
     if (normalizedModifier?.contains('left') == true ||
         normalizedModifier?.contains('right') == true) {
       return false;
     }
     if (normalizedModifier == 'straight') return true;
-    return switch (maneuverType.toLowerCase()) {
+    return switch (maneuverType.trim().toLowerCase()) {
       'depart' ||
       'continue' ||
       'new name' ||
@@ -50,8 +50,11 @@ class NavStep {
       !isStraightAhead || segmentDistanceM >= minBriefingStraightM;
 
   String call(AppLanguage language) {
-    final right = modifier?.contains('right') == true;
-    final left = modifier?.contains('left') == true;
+    final type = maneuverType.trim().toLowerCase();
+    final normalizedModifier = modifier?.trim().toLowerCase() ?? '';
+    final right = normalizedModifier.contains('right');
+    final left = normalizedModifier.contains('left');
+    final uTurn = normalizedModifier.contains('uturn');
     final direction = right
         ? _t(language, ko: '우측', en: 'right', fr: 'droite')
         : left
@@ -63,21 +66,58 @@ class NavStep {
         ? 'à gauche'
         : 'tout droit';
     if (isStraightAhead) return direction;
-    return switch (maneuverType) {
-      'fork' || 'off ramp' || 'on ramp' || 'merge' => _t(
+    if (uTurn) {
+      return _t(language, ko: '유턴', en: 'U-turn', fr: 'demi-tour');
+    }
+    return switch (type) {
+      'fork' => _t(
         language,
-        ko: '$direction 갈림길',
-        en: 'fork $direction',
-        fr: 'bifurcation $frenchDirection',
+        ko: '$direction 유지',
+        en: 'keep $direction',
+        fr: 'restez $frenchDirection',
       ),
-      'roundabout' ||
-      'rotary' => _t(language, ko: '회전교차로', en: 'roundabout', fr: 'rond-point'),
+      'off ramp' => _t(
+        language,
+        ko: '$direction 진출',
+        en: 'exit $direction',
+        fr: 'sortie $frenchDirection',
+      ),
+      'on ramp' => _t(
+        language,
+        ko: '$direction 진입',
+        en: 'ramp $direction',
+        fr: 'bretelle $frenchDirection',
+      ),
+      'merge' => _t(
+        language,
+        ko: '$direction 합류',
+        en: 'merge $direction',
+        fr: 'fusion $frenchDirection',
+      ),
+      'roundabout' || 'rotary' || 'roundabout turn' => _t(
+        language,
+        ko: '회전교차로',
+        en: 'roundabout',
+        fr: 'rond-point',
+      ),
+      'exit roundabout' || 'exit rotary' => _t(
+        language,
+        ko: '회전교차로 진출',
+        en: 'exit roundabout',
+        fr: 'sortie du rond-point',
+      ),
+      'end of road' => _t(
+        language,
+        ko: '끝에서 $direction',
+        en: '$direction at the end',
+        fr: '$frenchDirection au bout',
+      ),
       'arrive' => _t(language, ko: '피니시', en: 'finish', fr: 'arrivée'),
       _ => _t(
         language,
-        ko: '$direction 갈림길',
-        en: right || left ? 'turn $direction' : direction,
-        fr: right || left ? 'tournez $frenchDirection' : direction,
+        ko: right || left ? direction : '직진',
+        en: right || left ? direction : 'straight',
+        fr: right || left ? frenchDirection : 'tout droit',
       ),
     };
   }

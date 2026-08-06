@@ -1228,6 +1228,7 @@ class SupabaseService extends ChangeNotifier {
         windingScore: (row['winding_score'] as num?)?.toDouble() ?? 0,
         starRating: (row['star_rating'] as num?)?.toInt() ?? 1,
         sharpCurveCount: (row['sharp_curve_count'] as num?)?.toInt() ?? 0,
+        elevationDelta: (row['elevation_delta'] as num?)?.toDouble() ?? 0,
         centerPoint: LatLng(centerLat, centerLng),
         distanceFromUser: distanceFromUser,
         tightCurveKm: (row['tight_curve_km'] as num?)?.toDouble() ?? 0,

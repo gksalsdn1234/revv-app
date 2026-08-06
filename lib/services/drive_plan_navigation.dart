@@ -52,6 +52,18 @@ RevvRoute buildDrivePlanRoute({
   final roadNames = <String>{
     for (final route in windingRoutes) ...route.roadNames,
   }.toList(growable: false);
+  final surfaces = <String>{
+    for (final route in windingRoutes)
+      if (route.surfaceSummary.trim().isNotEmpty) route.surfaceSummary.trim(),
+  }.join(' / ');
+  final speedLimits = <String>{
+    for (final route in windingRoutes)
+      if (route.speedLimitSummary.trim().isNotEmpty)
+        route.speedLimitSummary.trim(),
+  }.join(' / ');
+  final nearbyPois = <String>{
+    for (final route in windingRoutes) ...route.nearbyPoiNames,
+  }.toList(growable: false);
 
   return base.copyWith(
     id: '${RevvRoute.chainRouteIdPrefix}${windingRoutes.map((route) => Uri.encodeComponent(route.id)).join('/')}',
@@ -63,6 +75,10 @@ RevvRoute buildDrivePlanRoute({
     sharpCurveCount: windingRoutes.fold<int>(
       0,
       (total, route) => total + route.sharpCurveCount,
+    ),
+    elevationDelta: windingRoutes.fold<double>(
+      0,
+      (total, route) => total + route.elevationDelta,
     ),
     centerPoint: nodes[nodes.length ~/ 2],
     distanceFromUser: 0,
@@ -80,6 +96,24 @@ RevvRoute buildDrivePlanRoute({
     ),
     isLoop: RevvRoute.haversineKm(nodes.first, nodes.last) <= 3,
     roadNames: roadNames,
+    stopSignCount: windingRoutes.fold<int>(
+      0,
+      (total, route) => total + route.stopSignCount,
+    ),
+    trafficSignalCount: windingRoutes.fold<int>(
+      0,
+      (total, route) => total + route.trafficSignalCount,
+    ),
+    isFacilityLike: windingRoutes.any((route) => route.isFacilityLike),
+    isBridgeLike: windingRoutes.any((route) => route.isBridgeLike),
+    isConnectorLike: windingRoutes.any((route) => route.isConnectorLike),
+    isMajorRoadLike: windingRoutes.any((route) => route.isMajorRoadLike),
+    isPrivateLike: windingRoutes.any((route) => route.isPrivateLike),
+    surfaceSummary: surfaces,
+    speedLimitSummary: speedLimits,
+    nearbyPoiNames: nearbyPois,
+    // A single leg's profile is not aligned to the composite geometry.
+    clearElevationProfile: true,
   );
 }
 

@@ -288,6 +288,39 @@ class _CopilotStartSheet extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 16),
+                  _AdviceLine(
+                    icon: Icons.flag_rounded,
+                    text: briefing.startAdvice,
+                  ),
+                  const SizedBox(height: 8),
+                  _AdviceLine(
+                    icon: Icons.psychology_rounded,
+                    text: briefing.primaryAdvice,
+                  ),
+                  const SizedBox(height: 8),
+                  _AdviceLine(
+                    icon: Icons.shield_outlined,
+                    text: briefing.riskAdvice,
+                  ),
+                  if (briefing.routeContextAdvice.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _AdviceLine(
+                      icon: Icons.route_outlined,
+                      text: briefing.routeContextAdvice,
+                    ),
+                  ],
+                  if (briefing.decisionChips.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: briefing.decisionChips
+                          .take(3)
+                          .map((chip) => _Chip(label: chip))
+                          .toList(),
+                    ),
+                  ],
                 ] else ...[
                   // ── 가까울 때: 바로 시작 ──
                   _AdviceLine(
@@ -299,6 +332,18 @@ class _CopilotStartSheet extends StatelessWidget {
                     icon: Icons.psychology_rounded,
                     text: briefing.primaryAdvice,
                   ),
+                  const SizedBox(height: 8),
+                  _AdviceLine(
+                    icon: Icons.shield_outlined,
+                    text: briefing.riskAdvice,
+                  ),
+                  if (briefing.routeContextAdvice.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _AdviceLine(
+                      icon: Icons.route_outlined,
+                      text: briefing.routeContextAdvice,
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   if (briefing.decisionChips.isNotEmpty) ...[
                     Wrap(

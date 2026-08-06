@@ -155,6 +155,7 @@ void main() {
       'winding_score': 6.3,
       'star_rating': 4,
       'sharp_curve_count': 11,
+      'elevation_delta': 86.5,
       'center_lat': 45.05,
       'center_lng': -73.05,
       'distance_from_user_km': 12.0,
@@ -201,6 +202,7 @@ void main() {
     expect(route.driveabilityPenalty, 0.72);
     expect(route.stopSignCount, 2);
     expect(route.trafficSignalCount, 1);
+    expect(route.elevationDelta, 86.5);
     expect(route.elevationProfile, [10, 24, 18]);
     expect(route.roadNames, ['Chemin du Lac', 'North Ridge']);
     expect(route.surfaceSummary, 'asphalt');

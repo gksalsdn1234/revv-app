@@ -1,0 +1,53 @@
+{
+  "canvas": [
+    1320,
+    2868
+  ],
+  "language": "English",
+  "source_build": "1.38.0+59",
+  "background": "store_assets/screenshots/marketing/en/source/revv_editorial_background.png",
+  "outputs": [
+    {
+      "file": "store_assets/screenshots/marketing/en/iphone_6_9/01_find_roads_worth_driving.png",
+      "source": "store_assets/screenshots/final/iphone_6_9/01_route_map.png",
+      "headline": "Find roads\nworth driving",
+      "subhead": "Explore curvy routes across Canada.",
+      "sha256": "b261ad3d2a47ccf1e39079e58aff0f59671a2afafc867a530dabe02b673083b4"
+    },
+    {
+      "file": "store_assets/screenshots/marketing/en/iphone_6_9/02_know_the_road_before_you_go.png",
+      "source": "store_assets/screenshots/final/iphone_6_9/02_route_preview.png",
+      "headline": "Know the road before you go",
+      "subhead": "Preview the shape, distance, and drive time.",
+      "sha256": "3b516ae3cbfd549331db92c6e00acdd70226a8e36d16b6458862a6fd11ded242"
+    },
+    {
+      "file": "store_assets/screenshots/marketing/en/iphone_6_9/03_every_curve_before_the_first_turn.png",
+      "source": "store_assets/screenshots/final/iphone_6_9/03_route_detail.png",
+      "headline": "Every curve, before the first turn",
+      "subhead": "Compare route shape, timing, and curve mix.",
+      "sha256": "b01f76f274d2e6a566910476e0c688af270e8cdfe204fe2b8a2635bdb6b9d672"
+    },
+    {
+      "file": "store_assets/screenshots/marketing/en/iphone_6_9/04_the_next_curve_right_on_time.png",
+      "source": "store_assets/screenshots/final/iphone_6_9/04_drive.png",
+      "headline": "The next curve, right on time",
+      "subhead": "Focused guidance built for the drive.",
+      "sha256": "a7b8f12071ca0310e0c2f30e6b579b97029b274da5d400dc4e697fe4f73222ea"
+    },
+    {
+      "file": "store_assets/screenshots/marketing/en/iphone_6_9/05_every_drive_becomes_part_of_the_story.png",
+      "source": "store_assets/screenshots/final/iphone_6_9/05_history.png",
+      "headline": "Every drive becomes part of the story",
+      "subhead": "Track distance, rhythm, and season progress.",
+      "sha256": "52a633377984318ef9a6983abc21b895f1ffb7100ccec23c3fa135e4977e19e2"
+    },
+    {
+      "file": "store_assets/screenshots/marketing/en/iphone_6_9/06_your_drives_your_controls.png",
+      "source": "store_assets/screenshots/final/iphone_6_9/06_settings.png",
+      "headline": "Your drives. Your controls.",
+      "subhead": "Choose what stays local, synced, or deleted.",
+      "sha256": "e261a387f8056a2d46acaaa4dc3737e9d76e051afb787f692044882f2fc2fc13"
+    }
+  ]
+}

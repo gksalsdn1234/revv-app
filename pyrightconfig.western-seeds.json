@@ -1,0 +1,17 @@
+{
+  "include": [
+    "tools/curvature_pipeline/western_graph/codec.py",
+    "tools/curvature_pipeline/western_graph/codec_format.py",
+    "tools/curvature_pipeline/western_seeds",
+    "tools/curvature_pipeline/western_routes/generator.py",
+    "tools/curvature_pipeline/generate_native_route.py",
+    "test/western_seed_fixture.py",
+    "test/western_native_seed_test.py",
+    "test/western_native_seed_boundary_test.py",
+    "test/western_native_seed_batch_test.py",
+    "test/western_native_seed_levers_test.py",
+    "test/western_native_seed_cli_test.py"
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "all"
+}
