@@ -618,6 +618,52 @@ void main() {
     expect(phrase, '120, sharp left, crest');
   });
 
+  test('a merged call does not say the same side twice', () {
+    // Observed on a real drive: the curve called "turn right" and the colocated
+    // maneuver called "right", so the phrase came out "210, turn right, right".
+    // The second word carries nothing the first has not already said.
+    final phrase = voice.buildCoPilotPhrase(
+      language: AppLanguage.english,
+      navStep: const NavStep(
+        sequence: 1,
+        maneuverType: 'turn',
+        modifier: 'right',
+        location: LatLng(45, -73),
+        distanceFromStartM: 100,
+        segmentDistanceM: 200,
+      ),
+      navDistanceM: 210,
+      curveCue: cue(
+        distanceM: 210,
+        direction: 'right',
+        intensity: 'unknown',
+        curveCountAhead: 3,
+      ),
+      preferCurve: true,
+    );
+
+    expect(phrase, startsWith('210, turn right'));
+    expect(phrase, isNot(contains('right, right')));
+  });
+
+  test('a merged curve still speaks when it adds intensity', () {
+    final phrase = voice.buildCoPilotPhrase(
+      language: AppLanguage.english,
+      navStep: const NavStep(
+        sequence: 1,
+        maneuverType: 'turn',
+        modifier: 'right',
+        location: LatLng(45, -73),
+        distanceFromStartM: 100,
+        segmentDistanceM: 200,
+      ),
+      navDistanceM: 210,
+      curveCue: cue(distanceM: 210, direction: 'right', intensity: 'tight'),
+    );
+
+    expect(phrase, contains('sharp right'));
+  });
+
   test('winding mode speaks the curve before a nearby maneuver', () {
     final phrase = voice.buildCoPilotPhrase(
       language: AppLanguage.korean,

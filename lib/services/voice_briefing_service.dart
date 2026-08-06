@@ -461,6 +461,10 @@ class VoiceBriefingService {
             mergeWindowM) {
       secondaryCall = preferCurve ? navCall : curveCall;
     }
+    if (secondaryCall != null &&
+        _repeatsDirection(primaryCall, secondaryCall, language)) {
+      secondaryCall = null;
+    }
     final includeElevation = _shouldIncludeElevation(
       navStep: spokenNavStep,
       navDistanceM: navDistanceM,
@@ -593,6 +597,26 @@ class VoiceBriefingService {
     final distanceStage = stage ?? (cue.distanceM <= 95 ? '80' : '300');
     return 'c:${_pacedDistance(cue.distanceM)}:${cue.directionLabel}:'
         '${cue.intensityLabel}:${cue.curveCountAhead}:$distanceStage';
+  }
+
+  /// 중간 강도 커브의 콜은 방향어 하나뿐이라("right"), nav 콜이 이미 같은 방향을
+  /// 말했으면 "310, turn right, right"처럼 정보 없이 반복된다. 그럴 땐 두 번째
+  /// 자리를 비워 시퀀스("bends continue")나 고저차 콜이 대신 들어가게 한다.
+  bool _repeatsDirection(
+    String primaryCall,
+    String secondaryCall,
+    AppLanguage language,
+  ) {
+    final secondary = secondaryCall.trim().toLowerCase();
+    final primary = primaryCall.toLowerCase();
+    for (final side in [
+      _t(language, ko: '좌측', en: 'left', fr: 'gauche'),
+      _t(language, ko: '우측', en: 'right', fr: 'droite'),
+    ]) {
+      final word = side.toLowerCase();
+      if (secondary == word) return primary.contains(word);
+    }
+    return false;
   }
 
   String _curveCall(DriveCurveCue cue, AppLanguage language) {
