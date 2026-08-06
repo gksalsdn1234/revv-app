@@ -2732,7 +2732,10 @@ class _SaveStateCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   detail,
-                  maxLines: 1,
+                  // 루트 이름 + 업로드 안내는 한 줄에 절대 들어가지 않는다.
+                  // 한 줄로 묶어 두는 동안은 "cloud uploads in the backg…" 처럼
+                  // 잘려서, 클라우드 업로드가 어떻게 되는지가 말끝에서 사라졌다.
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppText.mono(size: 11, color: AppColors.stone),
                 ),
