@@ -3318,25 +3318,76 @@ String driveMinutesLabel(RevvRoute route, AppLanguage language) {
   );
 }
 
+/// 루트가 어떤 성격인지 한 단어로. 절대 km가 아니라 **길이 대비 비율**로 나눈다.
+/// 고정 임계값(타이트 1.2km 이상)을 쓰던 때는 이 앱이 애초에 와인딩 루트만 모으는
+/// 탓에 목록 전체가 "타이트 코너" 하나로 찍혀 나와, 항목을 구분하는 데 아무
+/// 도움이 되지 않았다. 비율은 주행 시작 게이트가 이미 보여주는 "9km 중 56%가
+/// 타이트" 와 같은 값이라 두 화면이 같은 근거를 말하게 된다.
+String _routeCharacterLabel(RevvRoute route, AppLanguage language) {
+  if (route.isLoop) {
+    return AppCopy.t(language, ko: '루프', en: 'Loop', fr: 'Boucle');
+  }
+  final km = route.distanceKm;
+  if (km <= 0) {
+    return AppCopy.t(
+      language,
+      ko: '가벼운 리듬',
+      en: 'Light rhythm',
+      fr: 'Rythme léger',
+    );
+  }
+  final tightRatio = route.tightCurveKm / km;
+  final mediumRatio = route.mediumCurveKm / km;
+  if (tightRatio >= 0.45) {
+    return AppCopy.t(
+      language,
+      ko: '타이트 코너',
+      en: 'Tight curves',
+      fr: 'Virages serrés',
+    );
+  }
+  if (tightRatio >= 0.2) {
+    return AppCopy.t(language, ko: '섞인 리듬', en: 'Mixed', fr: 'Mixte');
+  }
+  if (mediumRatio >= 0.25) {
+    return AppCopy.t(language, ko: '스위퍼', en: 'Sweepers', fr: 'Courbes fluides');
+  }
+  return AppCopy.t(
+    language,
+    ko: '가벼운 리듬',
+    en: 'Light rhythm',
+    fr: 'Rythme léger',
+  );
+}
+
+/// 지금 위치에서 루트 **출발점까지** 얼마나 가야 하는지. 루트 자체 길이와 헷갈리지
+/// 않게 어휘를 분리한다.
+///
+/// 이 값이 없으면 사용자는 목록에서 고르고 미리보기를 본 다음 "주행 시작"을 누른
+/// 뒤에야 129km 떨어진 곳이라는 걸 알게 된다. 정보는 주행 시작 게이트에 이미
+/// 있었지만, 정작 고르는 순간에는 없었다.
+String? _routeApproachLabel(RevvRoute route, AppLanguage language) {
+  final away = route.distanceFromUser;
+  if (!away.isFinite || away <= 0) return null;
+  final value = away < 1.0
+      ? '${(away * 1000).round()}m'
+      : '${away.toStringAsFixed(0)}km';
+  return AppCopy.t(
+    language,
+    ko: '$value 거리',
+    en: '$value away',
+    fr: 'à $value',
+  );
+}
+
 String _routeListMeta(RevvRoute route, AppLanguage language) {
-  final feature = route.isLoop
-      ? AppCopy.t(language, ko: '루프', en: 'Loop', fr: 'Boucle')
-      : route.tightCurveKm >= 1.2
-      ? AppCopy.t(
-          language,
-          ko: '타이트 코너',
-          en: 'Tight curves',
-          fr: 'Virages serrés',
-        )
-      : route.mediumCurveKm >= 2.0
-      ? AppCopy.t(language, ko: '스위퍼', en: 'Sweepers', fr: 'Courbes fluides')
-      : AppCopy.t(
-          language,
-          ko: '가벼운 리듬',
-          en: 'Light rhythm',
-          fr: 'Rythme léger',
-        );
-  return '${route.distanceKm.toStringAsFixed(1)} km · ${driveMinutesLabel(route, language)} · $feature';
+  final parts = <String>[
+    '${route.distanceKm.toStringAsFixed(1)} km',
+    driveMinutesLabel(route, language),
+    ?_routeApproachLabel(route, language),
+    _routeCharacterLabel(route, language),
+  ];
+  return parts.join(' · ');
 }
 
 int routeChainSegmentCount(RevvRoute route) {
