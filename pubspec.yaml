@@ -79,7 +79,6 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/sounds/beep.mp3
     # 서체는 앱에 동봉한다. google_fonts는 이 디렉터리에서 파일을 찾고,
     # main.dart가 런타임 다운로드를 꺼 두므로 구글로 나가는 요청이 없다.
     # 터널·산길에서 서체가 깨지지 않고, 기기 IP도 노출되지 않는다.

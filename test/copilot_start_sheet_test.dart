@@ -19,10 +19,9 @@ void main() {
     await settings.setAppLanguage(AppLanguage.korean);
     final launched = <Uri>[];
 
-    final route = _routeWithNodes(14);
     await _pumpSheet(
       tester,
-      route: route,
+      route: _routeWithNodes(14),
       settings: settings,
       launcher: (uri, {required mode}) async {
         launched.add(uri);
@@ -41,22 +40,6 @@ void main() {
     expect(uri.queryParameters['destination'], '45.00000,-73.00000');
     expect(uri.queryParameters['waypoints'], isNull);
     expect(uri.queryParameters['travelmode'], 'driving');
-    expect(uri.scheme, 'https');
-    expect(uri.queryParameters['origin'], '45.000000,-73.000000');
-    expect(uri.queryParameters['destination'], '45.130000,-73.130000');
-    expect(
-      _coordErrorM(uri.queryParameters['origin']!, route.nodes.first),
-      lessThanOrEqualTo(0.5),
-    );
-    expect(
-      _coordErrorM(uri.queryParameters['destination']!, route.nodes.last),
-      lessThanOrEqualTo(0.5),
-    );
-    expect(uri.queryParameters['travelmode'], 'driving');
-    final waypoints = uri.queryParameters['waypoints']!.split('|');
-    expect(waypoints, hasLength(lessThanOrEqualTo(2)));
-    expect(waypoints.first, isNot('45.000000,-73.000000'));
-    expect(waypoints.last, isNot('45.130000,-73.130000'));
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString(StorageKeys.pendingDriveRouteId), 'route');
     expect(prefs.getString(StorageKeys.pendingDriveSavedAt), isNotNull);
@@ -256,10 +239,7 @@ Future<void> _pumpSheet(
 RevvRoute _routeWithNodes(int count) {
   final nodes = List.generate(
     count,
-    (index) => LatLng(
-      45.00000031 + index * 0.01,
-      -73.00000031 - index * 0.01,
-    ),
+    (index) => LatLng(45 + index * 0.01, -73 - index * 0.01),
   );
   return RevvRoute(
     id: 'route',
@@ -269,13 +249,7 @@ RevvRoute _routeWithNodes(int count) {
     windingScore: 6,
     starRating: 4,
     sharpCurveCount: 8,
-    centerPoint: const LatLng(45.06000031, -73.06000031),
+    centerPoint: const LatLng(45.06, -73.06),
     distanceFromUser: 5,
   );
-}
-
-double _coordErrorM(String value, LatLng original) {
-  final parts = value.split(',');
-  final rounded = LatLng(double.parse(parts[0]), double.parse(parts[1]));
-  return RevvRoute.haversineKm(rounded, original) * 1000;
 }

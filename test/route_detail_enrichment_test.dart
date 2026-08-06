@@ -230,6 +230,8 @@ void main() {
 
       expect(sharedInvite, isNull);
       expect(find.text('Share invite'), findsOneWidget);
+      // 초안 데이터는 원래 대소문자를 유지하고, 공유 카드 위젯이 렌더 시점에
+      // 대문자로 올린다(route_share_card_widget.dart의 toUpperCase).
       expect(find.text('THIS WEEKEND · TIME TBD'), findsOneWidget);
 
       await tester.tap(
@@ -422,66 +424,6 @@ void main() {
     expect(find.text('JOURNEY INFO'), findsNothing);
     expect(find.text('Flow'), findsNothing);
   });
-
-  testWidgets(
-    'route detail replaces an unusable zero curve count with tight distance',
-    (tester) async {
-      final route = _route(
-        tightCurveKm: 3.3,
-        mediumCurveKm: 4.1,
-        maxContinuousKm: 2.1,
-        sharpCurveCount: 0,
-      );
-
-      await _pumpRoute(tester, route);
-
-      expect(find.byKey(const ValueKey('route-detail-curve-mix')), findsOneWidget);
-      expect(find.text('Tight'), findsOneWidget);
-      expect(find.text('3.3km'), findsWidgets);
-      expect(find.text('0'), findsNothing);
-      expect(find.text('0개'), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'route detail keeps final content above the sticky start bar on small and large screens',
-    (tester) async {
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      final route = _route(
-        tightCurveKm: 3.3,
-        mediumCurveKm: 4.1,
-        maxContinuousKm: 2.1,
-        sharpCurveCount: 7,
-      );
-
-      for (final size in const [Size(375, 667), Size(430, 1200)]) {
-        await tester.binding.setSurfaceSize(size);
-        await tester.pumpWidget(
-          ChangeNotifierProvider<SettingsService>.value(
-            value: SettingsService(),
-            child: MaterialApp(home: LeanRouteDetailScreen(route: route)),
-          ),
-        );
-        await tester.pumpAndSettle();
-        await tester.drag(
-          find.byType(CustomScrollView),
-          const Offset(0, -5000),
-        );
-        await tester.pumpAndSettle();
-
-        final lastContent = find.byKey(
-          const ValueKey('route-detail-expansion'),
-        );
-        final stickyStartBar = find.byKey(
-          const ValueKey('route-detail-sticky-start-bar'),
-        );
-        expect(
-          tester.getBottomLeft(lastContent).dy,
-          lessThanOrEqualTo(tester.getTopLeft(stickyStartBar).dy),
-        );
-      }
-    },
-  );
 
   testWidgets('route detail stays readable when server fields are empty', (
     tester,

@@ -5,30 +5,6 @@ import 'package:revv_app/services/external_nav.dart';
 
 void main() {
   test('planner handoff keeps only internal route anchors for Google Maps', () {
-  test('Google Maps app scheme is used only on iOS', () {
-    const origin = LatLng(45.1234567, -73.1234567);
-    const destination = LatLng(45.7654321, -73.7654321);
-
-    final iosUri = buildGoogleMapsAppUri(
-      origin: origin,
-      destination: destination,
-      waypoints: const [],
-      isIOS: true,
-    );
-    final androidUri = buildGoogleMapsAppUri(
-      origin: origin,
-      destination: destination,
-      waypoints: const [],
-      isIOS: false,
-    );
-
-    expect(iosUri.scheme, 'comgooglemapsurl');
-    expect(androidUri.scheme, 'https');
-    expect(androidUri.host, 'www.google.com');
-    expect(androidUri.queryParameters['origin'], '45.123457,-73.123457');
-  });
-
-  test('planner handoff keeps entry two key waypoints and exit in order', () {
     final points = selectHandoffWaypoints(
       origin: const LatLng(0, 0),
       destination: const LatLng(0, 8),

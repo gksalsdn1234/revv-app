@@ -118,92 +118,6 @@ void main() {
     expect(unknownFrench, isNot(contains(RegExp(r'[가-힣]'))));
   });
 
-  testWidgets(
-    'ready prompt dismisses after route preview while failure status remains visible',
-    (tester) async {
-      await useTallSurface(tester);
-      SharedPreferences.setMockInitialValues({});
-      final settings = SettingsService();
-      await settings.setAppLanguage(AppLanguage.korean);
-      final route = _finderRoute(id: 'ready', name: 'Ready Road', lng: -73.00);
-      final routeService = _QuietRouteService()
-        ..routes = [route]
-        ..mapVisualRoutes = [route]
-        ..routeDataStatusTitle = '루트 준비 완료';
-
-      await tester.pumpWidget(
-        MultiProvider(
-          providers: [
-            ChangeNotifierProvider(
-              create: (_) => DrivenRoutesService(history: RunHistoryService()),
-            ),
-            ChangeNotifierProvider<SettingsService>.value(value: settings),
-            ChangeNotifierProvider<RouteService>.value(value: routeService),
-            ChangeNotifierProvider<LocationService>.value(
-              value: _ReadyLocationService(),
-            ),
-            ChangeNotifierProvider<SupabaseService>.value(
-              value: SupabaseService(),
-            ),
-          ],
-          child: const MaterialApp(home: LeanRouteFinderScreen()),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('루트를 지도에서 확인해 보세요.'), findsOneWidget);
-
-      await tester.tap(find.byKey(const Key('route-list-button')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('route-list-row-ready')));
-      await tester.pumpAndSettle();
-
-      expect(find.byKey(const Key('route-preview-card')), findsOneWidget);
-      expect(find.text('루트를 지도에서 확인해 보세요.'), findsNothing);
-
-      routeService.routeDataStatusTitle = '루트 로드 실패';
-      routeService.notifyListeners();
-      await tester.pumpAndSettle();
-
-      expect(find.text('연결 상태를 확인한 뒤 다시 시도해 주세요.'), findsOneWidget);
-    },
-  );
-
-  testWidgets('route-ready banner stays hidden when no route is rendered', (
-    tester,
-  ) async {
-    await useTallSurface(tester);
-    SharedPreferences.setMockInitialValues({});
-    final settings = SettingsService();
-    await settings.setAppLanguage(AppLanguage.korean);
-    final routeService = _QuietRouteService()
-      ..routeDataStatusTitle = '루트 준비 완료';
-
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(
-            create: (_) => DrivenRoutesService(history: RunHistoryService()),
-          ),
-          ChangeNotifierProvider<SettingsService>.value(value: settings),
-          ChangeNotifierProvider<RouteService>.value(value: routeService),
-          ChangeNotifierProvider<LocationService>.value(
-            value: _ReadyLocationService(),
-          ),
-          ChangeNotifierProvider<SupabaseService>.value(
-            value: SupabaseService(),
-          ),
-        ],
-        child: const MaterialApp(home: LeanRouteFinderScreen()),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('루트를 지도에서 확인해 보세요.'), findsNothing);
-    expect(find.text('이 근처엔 아직 루트가 없어요'), findsOneWidget);
-    expect(find.textContaining('반경을 넓히거나'), findsOneWidget);
-  });
-
   testWidgets('temporary location denial renders retry permission action', (
     tester,
   ) async {
@@ -238,46 +152,11 @@ void main() {
   testWidgets('empty routes state offers another map search', (tester) async {
     await pumpStateCard(tester, RouteFinderStateKind.emptyRoutes);
 
-<<<<<<< HEAD
     const expected = ['이 반경엔 아직 발견된 루트가 없어요', '이 지도에서 찾기'];
-=======
-    const expected = ['이 근처엔 아직 루트가 없어요', '지역 프리셋'];
->>>>>>> c754f0c (Open the finder on an area worth searching)
     expect(find.text(expected[0]), findsOneWidget);
     expect(find.text(expected[1]), findsOneWidget);
     expect(find.textContaining('지도를 옮기거나'), findsOneWidget);
     expectSafeCopy(expected);
-  });
-
-  test('empty routes copy omits a missing region in every language', () {
-    expect(
-      routeFinderStateTitle(
-        RouteFinderStateKind.emptyRoutes,
-        AppLanguage.english,
-      ),
-      'No routes nearby yet',
-    );
-    expect(
-      routeFinderStateTitle(
-        RouteFinderStateKind.emptyRoutes,
-        AppLanguage.french,
-      ),
-      'Aucune route à proximité',
-    );
-    expect(
-      routeFinderStateBody(
-        RouteFinderStateKind.emptyRoutes,
-        AppLanguage.english,
-      ),
-      'Broaden the radius or choose a region.',
-    );
-    expect(
-      routeFinderStateBody(
-        RouteFinderStateKind.emptyRoutes,
-        AppLanguage.french,
-      ),
-      'Élargissez le rayon ou choisissez une région.',
-    );
   });
 
   testWidgets('load failure renders retry action without backend terms', (

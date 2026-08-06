@@ -263,7 +263,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   DriveBudget _driveBudget = DriveBudget.any;
   LatLng? _coverageRequestPoint;
   RevvRoute? _previewRoute;
-  bool _routeReadyPromptDismissed = false;
   final Map<String, RevvRoute> _chainSelection = {};
   List<RevvRoute> _plannedChainRoutes = const [];
   late final DrivePlannerService _planner =
@@ -769,7 +768,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       return;
     }
     setState(() {
-      _routeReadyPromptDismissed = true;
       if (_chainSelection.containsKey(route.id)) {
         _chainSelection.remove(route.id);
       } else {
@@ -1048,9 +1046,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   void _showRouteDetails(RevvRoute route) {
-    if (!_routeReadyPromptDismissed) {
-      setState(() => _routeReadyPromptDismissed = true);
-    }
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => LeanRouteDetailScreen(route: route)),
@@ -1059,7 +1054,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
   void _showRoutePreview(RevvRoute route) {
     setState(() {
-      _routeReadyPromptDismissed = true;
       _previewRoute = route;
       _mapCenterPoint = route.centerPoint;
       _mapFocusPoints = const [];
@@ -1266,7 +1260,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       _mapCenterPoint,
       _mapZoom,
     );
-<<<<<<< HEAD
     ExplorationService? exploration;
     if (_explorationFogEnabled) {
       try {
@@ -1275,9 +1268,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         exploration = null;
       }
     }
-=======
-    final noRenderedRoutes = mapDisplayRoutes.isEmpty;
->>>>>>> c754f0c (Open the finder on an area worth searching)
     final plan = _plan;
     final showingJourney = _journeyMode != null && plan != null;
     final explorationFogCells =
@@ -1317,19 +1307,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         ? _cacheInlineStatus(service, language)
         : null;
     final serviceStatus =
-<<<<<<< HEAD
         _routeStatusNeedsAttention(service.routeDataStatusTitle)
         ? routeFinderStatusBodyFor(service.routeDataStatusTitle, language)
         : null;
-    final serviceStatus = service.routeDataStatusTitle == null ||
-=======
-        noRenderedRoutes ||
-            service.routeDataStatusTitle == null ||
->>>>>>> c754f0c (Open the finder on an area worth searching)
-            (_routeReadyPromptDismissed &&
-                _isRouteReadyPromptStatus(service.routeDataStatusTitle))
-        ? null
-        : routeFinderStatusBodyFor(service.routeDataStatusTitle, language);
     final status = service.isLoading
         ? AppCopy.t(
             language,
@@ -1352,7 +1332,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
             fr: 'Aucune option ${_lensLabel(_lens, language)}. Revenez à Tout.',
           )
         : localStatus ?? cacheStatus ?? serviceStatus;
-<<<<<<< HEAD
     final showStatusToast =
         status != null &&
         status.isNotEmpty &&
@@ -1363,18 +1342,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       visibleRoutes: visibleRoutes,
       filterEmpty: filterEmpty || budgetEmpty,
     );
-=======
-    final stateKind =
-        _routeFinderStateKind(
-          location: location,
-          service: service,
-          visibleRoutes: visibleRoutes,
-          filterEmpty: filterEmpty || budgetEmpty,
-        ) ??
-        (noRenderedRoutes && !service.isLoading
-            ? RouteFinderStateKind.emptyRoutes
-            : null);
->>>>>>> c754f0c (Open the finder on an area worth searching)
     final emptyTitle = budgetEmpty
         ? AppCopy.t(
             language,
@@ -1435,9 +1402,6 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                   routePolyline: showingJourney ? null : _previewRoute?.nodes,
                   routePolylines: showingJourney ? _windingPolylines : null,
                   curveHeatmap: !showingJourney,
-                  // 선택된 루트를 커브 강도별로 칠한다. 단색 라인은 "굽은 길"이라는
-                  // 주장만 하고 근거를 못 보여줬다 — 구간 색이 그 근거다.
-                  showCurveHeatmap: !showingJourney,
                   planMarkers: showingJourney ? _planMarkers : null,
                   clusterMarkers: const [],
                   candidatePolylines: showingJourney
@@ -1447,11 +1411,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                       ? null
                       : _drivenGlowPolylines(visibleClusters, drivenService),
                   curveHeatmapPolylines: const [],
-                  // 미리보기 중인 루트는 제외한다. 난이도 라인은 루트 전체를 단색
-                  // 하나로 칠하므로, 그대로 두면 커브별 색을 덮어 다시 빨간 줄이 된다.
                   difficultyLines: showingJourney
                       ? const []
-                      : _difficultyLines(mapDisplayRoutes, _previewRoute),
+                      : _difficultyLines(mapDisplayRoutes, null),
                   explorationFogCells: explorationFogCells,
                   strongCurveFieldHeatmap: _curveRoadView,
                   routeFocusMode: false,
@@ -3377,39 +3339,37 @@ String driveMinutesLabel(RevvRoute route, AppLanguage language) {
   );
 }
 
-/// 루트가 어떤 성격인지 한 단어로. 절대 km가 아니라 **길이 대비 비율**로 나눈다.
-/// 고정 임계값(타이트 1.2km 이상)을 쓰던 때는 이 앱이 애초에 와인딩 루트만 모으는
-/// 탓에 목록 전체가 "타이트 코너" 하나로 찍혀 나와, 항목을 구분하는 데 아무
-/// 도움이 되지 않았다. 비율은 주행 시작 게이트가 이미 보여주는 "9km 중 56%가
-/// 타이트" 와 같은 값이라 두 화면이 같은 근거를 말하게 된다.
+/// 루트 성격을 한 단어로. 절대 km가 아니라 **길이 대비 비율**로 나눈다.
+/// 고정 임계값(타이트 1.2km)일 때는 이 앱이 와인딩 루트만 모으는 탓에 목록
+/// 전체가 "타이트 코너" 하나로 찍혀 나와 항목 구분에 쓸모가 없었다. 비율은
+/// 주행 시작 게이트가 이미 말하는 "9km 중 56%가 타이트"와 같은 값이다.
 String _routeCharacterLabel(RevvRoute route, AppLanguage language) {
   if (route.isLoop) {
     return AppCopy.t(language, ko: '루프', en: 'Loop', fr: 'Boucle');
   }
   final km = route.distanceKm;
-  if (km <= 0) {
-    return AppCopy.t(
-      language,
-      ko: '가벼운 리듬',
-      en: 'Light rhythm',
-      fr: 'Rythme léger',
-    );
-  }
-  final tightRatio = route.tightCurveKm / km;
-  final mediumRatio = route.mediumCurveKm / km;
-  if (tightRatio >= 0.45) {
-    return AppCopy.t(
-      language,
-      ko: '타이트 코너',
-      en: 'Tight curves',
-      fr: 'Virages serrés',
-    );
-  }
-  if (tightRatio >= 0.2) {
-    return AppCopy.t(language, ko: '섞인 리듬', en: 'Mixed', fr: 'Mixte');
-  }
-  if (mediumRatio >= 0.25) {
-    return AppCopy.t(language, ko: '스위퍼', en: 'Sweepers', fr: 'Courbes fluides');
+  if (km > 0) {
+    final tightRatio = route.tightCurveKm / km;
+    final mediumRatio = route.mediumCurveKm / km;
+    if (tightRatio >= 0.45) {
+      return AppCopy.t(
+        language,
+        ko: '타이트 코너',
+        en: 'Tight curves',
+        fr: 'Virages serrés',
+      );
+    }
+    if (tightRatio >= 0.2) {
+      return AppCopy.t(language, ko: '섞인 리듬', en: 'Mixed', fr: 'Mixte');
+    }
+    if (mediumRatio >= 0.25) {
+      return AppCopy.t(
+        language,
+        ko: '스위퍼',
+        en: 'Sweepers',
+        fr: 'Courbes fluides',
+      );
+    }
   }
   return AppCopy.t(
     language,
@@ -3419,34 +3379,25 @@ String _routeCharacterLabel(RevvRoute route, AppLanguage language) {
   );
 }
 
-/// 지금 위치에서 루트 **출발점까지** 얼마나 가야 하는지. 루트 자체 길이와 헷갈리지
-/// 않게 어휘를 분리한다.
-///
-/// 이 값이 없으면 사용자는 목록에서 고르고 미리보기를 본 다음 "주행 시작"을 누른
-/// 뒤에야 129km 떨어진 곳이라는 걸 알게 된다. 정보는 주행 시작 게이트에 이미
-/// 있었지만, 정작 고르는 순간에는 없었다.
+/// 지금 위치에서 루트 **출발점까지** 가야 하는 거리. 루트 자체 길이와 헷갈리지
+/// 않게 어휘를 분리한다. 이 값이 없으면 운전자는 목록에서 고르고 미리보기를 본
+/// 뒤 "주행 시작"을 눌러서야 129km 떨어진 곳이라는 걸 알게 된다.
 String? _routeApproachLabel(RevvRoute route, AppLanguage language) {
   final away = route.distanceFromUser;
   if (!away.isFinite || away <= 0) return null;
   final value = away < 1.0
       ? '${(away * 1000).round()}m'
       : '${away.toStringAsFixed(0)}km';
-  return AppCopy.t(
-    language,
-    ko: '$value 거리',
-    en: '$value away',
-    fr: 'à $value',
-  );
+  return AppCopy.t(language, ko: '$value 거리', en: '$value away', fr: 'à $value');
 }
 
 String _routeListMeta(RevvRoute route, AppLanguage language) {
-  final parts = <String>[
+  return [
     '${route.distanceKm.toStringAsFixed(1)} km',
     driveMinutesLabel(route, language),
     ?_routeApproachLabel(route, language),
     _routeCharacterLabel(route, language),
-  ];
-  return parts.join(' · ');
+  ].join(' · ');
 }
 
 int routeChainSegmentCount(RevvRoute route) {
@@ -3669,9 +3620,9 @@ String routeFinderStateTitle(RouteFinderStateKind kind, AppLanguage language) {
     ),
     RouteFinderStateKind.emptyRoutes => AppCopy.t(
       language,
-      ko: '이 근처엔 아직 루트가 없어요',
-      en: 'No routes nearby yet',
-      fr: 'Aucune route à proximité',
+      ko: '이 반경엔 아직 발견된 루트가 없어요',
+      en: 'No routes found in this radius yet',
+      fr: 'Aucune route trouvée dans ce rayon',
     ),
     RouteFinderStateKind.loadFailed => AppCopy.t(
       language,
@@ -3704,15 +3655,9 @@ String routeFinderStateBody(RouteFinderStateKind kind, AppLanguage language) {
     ),
     RouteFinderStateKind.emptyRoutes => AppCopy.t(
       language,
-<<<<<<< HEAD
       ko: '지도를 옮기거나 축척을 바꾼 뒤 이 지도에서 다시 찾아보세요.',
       en: 'Move or zoom the map, then search this map again.',
       fr: 'Déplacez ou zoomez la carte, puis relancez la recherche ici.',
-=======
-      ko: '반경을 넓히거나 지역을 바꿔 보세요.',
-      en: 'Broaden the radius or choose a region.',
-      fr: 'Élargissez le rayon ou choisissez une région.',
->>>>>>> c754f0c (Open the finder on an area worth searching)
     ),
     RouteFinderStateKind.loadFailed => AppCopy.t(
       language,
@@ -3864,15 +3809,6 @@ _RouteServiceStatusKey _routeServiceStatusKeyFor(String? title) {
     '캐시 유지 중' => _RouteServiceStatusKey.keepingCache,
     '커브길 준비 완료' => _RouteServiceStatusKey.fieldReady,
     _ => _RouteServiceStatusKey.unknown,
-  };
-}
-
-bool _isRouteReadyPromptStatus(String? title) {
-  return switch (_routeServiceStatusKeyFor(title)) {
-    _RouteServiceStatusKey.picksRefreshed ||
-    _RouteServiceStatusKey.routesReady ||
-    _RouteServiceStatusKey.fieldReady => true,
-    _ => false,
   };
 }
 

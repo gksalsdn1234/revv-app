@@ -463,15 +463,6 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
           buildGoogleMapsAppUri(destination: start, waypoints: const []),
       fallbackUri: (start) =>
           buildGoogleMapsDirectionsUri(destination: start, waypoints: const []),
-      appUri: (start) => buildGoogleMapsAppUri(
-        destination: start,
-        waypoints: const [],
-      ),
-      webUri: (start) => Uri.https('www.google.com', '/maps/dir/', {
-        'api': '1',
-        'destination': '${start.lat},${start.lng}',
-        'travelmode': 'driving',
-      }),
     );
   }
 
@@ -748,11 +739,8 @@ class _RaceBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 홈 인디케이터가 있는 기기에서 탭 바가 바닥에 붙어 콘텐츠가 밀려 올라간다.
-    // Scaffold의 bottomNavigationBar는 하단 inset을 대신 넣어주지 않는다.
-    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     return Container(
-      padding: EdgeInsets.only(top: 15, bottom: bottomInset > 0 ? bottomInset : 12),
+      padding: const EdgeInsets.only(top: 15),
       decoration: BoxDecoration(
         border: Border(
           top: BorderSide(
@@ -809,9 +797,6 @@ class _RaceNavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = active ? AppColors.red : AppColors.stone;
-    // ink는 배경(#100E0C)과 거의 같은 값이라 활성 탭이 오히려 사라진다.
-    // 같은 화면의 다른 토글들처럼 활성은 cream, 비활성은 stone으로 둔다.
-    final color = active ? AppColors.cream : AppColors.stone;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),

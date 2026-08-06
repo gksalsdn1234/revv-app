@@ -134,71 +134,6 @@ String buildExplorationFogGeoJson(List<ExplorationCell> cells) {
         },
     ],
   });
-/// Splits the active route into curve buckets. A node's curvature is measured
-/// across its incoming and outgoing segments, so either segment touching that
-/// node inherits its bucket.
-@visibleForTesting
-List<List<List<LatLng>>> buildCurveHeatmapSegments(List<LatLng> nodes) {
-  final buckets = List.generate(4, (_) => <List<LatLng>>[]);
-  if (nodes.length < 2) return buckets;
-
-  final nodeBuckets = List<int>.filled(nodes.length, 1);
-  for (var i = 1; i < nodes.length - 1; i++) {
-    final previous = nodes[i - 1];
-    final current = nodes[i];
-    final next = nodes[i + 1];
-    final before = _heatmapBearing(previous, current);
-    final after = _heatmapBearing(current, next);
-    final distanceKm = RevvRoute.haversineKm(previous, next);
-    final rate = distanceKm > 0.00001
-        ? _heatmapBearingDiff(before, after) / distanceKm
-        : 0.0;
-    nodeBuckets[i] = _heatmapCurveBucket(rate);
-  }
-
-  List<LatLng>? curSeg;
-  var curBucket = -1;
-  for (var i = 0; i < nodes.length - 1; i++) {
-    // Both i and i+1 touch this segment. Choosing the stronger bucket makes
-    // the curve measured at either node cover its incoming and outgoing side.
-    final bucket = math.max(nodeBuckets[i], nodeBuckets[i + 1]);
-    if (bucket != curBucket) {
-      if (curSeg != null && curSeg.length >= 2) {
-        buckets[curBucket].add(curSeg);
-      }
-      curBucket = bucket;
-      curSeg = [nodes[i]];
-    }
-    curSeg!.add(nodes[i + 1]);
-  }
-  if (curSeg != null && curSeg.length >= 2) {
-    buckets[curBucket].add(curSeg);
-  }
-  return buckets;
-}
-
-double _heatmapBearing(LatLng from, LatLng to) {
-  final lat1 = from.lat * math.pi / 180;
-  final lat2 = to.lat * math.pi / 180;
-  final dLng = (to.lng - from.lng) * math.pi / 180;
-  final y = math.sin(dLng) * math.cos(lat2);
-  final x =
-      math.cos(lat1) * math.sin(lat2) -
-      math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
-  return math.atan2(y, x) * 180 / math.pi;
-}
-
-double _heatmapBearingDiff(double first, double second) {
-  var diff = (second - first).abs();
-  if (diff > 180) diff = 360 - diff;
-  return diff;
-}
-
-int _heatmapCurveBucket(double ratePerKm) {
-  if (ratePerKm < 60) return 0;
-  if (ratePerKm < 200) return 1;
-  if (ratePerKm < 400) return 2;
-  return 3;
 }
 
 class MapWidget extends StatefulWidget {
@@ -1858,20 +1793,8 @@ class _MapWidgetState extends State<MapWidget>
   }
 
   // ── 커브 히트맵 레이어 ────────────────────────────────────────────
-  // 직선은 물러나고 코너는 다가온다. 색·굵기·불투명도를 같은 방향으로 함께
-  // 올려 한 눈에 도로의 리듬이 읽히게 한다. 팔레트는 테마 토큰만 사용하며,
-  // 브랜드 레드는 가장 타이트한 구간에만 남겨 흔한 색이 되지 않게 한다.
   static const _hmIds = ['hm-straight', 'hm-gentle', 'hm-medium', 'hm-tight'];
-  // 직선·완만 구간은 중립 회색으로 두고 실제 코너만 색을 갖는다. 완만한 커브까지
-  // 채색해보니 제일 흔한 구간이 제일 튀어서 의도가 뒤집혔다.
-  static const _hmColors = [
-    0xFF6E675F, // 직선 — 물러나지만 사라지진 않는다
-    0xFFB8AFA2, // 완만한 커브 — 아직 중립, 밝기만 올린다
-    0xFFFFB020, // 중간 커브 — 여기서 색이 붙는다
-    0xFFE2231A, // 타이트한 커브(헤어핀) — 브랜드 레드는 여기만
-  ];
-  static const _hmWidths = [2.6, 3.4, 4.4, 5.6];
-  static const _hmOpacities = [0.88, 1.0, 1.0, 1.0];
+  static const _hmColors = [0xFF3B82F6, 0xFF22C55E, 0xFFF59E0B, 0xFFEF4444];
   static const _fieldHmBuckets = [1, 2, 3];
   static const _fieldHmIds = [
     'curve-field-gentle',
@@ -1979,11 +1902,7 @@ class _MapWidgetState extends State<MapWidget>
         if (dist <= 0.00001) continue;
         final bucket = _curveBucket(_bearingDiff(b1, b2) / dist);
         if (bucket < 1) continue;
-        // 곡률은 prev-current-next로 재는데 current→next만 칠하면 커브의 뒤쪽
-        // 절반만 색이 들어가 굽이보다 한 세그먼트 뒤로 밀려 보인다. 잰 구간을
-        // 그대로 칠한다.
         buckets[bucket]?.add([
-          [prev.lng, prev.lat],
           [current.lng, current.lat],
           [next.lng, next.lat],
         ]);
@@ -2093,21 +2012,48 @@ class _MapWidgetState extends State<MapWidget>
     await _clearHeatmap();
 
     // Build 4 bucket FeatureCollections (each bucket = list of LineString coordinates)
-    final bucketSegments = buildCurveHeatmapSegments(nodes);
+    final buckets = List.generate(4, (_) => <List<List<double>>>[]);
+    List<List<double>>? curSeg;
+    int curBucket = -1;
+
+    for (int i = 0; i < nodes.length - 1; i++) {
+      final n = nodes[i];
+      final n1 = nodes[i + 1];
+
+      // Compute curvature rate at node i (use i-1..i..i+1 bearing change)
+      int bucket = 1; // default gentle
+      if (i > 0 && i < nodes.length - 2) {
+        final prev = nodes[i - 1];
+        final b1 = _bearing(prev.lat, prev.lng, n.lat, n.lng);
+        final b2 = _bearing(n.lat, n.lng, n1.lat, n1.lng);
+        final dist = _haversineKm(prev.lat, prev.lng, n1.lat, n1.lng);
+        final rate = dist > 0.00001 ? _bearingDiff(b1, b2) / dist : 0.0;
+        bucket = _curveBucket(rate);
+      }
+
+      if (bucket != curBucket) {
+        if (curSeg != null && curSeg.length >= 2) {
+          buckets[curBucket].add(curSeg);
+        }
+        curBucket = bucket;
+        curSeg = [
+          [n.lng, n.lat],
+        ];
+      }
+      curSeg!.add([n1.lng, n1.lat]);
+    }
+    if (curSeg != null && curSeg.length >= 2) {
+      buckets[curBucket].add(curSeg);
+    }
 
     // Draw each bucket as one GeoJSON FeatureCollection
     for (int b = 0; b < 4; b++) {
-      if (bucketSegments[b].isEmpty) continue;
-      final features = bucketSegments[b]
+      if (buckets[b].isEmpty) continue;
+      final features = buckets[b]
           .map(
-            (segment) => {
+            (coords) => {
               'type': 'Feature',
-              'geometry': {
-                'type': 'LineString',
-                'coordinates': segment
-                    .map((point) => [point.lng, point.lat])
-                    .toList(),
-              },
+              'geometry': {'type': 'LineString', 'coordinates': coords},
               'properties': {},
             },
           )
@@ -2127,8 +2073,8 @@ class _MapWidgetState extends State<MapWidget>
             id: layerId,
             sourceId: sourceId,
             lineColor: _hmColors[b],
-            lineWidth: _hmWidths[b],
-            lineOpacity: _hmOpacities[b],
+            lineWidth: 3.0,
+            lineOpacity: 1.0,
             lineCap: mbx.LineCap.ROUND,
             lineJoin: mbx.LineJoin.ROUND,
           ),
@@ -2145,7 +2091,7 @@ class _MapWidgetState extends State<MapWidget>
     final map = _mapController;
     if (map == null) return;
 
-    // ── 지도 오너먼트 ────────────────────────────────────────────────
+    // ── 나침반 ──────────────────────────────────────────────────────
     try {
       await map.compass.updateSettings(
         mbx.CompassSettings(
@@ -2156,24 +2102,9 @@ class _MapWidgetState extends State<MapWidget>
           marginRight: 14,
         ),
       );
-      await map.scaleBar.updateSettings(mbx.ScaleBarSettings(enabled: false));
-      await map.logo.updateSettings(
-        mbx.LogoSettings(
-          position: mbx.OrnamentPosition.BOTTOM_LEFT,
-          marginLeft: 14,
-          marginBottom: 120,
-        ),
-      );
-      await map.attribution.updateSettings(
-        mbx.AttributionSettings(
-          position: mbx.OrnamentPosition.BOTTOM_LEFT,
-          marginLeft: 102,
-          marginBottom: 120,
-        ),
-      );
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('[MapWidget] ornaments: ${e.runtimeType}');
+        debugPrint('[MapWidget] compass: ${e.runtimeType}');
       }
     }
 
@@ -2450,7 +2381,6 @@ class _MapWidgetState extends State<MapWidget>
     // !_debugDoingThisLayout assertion + touch 먹통 유발.
     // TLHC_VD(Texture Layer Hybrid Composition + VirtualDisplay fallback) +
     // textureView=true → 텍스처 기반 합성으로 layout phase 간섭 차단.
-<<<<<<< HEAD
     final fogActive = widget.explorationFogCells.isNotEmpty;
     return Semantics(
       label: fogActive
@@ -2465,37 +2395,6 @@ class _MapWidgetState extends State<MapWidget>
               ko: '루트 지도',
               en: 'Route map',
               fr: 'Carte des routes',
-=======
-    return ClipRect(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          return SizedBox.expand(
-            child: mbx.MapWidget(
-              styleUri: widget.isSprintMode
-                  ? MapboxService.sprintStyle(weatherIcon)
-                  : widget.strongCurveFieldHeatmap
-                  ? 'mapbox://styles/mapbox/navigation-night-v1'
-                  : MapboxService.cruiseStyle,
-              cameraOptions: mbx.CameraOptions(
-                center: mbx.Point(
-                  coordinates: mbx.Position(
-                    initialCenter.lng,
-                    initialCenter.lat,
-                  ),
-                ),
-                padding: widget.isSprintMode ? _driveCameraPadding : null,
-                zoom: widget.isSprintMode ? 16.5 : 11.0,
-                pitch: widget.isSprintMode ? 22.0 : 0.0,
-                bearing: widget.isSprintMode ? widget.navigationBearing : null,
-              ),
-              // FollowPuckViewportState: 스타일 로드 후 활성화 → Mapbox 네이티브 GPS 추적
-              viewport: _viewportState,
-              onMapCreated: _onMapCreated,
-              onStyleLoadedListener: _onStyleLoaded,
-              onCameraChangeListener: _onCameraChanged,
-              onMapIdleListener: _onMapIdle,
-              onTapListener: _onMapTap,
->>>>>>> c754f0c (Open the finder on an area worth searching)
             ),
       child: ClipRect(
         child: LayoutBuilder(
@@ -2515,7 +2414,7 @@ class _MapWidgetState extends State<MapWidget>
                     ),
                   ),
                   padding: widget.isSprintMode ? _driveCameraPadding : null,
-                  zoom: widget.isSprintMode ? 16.5 : 15.0,
+                  zoom: widget.isSprintMode ? 16.5 : 11.0,
                   pitch: widget.isSprintMode ? 22.0 : 0.0,
                   bearing: widget.isSprintMode
                       ? widget.navigationBearing
