@@ -35,6 +35,50 @@ class WesternUploadContractTest(unittest.TestCase):
         self.assertEqual(len(expansion.routes), 96)
         self.assertEqual(pilot.program_route_count, 120)
 
+    def test_loads_explicit_pilot_only_manifest(self) -> None:
+        # Given: a checksum-covered pilot explicitly defers expansion.
+        with tempfile.TemporaryDirectory() as raw_root:
+            pilot_path, _, _, _ = write_program_manifests(Path(raw_root))
+            document = UploadDocument.model_validate_json(pilot_path.read_bytes())
+            payload = document.model_dump(mode="json")
+            payload["expansion_deferred"] = True
+            payload["program_batches"] = payload["program_batches"][:1]
+            body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            _ = pilot_path.write_bytes(body)
+
+            # When: the exact pilot document is upload-validated.
+            pilot = load_manifest(
+                pilot_path,
+                hashlib.sha256(body).hexdigest(),
+                PROJECT_REF,
+                "west-pilot-v1-fixture",
+            )
+
+        # Then: it is accepted only as a 24-route pilot with deferred expansion.
+        self.assertEqual(pilot.cohort_kind, "pilot")
+        self.assertTrue(pilot.expansion_deferred)
+        self.assertEqual(pilot.program_route_count, 24)
+
+    def test_rejects_supplied_expansion_when_marked_deferred(self) -> None:
+        # Given: a deferred-expansion document still supplies a malformed expansion.
+        with tempfile.TemporaryDirectory() as raw_root:
+            pilot_path, _, _, _ = write_program_manifests(Path(raw_root))
+            document = UploadDocument.model_validate_json(pilot_path.read_bytes())
+            payload = document.model_dump(mode="json")
+            payload["expansion_deferred"] = True
+            payload["program_batches"][1]["route_ids"] = []
+            body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            _ = pilot_path.write_bytes(body)
+
+            # When/Then: validation rejects rather than ignoring the supplied cohort.
+            with self.assertRaisesRegex(RevvUploadError, "program_shape"):
+                _ = load_manifest(
+                    pilot_path,
+                    hashlib.sha256(body).hexdigest(),
+                    PROJECT_REF,
+                    "west-pilot-v1-fixture",
+                )
+
     def test_rejects_changed_or_truncated_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as raw_root:
             pilot_path, pilot_sha, _, _ = write_program_manifests(Path(raw_root))

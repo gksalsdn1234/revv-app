@@ -72,13 +72,12 @@ def load_manifest(
             "invalid_manifest", "manifest does not match revv-western-upload-v1"
         ) from error
     _validate_document(document, project_ref, batch_id)
+    program_route_count = sum(len(item.route_ids) for item in document.program_batches)
     return ValidatedManifest(
         document=document,
         manifest_sha256=actual_checksum,
         route_ids_sha256=route_ids_sha256(document.route_ids),
-        program_route_count=sum(
-            len(item.route_ids) for item in document.program_batches
-        ),
+        program_route_count=program_route_count,
     )
 
 
@@ -165,20 +164,26 @@ def _validate_quota(document: UploadDocument) -> None:
 
 
 def _validate_program(document: UploadDocument) -> None:
-    if len(document.program_batches) != 2 or {
-        item.cohort_kind for item in document.program_batches
-    } != {"pilot", "expansion"}:
+    batches = document.program_batches
+    complete = document.expansion_deferred is None and len(batches) == 2
+    pilot_only = document.expansion_deferred is True and len(batches) == 1
+    expected_kinds = {"pilot", "expansion"} if complete else {"pilot"}
+    if (
+        not (complete or pilot_only)
+        or {item.cohort_kind for item in batches} != expected_kinds
+        or (pilot_only and document.cohort_kind != "pilot")
+    ):
         raise RevvUploadError(
-            "program_shape", "program must contain one pilot and one expansion"
+            "program_shape",
+            "program must be complete or explicitly defer expansion from a pilot",
         )
-    all_ids = [
-        route_id for item in document.program_batches for route_id in item.route_ids
-    ]
-    if len(all_ids) != len(set(all_ids)) or not 120 <= len(all_ids) <= 250:
+    all_ids = [route_id for item in batches for route_id in item.route_ids]
+    minimum, maximum = (120, 250) if complete else _QUOTAS["pilot"][:2]
+    if len(all_ids) != len(set(all_ids)) or not minimum <= len(all_ids) <= maximum:
         raise RevvUploadError(
-            "program_size", "program must contain 120..250 disjoint routes"
+            "program_size", "program route count is outside its immutable range"
         )
-    for item in document.program_batches:
+    for item in batches:
         minimum, maximum, _, _, _ = _QUOTAS[item.cohort_kind]
         expected_prefix = (
             "west-pilot-v1-" if item.cohort_kind == "pilot" else "west-expand-v1-"
@@ -196,9 +201,7 @@ def _validate_program(document: UploadDocument) -> None:
                 "program_batch",
                 "each program batch must satisfy its immutable identity and size",
             )
-    current = [
-        item for item in document.program_batches if item.batch_id == document.batch_id
-    ]
+    current = [item for item in batches if item.batch_id == document.batch_id]
     if (
         len(current) != 1
         or current[0].cohort_kind != document.cohort_kind

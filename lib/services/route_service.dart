@@ -36,6 +36,7 @@ class RouteService extends ChangeNotifier {
     RouteCatalogEpochFetcher? routeCatalogEpochFetcher,
     RouteOverviewFetcher? routeLocalV2Fetcher,
     RouteOverviewFetcher? routeLegacyFetcher,
+    RouteOverviewFetcher? routeLegacyDirectFetcher,
     RouteNodeFetcher? routeNodeV2Fetcher,
     RouteNodeFetcher? routeLegacyNodeFetcher,
     RouteOverviewCache? routeOverviewCache,
@@ -45,6 +46,7 @@ class RouteService extends ChangeNotifier {
        _routeCatalogEpochFetcher = routeCatalogEpochFetcher,
        _routeLocalV2Fetcher = routeLocalV2Fetcher,
        _routeLegacyFetcher = routeLegacyFetcher,
+       _routeLegacyDirectFetcher = routeLegacyDirectFetcher,
        _routeNodeV2Fetcher = routeNodeV2Fetcher,
        _routeLegacyNodeFetcher = routeLegacyNodeFetcher,
        _routeOverviewCache = routeOverviewCache ?? RouteOverviewCache();
@@ -100,6 +102,7 @@ class RouteService extends ChangeNotifier {
   final RouteCatalogEpochFetcher? _routeCatalogEpochFetcher;
   final RouteOverviewFetcher? _routeLocalV2Fetcher;
   final RouteOverviewFetcher? _routeLegacyFetcher;
+  final RouteOverviewFetcher? _routeLegacyDirectFetcher;
   final RouteNodeFetcher? _routeNodeV2Fetcher;
   final RouteNodeFetcher? _routeLegacyNodeFetcher;
   final RouteOverviewCache _routeOverviewCache;
@@ -181,6 +184,7 @@ class RouteService extends ChangeNotifier {
     double lng, {
     bool forceRefresh = false,
   }) async {
+    _catalogEpochValidation = null;
     searchRadiusKm = routeFieldRadiusKm;
     final point = LatLng(lat, lng);
     final token = ++_fetchToken;
@@ -229,6 +233,7 @@ class RouteService extends ChangeNotifier {
       return;
     }
     if (routeOverviewLoaded && _hasOverviewCoverage(referencePoint)) return;
+    _catalogEpochValidation = null;
     routeOverviewLoading = true;
     final token = ++_overviewFetchToken;
     notifyListeners();
@@ -420,15 +425,28 @@ class RouteService extends ChangeNotifier {
 
   Future<int?> _ensureCatalogEpoch() {
     return _catalogEpochValidation ??= () async {
+      final previousEpoch = _validatedCatalogEpoch;
       try {
         final fetcher = _routeCatalogEpochFetcher;
         final epoch = fetcher != null
             ? await fetcher()
             : await SupabaseService().fetchRouteCatalogEpoch();
-        if (epoch < 0) return null;
+        if (epoch < 0) {
+          _validatedCatalogEpoch = null;
+          _catalogAttempted = false;
+          if (previousEpoch != null) _removeGeneratedRoutes();
+          return null;
+        }
+        if (previousEpoch != null && previousEpoch != epoch) {
+          _catalogAttempted = false;
+          _removeGeneratedRoutes();
+        }
         _validatedCatalogEpoch = epoch;
         return epoch;
       } catch (error) {
+        _validatedCatalogEpoch = null;
+        _catalogAttempted = false;
+        if (previousEpoch != null) _removeGeneratedRoutes();
         if (kDebugMode) {
           debugPrint(
             '[RouteService] catalog epoch failed: ${error.runtimeType}',
@@ -460,12 +478,7 @@ class RouteService extends ChangeNotifier {
     int epoch,
   ) {
     return candidates
-        .where(
-          (route) =>
-              !route.isGenerated ||
-              route.catalogEpoch == null ||
-              route.catalogEpoch == epoch,
-        )
+        .where((route) => !route.isGenerated || route.catalogEpoch == epoch)
         .take(routeFieldFetchLimit)
         .toList(growable: false);
   }
@@ -488,17 +501,18 @@ class RouteService extends ChangeNotifier {
               requestRadiusKm,
               maxResults: boundedResults,
             );
-      if (epoch == null) {
-        return routes
-            .where((route) => !route.isGenerated)
-            .take(boundedResults)
-            .toList(growable: false);
-      }
-      return _routesAllowedForEpoch(
-        routes,
-        epoch,
-      ).take(boundedResults).toList(growable: false);
-    } catch (_) {
+      final accepted = epoch == null
+          ? routes
+                .where((route) => !route.isGenerated)
+                .take(boundedResults)
+                .toList(growable: false)
+          : _routesAllowedForEpoch(
+              routes,
+              epoch,
+            ).take(boundedResults).toList(growable: false);
+      if (accepted.isNotEmpty) return accepted;
+    } catch (_) {}
+    try {
       final fallback = _routeLegacyFetcher;
       final routes = fallback != null
           ? await fallback(center, boundedResults)
@@ -507,14 +521,33 @@ class RouteService extends ChangeNotifier {
               center.lng,
               requestRadiusKm,
             );
-      return routes
+      final accepted = routes
           .where((route) => !route.isGenerated)
           .take(boundedResults)
           .toList(growable: false);
-    }
+      if (accepted.isNotEmpty) return accepted;
+    } catch (_) {}
+    final directFetcher = _routeLegacyDirectFetcher;
+    final routes = directFetcher != null
+        ? await directFetcher(center, boundedResults)
+        : await SupabaseService().fetchNearbyRoutesDirect(
+            center.lat,
+            center.lng,
+            requestRadiusKm,
+            limit: requestRadiusKm >= 160
+                ? routeFieldFetchLimit
+                : requestRadiusKm >= 100
+                ? 400
+                : 250,
+          );
+    return routes
+        .where((route) => !route.isGenerated)
+        .take(boundedResults)
+        .toList(growable: false);
   }
 
   Future<void> fetchRoutes(double lat, double lng) async {
+    _catalogEpochValidation = null;
     searchRadiusKm = searchRadiusKm <= 0 ? routeFieldRadiusKm : searchRadiusKm;
     await _fetchRoutesAt(LatLng(lat, lng), radiusKm: searchRadiusKm);
   }
@@ -748,6 +781,8 @@ class RouteService extends ChangeNotifier {
     _overviewRoutes = const [];
     _overviewCompletedRegionKeys.clear();
     _overviewRegionHadRoutes.clear();
+    _catalogEpochValidation = null;
+    _validatedCatalogEpoch = null;
     _catalogAttempted = false;
     _overviewCacheRestored = false;
     routeOverviewLoaded = false;
@@ -761,6 +796,17 @@ class RouteService extends ChangeNotifier {
     routeDataSourceLabel = '초기화됨';
     routeFieldGeneration++;
     notifyListeners();
+  }
+
+  void _removeGeneratedRoutes() {
+    _overviewRoutes = _overviewRoutes
+        .where((route) => !route.isGenerated)
+        .toList(growable: false);
+    rawCandidateRoutes = rawCandidateRoutes
+        .where((route) => !route.isGenerated)
+        .toList(growable: false);
+    _rebuildRecommendations();
+    _refreshMapVisualRoutes();
   }
 
   List<RevvRoute> _prepareVisibleRoutes(List<RevvRoute> candidates) {

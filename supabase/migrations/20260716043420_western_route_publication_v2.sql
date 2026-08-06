@@ -473,7 +473,7 @@ returns bigint
 language plpgsql
 security definer
 set search_path = pg_catalog, pg_temp
-set statement_timeout = '8s'
+set statement_timeout = '60s'
 as $$
 declare
   next_route_ids text[];
@@ -882,7 +882,7 @@ returns table (
 )
 language plpgsql security definer
 set search_path = pg_catalog, pg_temp
-set statement_timeout = '8s'
+set statement_timeout = '60s'
 as $$
 declare
   batch_record public.route_generation_batches%rowtype;

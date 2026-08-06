@@ -23,6 +23,8 @@ def execute_shadow(
     chunks = request_chunks(manifest.routes)
     dry_receipt = UploadReceipt(
         batch_id=manifest.batch_id,
+        cohort_kind=manifest.cohort_kind,
+        expansion_deferred=manifest.expansion_deferred,
         manifest_sha256=manifest.manifest_sha256,
         route_ids_sha256=manifest.route_ids_sha256,
         route_count=len(manifest.routes),
@@ -46,6 +48,8 @@ def execute_shadow(
         if audit.route_ids_match and audit.actual_route_count == len(manifest.routes):
             return UploadReceipt(
                 batch_id=dry_receipt.batch_id,
+                cohort_kind=dry_receipt.cohort_kind,
+                expansion_deferred=dry_receipt.expansion_deferred,
                 manifest_sha256=dry_receipt.manifest_sha256,
                 route_ids_sha256=dry_receipt.route_ids_sha256,
                 route_count=dry_receipt.route_count,
@@ -81,6 +85,8 @@ def execute_shadow(
         )
     return UploadReceipt(
         batch_id=dry_receipt.batch_id,
+        cohort_kind=dry_receipt.cohort_kind,
+        expansion_deferred=dry_receipt.expansion_deferred,
         manifest_sha256=dry_receipt.manifest_sha256,
         route_ids_sha256=dry_receipt.route_ids_sha256,
         route_count=dry_receipt.route_count,

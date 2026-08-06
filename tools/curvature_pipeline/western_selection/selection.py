@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, override
 
 from .allocation import allocate_batches
 from .model import (
@@ -22,6 +22,7 @@ _SNAPSHOT_PATTERN: Final = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 class SelectionInputError(ValueError):
     snapshot: str
 
+    @override
     def __str__(self) -> str:
         return f"invalid western selection snapshot: {self.snapshot!r}"
 
@@ -73,7 +74,11 @@ def select_western_batches(
         )
     )
     return SelectionResult(
-        status=SelectionStatus.READY,
+        status=(
+            SelectionStatus.READY
+            if len(manifests) == 2
+            else SelectionStatus.PILOT_READY_EXPANSION_DEFERRED
+        ),
         manifests=manifests,
         shadow_route_ids=shadow_ids,
         rejections=outcome.rejections,

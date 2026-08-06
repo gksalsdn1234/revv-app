@@ -1,0 +1,13 @@
+#!/bin/sh
+# Local collaboration guard. Roles are configured per worktree/clone and are
+# intentionally not versioned in Git config.
+
+role="$(git config --get revv.collaborationRole || true)"
+
+while read -r local_ref _local_oid remote_ref _remote_oid; do
+  if [ "$remote_ref" = "refs/heads/lean_mvp" ] && [ "$role" != "codex-integration" ]; then
+    echo "Blocked: only the Codex integration workspace may push lean_mvp." >&2
+    echo "Commit your work on a claude/* branch and record the handoff first." >&2
+    exit 1
+  fi
+done

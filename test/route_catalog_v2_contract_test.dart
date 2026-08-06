@@ -21,6 +21,7 @@ RevvRoute _route(
   LatLng center, {
   bool generated = false,
   DateTime? activatedAt,
+  int? catalogEpoch,
   bool withNodes = true,
   required String contract,
 }) {
@@ -38,6 +39,7 @@ RevvRoute _route(
     #distanceFromUser: 0.0,
     if (generated) #isGenerated: true,
     if (generated) #activatedAt: activatedAt,
+    #catalogEpoch: ?catalogEpoch,
   };
   try {
     return Function.apply(RevvRoute.new, const [], named) as RevvRoute;
@@ -226,6 +228,7 @@ void main() {
               routeOverviewCenters.first,
               generated: true,
               activatedAt: activatedAt,
+              catalogEpoch: 9,
               contract: contract,
             ),
           ],
@@ -239,6 +242,7 @@ void main() {
       expect(restored.catalogEpoch, 9);
       expect(route.isGenerated, isTrue);
       expect(route.activatedAt, activatedAt);
+      expect(route.catalogEpoch, 9);
     },
   );
 
@@ -253,6 +257,7 @@ void main() {
         center,
         generated: true,
         activatedAt: activatedAt,
+        catalogEpoch: 9,
         contract: contract,
       );
       SharedPreferences.setMockInitialValues({
@@ -276,6 +281,7 @@ void main() {
       expect(epochCalls, 1);
       expect(restored.isGenerated, isTrue);
       expect(restored.activatedAt, activatedAt);
+      expect(restored.catalogEpoch, 9);
     },
   );
 
@@ -341,6 +347,7 @@ void main() {
         center,
         generated: true,
         activatedAt: DateTime.utc(2026, 7, 16),
+        catalogEpoch: 4,
         contract: contract,
       ),
     ];
@@ -384,6 +391,7 @@ void main() {
               routeOverviewCenters.first,
               generated: true,
               activatedAt: DateTime.utc(2026, 7, 16),
+              catalogEpoch: 5,
               contract: contract,
             ),
           ],
@@ -432,6 +440,7 @@ void main() {
               routeOverviewCenters.first,
               generated: true,
               activatedAt: DateTime.utc(2026, 7, 16),
+              catalogEpoch: 7,
               contract: contract,
             ),
           ],
@@ -458,6 +467,177 @@ void main() {
     },
   );
 
+  test(
+    'RED behavior: in-session epoch change removes disabled generated route',
+    () async {
+      // Given: one live service has loaded an epoch-7 generated catalog row.
+      const contract = 'in-session catalog epoch transition';
+      final directory = await _temporaryDirectory('revv-live-epoch-change-');
+      addTearDown(() => directory.delete(recursive: true));
+      final generated = _route(
+        'generated-epoch-7',
+        routeOverviewCenters.first,
+        generated: true,
+        activatedAt: DateTime.utc(2026, 7, 16),
+        catalogEpoch: 7,
+        contract: contract,
+      );
+      final legacy = _route(
+        'legacy-after-disable',
+        const LatLng(53.5461, -113.4938),
+        contract: contract,
+      );
+      var onlineEpoch = 7;
+      final service = RouteService(
+        routeOverviewCache: RouteOverviewCache(
+          directoryProvider: () async => directory,
+        ),
+        routeCatalogEpochFetcher: () async => onlineEpoch,
+        routeCatalogFetcher: (maxResults) async =>
+            onlineEpoch == 7 ? [generated] : [legacy],
+        routeOverviewFetcher: (center, maxResults) async => const [],
+      );
+      addTearDown(service.dispose);
+      await service.prefetchRouteOverview(routeOverviewCenters.first);
+      expect(service.mapVisualRoutes.map((route) => route.id), [
+        'generated-epoch-7',
+      ]);
+
+      // When: a soft-disable advances the epoch and a distant viewport refreshes.
+      onlineEpoch = 8;
+      await service.prefetchRouteOverview(const LatLng(53.5461, -113.4938));
+
+      // Then: the stale generated row is gone and the refreshed catalog is visible.
+      expect(service.mapVisualRoutes.map((route) => route.id), [
+        'legacy-after-disable',
+      ]);
+    },
+  );
+
+  test('RED behavior: reset retries a transient epoch failure', () async {
+    // Given: the first epoch lookup fails before the generated catalog loads.
+    const contract = 'reset invalidates failed epoch validation';
+    final directory = await _temporaryDirectory('revv-epoch-retry-');
+    addTearDown(() => directory.delete(recursive: true));
+    var epochAttempts = 0;
+    final generated = _route(
+      'generated-after-epoch-retry',
+      routeOverviewCenters.first,
+      generated: true,
+      activatedAt: DateTime.utc(2026, 7, 16),
+      catalogEpoch: 9,
+      contract: contract,
+    );
+    final service = RouteService(
+      routeOverviewCache: RouteOverviewCache(
+        directoryProvider: () async => directory,
+      ),
+      routeCatalogEpochFetcher: () async {
+        epochAttempts++;
+        if (epochAttempts == 1) throw TimeoutException('epoch timeout');
+        return 9;
+      },
+      routeCatalogFetcher: (maxResults) async => [generated],
+      routeOverviewFetcher: (center, maxResults) async => const [],
+    );
+    addTearDown(service.dispose);
+    await service.prefetchRouteOverview(routeOverviewCenters.first);
+    expect(service.mapVisualRoutes, isEmpty);
+
+    // When: the user resets and reloads with the epoch endpoint recovered.
+    service.resetCache();
+    await service.prefetchRouteOverview(routeOverviewCenters.first);
+
+    // Then: the generated catalog recovers without recreating RouteService.
+    expect(service.mapVisualRoutes.map((route) => route.id), [
+      'generated-after-epoch-retry',
+    ]);
+  });
+
+  test(
+    'RED behavior: generated routes require a matching non-null epoch',
+    () async {
+      // Given: v2 returns matching, null, stale, and legacy epoch cases.
+      const contract = 'strict generated epoch acceptance';
+      final center = routeOverviewCenters.first;
+      final service = RouteService(
+        routeCatalogEpochFetcher: () async => 8,
+        routeLocalV2Fetcher: (requestCenter, maxResults) async => [
+          _route(
+            'generated-matching',
+            center,
+            generated: true,
+            activatedAt: DateTime.utc(2026, 7, 16),
+            catalogEpoch: 8,
+            contract: contract,
+          ),
+          _route(
+            'generated-null',
+            center,
+            generated: true,
+            activatedAt: DateTime.utc(2026, 7, 16),
+            contract: contract,
+          ),
+          _route(
+            'generated-stale',
+            center,
+            generated: true,
+            activatedAt: DateTime.utc(2026, 7, 16),
+            catalogEpoch: 7,
+            contract: contract,
+          ),
+          _route('legacy-v2', center, contract: contract),
+        ],
+      );
+      addTearDown(service.dispose);
+
+      // When: the local field consumes the epoch-8 v2 response.
+      await service.prefetchRouteField(
+        center.lat,
+        center.lng,
+        forceRefresh: true,
+      );
+
+      // Then: only the matching generated row and the legacy row remain.
+      expect(service.rawCandidateRoutes.map((route) => route.id), [
+        'generated-matching',
+        'legacy-v2',
+      ]);
+    },
+  );
+
+  test('non-empty v2 result remains the authoritative route list', () async {
+    const contract = 'non-empty v2 result does not merge legacy fallback';
+    final center = routeOverviewCenters.first;
+    final service = RouteService(
+      routeCatalogEpochFetcher: () async => 3,
+      routeLocalV2Fetcher: (requestCenter, maxResults) async => [
+        _route(
+          'generated-v2',
+          center,
+          generated: true,
+          activatedAt: DateTime.utc(2026, 7, 16),
+          catalogEpoch: 3,
+          contract: contract,
+        ),
+      ],
+      routeLegacyFetcher: (requestCenter, maxResults) async => [
+        _route('legacy-must-not-append', center, contract: contract),
+      ],
+    );
+    addTearDown(service.dispose);
+
+    await service.prefetchRouteField(
+      center.lat,
+      center.lng,
+      forceRefresh: true,
+    );
+
+    expect(service.rawCandidateRoutes.map((route) => route.id), [
+      'generated-v2',
+    ]);
+  });
+
   test('RED behavior: v2 timeout fallback exposes legacy rows only', () async {
     const contract = 'legacy-only v2 fallback';
     final center = routeOverviewCenters.first;
@@ -467,6 +647,7 @@ void main() {
       center,
       generated: true,
       activatedAt: DateTime.utc(2026, 7, 16),
+      catalogEpoch: 3,
       contract: contract,
     );
     var v2Calls = 0;
@@ -497,6 +678,44 @@ void main() {
       'legacy-fallback',
     ]);
   });
+
+  test(
+    'RED behavior: empty v2 and legacy RPC recover a direct legacy route',
+    () async {
+      // Given: both RPC layers return empty while the direct table has rows.
+      const contract = 'empty RPC direct-table recovery';
+      final center = routeOverviewCenters.first;
+      final service = RouteService(
+        routeCatalogEpochFetcher: () async => 4,
+        routeLocalV2Fetcher: (requestCenter, maxResults) async => const [],
+        routeLegacyFetcher: (requestCenter, maxResults) async => const [],
+        routeLegacyDirectFetcher: (requestCenter, maxResults) async => [
+          _route('legacy-direct', center, contract: contract),
+          _route(
+            'generated-direct-must-not-leak',
+            center,
+            generated: true,
+            activatedAt: DateTime.utc(2026, 7, 16),
+            catalogEpoch: 4,
+            contract: contract,
+          ),
+        ],
+      );
+      addTearDown(service.dispose);
+
+      // When: a real route-field refresh walks the fallback chain.
+      await service.prefetchRouteField(
+        center.lat,
+        center.lng,
+        forceRefresh: true,
+      );
+
+      // Then: only the existing legacy direct-table route is observable.
+      expect(service.rawCandidateRoutes.map((route) => route.id), [
+        'legacy-direct',
+      ]);
+    },
+  );
 
   test(
     'RED behavior: node-v2 timeout falls back only for legacy route',

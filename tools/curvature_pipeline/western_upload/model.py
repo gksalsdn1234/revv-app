@@ -122,6 +122,7 @@ class UploadDocument(BaseModel):
     cohort_kind: CohortKind
     generator_version: str
     activation_eligible: Literal[True]
+    expansion_deferred: Literal[True] | None = None
     route_ids: tuple[str, ...]
     province_counts: dict[Literal["AB", "BC", "MB", "SK"], int]
     hub_counts: dict[str, int]
@@ -145,6 +146,10 @@ class ValidatedManifest:
     @property
     def cohort_kind(self) -> CohortKind:
         return self.document.cohort_kind
+
+    @property
+    def expansion_deferred(self) -> bool:
+        return self.document.expansion_deferred is True
 
     @property
     def route_ids(self) -> tuple[str, ...]:
@@ -184,6 +189,8 @@ class TransitionResult:
 @dataclass(frozen=True, slots=True)
 class UploadReceipt:
     batch_id: str
+    cohort_kind: CohortKind
+    expansion_deferred: bool
     manifest_sha256: str
     route_ids_sha256: str
     route_count: int

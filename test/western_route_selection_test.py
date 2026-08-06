@@ -141,6 +141,58 @@ class WesternRouteSelectionTest(unittest.TestCase):
             hashlib.sha256(selection_bytes(second)).hexdigest(),
         )
 
+    def test_underfilled_pilot_is_no_go(self) -> None:
+        # Given: every pilot floor except the immutable BC count is available.
+        counts = {
+            ProvinceCode.BC: 7,
+            ProvinceCode.AB: 8,
+            ProvinceCode.SK: 4,
+            ProvinceCode.MB: 4,
+        }
+        candidates = tuple(
+            _candidate(f"under-{province.value.lower()}-{index}", province, index)
+            for province, count in counts.items()
+            for index in range(count)
+        )
+
+        # When: the 23-route pool is evaluated for Western allocation.
+        result = select_western_batches(candidates, snapshot="underfilled-pilot")
+
+        # Then: no partial pilot or activation-eligible manifest is emitted.
+        self.assertEqual(result.status, SelectionStatus.NO_GO_INSUFFICIENT_QUALITY)
+        self.assertEqual(result.manifests, ())
+        self.assertEqual(result.summary.selected_count, 0)
+
+    def test_selects_pilot_when_expansion_is_insufficient(self) -> None:
+        # Given: exact pilot supply with diverse hubs and cells, but no expansion.
+        counts = {
+            ProvinceCode.BC: 8,
+            ProvinceCode.AB: 8,
+            ProvinceCode.SK: 4,
+            ProvinceCode.MB: 4,
+        }
+        candidates = tuple(
+            _candidate(f"pilot-{province.value.lower()}-{index}", province, index)
+            for province, count in counts.items()
+            for index in range(count)
+        )
+
+        # When: the same qualified pilot is selected in opposite input orders.
+        first = select_western_batches(candidates, snapshot="pilot-only")
+        reversed_result = select_western_batches(
+            tuple(reversed(candidates)), snapshot="pilot-only"
+        )
+
+        # Then: only the deterministic pilot is emitted and expansion is deferred.
+        self.assertEqual(first.status, SelectionStatus.PILOT_READY_EXPANSION_DEFERRED)
+        self.assertEqual(selection_bytes(first), selection_bytes(reversed_result))
+        self.assertEqual(len(first.manifests), 1)
+        self.assertEqual(first.manifests[0].batch_id, "west-pilot-v1-pilot-only")
+        self.assertEqual(
+            first.manifests[0].route_ids, tuple(sorted(first.shadow_route_ids))
+        )
+        self.assertEqual(first.summary.selected_count, 24)
+
     def test_fixed_quality_gates_reject_each_unsafe_boundary(self) -> None:
         # Given: one candidate for each immutable quality failure.
         base = _candidate("good", ProvinceCode.AB, 0)
@@ -225,4 +277,4 @@ class WesternRouteSelectionTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()

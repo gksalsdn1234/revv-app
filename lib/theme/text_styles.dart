@@ -3,7 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'colors.dart';
 
 class AppText {
-  static bool forceSystemFonts = false;
+  static bool forceSystemFonts = true;
   static const _cjkFallback = [
     'Pretendard',
     'Apple SD Gothic Neo',

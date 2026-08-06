@@ -48,6 +48,7 @@ from .enrichment_bridge import (
     enrichment_manifest_bytes,
     selection_checksum_bytes,
 )
+from .upload_bridge import build_upload_documents
 from .fixtures import (
     build_default_fixture_hubs,
     build_empty_fixture_hubs,
@@ -485,6 +486,8 @@ def _final_status(
         return DryRunStatus.NO_GO_INCOMPLETE_ENRICHMENT
     if selection_result.status is SelectionStatus.NO_GO_INSUFFICIENT_QUALITY:
         return DryRunStatus.NO_GO_INSUFFICIENT_QUALITY
+    if selection_result.status is SelectionStatus.PILOT_READY_EXPANSION_DEFERRED:
+        return DryRunStatus.PILOT_READY_EXPANSION_DEFERRED
     return DryRunStatus.READY
 
 
@@ -876,6 +879,19 @@ def _write_artifacts(
         "funnel.json": sha256_hex(funnel_bytes),
         "overlap_matrix.json": sha256_hex(overlap_bytes),
     }
+    upload_documents = build_upload_documents(
+        accepted_candidates,
+        selection_result,
+        generator_version=GENERATOR_VERSION,
+        source_snapshot=config.snapshot,
+    )
+    for document in upload_documents:
+        upload_bytes = document.model_dump_json(
+            by_alias=False, exclude_none=True, indent=None
+        ).encode("utf-8")
+        upload_name = f"upload-{document.batch_id}.json"
+        write_bytes_atomic(output_dir / upload_name, upload_bytes)
+        artifact_checksums[upload_name] = sha256_hex(upload_bytes)
     bundle_lines = "\n".join(
         f"{name}:{digest}" for name, digest in sorted(artifact_checksums.items())
     )

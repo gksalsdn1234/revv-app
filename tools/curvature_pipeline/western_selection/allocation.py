@@ -45,15 +45,18 @@ EXPANSION_QUOTA = BatchQuota(
 
 def allocate_batches(
     candidates: tuple[ScoredCandidate, ...], snapshot: str
-) -> tuple[BatchManifest, BatchManifest] | None:
+) -> tuple[BatchManifest, ...] | None:
     attempts = (
         _allocate_in_order(candidates, snapshot, (PILOT_QUOTA, EXPANSION_QUOTA)),
         _allocate_in_order(candidates, snapshot, (EXPANSION_QUOTA, PILOT_QUOTA)),
     )
     valid = tuple(attempt for attempt in attempts if attempt is not None)
-    if not valid:
+    if valid:
+        return min(valid, key=_manifest_key)
+    pilot = _select_batch(candidates, PILOT_QUOTA)
+    if pilot is None:
         return None
-    return min(valid, key=_manifest_key)
+    return (_manifest(pilot, PILOT_QUOTA, snapshot),)
 
 
 def _allocate_in_order(
