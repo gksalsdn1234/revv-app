@@ -113,10 +113,16 @@ class RevvRoute {
     return '${h}h ${m.toString().padLeft(2, '0')}m';
   }
 
-  /// 집에서 거리 표시
+  /// 출발점까지의 거리를 **숫자와 단위만으로** 표시한다.
+  ///
+  /// 예전에는 여기에 '거리'가 붙어 있었는데, 이 값을 쓰는 다섯 자리가 모두 옆에
+  /// 자기 언어로 된 라벨(Start / Home / 시작점)을 이미 달고 있어 중복인 데다,
+  /// 영어·프랑스어 문장 안에 한국어가 그대로 박혀 나왔다
+  /// (예: 'Start 3km 거리 · Easy nearby comparison').
+  /// 단위만 남기면 세 언어 어디에 넣어도 문장이 깨지지 않는다.
   String get distanceFromUserDisplay {
     if (distanceFromUser < 1.0) return '${(distanceFromUser * 1000).round()}m';
-    return '${distanceFromUser.toStringAsFixed(0)}km 거리';
+    return '${distanceFromUser.toStringAsFixed(0)}km';
   }
 
   /// 난이도 레이블 (windingScore 기반)
