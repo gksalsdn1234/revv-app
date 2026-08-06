@@ -477,6 +477,12 @@ class VoiceBriefingService {
         secondaryCall = _elevationCall(elevationCue, language);
       }
     }
+    // 흐름이 끝났다는 사실이 남은 커브 수보다 급하다 — 자리를 먼저 가져간다.
+    if (secondaryCall == null &&
+        afterLongClear &&
+        (curveCue?.severity ?? 0) >= 2) {
+      secondaryCall = _flowEndsCall(language);
+    }
     secondaryCall ??= sequenceCall;
     if (secondaryCall == null && includeElevation) {
       secondaryCall = _elevationCall(elevationCue!, language);
@@ -537,14 +543,24 @@ class VoiceBriefingService {
     );
   }
 
+  /// 배너가 이미 "8 curves ahead"라고 보여주는 수를 음성도 그대로 쓴다. 예전에는
+  /// 커브가 2개든 20개든 "bends continue" 한 문장이라, 운전자가 실제로 쓰는
+  /// 정보(몇 개나 남았나)를 세어놓고 버렸다. 길이는 그대로다.
   String? _curveSequenceCall(DriveCurveCue cue, AppLanguage language) {
     if (cue.curveCountAhead < 2) return null;
+    final count = cue.curveCountAhead;
     return _t(
       language,
-      ko: '연속 커브',
-      en: 'bends continue',
-      fr: 'virages enchaînés',
+      ko: '커브 $count개 연속',
+      en: '$count curves ahead',
+      fr: '$count virages à suivre',
     );
+  }
+
+  /// 긴 흐름 구간이 끝나고 급코너가 나오는 순간. `longClearGap` 판정은 예전부터
+  /// 돌고 있었는데 아무도 그 결과를 읽지 않아 단어가 나온 적이 없다.
+  String _flowEndsCall(AppLanguage language) {
+    return _t(language, ko: '흐름 끝', en: 'flow ends', fr: 'fin de section');
   }
 
   String _elevationCall(DriveElevationCue cue, AppLanguage language) {

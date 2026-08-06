@@ -379,7 +379,7 @@ void main() {
       language: AppLanguage.korean,
       muted: false,
     );
-    expect(spoken.single, '200, 우측 급커브, 연속 커브');
+    expect(spoken.single, '200, 우측 급커브, 커브 4개 연속');
     expect(spoken.single, isNot(contains('좌우')));
   });
 
@@ -402,7 +402,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken.single, '200, 우측 커브, 연속 커브');
+    expect(spoken.single, '200, 우측 커브, 커브 4개 연속');
   });
 
   test('a close pair of medium curves is worth briefing', () {
@@ -417,7 +417,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken.single, '200, 우측 커브, 연속 커브');
+    expect(spoken.single, '200, 우측 커브, 커브 2개 연속');
   });
 
   test('curve wording changes with tight and hairpin severity', () {
@@ -445,11 +445,11 @@ void main() {
 
     expect(
       voice.buildPhrase(mediumPair, language: AppLanguage.english),
-      '200, right, bends continue',
+      '200, right, 2 curves ahead',
     );
     expect(
       voice.buildPhrase(mediumPair, language: AppLanguage.french),
-      '200, droite, virages enchaînés',
+      '200, droite, 2 virages à suivre',
     );
   });
 
@@ -543,8 +543,11 @@ void main() {
     expect(spoken, hasLength(2));
   });
 
-  test('long clear gap adds no filler', () {
-    // 첫 큐 관측 (발화 없이 창 밖)
+  test('long clear gap ends the flow out loud', () {
+    // 이 테스트는 원래 'long clear gap adds no filler'였다. longClearGap 판정은
+    // 돌고 있었지만 결과를 읽는 곳이 없어 어떤 단어도 나오지 않았고, 그 침묵을
+    // 여기서 고정하고 있었다. 흐름이 끊기는 순간은 운전자가 알아야 할 상태
+    // 변화라 한 마디를 내주기로 했다 (2026-08-06 민우 확정).
     voice.onCoPilotCue(
       curveCue: cue(distanceM: 700),
       language: AppLanguage.korean,
@@ -557,7 +560,7 @@ void main() {
       language: AppLanguage.korean,
       muted: false,
     );
-    expect(spoken.single, '300, 우측 급커브');
+    expect(spoken.single, '300, 우측 급커브, 흐름 끝');
   });
 
   test('does not merge TBT and curve events at different positions', () {
@@ -616,6 +619,57 @@ void main() {
     );
 
     expect(phrase, '120, sharp left, crest');
+  });
+
+  test('the sequence call carries how many curves are left', () {
+    // It used to be one constant string for two curves and for twenty, so the
+    // count the banner already shows never reached the driver's ears.
+    String tail(int countAhead) => voice.buildCoPilotPhrase(
+      language: AppLanguage.english,
+      curveCue: cue(
+        distanceM: 200,
+        direction: 'right',
+        curveCountAhead: countAhead,
+      ),
+      preferCurve: true,
+    );
+
+    expect(tail(3), endsWith('3 curves ahead'));
+    expect(tail(8), endsWith('8 curves ahead'));
+    expect(tail(1), isNot(contains('curves ahead')));
+  });
+
+  test('a sharp corner after a long clear says the flow is ending', () {
+    final phrase = voice.buildCoPilotPhrase(
+      language: AppLanguage.english,
+      curveCue: cue(
+        distanceM: 200,
+        direction: 'right',
+        severity: 2,
+        curveCountAhead: 4,
+      ),
+      afterLongClear: true,
+      preferCurve: true,
+    );
+
+    // Ending the flow section outranks the count.
+    expect(phrase, '200, sharp right, flow ends');
+  });
+
+  test('a gentle corner after a long clear is not worth the words', () {
+    final phrase = voice.buildCoPilotPhrase(
+      language: AppLanguage.english,
+      curveCue: cue(
+        distanceM: 200,
+        direction: 'right',
+        severity: 1,
+        curveCountAhead: 4,
+      ),
+      afterLongClear: true,
+      preferCurve: true,
+    );
+
+    expect(phrase, isNot(contains('flow ends')));
   });
 
   test('every severity gets its own call', () {
@@ -789,7 +843,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken.single, '220, 우측 급커브, 연속 커브');
+    expect(spoken.single, '220, 우측 급커브, 커브 4개 연속');
     expect(spoken.single, isNot(contains('직진')));
   });
 
@@ -815,7 +869,7 @@ void main() {
       muted: false,
     );
 
-    expect(spoken.single, '220, 우측 급커브, 연속 커브');
+    expect(spoken.single, '220, 우측 급커브, 커브 4개 연속');
     expect(spoken.single, isNot(contains('직진')));
   });
 
