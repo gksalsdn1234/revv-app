@@ -105,6 +105,63 @@ class CurvaturePipelineTest(unittest.TestCase):
         self.assertGreater(profile["medium_curve_km"], 0)
         self.assertGreaterEqual(profile["tight_curve_km"], 0)
 
+    def test_short_straight_between_corners_keeps_the_flow_alive(self) -> None:
+        # 코너 - 짧은 직선 - 코너. 예전에는 가운데 직선이 연속 흐름을 0으로
+        # 되돌려서, 두 코너가 이어져 있는데도 흐름이 한 코너 길이로 잡혔다.
+        corner_a = [
+            {"lat": 45.0000, "lng": -73.0000},
+            {"lat": 45.0010, "lng": -73.0000},
+            {"lat": 45.0020, "lng": -72.9990},
+            {"lat": 45.0030, "lng": -72.9975},
+        ]
+        straight = [
+            {"lat": 45.0040, "lng": -72.9960},
+            {"lat": 45.0050, "lng": -72.9945},
+        ]
+        corner_b = [
+            {"lat": 45.0060, "lng": -72.9935},
+            {"lat": 45.0070, "lng": -72.9935},
+            {"lat": 45.0080, "lng": -72.9945},
+            {"lat": 45.0090, "lng": -72.9960},
+        ]
+
+        joined = compute_bearing_rate_profile(corner_a + straight + corner_b)
+        single = compute_bearing_rate_profile(corner_a)
+
+        self.assertGreater(joined["max_continuous_km"], single["max_continuous_km"])
+
+    def test_a_long_straight_still_breaks_the_flow(self) -> None:
+        # 유예를 넘는 직선은 여전히 끊어야 한다 — 안 그러면 흐름이 길이와
+        # 구분되지 않는다.
+        corner_a = [
+            {"lat": 45.0000, "lng": -73.0000},
+            {"lat": 45.0010, "lng": -73.0000},
+            {"lat": 45.0020, "lng": -72.9990},
+            {"lat": 45.0030, "lng": -72.9975},
+        ]
+        # 유예(0.25km)를 훨씬 넘는 직선. 방향을 유지한 채 이어진다.
+        long_straight = [
+            {"lat": 45.0060, "lng": -72.9930},
+            {"lat": 45.0090, "lng": -72.9885},
+            {"lat": 45.0120, "lng": -72.9840},
+        ]
+        # 직선 끝에서 이어지는 두 번째 코너.
+        corner_b = [
+            {"lat": 45.0130, "lng": -72.9825},
+            {"lat": 45.0140, "lng": -72.9825},
+            {"lat": 45.0150, "lng": -72.9835},
+            {"lat": 45.0160, "lng": -72.9850},
+        ]
+
+        joined = compute_bearing_rate_profile(corner_a + long_straight + corner_b)
+        alone = compute_bearing_rate_profile(corner_a)
+
+        # 직선이 끊었으므로 두 코너가 하나로 합쳐지지 않는다.
+        self.assertLess(
+            joined["max_continuous_km"],
+            alone["max_continuous_km"] * 2,
+        )
+
     def test_stable_road_id_is_deterministic(self) -> None:
         road = {
             "name": "North Twist",

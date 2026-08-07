@@ -36,6 +36,18 @@ class CurveThresholds:
     medium_deg_per_km: float = 20.0
 
 
+# 코너와 코너 사이에는 언제나 짧은 직선이 있다 — 탈출부와 진입부. 그 직선마다
+# 연속 흐름을 끊으면 max_continuous_km 는 "이어지는 재밌는 구간"이 아니라
+# "끊기지 않은 커브 하나"를 재게 된다. 실제로 그렇게 동작해서, Sea-to-Sky 99번의
+# 8.4km 구간이 흐름 1.3km 로 기록돼 있었다.
+#
+# 값은 실측으로 골랐다. 저장된 노드로 0.00~0.50km 를 훑으면 0.20~0.35km 구간이
+# 고원이다: Sea-to-Sky 는 흐름 비율 0.17 -> 0.65 로 회복하고, 초반 1.5km 가 완전
+# 직선인 대조 도로(Maple Drive)는 0.39 에 머문다. 0.50km 를 넘기면 Sea-to-Sky 가
+# 1.00 이 되어 지표가 길이와 구분되지 않는다.
+STREAK_GAP_TOLERANCE_KM = 0.25
+
+
 def normalize_point(point: Mapping[str, object]) -> PointDict:
     lat = point.get("lat")
     lng = point.get("lng")
@@ -186,6 +198,8 @@ def compute_bearing_rate_profile(
     current_continuous_km = 0.0
     max_continuous_km = 0.0
     straight_distance_km = 0.0
+    pending_gap_km = 0.0
+    in_streak = False
 
     for idx in range(len(points) - 2):
         a = points[idx]
@@ -202,11 +216,23 @@ def compute_bearing_rate_profile(
 
         if rate >= thresholds.medium_deg_per_km:
             curvy_distance_km += segment_km
-            current_continuous_km += segment_km
+            # 유예 안에서 참았던 직선은 흐름의 일부로 흡수한다.
+            current_continuous_km = (
+                current_continuous_km + pending_gap_km + segment_km
+                if in_streak
+                else segment_km
+            )
+            in_streak = True
+            pending_gap_km = 0.0
             max_continuous_km = max(max_continuous_km, current_continuous_km)
         else:
             straight_distance_km += segment_km
-            current_continuous_km = 0.0
+            if in_streak:
+                pending_gap_km += segment_km
+                if pending_gap_km > STREAK_GAP_TOLERANCE_KM:
+                    in_streak = False
+                    current_continuous_km = 0.0
+                    pending_gap_km = 0.0
 
         if rate >= thresholds.tight_deg_per_km:
             tight_curve_km += segment_km
