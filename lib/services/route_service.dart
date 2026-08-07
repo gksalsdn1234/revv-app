@@ -313,9 +313,21 @@ class RouteService extends ChangeNotifier {
   Future<void> prefetchRouteOverview(LatLng referencePoint) async {
     if (routeOverviewLoading) {
       _pendingOverviewReferencePoint = referencePoint;
+      _overviewLog('skip busy — queued ${_pt(referencePoint)}');
       return;
     }
-    if (routeOverviewLoaded && _hasOverviewCoverage(referencePoint)) return;
+    if (routeOverviewLoaded && _hasOverviewCoverage(referencePoint)) {
+      _overviewLog(
+        'skip covered ${_pt(referencePoint)} '
+        'regions=${_overviewCompletedRegionKeys.length} '
+        'routes=${_overviewRoutes.length}',
+      );
+      return;
+    }
+    _overviewLog(
+      'fetch ${_pt(referencePoint)} '
+      'loaded=$routeOverviewLoaded regions=${_overviewCompletedRegionKeys.length}',
+    );
     _catalogEpochValidation = null;
     routeOverviewLoading = true;
     final token = ++_overviewFetchToken;
@@ -371,6 +383,10 @@ class RouteService extends ChangeNotifier {
         try {
           final result = await _fetchRouteOverviewRegion(referencePoint);
           if (token != _overviewFetchToken) return;
+          _overviewLog(
+            'region ${_pt(referencePoint)} '
+            'got=${result.routes.length} complete=${result.isComplete}',
+          );
           final field = epoch == null
               ? result.routes.where((route) => !route.isGenerated).toList()
               : _routesAllowedForEpoch(result.routes, epoch);
@@ -392,10 +408,13 @@ class RouteService extends ChangeNotifier {
         } catch (error) {
           if (kDebugMode) {
             debugPrint(
-              '[RouteService] viewport supplement failed: ${error.runtimeType}',
+              '[RouteService] viewport supplement failed: '
+              '${error.runtimeType}: $error',
             );
           }
         }
+      } else {
+        _overviewLog('region skipped — already covered ${_pt(referencePoint)}');
       }
 
       routeOverviewLoaded = true;
@@ -431,6 +450,16 @@ class RouteService extends ChangeNotifier {
       }
     }
   }
+
+  /// 지역 보충 경로는 그동안 성공/실패/건너뜀을 아무것도 남기지 않아서, 지도를
+  /// 옮겼을 때 조회가 돈 건지 커버리지에 막힌 건지 밖에서 구분할 수 없었다.
+  void _overviewLog(String message) {
+    if (!kDebugMode) return;
+    debugPrint('[RouteService][overview] $message');
+  }
+
+  String _pt(LatLng point) =>
+      '${point.lat.toStringAsFixed(3)},${point.lng.toStringAsFixed(3)}';
 
   bool _hasOverviewCoverage(
     LatLng referencePoint, {

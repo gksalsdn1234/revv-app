@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
@@ -1163,6 +1164,13 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       final routeService = context.read<RouteService>();
       if (isRouteOverviewZoom(_mapZoom) && center != null) {
         unawaited(routeService.prefetchRouteOverview(center));
+      } else if (kDebugMode) {
+        // 자동 조회는 zoom <= routeOverviewZoomThreshold 에서만 돈다. 기본 진입
+        // 줌이 그 위라면 지도를 아무리 옮겨도 이 경로는 한 번도 실행되지 않는다.
+        debugPrint(
+          '[RouteService][overview] camera idle zoom=${_mapZoom.toStringAsFixed(1)} '
+          '> $routeOverviewZoomThreshold — no auto fetch',
+        );
       }
       final suppressSearchArea = _programmaticFieldFocusPending;
       if (suppressSearchArea) {
