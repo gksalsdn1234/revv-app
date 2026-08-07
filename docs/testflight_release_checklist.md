@@ -1,22 +1,25 @@
 # REVV TestFlight 배포 체크리스트
 
-목표: `codex/exploration-cloud-auto-record` 통합 후보를 iOS TestFlight/App Store Connect에서 검증 가능한 빌드로 올린다.
+목표: `claude/consolidate-20260806` 통합 후보를 iOS TestFlight/App Store Connect에서 검증 가능한 빌드로 올린다.
 
-> 2026-07-15 상태: 기존 build-55 archive는 최신 SQLite/버그 수정 소스보다 오래되어 재사용 금지. production DB migration은 `20260715141945`까지 적용·검증됐다. `delete-account` Edge Function 배포, 전체 migration replay, 실기기 smoke, signed archive 재생성, screenshot 02 교체 후 진행한다.
+> 2026-08-07 상태: 통합 브랜치가 `claude/consolidate-20260806`으로 바뀌었다(두 클론 통합 + 오늘 수정 9커밋). 릴리즈 빌드를 실기기(iPhone 15 Plus)에 설치까지 확인했다. 남은 것은 실기기 smoke test, App Store Connect 입력, signed archive 생성·업로드다.
+>
+> 이번 빌드에서 바뀐 것 중 심사와 직접 닿는 것: `Info.plist`에서 Always Location purpose string을 의도적으로 뺐다(§3). Always 는 요청하지 않지만 `UIBackgroundModes=location` 과 `allowBackgroundLocationUpdates` 는 살아 있어서, 포그라운드에서 시작한 위치 스트림은 백그라운드에서 이어진다. 즉 도착 시 자동 주행 시작(`RouteAutoRecordService`)은 **iOS에서도 동작할 것으로 보이나 실기기 미검증이다.** §7 에 검증 항목을 넣었다. 근거와 확인 절차는 `lib/services/location_service.dart` 의 `startArmedTracking` 주석 참고.
 
 ## 0. 배포 범위 고정
 
-- [x] 통합 후보 브랜치가 `codex/exploration-cloud-auto-record`인지 확인한다.
+- [ ] 통합 후보 브랜치가 `claude/consolidate-20260806`인지 확인한다.
 - [ ] `main`은 건드리지 않는다.
 - [ ] 이번 빌드 범위는 `홈 -> 루트 찾기 -> 루트 상세 -> 주행 시작 -> 주행 종료 -> 요약 저장`으로 고정한다.
 - [ ] OBD, AI 리뷰, STT, Garage, 결제, Android는 이번 TestFlight 차단 범위에서 제외한다. 코파일럿 TTS는 포함한다.
+- [ ] 루트 체인(`+`로 최대 6개 연결)이 이번 범위에 포함되는지 정한다. 현재 코드에는 켜져 있고, 잠글 계획이면 이 빌드 전에 정해야 한다.
 - [ ] 알려진 미완성 기능은 베타 노트에 솔직하게 적는다.
 
 ## 1. 로컬 코드 검증
 
 - [x] `flutter analyze` 통과.
-- [x] `flutter test` 통과(596 passed, 조건부 live test 2 skipped).
-- [x] `flutter build ios --release --no-codesign --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env` 통과.
+- [x] `flutter test` 통과(671 passed, 조건부 live test 2 skipped).
+- [x] `flutter build ios --release --dart-define-from-file=.env` 통과. (2026-08-07 서명 빌드로 실기기 설치까지 확인)
 - [ ] Firebase, Bluetooth, Speech, `audioplayers`, 무허가 beep/chirp 문자열이 남아 있지 않은지 확인한다. 코파일럿 TTS와 flag-off 워키 오디오 패키지는 의도된 binary 구성이다.
 
 ```sh
@@ -43,7 +46,7 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|audi
 - [ ] Team: `BMG2X5W7V9`.
 - [x] Display Name: `REVV`.
 - [ ] Version: `1.38.0`.
-- [x] Build Number: `55`.
+- [x] Build Number: `59`.
 - [ ] App icon이 기본 Flutter 아이콘이 아닌 REVV 아이콘인지 확인한다.
 - [ ] Launch screen이 기본 Flutter 화면이 아닌지 확인한다.
 - [x] `Info.plist` 권한 문구는 실제 요청 권한으로 제한하고 Speech/Always Location purpose string을 제거한다.
@@ -56,7 +59,14 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|audi
 - [ ] Location: 루트 추천, 지도 현재 위치 표시, 주행 기록 저장에 사용.
 - [ ] User ID: Supabase 사용자 식별 및 사용자별 기록 분리에 사용.
 - [ ] Usage Data / Diagnostics: 현재 명시적으로 수집하는 항목만 입력한다.
-- [ ] Run Data: 주행 거리, 시간, 경로 샘플, 속도, G 값, 피드백을 저장하며 클라우드 저장 토글과 삭제 기능을 제공한다고 명시한다.
+- [ ] App Privacy 데이터 유형을 App Store Connect 분류명으로 매핑한다. "Run Data" 는 ASC 에 없는 이름이다.
+  - [ ] Precise Location — 연결됨, App Functionality, Tracking 아님
+  - [ ] User ID — 익명 Supabase 계정도 계정 식별자이므로 연결됨
+  - [ ] Product Interaction — 추천 노출·선택 로그(route ID, 모드, 예산, 위치 버킷)를 서버에 저장한다. `lib/services/recommendation_log_service.dart`
+  - [ ] Other Data — 주행 거리·시간·경로 좌표 샘플·속도·G 값
+  - [ ] 루트 피드백에 자유 텍스트가 있으면 User Content 분류를 별도 검토한다.
+  - [ ] Mapbox 등 서드파티 SDK 가 자체 수집하는 항목도 라벨에 포함한다.
+- [ ] 클라우드 저장 토글과 삭제 기능을 제공한다고 명시한다.
 - [ ] 업로드 실패 시 주행 상세는 pending 안전망에만 남고, 업로드 성공 후 로컬 상세 payload가 삭제된다고 내부 검증한다.
 - [ ] 업로드 실패 pending 상세 payload는 14일 TTL 이후 자동 삭제되는지 내부 검증한다.
 - [ ] Bluetooth, Contacts, Photos, Speech Recognition, Always Location은 심사 후보에서 요청하지 않는다. Microphone 워키 구현은 binary에 남지만 `REVV_WALKIE_LAB`가 꺼져 있어 진입점/권한 요청이 없음을 리뷰 노트와 실제 빌드에서 일치시킨다.
@@ -74,7 +84,7 @@ rg "Firebase|cloud_functions|firebase_core|flutter_blue_plus|speech_to_text|audi
 flutter clean
 flutter pub get
 cd ios && pod install && cd ..
-flutter build ipa --release --dart-define-from-file=/Users/minwoohan/Documents/revv-app/.env --build-name=1.38.0 --build-number=55
+flutter build ipa --release --dart-define-from-file=.env --build-name=1.38.0 --build-number=59
 ```
 
 - [ ] `build/ios/ipa/*.ipa`가 생성된다.
@@ -105,6 +115,14 @@ flutter build ipa --release --dart-define-from-file=/Users/minwoohan/Documents/r
 - [ ] `주행 종료` 버튼이 쉽게 보이고 눌린다.
 - [ ] 요약 저장 후 기록이 남는다.
 - [ ] 앱 재시작 후 기록이 복원된다.
+- [ ] 루트를 선택해 armed 상태로 만든 뒤 앱을 백그라운드로 보내면 파란 위치 표시가 보인다.
+- [ ] 시작점에 도착해 출발하면 자동으로 기록이 시작된다.
+- [ ] 앱을 강제 종료하면 자동 재개되지 않는다.
+- [ ] 주행 종료·루트 취소 시 위치 표시와 업데이트가 즉시 멈춘다.
+- [ ] 주행 시작 직후 바로 종료하면 요약에 점수가 뜨지 않는다(거리 0일 때 REVV Score/Flow/Technical/Smoothness 없음).
+- [ ] Mapbox attribution 메뉴가 가려지지 않고 telemetry opt-out 에 접근할 수 있다.
+- [ ] 첫 주행 시작 전에 안전 고지(정차 또는 동승자 조작)가 앱 화면에 보인다.
+- [ ] 설정에서 게스트 계정 삭제를 실행하면 서버 주행·추천 로그·로컬 pending payload 가 모두 사라지고, 네트워크 실패 시 완료로 오인되지 않는다.
 - [ ] 최소 10분 실주행 중 크래시가 없다.
 
 ## 8. 외부 테스터 배포

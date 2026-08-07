@@ -88,6 +88,23 @@ class LocationService extends ChangeNotifier {
       _armedBackgroundTracking = false;
       return;
     }
+    // 노림수: 사용자가 구글맵/Waze 로 루트 시작점까지 가는 동안 REVV 는
+    // 백그라운드에 있고, 도착해서 출발하면 RouteAutoRecordService 가 알아서
+    // 주행 기록을 시작한다 — 앱을 다시 열 필요가 없다.
+    //
+    // Always 권한은 iOS 에서 요청하지 않는다. 첫 App Store 제출에 얹기에
+    // 심사 리스크가 커서 Info.plist 의 purpose string 도 함께 뺐다.
+    //
+    // 그렇다고 iOS 에서 무장 추적이 죽는 것은 아니다. When In Use 권한이라도
+    // 포그라운드에서 시작한 위치 스트림은 UIBackgroundModes=location 과
+    // _trackingSettings 의 allowBackgroundLocationUpdates 로 백그라운드에서
+    // 이어진다. Always 가 필요한 영역은 "앱이 종료된 뒤 위치 이벤트로
+    // 재실행되는" 경우다 — 그건 지원하지 않는 게 맞다.
+    //
+    // ⚠ 다만 이 동작은 아직 실기기에서 확인하지 않았다. 제출 전에 확인할 것:
+    // 루트를 armed 로 만들고 백그라운드 전환 → 파란 위치 표시가 뜨는지,
+    // 시작점에서 자동 기록이 시작되는지, 강제 종료 후에는 재개되지 않는지,
+    // 주행 종료·루트 취소 시 표시와 업데이트가 즉시 멈추는지.
     if (Platform.isAndroid) {
       await Permission.locationAlways.request();
       if (request != _armedTrackingRequest || !_armedBackgroundTracking) {
