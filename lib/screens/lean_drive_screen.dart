@@ -177,7 +177,26 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     }
     final language = _settings?.appLanguage ?? AppLanguage.korean;
     _voice.announceStart(language, muted: _settings?.ttsMuted ?? true);
-    await _hydrateSparseRouteNodes();
+    try {
+      await _hydrateSparseRouteNodes();
+    } catch (_) {
+      if (!mounted) return;
+      _autoRecord?.finish();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppCopy.t(
+              language,
+              ko: '경로 상세를 불러오지 못했어요. 다시 시도해 주세요.',
+              en: 'Could not load route details. Try again.',
+              fr: 'Impossible de charger le détail. Réessayez.',
+            ),
+          ),
+        ),
+      );
+      Navigator.of(context).pop();
+      return;
+    }
     unawaited(_loadRouteTurns(_activeRouteNodes));
     unawaited(_prepareMatchedRouteGeometry());
     if (!mounted) return;
@@ -189,7 +208,15 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       setState(() => _elapsed = DateTime.now().difference(_startedAt!));
     });
     if (!_resumingAutoRecord) {
-      _session?.startSession(widget.route, simulated: widget.simulated);
+      _session?.startSession(
+        widget.route.geometryIsOverview
+            ? widget.route.copyWith(
+                nodes: _activeRouteNodes,
+                geometryIsOverview: false,
+              )
+            : widget.route,
+        simulated: widget.simulated,
+      );
       _session?.recordDriveMode(_driveMode);
     }
     unawaited(WakelockPlus.enable());
@@ -624,11 +651,21 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
 
   Future<void> _hydrateSparseRouteNodes() async {
     if (widget.drivePlan != null) return;
-    if (_averageRouteNodeSpacingM(widget.route.nodes) <= 120) return;
-    final loader = widget.routeNodesLoader ?? SupabaseService().fetchRouteNodes;
+    if (!widget.route.geometryIsOverview &&
+        _averageRouteNodeSpacingM(widget.route.nodes) <= 120) {
+      return;
+    }
+    final loader =
+        widget.routeNodesLoader ??
+        (widget.route.isGenerated || widget.route.geometryIsOverview
+            ? SupabaseService().fetchRouteNodesV2
+            : SupabaseService().fetchRouteNodes);
     final nodes = await loader(
       widget.route.id,
-    ).catchError((_) => const <LatLng>[]);
+    ).timeout(const Duration(seconds: 8)).catchError((_) => const <LatLng>[]);
+    if (widget.route.geometryIsOverview && nodes.length < 2) {
+      throw StateError('Route detail unavailable');
+    }
     if (!mounted ||
         nodes.length < 2 ||
         _sameRouteNodes(nodes, widget.route.nodes)) {

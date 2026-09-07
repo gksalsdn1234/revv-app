@@ -1346,6 +1346,9 @@ void _extendRouteChain({
   }
 }
 
+RevvRoute? combineRouteChainGeometry(List<RevvRoute> segments) =>
+    _combineRouteChain(segments, maxGapKm: 8.0);
+
 RevvRoute? _combineRouteChain(
   List<RevvRoute> segments, {
   required double maxGapKm,
@@ -1430,6 +1433,8 @@ RevvRoute? _combineRouteChain(
     id: 'combo:${segments.map((route) => route.id).join(':')}',
     name: segments.map((route) => route.name).join(' + '),
     nodes: bestPath.nodes,
+    geometryIsOverview: segments.any((r) => r.geometryIsOverview),
+    geometryParts: segments,
     distanceKm: combinedDistanceKm,
     windingScore: baseScore,
     starRating: RevvRoute.toStarRating(baseScore),

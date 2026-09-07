@@ -69,6 +69,8 @@ RevvRoute buildDrivePlanRoute({
     id: '${RevvRoute.chainRouteIdPrefix}${windingRoutes.map((route) => Uri.encodeComponent(route.id)).join('/')}',
     name: name,
     nodes: nodes,
+    geometryIsOverview: false,
+    geometryParts: const [],
     distanceKm: distanceKm,
     windingScore: windingScore,
     starRating: RevvRoute.toStarRating(windingScore),

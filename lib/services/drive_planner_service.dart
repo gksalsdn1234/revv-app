@@ -236,7 +236,7 @@ class DrivePlannerService {
            transitLegLoader ?? (etaService ?? TransitEtaService()).routeLegs,
        _nodesLoader =
            nodesLoader ??
-           ((routeId) => SupabaseService().fetchRouteNodes(routeId));
+           ((routeId) => SupabaseService().fetchRouteNodesV2(routeId));
 
   Future<DrivePlan?> buildPlan(DrivePlanRequest request) async {
     final candidates = await _corridorCandidates(request);
@@ -565,15 +565,32 @@ class DrivePlannerService {
     if (routes.isEmpty) return const [];
     return Future.wait(
       routes.map((route) async {
+        if (route.geometryIsOverview && route.geometryParts.isNotEmpty) {
+          final parts = await _hydrateSelectedRoutes(route.geometryParts);
+          final full = combineRouteChainGeometry(parts);
+          if (full == null || full.geometryIsOverview) {
+            throw StateError('Route detail unavailable');
+          }
+          return route.copyWith(
+            nodes: full.nodes,
+            geometryIsOverview: false,
+            geometryParts: parts,
+          );
+        }
         try {
           final nodes = await _nodesLoader(
             route.id,
           ).timeout(const Duration(seconds: 5));
-          if (nodes.length > route.nodes.length) {
-            return route.copyWith(nodes: nodes);
+          if (nodes.length >= 2 &&
+              (route.geometryIsOverview || nodes.length > route.nodes.length)) {
+            return route.copyWith(nodes: nodes, geometryIsOverview: false);
           }
         } catch (_) {
+          if (route.geometryIsOverview) rethrow;
           return route;
+        }
+        if (route.geometryIsOverview) {
+          throw StateError('Route detail unavailable');
         }
         return route;
       }),

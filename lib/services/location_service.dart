@@ -1,3 +1,4 @@
+import 'route_performance.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -37,7 +38,10 @@ class LocationService extends ChangeNotifier {
   }
 
   Future<void> requestPermission() async {
-    final status = await Permission.locationWhenInUse.request();
+    final status = await RoutePerformance.measure(
+      'location.permission',
+      () => Permission.locationWhenInUse.request(),
+    );
     _permissionStatus = status;
     hasPermission = status.isGranted;
     notifyListeners();
@@ -186,7 +190,12 @@ class LocationService extends ChangeNotifier {
 
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
-  }) async {
+  }) => RoutePerformance.measure(
+    'location.fix',
+    () => _ensureLiveLocation(timeout: timeout),
+  );
+
+  Future<LatLng?> _ensureLiveLocation({required Duration timeout}) async {
     if (!hasPermission) {
       final status = await Permission.locationWhenInUse.status;
       _permissionStatus = status;

@@ -89,6 +89,8 @@ void main() {
     mapOnlyBoundaryMigration,
     quebecRegionRepairMigration,
     westernRoutePublicationMigration,
+    'supabase/migrations/20260907120251_route_lightweight_overview.sql',
+    'supabase/migrations/20260907131716_route_catalog_ordinal_lookup.sql',
   ];
 
   const userTables = [

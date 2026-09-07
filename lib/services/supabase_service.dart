@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'package:http/http.dart' as http;
+import 'route_performance.dart';
+import 'route_overview_transport.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -131,7 +134,11 @@ class SupabaseService extends ChangeNotifier {
     }
 
     try {
-      _client = SupabaseClient(_config!.url, _config!.anonKey);
+      _client = SupabaseClient(
+        _config!.url,
+        _config!.anonKey,
+        httpClient: RouteTimingClient(http.Client()),
+      );
       final auth = _client!.auth;
       await _recoverPersistedSession();
       final canContinue = await _resumePendingAccountDeletion();
@@ -456,20 +463,28 @@ class SupabaseService extends ChangeNotifier {
     return (await _loadRouteCatalogState(forceRefresh: true)).epoch;
   }
 
+  late final _overviewTransport = RouteOverviewTransport(
+    (name, params) async => client!.rpc(name, params: params),
+  );
+
   Future<List<RevvRoute>> fetchRouteCatalog({int maxResults = 650}) async {
     final state = await _loadRouteCatalogState();
     final routeIds = state.routeIds.take(maxResults.clamp(1, 650)).toList();
     if (routeIds.isEmpty) return const [];
-    final rows = await client!.rpc(
+    final rows = await _overviewTransport.request(
+      'get_route_overview_v2',
       'get_route_nodes_v2',
-      params: {'route_ids_input': routeIds},
+      {'route_ids_input': routeIds},
     );
-    return (rows as List)
-        .whereType<Map<String, dynamic>>()
-        .map(_catalogRouteFromNodeRow)
-        .where((route) => route.nodes.length > 1)
-        .take(650)
-        .toList(growable: false);
+    return RoutePerformance.measureSync(
+      'catalog.model_decode',
+      () => (rows as List)
+          .whereType<Map<String, dynamic>>()
+          .map(_catalogRouteFromNodeRow)
+          .where((route) => route.nodes.length > 1)
+          .take(650)
+          .toList(growable: false),
+    );
   }
 
   Future<_RouteCatalogState> _loadRouteCatalogState({
@@ -505,21 +520,22 @@ class SupabaseService extends ChangeNotifier {
     if (!_ready || uid == null || client == null) {
       throw StateError('Authenticated Supabase session required');
     }
-    final rows = await client!.rpc(
-      'find_curvy_roads_v2',
-      params: {
-        'user_lat': lat,
-        'user_lng': lng,
-        'radius_m': (radiusKm * 1000).round(),
-        'min_score': 0,
-        'max_results': maxResults.clamp(1, 120),
-      },
+    final rows = await _overviewTransport
+        .request('find_curvy_roads_overview_v2', 'find_curvy_roads_v2', {
+          'user_lat': lat,
+          'user_lng': lng,
+          'radius_m': (radiusKm * 1000).round(),
+          'min_score': 0,
+          'max_results': maxResults.clamp(1, 120),
+        });
+    return RoutePerformance.measureSync(
+      'nearby.model_decode',
+      () => (rows as List)
+          .whereType<Map<String, dynamic>>()
+          .map((row) => routeFromRow(row, userLat: lat, userLng: lng))
+          .take(120)
+          .toList(growable: false),
     );
-    return (rows as List)
-        .whereType<Map<String, dynamic>>()
-        .map((row) => routeFromRow(row, userLat: lat, userLng: lng))
-        .take(120)
-        .toList(growable: false);
   }
 
   Future<List<RevvRoute>> fetchMapSegments(
@@ -1224,6 +1240,7 @@ class SupabaseService extends ChangeNotifier {
         id: row['id'] as String,
         name: row['name'] as String? ?? '',
         nodes: nodes,
+        geometryIsOverview: row['geometry_detail'] == 'overview',
         distanceKm: (row['distance_km'] as num?)?.toDouble() ?? 0,
         windingScore: (row['winding_score'] as num?)?.toDouble() ?? 0,
         starRating: (row['star_rating'] as num?)?.toInt() ?? 1,
@@ -1274,6 +1291,7 @@ class SupabaseService extends ChangeNotifier {
   }
 
   static RevvRoute _catalogRouteFromNodeRow(Map<String, dynamic> row) {
+    if (row['geometry_detail'] == 'overview') return routeFromRow(row);
     final nodes = _nodesFromJson(row['nodes']);
     final center = nodes.isEmpty
         ? const LatLng(0, 0)

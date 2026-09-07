@@ -1,3 +1,4 @@
+import 'route_performance.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -505,7 +506,10 @@ class RouteService extends ChangeNotifier {
         final fetcher = _routeCatalogEpochFetcher;
         final epoch = fetcher != null
             ? await fetcher()
-            : await SupabaseService().fetchRouteCatalogEpoch();
+            : await RoutePerformance.measure(
+                'catalog.epoch',
+                () => SupabaseService().fetchRouteCatalogEpoch(),
+              );
         if (epoch < 0) {
           _validatedCatalogEpoch = null;
           _catalogAttempted = false;
@@ -565,7 +569,9 @@ class RouteService extends ChangeNotifier {
   }) async {
     final boundedResults = maxResults.clamp(1, routeFieldInitialFetchLimit);
     final requestRadiusKm = radiusKm ?? routeFieldRadiusKm.toDouble();
-    final epoch = await _ensureCatalogEpoch();
+    // Start the independent epoch request alongside the data request, but
+    // validate before publishing any generated geometry.
+    final epochFuture = _ensureCatalogEpoch();
     try {
       final fetcher = _routeLocalV2Fetcher;
       final routes = fetcher != null
@@ -576,6 +582,7 @@ class RouteService extends ChangeNotifier {
               requestRadiusKm,
               maxResults: boundedResults,
             );
+      final epoch = await epochFuture;
       final accepted = epoch == null
           ? routes
                 .where((route) => !route.isGenerated)
@@ -755,9 +762,9 @@ class RouteService extends ChangeNotifier {
     bool allowCacheFallback = false,
   }) async {
     try {
-      var candidates = await _fetchLocalRoutes(
-        point,
-        routeFieldInitialFetchLimit,
+      var candidates = await RoutePerformance.measure(
+        'field.fetch',
+        () => _fetchLocalRoutes(point, routeFieldInitialFetchLimit),
       );
       lastCloudCandidateCount = candidates.length;
 
@@ -794,7 +801,11 @@ class RouteService extends ChangeNotifier {
         sourceLabel: 'Supabase',
         fromCache: false,
       );
-      await _saveRouteFieldCache(point, routeFieldRadiusKm, candidates);
+      notifyListeners();
+      await RoutePerformance.measure(
+        'field.cache_write',
+        () => _saveRouteFieldCache(point, routeFieldRadiusKm, candidates),
+      );
       routeDataStatusTitle = '커브길 준비 완료';
       routeDataStatusBody =
           '지도에는 ${mapVisualRoutes.length}개 커브길을 깔고, ${routes.length}개 추천 후보를 골랐습니다.';
@@ -959,9 +970,19 @@ class RouteService extends ChangeNotifier {
 
   Future<void> _hydrateSelectedRouteNodes() async {
     final route = selectedRoute;
-    if (route == null || route.nodes.isNotEmpty) return;
-    final hydrated = await hydrateRouteNodes(route);
-    if (hydrated.nodes.isEmpty || selectedRoute?.id != route.id) return;
+    if (route == null ||
+        (route.nodes.isNotEmpty && !route.geometryIsOverview)) {
+      return;
+    }
+    RevvRoute hydrated;
+    try {
+      hydrated = await hydrateRouteNodes(route);
+    } catch (_) {
+      return;
+    }
+    if (_disposed || hydrated.nodes.isEmpty || selectedRoute?.id != route.id) {
+      return;
+    }
     selectedRoute = hydrated;
     routes = [
       for (final item in routes) item.id == hydrated.id ? hydrated : item,
@@ -969,14 +990,54 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<RevvRoute> hydrateRouteNodes(RevvRoute route) async {
-    if (route.nodes.isNotEmpty) return route;
+  final Map<String, Future<RevvRoute>> _detailLoads = {};
+
+  Future<RevvRoute> hydrateRouteNodes(RevvRoute route) {
+    if (route.nodes.isNotEmpty && !route.geometryIsOverview) {
+      return Future.value(route);
+    }
+    final selected = selectedRoute;
+    if (selected != null &&
+        selected.id == route.id &&
+        selected.catalogEpoch == route.catalogEpoch &&
+        !selected.geometryIsOverview &&
+        selected.nodes.length >= 2) {
+      return Future.value(selected);
+    }
+    final key = '${route.id}:${route.catalogEpoch}:${route.isGenerated}';
+    return _detailLoads.putIfAbsent(
+      key,
+      () => _loadRouteDetail(route).whenComplete(() {
+        _detailLoads.remove(key);
+      }),
+    );
+  }
+
+  Future<RevvRoute> _loadRouteDetail(RevvRoute route) async {
+    if (route.nodes.isNotEmpty && !route.geometryIsOverview) return route;
+    if (route.geometryParts.isNotEmpty) {
+      final parts = await Future.wait(
+        route.geometryParts.map(hydrateRouteNodes),
+      );
+      if (parts.any((part) => part.geometryIsOverview || part.nodes.length < 2)) {
+        return route;
+      }
+      final combined = combineRouteChainGeometry(parts);
+      if (combined == null) return route;
+      return route.copyWith(
+        nodes: combined.nodes,
+        geometryIsOverview: false,
+        geometryParts: parts,
+      );
+    }
     try {
       final fetcher = _routeNodeV2Fetcher;
       final nodes = fetcher != null
           ? await fetcher(route.id)
           : await SupabaseService().fetchRouteNodesV2(route.id);
-      if (nodes.isNotEmpty) return route.copyWith(nodes: nodes);
+      if (nodes.length >= 2) {
+        return route.copyWith(nodes: nodes, geometryIsOverview: false);
+      }
     } catch (_) {
       // Generated routes must never cross the legacy direct-select boundary.
     }
@@ -985,7 +1046,9 @@ class RouteService extends ChangeNotifier {
     final nodes = fallback != null
         ? await fallback(route.id)
         : await SupabaseService().fetchRouteNodes(route.id);
-    return nodes.isEmpty ? route : route.copyWith(nodes: nodes);
+    return nodes.length < 2
+        ? route
+        : route.copyWith(nodes: nodes, geometryIsOverview: false);
   }
 
   Future<void> _saveRouteFieldCache(

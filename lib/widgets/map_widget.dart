@@ -1,3 +1,5 @@
+import '../services/latest_work_queue.dart';
+import '../services/route_performance.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
@@ -254,7 +256,9 @@ class _MapWidgetState extends State<MapWidget>
   Uint8List? _puckTopImage;
   Uint8List? _puckBearingImage;
   Uint8List? _puckShadowImage;
-  Future<void> _difficultyDraws = Future.value();
+  final _difficultyQueue = LatestWorkQueue<List<RouteDifficultyLine>>();
+  final _difficultySources = RetainedRouteSources();
+  Stopwatch? _routeFrameTimer;
   Future<void> _fogDraws = Future.value();
 
   bool get _shouldDrawCurveHeatmap =>
@@ -1007,6 +1011,7 @@ class _MapWidgetState extends State<MapWidget>
   }
 
   Future<void> _onStyleLoaded(mbx.StyleLoadedEventData _) async {
+    _difficultySources.reset();
     _styleLoaded = true;
     _locationPuckEnabled = false;
     _routeFocusApplied = false;
@@ -1191,53 +1196,68 @@ class _MapWidgetState extends State<MapWidget>
     };
   }
 
-  Future<void> _clearDifficultyLines() async {
-    final map = _mapController;
-    if (map == null) return;
-    try {
-      await map.style.removeStyleLayer('$_newRouteCasingId-layer');
-    } catch (_) {}
-    try {
-      await map.style.removeStyleSource('$_newRouteCasingId-source');
-    } catch (_) {}
-    for (final id in _difficultyLayerIds) {
-      try {
-        await map.style.removeStyleLayer('$id-glow-layer');
-      } catch (_) {}
-      try {
-        await map.style.removeStyleLayer('$id-core-layer');
-      } catch (_) {}
-      try {
-        await map.style.removeStyleSource('$id-source');
-      } catch (_) {}
+  Future<void> _ensureDifficultySource(String id, String data) async {
+    final style = _mapController!.style;
+    if (!await style.styleSourceExists(id)) {
+      await style.addSource(mbx.GeoJsonSource(id: id, data: data));
+    } else {
+      await style.setStyleSourceProperty(id, 'data', jsonDecode(data));
+    }
+  }
+
+  Future<void> _ensureDifficultyLayer(mbx.LineLayer layer) async {
+    final style = _mapController!.style;
+    if (!await style.styleLayerExists(layer.id)) {
+      if (layer.id == '$_newRouteCasingId-layer') {
+        for (final existing in await style.getStyleLayers()) {
+          if (existing != null && existing.id.startsWith('difficulty-')) {
+            await style.addLayerAt(
+              layer,
+              mbx.LayerPosition(below: existing.id),
+            );
+            return;
+          }
+        }
+      }
+      await style.addLayer(layer);
     }
   }
 
   Future<void> _drawDifficultyLines(List<RouteDifficultyLine> lines) async {
     final map = _mapController;
     if (map == null || !_styleLoaded) return;
-    await _clearDifficultyLines();
-    if (lines.isEmpty) return;
+    final timer = Stopwatch()..start();
+    final activeIds = <String>{};
 
     final newRouteGeoJson = buildNewRouteCasingGeoJson(lines);
     if (lines.any((line) => line.showNewCasing && line.points.length > 1)) {
       try {
-        await map.style.addSource(
-          mbx.GeoJsonSource(
-            id: '$_newRouteCasingId-source',
-            data: newRouteGeoJson,
+        activeIds.add(_newRouteCasingId);
+        await _difficultySources.put(
+          _newRouteCasingId,
+          newRouteGeoJson,
+          update: () => map.style.setStyleSourceProperty(
+            '$_newRouteCasingId-source',
+            'data',
+            jsonDecode(newRouteGeoJson),
           ),
-        );
-        await map.style.addLayer(
-          mbx.LineLayer(
-            id: '$_newRouteCasingId-layer',
-            sourceId: '$_newRouteCasingId-source',
-            lineColor: AppColors.cyan.toARGB32(),
-            lineWidth: 5.0,
-            lineOpacity: 0.72,
-            lineCap: mbx.LineCap.ROUND,
-            lineJoin: mbx.LineJoin.ROUND,
-          ),
+          create: () async {
+            await _ensureDifficultySource(
+              '$_newRouteCasingId-source',
+              newRouteGeoJson,
+            );
+            await _ensureDifficultyLayer(
+              mbx.LineLayer(
+                id: '$_newRouteCasingId-layer',
+                sourceId: '$_newRouteCasingId-source',
+                lineColor: AppColors.cyan.toARGB32(),
+                lineWidth: 5.0,
+                lineOpacity: 0.72,
+                lineCap: mbx.LineCap.ROUND,
+                lineJoin: mbx.LineJoin.ROUND,
+              ),
+            );
+          },
         );
       } catch (e) {
         if (kDebugMode) {
@@ -1274,31 +1294,41 @@ class _MapWidgetState extends State<MapWidget>
       });
 
       try {
-        await map.style.addSource(
-          mbx.GeoJsonSource(id: '$id-source', data: geoJson),
-        );
-        await map.style.addLayer(
-          mbx.LineLayer(
-            id: '$id-glow-layer',
-            sourceId: '$id-source',
-            lineColor: first.colorArgb,
-            lineWidth: first.width + 2.2,
-            lineOpacity: math.min(first.opacity * 0.30, 0.30),
-            lineBlur: 1.2,
-            lineCap: mbx.LineCap.ROUND,
-            lineJoin: mbx.LineJoin.ROUND,
+        activeIds.add(id);
+        await _difficultySources.put(
+          id,
+          geoJson,
+          update: () => map.style.setStyleSourceProperty(
+            '$id-source',
+            'data',
+            jsonDecode(geoJson),
           ),
-        );
-        await map.style.addLayer(
-          mbx.LineLayer(
-            id: '$id-core-layer',
-            sourceId: '$id-source',
-            lineColor: first.colorArgb,
-            lineWidth: first.width,
-            lineOpacity: first.opacity,
-            lineCap: mbx.LineCap.ROUND,
-            lineJoin: mbx.LineJoin.ROUND,
-          ),
+          create: () async {
+            await _ensureDifficultySource('$id-source', geoJson);
+            await _ensureDifficultyLayer(
+              mbx.LineLayer(
+                id: '$id-glow-layer',
+                sourceId: '$id-source',
+                lineColor: first.colorArgb,
+                lineWidth: first.width + 2.2,
+                lineOpacity: math.min(first.opacity * 0.30, 0.30),
+                lineBlur: 1.2,
+                lineCap: mbx.LineCap.ROUND,
+                lineJoin: mbx.LineJoin.ROUND,
+              ),
+            );
+            await _ensureDifficultyLayer(
+              mbx.LineLayer(
+                id: '$id-core-layer',
+                sourceId: '$id-source',
+                lineColor: first.colorArgb,
+                lineWidth: first.width,
+                lineOpacity: first.opacity,
+                lineCap: mbx.LineCap.ROUND,
+                lineJoin: mbx.LineJoin.ROUND,
+              ),
+            );
+          },
         );
       } catch (e) {
         if (kDebugMode) {
@@ -1306,6 +1336,27 @@ class _MapWidgetState extends State<MapWidget>
         }
       }
     }
+    const empty = '{"type":"FeatureCollection","features":[]}';
+    for (final id in [..._difficultyLayerIds, _newRouteCasingId]) {
+      if (!activeIds.contains(id) && _difficultySources.contains(id)) {
+        await _difficultySources.put(
+          id,
+          empty,
+          create: () async {},
+          update: () => map.style.setStyleSourceProperty(
+            '$id-source',
+            'data',
+            jsonDecode(empty),
+          ),
+        );
+      }
+    }
+    RoutePerformance.record('map.sources_applied', {
+      'ms': timer.elapsedMicroseconds / 1000,
+      'routes': lines.length,
+      'vertices': lines.fold<int>(0, (n, line) => n + line.points.length),
+    });
+    if (lines.isNotEmpty) _routeFrameTimer ??= Stopwatch()..start();
   }
 
   Future<void> _onMapTap(mbx.MapContentGestureContext context) async {
@@ -1388,13 +1439,12 @@ class _MapWidgetState extends State<MapWidget>
     );
   }
 
-  Future<void> _scheduleDifficultyLines(List<RouteDifficultyLine> lines) {
-    final snapshot = List<RouteDifficultyLine>.of(lines);
-    _difficultyDraws = _difficultyDraws.then(
-      (_) => _drawDifficultyLines(snapshot),
-    );
-    return _difficultyDraws;
-  }
+  Future<void> _scheduleDifficultyLines(List<RouteDifficultyLine> lines) =>
+      _difficultyQueue.submit(List<RouteDifficultyLine>.of(lines), (
+        latest,
+      ) async {
+        if (mounted) await _drawDifficultyLines(latest);
+      });
 
   Future<void> _scheduleExplorationFog(List<ExplorationCell> cells) {
     final snapshot = List<ExplorationCell>.of(cells);
@@ -2424,6 +2474,14 @@ class _MapWidgetState extends State<MapWidget>
                 viewport: _viewportState,
                 onMapCreated: _onMapCreated,
                 onStyleLoadedListener: _onStyleLoaded,
+                onRenderFrameFinishedListener: (_) {
+                  final timer = _routeFrameTimer;
+                  if (timer == null) return;
+                  _routeFrameTimer = null;
+                  RoutePerformance.record('map.frame_after_sources', {
+                    'ms': timer.elapsedMicroseconds / 1000,
+                  });
+                },
                 onCameraChangeListener: _onCameraChanged,
                 onMapIdleListener: _onMapIdle,
                 onTapListener: _onMapTap,

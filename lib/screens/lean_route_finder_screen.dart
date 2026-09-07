@@ -905,7 +905,10 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   Future<void> _startFirstWinding() async {
-    final route = _firstWindingRoute;
+    final candidate = _firstWindingRoute;
+    if (candidate == null) return;
+    final route = await _resolveDriveGeometry(candidate);
+    if (!mounted) return;
     final origin = _journeyOrigin;
     if (route == null) return;
     final startChoice = await showCopilotStartSheet(context, route: route);
@@ -1045,7 +1048,34 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     });
   }
 
-  void _showRouteDetails(RevvRoute route) {
+  Future<RevvRoute?> _resolveDriveGeometry(RevvRoute route) async {
+    if (!route.geometryIsOverview) return route;
+    try {
+      final full = await context.read<RouteService>().hydrateRouteNodes(route);
+      if (!mounted) return null;
+      if (!full.geometryIsOverview && full.nodes.length >= 2) return full;
+    } catch (_) {
+      if (!mounted) return null;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          AppCopy.t(
+            context.read<SettingsService>().appLanguage,
+            ko: '경로 상세를 불러오지 못했어요. 다시 시도해 주세요.',
+            en: 'Could not load route details. Try again.',
+            fr: 'Impossible de charger le détail. Réessayez.',
+          ),
+        ),
+      ),
+    );
+    return null;
+  }
+
+  Future<void> _showRouteDetails(RevvRoute route) async {
+    final full = await _resolveDriveGeometry(route);
+    if (!mounted || full == null) return;
+    route = full;
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => LeanRouteDetailScreen(route: route)),
@@ -1065,6 +1095,9 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   Future<void> _startPreviewDrive(RevvRoute route) async {
+    final full = await _resolveDriveGeometry(route);
+    if (!mounted || full == null) return;
+    route = full;
     final startChoice = await showCopilotStartSheet(context, route: route);
     if (!mounted || startChoice == null) return;
     Navigator.pushReplacement(

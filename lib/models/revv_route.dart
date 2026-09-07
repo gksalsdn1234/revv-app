@@ -13,6 +13,12 @@ class RevvRoute {
   final String id;
   final String name;
   final List<LatLng> nodes;
+
+  /// Display geometry must be resolved before navigation.
+  final bool geometryIsOverview;
+
+  /// Source routes for a client-composed budget route.
+  final List<RevvRoute> geometryParts;
   final double distanceKm;
   final double windingScore;
   final int starRating;
@@ -72,6 +78,8 @@ class RevvRoute {
     required this.id,
     required this.name,
     required this.nodes,
+    this.geometryIsOverview = false,
+    this.geometryParts = const [],
     required this.distanceKm,
     required this.windingScore,
     required this.starRating,
@@ -283,6 +291,8 @@ class RevvRoute {
     String? id,
     String? name,
     List<LatLng>? nodes,
+    bool? geometryIsOverview,
+    List<RevvRoute>? geometryParts,
     double? distanceKm,
     double? windingScore,
     int? starRating,
@@ -330,6 +340,8 @@ class RevvRoute {
       id: id ?? this.id,
       name: name ?? this.name,
       nodes: nodes ?? this.nodes,
+      geometryIsOverview: geometryIsOverview ?? this.geometryIsOverview,
+      geometryParts: geometryParts ?? this.geometryParts,
       distanceKm: distanceKm ?? this.distanceKm,
       windingScore: windingScore ?? this.windingScore,
       starRating: starRating ?? this.starRating,
@@ -379,6 +391,9 @@ class RevvRoute {
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
+    if (geometryIsOverview) 'geometryIsOverview': true,
+    if (geometryParts.isNotEmpty)
+      'geometryParts': geometryParts.map((r) => r.toJson()).toList(),
     'nodes': nodes.map((n) => {'lat': n.lat, 'lng': n.lng}).toList(),
     'distanceKm': distanceKm,
     'windingScore': windingScore,
@@ -430,6 +445,10 @@ class RevvRoute {
   factory RevvRoute.fromJson(Map<String, dynamic> j) => RevvRoute(
     id: j['id'] as String,
     name: j['name'] as String,
+    geometryIsOverview: j['geometryIsOverview'] == true,
+    geometryParts: ((j['geometryParts'] as List?) ?? const [])
+        .map((r) => RevvRoute.fromJson((r as Map).cast<String, dynamic>()))
+        .toList(),
     nodes: ((j['nodes'] as List?) ?? [])
         .map(
           (n) => LatLng(
