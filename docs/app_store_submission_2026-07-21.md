@@ -1,8 +1,6 @@
 # REVV App Store submission packet — 2026-07-21
 
-This is the only current submission authority. Files named `*_2026-07-14.md`
-and older TestFlight execution plans are retained as historical evidence; do
-not use their build-55 commands or status to submit this candidate.
+> Historical build-59 submission packet. Current development/deployment status is in [2026-09-07 work log](2026-09-07-work-log.md). Build 63 was uploaded and resubmitted September 1; the July candidate, commands and draft state below are historical and must not be reused for a new upload. No September 7 app upload occurred.
 
 ## Candidate identity and local evidence
 

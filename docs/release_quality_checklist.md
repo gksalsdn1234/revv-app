@@ -1,6 +1,8 @@
 # Historical REVV iOS TestFlight Release Quality Checklist
 
-> Current App Store submission authority: `docs/app_store_submission_2026-07-21.md`.
+> 최신 개발·운영 배포·미완료 작업: [2026-09-07 작업 기록](2026-09-07-work-log.md). 아래는 이전 빌드의 이력이다.
+
+> Historical build-59 submission packet: `docs/app_store_submission_2026-07-21.md`.
 > This checklist retains build-55 history and must not be used as the release command.
 
 목표: 현재 통합 브랜치를 iOS App Store 심사 후보로 만든다. 범위는 루트 찾기, 코파일럿 TTS 안내, 주행, 요약 저장까지이며 OBD, AI 리뷰, STT, Garage, 고급 리포트는 이번 배포에서 제외한다.

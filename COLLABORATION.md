@@ -2,7 +2,7 @@
 
 ## 단일 활성 작업공간
 
-`/Users/minwoohan/Documents/revv-app-release-integration`의 `codex/revv-unified-workspace`가 유일한 활성 통합·릴리즈 작업공간이다. 이전 `revv-app`, `revv-app-claude`, `revv-lean-mvp` 작업공간은 보존용이며 여기에서만 새 작업을 시작한다.
+`/Users/minwoohan/Documents/revv-app-release-integration`의 `codex/revv-guideline4-language`가 현재 유일한 활성 통합·릴리즈 작업공간이다. 2026-09-07 기준 실제 브랜치이며, `codex/revv-unified-workspace`는 이전 기준점으로 보존한다. 이전 `revv-app`, `revv-app-claude`, `revv-lean-mvp` 작업공간은 보존용이며 여기에서만 새 작업을 시작한다.
 
 Claude의 새 범위는 항상 이 브랜치의 현재 커밋에서 `claude/*` 작업 브랜치를 새로 만들거나 재배치한 뒤 시작한다. 기존 `revv-app-claude`의 `claude/revv-workbench`는 보존된 프로토타입이며 새 작업의 베이스로 사용하지 않는다.
 
