@@ -26,8 +26,14 @@ class SettingsService extends ChangeNotifier {
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _ttsMuted = prefs.getBool(StorageKeys.ttsMuted) ?? false;
-    _appLanguage = appLanguageFromStorage(
-      prefs.getString(StorageKeys.appLanguage),
+    // iOS native permission sheets choose their copy from the platform's
+    // preferred language, not Flutter's MaterialApp locale. Keep the app on
+    // that same source of truth so a location/microphone/motion request cannot
+    // appear in a different language from the surrounding UI. The old
+    // persisted value is intentionally ignored for users upgrading from a
+    // build that exposed an in-app language switch.
+    _appLanguage = appLanguageFromLocaleCode(
+      PlatformDispatcher.instance.locale.languageCode,
     );
     _searchRadius = _normalizeSearchRadius(
       prefs.getInt(StorageKeys.searchRadius) ?? 50,
@@ -52,15 +58,17 @@ class SettingsService extends ChangeNotifier {
     await prefs.setBool(StorageKeys.ttsMuted, value);
   }
 
+  /// Test-only copy override. Released builds always derive language from the
+  /// platform so Flutter UI and iOS permission sheets stay in sync.
+  @visibleForTesting
   Future<void> setAppLanguage(AppLanguage value) async {
-    if (_appLanguage == value) return;
-    _appLanguage = value;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      StorageKeys.appLanguage,
-      appLanguageStorageValue(value),
-    );
+    assert(() {
+      if (_appLanguage != value) {
+        _appLanguage = value;
+        notifyListeners();
+      }
+      return true;
+    }());
   }
 
   Future<void> setSearchRadius(int value) async {

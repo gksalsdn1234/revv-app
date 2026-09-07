@@ -357,7 +357,7 @@ void main() {
     expect(find.text('15M'), findsOneWidget);
   });
 
-  testWidgets('settings tab keeps language voice controls and sync chip', (
+  testWidgets('settings tab shows the device language and voice controls', (
     tester,
   ) async {
     SharedPreferences.setMockInitialValues({});
@@ -404,9 +404,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Language'), findsOneWidget);
-    expect(find.text('KO'), findsOneWidget);
+    expect(find.text('Uses your device language'), findsOneWidget);
     expect(find.text('EN'), findsOneWidget);
-    expect(find.text('FR'), findsOneWidget);
+    expect(find.text('KO'), findsNothing);
+    expect(find.text('FR'), findsNothing);
     expect(find.text('Voice guidance'), findsOneWidget);
     expect(find.text('LOCAL'), findsOneWidget);
     expect(find.text('SYNCED'), findsNothing);
@@ -436,20 +437,11 @@ void main() {
     expect(settings.cloudRunStorageEnabled, isTrue);
     expect(find.text('SYNCED'), findsOneWidget);
 
-    await tester.tap(find.text('KO'));
-    await tester.pumpAndSettle();
-
-    expect(settings.appLanguage, AppLanguage.korean);
-    expect(find.bySemanticsLabel('OpenStreetMap 저작권 정보 열기'), findsOneWidget);
-
-    await tester.tap(find.text('FR'));
-    await tester.pumpAndSettle();
-
-    expect(settings.appLanguage, AppLanguage.french);
+    expect(settings.appLanguage, AppLanguage.english);
+    expect(find.text('KO'), findsNothing);
+    expect(find.text('FR'), findsNothing);
     expect(
-      find.bySemanticsLabel(
-        'Ouvrir les informations de droit d’auteur OpenStreetMap',
-      ),
+      find.bySemanticsLabel('Open OpenStreetMap copyright information'),
       findsOneWidget,
     );
   });

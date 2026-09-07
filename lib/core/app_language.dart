@@ -18,4 +18,15 @@ AppLanguage appLanguageFromStorage(String? value) {
   };
 }
 
+/// Maps the platform's preferred language to one of the app's supported
+/// languages. Native iOS permission sheets use this same platform language,
+/// so the app UI must not override it with an independent persisted choice.
+AppLanguage appLanguageFromLocaleCode(String? value) {
+  return switch (value?.toLowerCase()) {
+    'ko' => AppLanguage.korean,
+    'fr' => AppLanguage.french,
+    _ => AppLanguage.english,
+  };
+}
+
 String appLanguageStorageValue(AppLanguage language) => language.code;

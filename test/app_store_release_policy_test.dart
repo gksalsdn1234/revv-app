@@ -44,11 +44,17 @@ void main() {
 
     test('permission copy is concise and localized by iOS', () {
       final infoPlist = File('ios/Runner/Info.plist').readAsStringSync();
+      final shell = File(
+        'lib/screens/lean_app_shell_screen.dart',
+      ).readAsStringSync();
 
       expect(infoPlist, isNot(contains('NSSpeechRecognitionUsageDescription')));
       expect(infoPlist, isNot(contains('<string>audio</string>')));
       expect(infoPlist, isNot(contains(' / REVV')));
       expect(infoPlist, contains('NSMotionUsageDescription'));
+      expect(infoPlist, contains('<key>CFBundleLocalizations</key>'));
+      expect(shell, contains('settingsLanguageDetail'));
+      expect(shell, isNot(contains('onChanged: settings.setAppLanguage')));
 
       for (final locale in ['en', 'fr', 'ko']) {
         final strings = File('ios/Runner/$locale.lproj/InfoPlist.strings');

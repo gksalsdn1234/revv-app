@@ -1620,8 +1620,8 @@ class _SettingsSheet extends StatelessWidget {
                 ),
                 _SettingsLanguageTile(
                   label: AppCopy.settingsLanguage(language),
+                  detail: AppCopy.settingsLanguageDetail(language),
                   language: language,
-                  onChanged: settings.setAppLanguage,
                 ),
                 const SizedBox(height: 10),
                 _SettingsGroupLabel(
@@ -1954,13 +1954,13 @@ class _SettingsSegmentTile extends StatelessWidget {
 
 class _SettingsLanguageTile extends StatelessWidget {
   final String label;
+  final String detail;
   final AppLanguage language;
-  final ValueChanged<AppLanguage> onChanged;
 
   const _SettingsLanguageTile({
     required this.label,
+    required this.detail,
     required this.language,
-    required this.onChanged,
   });
 
   @override
@@ -1970,30 +1970,42 @@ class _SettingsLanguageTile extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              label,
-              style: AppText.body(
-                size: 15,
-                weight: FontWeight.w700,
-                color: AppColors.ink,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppText.body(
+                    size: 15,
+                    weight: FontWeight.w700,
+                    color: AppColors.ink,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  detail,
+                  style: AppText.technicalLabel(
+                    size: 10,
+                    color: AppColors.stone,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ],
             ),
           ),
           Container(
-            padding: const EdgeInsets.all(3),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: AppColors.ink.withValues(alpha: 0.07),
+              color: AppColors.ink,
               borderRadius: BorderRadius.circular(9),
             ),
-            child: Row(
-              children: [
-                for (final item in AppLanguage.values)
-                  _SegmentOption(
-                    label: item.shortLabel,
-                    active: item == language,
-                    onTap: () => onChanged(item),
-                  ),
-              ],
+            child: Text(
+              language.shortLabel,
+              style: AppText.label(
+                size: 12,
+                weight: FontWeight.w800,
+                color: AppColors.cream,
+              ),
             ),
           ),
         ],

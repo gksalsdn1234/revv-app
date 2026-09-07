@@ -463,6 +463,13 @@ class AppCopy {
   static String settingsLanguage(AppLanguage language) =>
       t(language, ko: '언어', en: 'Language', fr: 'Langue');
 
+  static String settingsLanguageDetail(AppLanguage language) => t(
+    language,
+    ko: '기기 언어를 사용합니다',
+    en: 'Uses your device language',
+    fr: 'Utilise la langue de l’appareil',
+  );
+
   static String settingsDrive(AppLanguage language) =>
       t(language, ko: '주행', en: 'Drive', fr: 'Trajet');
 

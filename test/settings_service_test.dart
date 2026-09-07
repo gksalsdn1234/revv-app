@@ -1,3 +1,5 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:revv_app/core/app_language.dart';
 import 'package:revv_app/core/storage_keys.dart';
@@ -86,22 +88,34 @@ void main() {
   });
 
   test(
-    'SettingsService defaults language to English and persists French',
+    'SettingsService follows the device language instead of stored overrides',
     () async {
       SharedPreferences.setMockInitialValues({
-        StorageKeys.appLanguage: 'unexpected',
+        StorageKeys.appLanguage: 'fr',
       });
 
       final settings = SettingsService();
       await settings.load();
-      expect(settings.appLanguage, AppLanguage.english);
+      expect(
+        settings.appLanguage,
+        appLanguageFromLocaleCode(
+          PlatformDispatcher.instance.locale.languageCode,
+        ),
+      );
 
+      // The override remains available to copy-focused widget tests, but it
+      // is intentionally not written to preferences.
       await settings.setAppLanguage(AppLanguage.french);
       expect(settings.appLanguage, AppLanguage.french);
 
       final reloaded = SettingsService();
       await reloaded.load();
-      expect(reloaded.appLanguage, AppLanguage.french);
+      expect(
+        reloaded.appLanguage,
+        appLanguageFromLocaleCode(
+          PlatformDispatcher.instance.locale.languageCode,
+        ),
+      );
     },
   );
 }
