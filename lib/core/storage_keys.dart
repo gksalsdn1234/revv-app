@@ -22,6 +22,7 @@ class StorageKeys {
   static const pendingRunDetailsIndex = 'pending_run_details_index_v2';
   static const pendingRunDetailSecurePrefix = 'pending_run_detail_secure_';
   static const pendingRouteFeedback = 'pending_route_feedback';
+  static const uploadedRunDetailDigests = 'uploaded_run_detail_digests_v1';
   static const cloudRunStorageOwnerUid = 'cloud_run_storage_owner_uid';
 
   // ── 루트 (SavedRouteService, RouteService) ──────────────────

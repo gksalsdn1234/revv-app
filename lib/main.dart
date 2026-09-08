@@ -27,6 +27,10 @@ Future<void> main() => runWithCrashReporting(_startApp);
 
 Future<void> _startApp() async {
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(AppBootstrap(load: _loadApp));
+}
+
+Future<Widget> _loadApp() async {
   await SupabaseService().init();
 
   final settings = SettingsService();
@@ -49,8 +53,78 @@ Future<void> _startApp() async {
       statusBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(
-    RevvApp(history: history, settings: settings, exploration: exploration),
+  return RevvApp(
+    history: history,
+    settings: settings,
+    exploration: exploration,
+  );
+}
+
+/// Renders immediately, retaining a recoverable UI if local initialization fails.
+class AppBootstrap extends StatefulWidget {
+  const AppBootstrap({super.key, required this.load});
+  final Future<Widget> Function() load;
+  @override
+  State<AppBootstrap> createState() => _AppBootstrapState();
+}
+
+class _AppBootstrapState extends State<AppBootstrap> {
+  late Future<Widget> _loading = widget.load();
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Widget>(
+    future: _loading,
+    builder: (context, snapshot) {
+      if (snapshot.hasData) return snapshot.data!;
+      final locale =
+          WidgetsBinding.instance.platformDispatcher.locale.languageCode;
+      final failed = snapshot.hasError;
+      final message = locale == 'ko'
+          ? (failed ? '앱을 준비하지 못했어요. 다시 시도해 주세요.' : 'REVV 준비 중')
+          : locale == 'fr'
+          ? (failed
+                ? 'Préparation impossible. Réessayez.'
+                : 'Préparation de REVV')
+          : (failed
+                ? 'Could not prepare the app. Try again.'
+                : 'Preparing REVV');
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData.dark(),
+        home: Scaffold(
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!failed) const CircularProgressIndicator(),
+                    const SizedBox(height: 20),
+                    Text(message, textAlign: TextAlign.center),
+                    if (failed)
+                      FilledButton(
+                        onPressed: () {
+                          final next = widget.load();
+                          setState(() {
+                            _loading = next;
+                          });
+                        },
+                        child: Text(
+                          locale == 'ko'
+                              ? '다시 시도'
+                              : locale == 'fr'
+                              ? 'Réessayer'
+                              : 'Retry',
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
   );
 }
 
@@ -81,8 +155,12 @@ class RevvApp extends StatelessWidget {
               sessions: sessions,
               location: context.read<LocationService>(),
               onCompleted: (session) async {
-                await history.saveSession(session);
-                await sessions.clearRecovery();
+                try {
+                  await history.saveSession(session);
+                  await sessions.clearRecovery(runId: session.runId);
+                } catch (_) {
+                  // The final per-drive recovery snapshot remains available.
+                }
               },
             )..attach();
           },

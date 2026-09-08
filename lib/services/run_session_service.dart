@@ -1,3 +1,4 @@
+import 'package:uuid/uuid.dart';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -26,11 +27,23 @@ class RunSessionService extends ChangeNotifier {
     _recoveryStore ??= recoveryStore;
   }
 
-  Future<void> clearRecovery() async {
+  Future<void> clearRecovery({String? runId}) {
     final store = _recoveryStore;
-    if (store == null) return;
-    await _recoveryWrites;
-    await store.clear();
+    if (store == null) return Future.value();
+    final id = runId ?? _runId;
+    final result = _recoveryWrites.then((_) => store.clear(runId: id));
+    _recoveryWrites = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<void> preserveRecovery(RunSession session) async {
+    final store = _recoveryStore;
+    if (store == null) throw StateError('Recovery storage unavailable');
+    final result = _recoveryWrites.then(
+      (_) => store.writeSnapshot(RunRecoverySnapshot.fromSession(session)),
+    );
+    _recoveryWrites = result.then<void>((_) {}, onError: (_) {});
+    await result;
   }
 
   void _enqueueRecoveryWrite(Future<void> Function(RunRecoveryStore) action) {
@@ -51,12 +64,14 @@ class RunSessionService extends ChangeNotifier {
   // 직접 notifyListeners() → Consumer rebuild → 같은 프레임 layout 재진입 가능.
   // → addPostFrameCallback으로 항상 다음 프레임에 notify.
   bool _notifyPending = false;
+  bool _disposed = false;
+  String? _runId;
   void _scheduleNotify() {
-    if (_notifyPending) return;
+    if (_disposed || _notifyPending) return;
     _notifyPending = true;
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _notifyPending = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     });
   }
 
@@ -108,7 +123,7 @@ class RunSessionService extends ChangeNotifier {
     bool simulated = false,
   }) {
     final now = _clock();
-    _enqueueRecoveryWrite((store) => store.clear());
+    _runId = const Uuid().v4();
     _startTime = now;
     _lastSnapshotTime = now;
     isRecording = true;
@@ -208,12 +223,15 @@ class RunSessionService extends ChangeNotifier {
     return true;
   }
 
-  void _writeSnapshotIfDue() {
+  void _writeSnapshotIfDue({bool force = false}) {
     final startTime = _startTime;
     final lastSnapshotTime = _lastSnapshotTime;
     if (startTime == null || lastSnapshotTime == null) return;
     final now = _clock();
-    if (now.difference(lastSnapshotTime) < const Duration(seconds: 30)) return;
+    if (!force &&
+        now.difference(lastSnapshotTime) < const Duration(seconds: 30)) {
+      return;
+    }
     _lastSnapshotTime = now;
     final modeSeconds = Map<String, int>.of(_driveModeSeconds);
     final modeStart = _currentModeStart;
@@ -223,8 +241,10 @@ class RunSessionService extends ChangeNotifier {
           now.difference(modeStart).inSeconds;
     }
     final snapshot = RunRecoverySnapshot(
+      runId: _runId,
       startTime: startTime,
       routeId: _route?.id,
+      routeSnapshot: _route?.toJson(),
       routeName: _route?.name,
       gpsPath: List.of(_gpsPath),
       distanceKm: _distanceKm,
@@ -329,10 +349,12 @@ class RunSessionService extends ChangeNotifier {
   /// maxLateralG, maxLonG는 ImuService에서 읽어 전달
   RunSession? stopSession({double maxLateralG = 0.0, double maxLonG = 0.0}) {
     if (!isRecording || _startTime == null) return null;
+    _writeSnapshotIfDue(force: true);
     isRecording = false;
     _dynamicsTracker.summarize();
     _finalizeCurrentMode();
     final session = RunSession(
+      runId: _runId,
       startTime: _startTime!,
       endTime: _clock(),
       maxSpeedKmh: _maxSpeedKmh,
@@ -352,5 +374,11 @@ class RunSessionService extends ChangeNotifier {
     );
     _scheduleNotify();
     return session;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }

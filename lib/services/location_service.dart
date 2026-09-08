@@ -17,7 +17,17 @@ class LocationService extends ChangeNotifier {
   bool hasPermission = false;
   PermissionStatus _permissionStatus = PermissionStatus.denied;
   bool isTracking = false;
+  bool _disposed = false;
   bool _armedBackgroundTracking = false;
+  bool _driveBackgroundTracking = false;
+  bool _permissionChecked = false;
+  Future<void>? _permissionRequest;
+  Future<LatLng?>? _locationRequest;
+  final Future<PermissionStatus> Function() _permissionRequester;
+  final Future<PermissionStatus> Function() _permissionChecker;
+  bool get permissionChecked => _permissionChecked;
+  bool get isRequestingPermission => _permissionRequest != null;
+  bool get isLocating => _locationRequest != null;
   int _armedTrackingRequest = 0;
 
   StreamSubscription<Position>? _subscription;
@@ -25,7 +35,14 @@ class LocationService extends ChangeNotifier {
   Timer? _notifyTimer;
   DateTime? _lastNotifiedAt;
 
-  LocationService() {
+  LocationService({
+    Future<PermissionStatus> Function()? permissionRequester,
+    Future<PermissionStatus> Function()? permissionChecker,
+  }) : _permissionRequester =
+           permissionRequester ??
+           (() => Permission.locationWhenInUse.request()),
+       _permissionChecker =
+           permissionChecker ?? (() => Permission.locationWhenInUse.status) {
     unawaited(_clearLegacyPersistedLocation());
   }
 
@@ -37,13 +54,31 @@ class LocationService extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> requestPermission() async {
-    final status = await RoutePerformance.measure(
-      'location.permission',
-      () => Permission.locationWhenInUse.request(),
-    );
+  Future<void> requestPermission() => _permissionRequest ??=
+      _requestPermission().whenComplete(() => _permissionRequest = null);
+
+  Future<void> _requestPermission() async {
+    final current = await _permissionChecker();
+    final status =
+        current.isGranted || current.isPermanentlyDenied || current.isRestricted
+        ? current
+        : await RoutePerformance.measure(
+            'location.permission',
+            _permissionRequester,
+          );
     _permissionStatus = status;
+    _permissionChecked = true;
     hasPermission = status.isGranted;
+    notifyListeners();
+  }
+
+  Future<void> refreshPermission() async {
+    final status = await _permissionChecker();
+    if (_disposed) return;
+    _permissionStatus = status;
+    _permissionChecked = true;
+    hasPermission = status.isGranted;
+    if (!hasPermission) stopTracking();
     notifyListeners();
   }
 
@@ -51,6 +86,7 @@ class LocationService extends ChangeNotifier {
 
   String get permissionStatusLabel {
     if (hasPermission) return '위치 허용됨';
+    if (!_permissionChecked) return '위치 권한 확인 중';
     if (_permissionStatus.isPermanentlyDenied) return '설정에서 위치 권한 필요';
     if (_permissionStatus.isDenied) return '위치 권한 꺼짐';
     if (_permissionStatus.isRestricted) return '위치 권한 제한됨';
@@ -58,16 +94,18 @@ class LocationService extends ChangeNotifier {
   }
 
   String? get lastFailureReason {
-    if (hasPermission) return null;
+    if (hasPermission || !_permissionChecked) return null;
     return '주변 루트 탐색에는 현재 위치 권한이 필요해요.';
   }
 
   Future<void> startTracking() async {
-    if (!hasPermission || isTracking) return;
+    if (_disposed || !hasPermission || isTracking) return;
     isTracking = true;
     _subscription =
         Geolocator.getPositionStream(
-          locationSettings: _trackingSettings(_armedBackgroundTracking),
+          locationSettings: _trackingSettings(
+            _armedBackgroundTracking || _driveBackgroundTracking,
+          ),
         ).listen(
           (position) {
             _applyPosition(position);
@@ -107,7 +145,23 @@ class LocationService extends ChangeNotifier {
     _armedTrackingRequest++;
     if (!_armedBackgroundTracking) return;
     _armedBackgroundTracking = false;
-    if (isTracking) {
+    if (isTracking && !_driveBackgroundTracking) {
+      stopTracking();
+      await startTracking();
+    }
+  }
+
+  Future<void> startDriveTracking() async {
+    if (_driveBackgroundTracking && isTracking) return;
+    _driveBackgroundTracking = true;
+    if (isTracking) stopTracking();
+    await startTracking();
+  }
+
+  Future<void> stopDriveTracking() async {
+    if (!_driveBackgroundTracking) return;
+    _driveBackgroundTracking = false;
+    if (isTracking && !_armedBackgroundTracking) {
       stopTracking();
       await startTracking();
     }
@@ -190,50 +244,59 @@ class LocationService extends ChangeNotifier {
 
   Future<LatLng?> ensureLiveLocation({
     Duration timeout = const Duration(seconds: 6),
-  }) => RoutePerformance.measure(
+  }) => _locationRequest ??= RoutePerformance.measure(
     'location.fix',
     () => _ensureLiveLocation(timeout: timeout),
-  );
+  ).whenComplete(() => _locationRequest = null);
 
   Future<LatLng?> _ensureLiveLocation({required Duration timeout}) async {
-    if (!hasPermission) {
-      final status = await Permission.locationWhenInUse.status;
-      _permissionStatus = status;
-      hasPermission = status.isGranted;
-      if (!hasPermission) return bestKnownLatLng;
+    final deadline = DateTime.now().add(timeout);
+    Duration remaining() {
+      final left = deadline.difference(DateTime.now());
+      return left.isNegative ? Duration.zero : left;
     }
-    final current = liveLatLng;
-    if (_isFreshEnough(currentPosition)) return current;
-
-    final lastKnown = await Geolocator.getLastKnownPosition();
-    if (_isFreshEnough(lastKnown)) {
-      _applyPosition(lastKnown!);
-      notifyListeners();
-      return liveLatLng;
-    }
-
-    if (isTracking) {
-      final tracked = await _awaitTrackedLocation(timeout);
-      if (tracked != null) return tracked;
-    }
-
-    final streamed = await _awaitSingleStreamLocation(timeout);
-    if (streamed != null) return streamed;
 
     try {
+      if (!hasPermission) {
+        final status = await _permissionChecker().timeout(remaining());
+        _permissionStatus = status;
+        _permissionChecked = true;
+        hasPermission = status.isGranted;
+        if (!hasPermission || _disposed) return null;
+      }
+      if (_isFreshEnough(currentPosition)) return liveLatLng;
+      final lastKnown = await Geolocator.getLastKnownPosition().timeout(
+        Duration(microseconds: remaining().inMicroseconds ~/ 3),
+        onTimeout: () => null,
+      );
+      if (_disposed) return null;
+      if (_isFreshEnough(lastKnown)) {
+        _applyPosition(lastKnown!);
+        notifyListeners();
+        return liveLatLng;
+      }
+      if (remaining() == Duration.zero) return null;
+      // The retained subscription can supply a fix for the entire remaining
+      // budget. A second subscription would compete with its native settings.
+      if (isTracking) return await _awaitTrackedLocation(remaining());
+      final streamed = await _awaitSingleStreamLocation(
+        Duration(microseconds: remaining().inMicroseconds ~/ 2),
+      );
+      if (streamed != null || _disposed) return streamed;
+      if (remaining() == Duration.zero) return null;
       final position = await Geolocator.getCurrentPosition(
         locationSettings: LocationSettings(
           accuracy: LocationAccuracy.bestForNavigation,
-          timeLimit: timeout,
+          timeLimit: remaining(),
         ),
-      );
+      ).timeout(remaining());
+      if (_disposed) return null;
       _applyPosition(position);
       notifyListeners();
+      return liveLatLng;
     } catch (_) {
-      // 마지막 fallback까지 실패하면 null 유지
+      return _isFreshEnough(currentPosition) ? liveLatLng : null;
     }
-
-    return liveLatLng;
   }
 
   void _applyPosition(Position position) {
@@ -263,19 +326,21 @@ class LocationService extends ChangeNotifier {
       return await completer.future.timeout(timeout);
     } catch (_) {
       removeListener(listener);
-      return liveLatLng;
+      return _isFreshEnough(currentPosition) ? liveLatLng : null;
     }
   }
 
   Future<LatLng?> _awaitSingleStreamLocation(Duration timeout) async {
     StreamSubscription<Position>? tempSubscription;
     final completer = Completer<LatLng?>();
+    var accepting = true;
 
     tempSubscription =
         Geolocator.getPositionStream(
           locationSettings: _trackingSettings(false),
         ).listen(
           (position) {
+            if (!accepting || _disposed) return;
             _applyPosition(position);
             if (!completer.isCompleted) {
               completer.complete(liveLatLng);
@@ -298,7 +363,8 @@ class LocationService extends ChangeNotifier {
       }
       return result;
     } finally {
-      await tempSubscription.cancel();
+      accepting = false;
+      unawaited(tempSubscription.cancel().catchError((Object _) {}));
     }
   }
 
@@ -306,7 +372,13 @@ class LocationService extends ChangeNotifier {
   double get lng => bestKnownLatLng?.lng ?? 0.0;
 
   @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
   void dispose() {
+    _disposed = true;
     stopTracking();
     super.dispose();
   }

@@ -31,6 +31,88 @@ import '../ui/run_share_card_widget.dart';
 import '../ui/run_share_metrics.dart';
 import '../widgets/map_widget.dart';
 
+class RunReportLoader extends StatefulWidget {
+  const RunReportLoader({
+    super.key,
+    required this.summary,
+    required this.loadDetail,
+    this.onReturnHome,
+  });
+  final RunSummary summary;
+  final Future<RunTelemetryDetail?> Function() loadDetail;
+  final VoidCallback? onReturnHome;
+  @override
+  State<RunReportLoader> createState() => _RunReportLoaderState();
+}
+
+class _RunReportLoaderState extends State<RunReportLoader> {
+  late Future<RunTelemetryDetail?> _loading = widget.loadDetail();
+  @override
+  Widget build(BuildContext context) {
+    final language = context.watch<SettingsService>().appLanguage;
+    return FutureBuilder<RunTelemetryDetail?>(
+      future: _loading,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.done &&
+            !snapshot.hasError) {
+          return LeanRunSummaryScreen.history(
+            summary: widget.summary,
+            detail: snapshot.data,
+            onReturnHome: widget.onReturnHome,
+          );
+        }
+        return Scaffold(
+          appBar: AppBar(title: Text(widget.summary.routeName)),
+          body: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!snapshot.hasError) const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    Text(
+                      AppCopy.t(
+                        language,
+                        ko: snapshot.hasError ? '기록을 열지 못했어요.' : '주행 기록을 여는 중',
+                        en: snapshot.hasError
+                            ? 'Could not open this drive.'
+                            : 'Opening your drive',
+                        fr: snapshot.hasError
+                            ? 'Impossible d’ouvrir ce trajet.'
+                            : 'Ouverture du trajet',
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (snapshot.hasError)
+                      TextButton(
+                        onPressed: () {
+                          final next = widget.loadDetail();
+                          setState(() {
+                            _loading = next;
+                          });
+                        },
+                        child: Text(
+                          AppCopy.t(
+                            language,
+                            ko: '다시 시도',
+                            en: 'Retry',
+                            fr: 'Réessayer',
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class LeanRunSummaryScreen extends StatefulWidget {
   final RunSession? session;
   final RunSummary? historySummary;
@@ -65,6 +147,18 @@ class LeanRunSummaryScreen extends StatefulWidget {
 
 class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
   Future<RunSummary?>? _saveFuture;
+  late final RunTelemetryDetail? _cachedDetail = widget.session == null
+      ? widget.historyDetail
+      : RunTelemetryDetail.fromSession(
+          widget.session!.runId ?? 'preview',
+          widget.session!,
+        );
+  late final DriveDynamicsSummary? _cachedDynamics = _dynamicsSummary(
+    widget.session,
+    _cachedDetail,
+  );
+  bool _deferringSave = false;
+  bool _canLeaveUnsaved = false;
   String? _selectedFeedback;
   bool _feedbackSaved = false;
   bool _shareExporting = false;
@@ -114,8 +208,72 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
       sessions = null;
     }
     final summary = await history.saveSession(session);
-    await sessions?.clearRecovery();
+    try {
+      await sessions?.clearRecovery(runId: summary.id);
+    } catch (_) {
+      // Local summary + detail are already committed. A stale recovery marker
+      // is safe because saving the same session uses the same persistent ID.
+    }
     return summary;
+  }
+
+  Future<void> _deferSave(AppLanguage language) async {
+    final session = widget.session;
+    if (session == null || _deferringSave) return;
+    setState(() => _deferringSave = true);
+    try {
+      await context.read<RunSessionService>().preserveRecovery(session);
+    } catch (_) {
+      if (!mounted) return;
+      final discard = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(
+            AppCopy.t(
+              language,
+              ko: '복구 사본도 저장하지 못했어요',
+              en: 'Could not keep a recovery copy',
+              fr: 'Copie de récupération impossible',
+            ),
+          ),
+          content: Text(
+            AppCopy.t(
+              language,
+              ko: '이 주행을 버리고 나가시겠어요? 취소하면 다시 저장할 수 있어요.',
+              en: 'Discard this drive and leave? Cancel to try saving again.',
+              fr: 'Abandonner ce trajet ? Annulez pour réessayer.',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(AppCopy.cancel(language)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(AppCopy.discardRun(language)),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      if (discard != true) {
+        setState(() => _deferringSave = false);
+        return;
+      }
+      try {
+        await context.read<RunSessionService>().clearRecovery(
+          runId: session.runId,
+        );
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      _canLeaveUnsaved = true;
+      _deferringSave = false;
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    if (mounted) _returnHome();
   }
 
   Future<void> _saveFeedback(RunSummary summary, String feedbackType) async {
@@ -300,13 +458,8 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                     summary: summary,
                     language: language,
                   );
-            final detail = session == null
-                ? widget.historyDetail
-                : RunTelemetryDetail.fromSession(
-                    summary?.id ?? 'preview',
-                    session,
-                  );
-            final dynamicsSummary = _dynamicsSummary(session, detail);
+            final detail = _cachedDetail;
+            final dynamicsSummary = _cachedDynamics;
             final shareMetrics = buildRunShareMetrics(
               session: session,
               summary: summary,
@@ -320,306 +473,343 @@ class _LeanRunSummaryScreenState extends State<LeanRunSummaryScreen> {
                 storedFeedback?.feedbackType ?? _selectedFeedback;
             final feedbackSaved = storedFeedback != null || _feedbackSaved;
             final waiting = snapshot.connectionState != ConnectionState.done;
-            return Stack(
-              children: [
-                Column(
-                  children: [
-                    Expanded(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
-                        physics: const BouncingScrollPhysics(),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // ── 지도 리플레이 ──
-                            if (session != null)
-                              _MapReplaySection(
-                                session: session,
-                                replayIndex: _replayIndex,
-                                replayPlaying: _replayPlaying,
-                                onPlay: () {
-                                  if (_replayPlaying) {
-                                    _pauseReplay();
-                                  } else {
-                                    _resumeReplay(session.gpsPath);
-                                  }
-                                },
-                                onRestart: () => _startReplay(session.gpsPath),
-                                language: language,
-                              ),
+            final saveFailed = !waiting && snapshot.hasError;
+            return PopScope(
+              canPop:
+                  session == null ||
+                  _canLeaveUnsaved ||
+                  (!waiting && !saveFailed && summary != null),
+              child: Stack(
+                children: [
+                  Column(
+                    children: [
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+                          physics: const BouncingScrollPhysics(),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // ── 지도 리플레이 ──
+                              if (session != null)
+                                _MapReplaySection(
+                                  session: session,
+                                  replayIndex: _replayIndex,
+                                  replayPlaying: _replayPlaying,
+                                  onPlay: () {
+                                    if (_replayPlaying) {
+                                      _pauseReplay();
+                                    } else {
+                                      _resumeReplay(session.gpsPath);
+                                    }
+                                  },
+                                  onRestart: () =>
+                                      _startReplay(session.gpsPath),
+                                  language: language,
+                                ),
 
-                            const SizedBox(height: 20),
+                              const SizedBox(height: 20),
 
-                            // ── RUN COMPLETE banner ──
-                            Container(
-                              padding: const EdgeInsets.fromLTRB(
-                                16,
-                                14,
-                                16,
-                                16,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.ink,
-                                borderRadius: BorderRadius.circular(18),
-                              ),
-                              clipBehavior: Clip.antiAlias,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  // Checkered top stripe
-                                  SizedBox(
-                                    height: 8,
-                                    width: double.infinity,
-                                    child: CustomPaint(
-                                      painter: _SummaryCheckeredPainter(
-                                        tileSize: 8,
-                                        lightColor: AppColors.cream,
-                                        darkColor: AppColors.ink,
+                              // ── RUN COMPLETE banner ──
+                              Container(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  14,
+                                  16,
+                                  16,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.ink,
+                                  borderRadius: BorderRadius.circular(18),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Checkered top stripe
+                                    SizedBox(
+                                      height: 8,
+                                      width: double.infinity,
+                                      child: CustomPaint(
+                                        painter: _SummaryCheckeredPainter(
+                                          tileSize: 8,
+                                          lightColor: AppColors.cream,
+                                          darkColor: AppColors.ink,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    AppCopy.t(
-                                      language,
-                                      ko: summary == null ? '주행 완료' : '주행 리포트',
-                                      en: summary == null
-                                          ? 'RUN COMPLETE'
-                                          : 'RUN REPORT',
-                                      fr: summary == null
-                                          ? 'Course terminée'
-                                          : 'RAPPORT',
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      AppCopy.t(
+                                        language,
+                                        ko: summary == null
+                                            ? '주행 완료'
+                                            : '주행 리포트',
+                                        en: summary == null
+                                            ? 'RUN COMPLETE'
+                                            : 'RUN REPORT',
+                                        fr: summary == null
+                                            ? 'Course terminée'
+                                            : 'RAPPORT',
+                                      ),
+                                      style: AppText.mono(
+                                        size: 10,
+                                        weight: FontWeight.w700,
+                                        color: AppColors.primaryContainer,
+                                        letterSpacing: 3,
+                                      ),
                                     ),
-                                    style: AppText.mono(
-                                      size: 10,
-                                      weight: FontWeight.w700,
-                                      color: AppColors.primaryContainer,
-                                      letterSpacing: 3,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    summary?.routeName ??
-                                        copy?.headline ??
-                                        AppCopy.t(
-                                          language,
-                                          ko: '저장할 주행이 없어요',
-                                          en: 'No drive to save',
-                                          fr: 'Aucun trajet à sauvegarder',
-                                        ),
-                                    style: AppText.label(
-                                      size: 32,
-                                      weight: FontWeight.w800,
-                                      color: AppColors.cream,
-                                      letterSpacing: 0,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    session == null
-                                        ? historySummaryLine(summary, language)
-                                        : copy?.summaryLine ?? '',
-                                    style: AppText.mono(
-                                      size: 11,
-                                      weight: FontWeight.w700,
-                                      color: AppColors.stone,
-                                    ),
-                                  ),
-                                  if (dynamicsSummary != null) ...[
                                     const SizedBox(height: 8),
                                     Text(
-                                      dynamicsSummaryLine(
-                                        language,
-                                        dynamicsSummary,
+                                      summary?.routeName ??
+                                          copy?.headline ??
+                                          AppCopy.t(
+                                            language,
+                                            ko: '저장할 주행이 없어요',
+                                            en: 'No drive to save',
+                                            fr: 'Aucun trajet à sauvegarder',
+                                          ),
+                                      style: AppText.label(
+                                        size: 32,
+                                        weight: FontWeight.w800,
+                                        color: AppColors.cream,
+                                        letterSpacing: 0,
                                       ),
-                                      key: const ValueKey(
-                                        'dynamics-summary-line',
-                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      session == null
+                                          ? historySummaryLine(
+                                              summary,
+                                              language,
+                                            )
+                                          : copy?.summaryLine ?? '',
                                       style: AppText.mono(
                                         size: 11,
                                         weight: FontWeight.w700,
                                         color: AppColors.stone,
                                       ),
                                     ),
+                                    if (dynamicsSummary != null) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        dynamicsSummaryLine(
+                                          language,
+                                          dynamicsSummary,
+                                        ),
+                                        key: const ValueKey(
+                                          'dynamics-summary-line',
+                                        ),
+                                        style: AppText.mono(
+                                          size: 11,
+                                          weight: FontWeight.w700,
+                                          color: AppColors.stone,
+                                        ),
+                                      ),
+                                    ],
                                   ],
-                                ],
+                                ),
+                              ),
+
+                              if (session != null || summary != null) ...[
+                                const SizedBox(height: 14),
+                                _RunHeadlineStats(
+                                  metrics: shareMetrics,
+                                  language: language,
+                                ),
+                              ],
+
+                              // ── 상세 스탯 ──
+                              if (session != null || summary != null) ...[
+                                const SizedBox(height: 24),
+                                _RevvRecapSection(
+                                  metrics: shareMetrics,
+                                  language: language,
+                                ),
+                              ],
+
+                              // ── 드라이브 모드 바 ──
+                              if (session != null &&
+                                  session.driveModeSeconds.isNotEmpty) ...[
+                                const SizedBox(height: 14),
+                                _DriveModeBar(
+                                  modes: session.driveModeSeconds,
+                                  language: language,
+                                ),
+                              ],
+
+                              if (session != null) ...[
+                                const SizedBox(height: 14),
+                                _SessionLogSection(
+                                  session: session,
+                                  summary: summary,
+                                  detail: detail,
+                                  metrics: shareMetrics,
+                                  feedbackType: selectedFeedback,
+                                  waiting: waiting,
+                                  language: language,
+                                  expandedKeys: _expandedLogSections,
+                                  onToggle: (key) {
+                                    setState(() {
+                                      if (_expandedLogSections.contains(key)) {
+                                        _expandedLogSections.remove(key);
+                                      } else {
+                                        _expandedLogSections.add(key);
+                                      }
+                                    });
+                                  },
+                                ),
+                              ],
+
+                              if (session != null && copy != null) ...[
+                                const SizedBox(height: 16),
+                                _CopilotNextCard(text: copy.nextSuggestion),
+                                const SizedBox(height: 16),
+                                _RouteFeedbackCard(
+                                  enabled: summary != null,
+                                  selected: selectedFeedback,
+                                  saved: feedbackSaved,
+                                  language: language,
+                                  onSelected: summary == null
+                                      ? null
+                                      : (type) => _saveFeedback(summary, type),
+                                ),
+                              ],
+                              if (session == null && summary != null) ...[
+                                const SizedBox(height: 14),
+                                _SavedRunReportSection(
+                                  summary: summary,
+                                  detail: detail,
+                                  metrics: shareMetrics,
+                                  language: language,
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                        child: Column(
+                          children: [
+                            _SaveStateCard(
+                              summary: summary,
+                              waiting: waiting,
+                              failed: saveFailed,
+                              onRetry: () {
+                                if (_deferringSave) return;
+                                final future = _save();
+                                setState(() {
+                                  _saveFuture = future;
+                                });
+                              },
+                              language: language,
+                            ),
+                            if (saveFailed)
+                              TextButton(
+                                onPressed: _deferringSave
+                                    ? null
+                                    : () => _deferSave(language),
+                                child: Text(
+                                  AppCopy.t(
+                                    language,
+                                    ko: '나중에 저장',
+                                    en: 'Save later',
+                                    fr: 'Enregistrer plus tard',
+                                  ),
+                                ),
+                              ),
+                            const SizedBox(height: 14),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 52,
+                              child: OutlinedButton.icon(
+                                onPressed: summary == null
+                                    ? null
+                                    : () => _showSharePreview(
+                                        summary: summary,
+                                        detail: detail,
+                                        session: session,
+                                        language: language,
+                                      ),
+                                icon: _shareExporting
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.ios_share_rounded),
+                                label: Text(
+                                  AppCopy.t(
+                                    language,
+                                    ko: '공유 카드 만들기',
+                                    en: 'Share ride card',
+                                    fr: 'Partager la carte',
+                                  ),
+                                ),
                               ),
                             ),
-
-                            if (session != null || summary != null) ...[
-                              const SizedBox(height: 14),
-                              _RunHeadlineStats(
-                                metrics: shareMetrics,
-                                language: language,
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 52,
+                              child: OutlinedButton.icon(
+                                onPressed: () =>
+                                    unawaited(_navigateHome(language)),
+                                icon: const Icon(
+                                  Icons.assistant_direction_rounded,
+                                ),
+                                label: Text(
+                                  AppCopy.t(
+                                    language,
+                                    ko: '집까지 안내',
+                                    en: 'Navigate home',
+                                    fr: 'Guidage retour',
+                                  ),
+                                ),
                               ),
-                            ],
-
-                            // ── 상세 스탯 ──
-                            if (session != null || summary != null) ...[
-                              const SizedBox(height: 24),
-                              _RevvRecapSection(
-                                metrics: shareMetrics,
-                                language: language,
-                              ),
-                            ],
-
-                            // ── 드라이브 모드 바 ──
-                            if (session != null &&
-                                session.driveModeSeconds.isNotEmpty) ...[
-                              const SizedBox(height: 14),
-                              _DriveModeBar(
-                                modes: session.driveModeSeconds,
-                                language: language,
-                              ),
-                            ],
-
-                            if (session != null) ...[
-                              const SizedBox(height: 14),
-                              _SessionLogSection(
-                                session: session,
-                                summary: summary,
-                                detail: detail,
-                                metrics: shareMetrics,
-                                feedbackType: selectedFeedback,
-                                waiting: waiting,
-                                language: language,
-                                expandedKeys: _expandedLogSections,
-                                onToggle: (key) {
-                                  setState(() {
-                                    if (_expandedLogSections.contains(key)) {
-                                      _expandedLogSections.remove(key);
-                                    } else {
-                                      _expandedLogSections.add(key);
-                                    }
-                                  });
-                                },
-                              ),
-                            ],
-
-                            if (session != null && copy != null) ...[
-                              const SizedBox(height: 16),
-                              _CopilotNextCard(text: copy.nextSuggestion),
-                              const SizedBox(height: 16),
-                              _RouteFeedbackCard(
-                                enabled: summary != null,
-                                selected: selectedFeedback,
-                                saved: feedbackSaved,
-                                language: language,
-                                onSelected: summary == null
+                            ),
+                            const SizedBox(height: 10),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 58,
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: AppColors.primaryContainer,
+                                  foregroundColor: AppColors.onPrimary,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(22),
+                                  ),
+                                ),
+                                onPressed: waiting || saveFailed
                                     ? null
-                                    : (type) => _saveFeedback(summary, type),
+                                    : _returnHome,
+                                icon: const Icon(Icons.home_rounded),
+                                label: Text(
+                                  AppCopy.t(
+                                    language,
+                                    ko: '홈으로',
+                                    en: 'Home',
+                                    fr: 'Accueil',
+                                  ),
+                                  style: AppText.label(
+                                    size: 17,
+                                    weight: FontWeight.w800,
+                                    color: AppColors.onPrimary,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
                               ),
-                            ],
-                            if (session == null && summary != null) ...[
-                              const SizedBox(height: 14),
-                              _SavedRunReportSection(
-                                summary: summary,
-                                detail: detail,
-                                metrics: shareMetrics,
-                                language: language,
-                              ),
-                            ],
+                            ),
                           ],
                         ),
                       ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                      child: Column(
-                        children: [
-                          _SaveStateCard(
-                            summary: summary,
-                            waiting: waiting,
-                            language: language,
-                          ),
-                          const SizedBox(height: 14),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 52,
-                            child: OutlinedButton.icon(
-                              onPressed: summary == null
-                                  ? null
-                                  : () => _showSharePreview(
-                                      summary: summary,
-                                      detail: detail,
-                                      session: session,
-                                      language: language,
-                                    ),
-                              icon: _shareExporting
-                                  ? const SizedBox(
-                                      width: 16,
-                                      height: 16,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.ios_share_rounded),
-                              label: Text(
-                                AppCopy.t(
-                                  language,
-                                  ko: '공유 카드 만들기',
-                                  en: 'Share ride card',
-                                  fr: 'Partager la carte',
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 52,
-                            child: OutlinedButton.icon(
-                              onPressed: () =>
-                                  unawaited(_navigateHome(language)),
-                              icon: const Icon(
-                                Icons.assistant_direction_rounded,
-                              ),
-                              label: Text(
-                                AppCopy.t(
-                                  language,
-                                  ko: '집까지 안내',
-                                  en: 'Navigate home',
-                                  fr: 'Guidage retour',
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 58,
-                            child: FilledButton.icon(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.primaryContainer,
-                                foregroundColor: AppColors.onPrimary,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(22),
-                                ),
-                              ),
-                              onPressed: _returnHome,
-                              icon: const Icon(Icons.home_rounded),
-                              label: Text(
-                                AppCopy.t(
-                                  language,
-                                  ko: '홈으로',
-                                  en: 'Home',
-                                  fr: 'Accueil',
-                                ),
-                                style: AppText.label(
-                                  size: 17,
-                                  weight: FontWeight.w800,
-                                  color: AppColors.onPrimary,
-                                  letterSpacing: 1,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             );
           },
         ),
@@ -1186,17 +1376,23 @@ class _RevvRecapSection extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              childAspectRatio: 1.55,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-            ),
-            itemCount: stats.length,
-            itemBuilder: (_, i) => _StatTile(item: stats[i]),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final largeText = MediaQuery.textScalerOf(context).scale(14) > 18;
+              final columns = largeText || constraints.maxWidth < 280 ? 1 : 2;
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final item in stats)
+                    SizedBox(
+                      width:
+                          (constraints.maxWidth - (columns - 1) * 10) / columns,
+                      child: _StatTile(item: item),
+                    ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -2153,8 +2349,8 @@ class _StatTile extends StatelessWidget {
         ),
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             item.label,
@@ -2599,11 +2795,15 @@ String _feedbackLabel(String type, AppLanguage language) {
 class _SaveStateCard extends StatelessWidget {
   final RunSummary? summary;
   final bool waiting;
+  final bool failed;
+  final VoidCallback onRetry;
   final AppLanguage language;
 
   const _SaveStateCard({
     required this.summary,
     required this.waiting,
+    required this.failed,
+    required this.onRetry,
     required this.language,
   });
 
@@ -2611,6 +2811,13 @@ class _SaveStateCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = waiting
         ? AppCopy.t(language, ko: '저장 중', en: 'Saving', fr: 'Sauvegarde')
+        : failed
+        ? AppCopy.t(
+            language,
+            ko: '저장하지 못했어요',
+            en: 'Could not save',
+            fr: 'Échec de la sauvegarde',
+          )
         : summary == null
         ? AppCopy.t(
             language,
@@ -2625,7 +2832,21 @@ class _SaveStateCard extends StatelessWidget {
             fr: 'Sauvegardé localement',
           );
     final saved = summary;
-    final detail = saved == null
+    final detail = failed
+        ? AppCopy.t(
+            language,
+            ko: '주행 데이터가 남아 있어요. 다시 저장해 주세요.',
+            en: 'Your drive is still here. Try saving again.',
+            fr: 'Votre trajet est conservé. Réessayez de le sauvegarder.',
+          )
+        : waiting
+        ? AppCopy.t(
+            language,
+            ko: '이 기기에 주행 기록을 저장하고 있어요.',
+            en: 'Saving this drive on your device.',
+            fr: 'Sauvegarde du trajet sur cet appareil.',
+          )
+        : saved == null
         ? AppCopy.t(
             language,
             ko: '주행 데이터가 없어서 기록을 만들지 않았습니다.',
@@ -2657,7 +2878,18 @@ class _SaveStateCard extends StatelessWidget {
               ),
             )
           else
-            const Icon(Icons.check_circle_rounded, color: AppColors.success),
+            Icon(
+              failed
+                  ? Icons.error_outline_rounded
+                  : summary == null
+                  ? Icons.info_outline_rounded
+                  : Icons.check_circle_rounded,
+              color: failed
+                  ? AppColors.danger
+                  : summary == null
+                  ? AppColors.stone
+                  : AppColors.success,
+            ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -2674,10 +2906,23 @@ class _SaveStateCard extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   detail,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  maxLines: 3,
                   style: AppText.mono(size: 11, color: AppColors.stone),
                 ),
+                if (failed)
+                  TextButton.icon(
+                    key: const ValueKey('retry-run-save'),
+                    onPressed: onRetry,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: Text(
+                      AppCopy.t(
+                        language,
+                        ko: '다시 저장',
+                        en: 'Retry save',
+                        fr: 'Réessayer',
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

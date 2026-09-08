@@ -1214,7 +1214,7 @@ class _SyncedRunHistoryService extends RunHistoryService {
   CloudHistorySyncState get cloudSyncState => _state;
 
   @override
-  Future<bool> syncWithCloud() async {
+  Future<bool> syncWithCloud({bool repairDetails = false}) async {
     _state = CloudHistorySyncState.synced;
     notifyListeners();
     return true;

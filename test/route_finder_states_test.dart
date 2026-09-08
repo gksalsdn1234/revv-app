@@ -1721,7 +1721,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('finder-status-toast')), findsNothing);
-    expect(find.text('커브길 필드 로딩 중'), findsOneWidget);
+    expect(find.text('루트 찾는 중'), findsOneWidget);
+    expect(find.text('루트를 불러오지 못했어요'), findsNothing);
   });
 
   testWidgets('wide camera pan refreshes overview after national load', (

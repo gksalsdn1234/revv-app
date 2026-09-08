@@ -18,6 +18,45 @@ import 'package:revv_app/services/supabase_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  test('local save completes while cloud upload is still pending', () async {
+    SharedPreferences.setMockInitialValues({
+      StorageKeys.cloudRunStorageEnabled: true,
+    });
+    final release = Completer<bool>();
+    final cloud = _FakeCloud(uploadRunCompleter: release);
+    final store = PreferencesRunLocalStore();
+    final history = RunHistoryService(cloudClient: cloud, localStore: store);
+    final summary = await history
+        .saveSession(_sessionWithRoute())
+        .timeout(const Duration(seconds: 1));
+    expect(release.isCompleted, isFalse);
+    expect(
+      (await store.loadDetail(summary.id))?.routeSnapshot?['nodes'],
+      isNotEmpty,
+    );
+    release.complete(true);
+    await history.retryPendingUploads();
+  });
+
+  test('retry and recovery reuse one persisted run ID', () async {
+    SharedPreferences.setMockInitialValues({});
+    final session = _sessionWithRoute();
+    final history = RunHistoryService();
+    final first = await history.saveSession(session);
+    final second = await history.saveSession(session);
+    expect(second.id, first.id);
+    expect(history.history, hasLength(1));
+    final reloaded = RunHistoryService();
+    await reloaded.load();
+    final third = await reloaded.saveSession(session);
+    expect(third.id, first.id);
+    expect(reloaded.history, hasLength(1));
+    expect(
+      (await reloaded.loadDetail(third.id))?.routeSnapshot?['nodes'],
+      isNotEmpty,
+    );
+  });
+
   test('RunPendingUploadStore keeps detail until explicitly removed', () async {
     SharedPreferences.setMockInitialValues({});
     final store = _pendingStore();

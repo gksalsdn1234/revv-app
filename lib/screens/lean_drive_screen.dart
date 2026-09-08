@@ -91,6 +91,9 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   RunSessionService? _session;
   RouteAutoRecordService? _autoRecord;
   bool _resumingAutoRecord = false;
+  bool _driveReady = false;
+  bool _ending = false;
+  bool get _canContinueStarting => mounted && !_ending;
   ImuService? _imuService;
   SettingsService? _settings;
   late final VoiceBriefingService _voice;
@@ -169,19 +172,24 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
 
   Future<void> _startDrive() async {
     if (!widget.simulated) {
-      await _location?.requestPermission();
-      if (!mounted) return;
+      try {
+        await _location?.requestPermission();
+      } catch (_) {
+        if (_canContinueStarting) _endDrive();
+        return;
+      }
+      if (!_canContinueStarting) return;
+      if (_location?.hasPermission != true) {
+        _endDrive();
+        return;
+      }
       _startGpsWatchdog();
-      await _location?.startTracking();
-      if (!mounted) return;
     }
     final language = _settings?.appLanguage ?? AppLanguage.korean;
-    _voice.announceStart(language, muted: _settings?.ttsMuted ?? true);
     try {
       await _hydrateSparseRouteNodes();
     } catch (_) {
-      if (!mounted) return;
-      _autoRecord?.finish();
+      if (!mounted || _ending) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -194,12 +202,25 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
           ),
         ),
       );
-      Navigator.of(context).pop();
+      _endDrive();
       return;
+    }
+    if (!_canContinueStarting) return;
+    if (!widget.simulated) {
+      try {
+        await _location?.startDriveTracking();
+      } catch (_) {
+        if (_canContinueStarting) _endDrive();
+        return;
+      }
+      if (!_canContinueStarting) {
+        unawaited(_location?.stopDriveTracking());
+        return;
+      }
     }
     unawaited(_loadRouteTurns(_activeRouteNodes));
     unawaited(_prepareMatchedRouteGeometry());
-    if (!mounted) return;
+    if (!_canContinueStarting) return;
     _startedAt = _resumingAutoRecord
         ? (_session?.currentStartTime ?? DateTime.now())
         : DateTime.now();
@@ -219,6 +240,8 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       );
       _session?.recordDriveMode(_driveMode);
     }
+    setState(() => _driveReady = true);
+    _voice.announceStart(language, muted: _settings?.ttsMuted ?? true);
     unawaited(WakelockPlus.enable());
     if (widget.simulated) {
       _startSimulation();
@@ -622,10 +645,8 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
     if (pos != null) {
       _session?.recordSharpCorner(pos.lat, pos.lng, nextLat);
     }
-    setState(() {
-      _lateralG = nextLat;
-      _longitudinalG = nextLon;
-    });
+    _lateralG = nextLat;
+    _longitudinalG = nextLon;
   }
 
   List<LatLng> get _activeRouteNodes {
@@ -686,6 +707,9 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
   }
 
   void _endDrive() {
+    if (_ending) return;
+    _ending = true;
+    _clock?.cancel();
     _simulationTimer?.cancel();
     _gpsWatchdog?.cancel();
     _location?.removeListener(_onLocation);
@@ -696,11 +720,16 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
       maxLonG: widget.simulated ? _simMaxLongitudinalG : (imu?.maxLonG ?? 0),
     );
     _autoRecord?.finish();
+    unawaited(_location?.stopDriveTracking());
     unawaited(WakelockPlus.disable());
     if (!widget.simulated) {
       imu?.resetMaxG();
     }
     if (!mounted) return;
+    if (run == null) {
+      Navigator.of(context).pop();
+      return;
+    }
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => LeanRunSummaryScreen(session: run)),
@@ -709,6 +738,12 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
 
   @override
   void dispose() {
+    if (!_ending) {
+      _ending = true;
+      if (_session?.isRecording == true) _session?.stopSession();
+      _autoRecord?.finish();
+      unawaited(_location?.stopDriveTracking());
+    }
     _clock?.cancel();
     _simulationTimer?.cancel();
     _gpsWatchdog?.cancel();
@@ -769,30 +804,39 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                 padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
                 child: Column(
                   children: [
-                    _DriveTopBar(
-                      routeName: routeName,
-                      progress: _progress,
-                      simulated: widget.simulated,
-                      language: language,
-                      chainProgressLabel: chainProgressLabel,
-                      gpsWeak: _gpsWeak,
-                      gpsPermanentlyDenied:
-                          _location?.permissionStatus.isPermanentlyDenied ??
-                          false,
-                      onOpenGpsSettings: () => openAppSettings(),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: [
+                            _DriveTopBar(
+                              routeName: routeName,
+                              progress: _progress,
+                              simulated: widget.simulated,
+                              language: language,
+                              chainProgressLabel: chainProgressLabel,
+                              gpsWeak: _gpsWeak,
+                              gpsPermanentlyDenied:
+                                  _location
+                                      ?.permissionStatus
+                                      .isPermanentlyDenied ??
+                                  false,
+                              onOpenGpsSettings: () => openAppSettings(),
+                            ),
+                            const SizedBox(height: 8),
+                            _NextCurveBanner(
+                              cue: cue,
+                              rhythmBrief: _rhythmBrief,
+                              turnByTurn: _turnByTurn,
+                              navStepProgress: _navStepProgress,
+                              preferNavigation: _isTransitPlanLeg,
+                              status: _routeStatus,
+                              eventMessage: routeEvent,
+                              language: language,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                    const SizedBox(height: 8),
-                    _NextCurveBanner(
-                      cue: cue,
-                      rhythmBrief: _rhythmBrief,
-                      turnByTurn: _turnByTurn,
-                      navStepProgress: _navStepProgress,
-                      preferNavigation: _isTransitPlanLeg,
-                      status: _routeStatus,
-                      eventMessage: routeEvent,
-                      language: language,
-                    ),
-                    const Spacer(),
                     Wrap(
                       alignment: WrapAlignment.end,
                       crossAxisAlignment: WrapCrossAlignment.center,
@@ -813,8 +857,8 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                                 )
                               : Consumer<ImuService>(
                                   builder: (context, imu, _) {
-                                    final lG = _lateralG;
-                                    final nG = _longitudinalG;
+                                    final lG = imu.lateralG;
+                                    final nG = imu.longitudinalG;
                                     final tG = math.sqrt(lG * lG + nG * nG);
                                     return _CompactGInstrument(
                                       lateralG: lG,
@@ -828,16 +872,44 @@ class _LeanDriveScreenState extends State<LeanDriveScreen> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    _DriveControlStrip(
-                      elapsed: _formatDuration(_elapsed),
-                      driveMode: _driveMode,
-                      muted: settings.ttsMuted,
-                      language: language,
-                      onSelectDriveMode: () => _showDriveModePicker(language),
-                      onToggleMute: () =>
-                          settings.setTtsMuted(!settings.ttsMuted),
-                      onEnd: _endDrive,
-                    ),
+                    if (!_driveReady)
+                      Material(
+                        color: AppColors.panel,
+                        borderRadius: BorderRadius.circular(16),
+                        child: ListTile(
+                          title: Text(
+                            AppCopy.t(
+                              language,
+                              ko: '주행 준비 중',
+                              en: 'Preparing drive',
+                              fr: 'Préparation du trajet',
+                            ),
+                          ),
+                          trailing: TextButton(
+                            key: const ValueKey('cancel-drive-start'),
+                            onPressed: _endDrive,
+                            child: Text(
+                              AppCopy.t(
+                                language,
+                                ko: '취소',
+                                en: 'Cancel',
+                                fr: 'Annuler',
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      _DriveControlStrip(
+                        elapsed: _formatDuration(_elapsed),
+                        driveMode: _driveMode,
+                        muted: settings.ttsMuted,
+                        language: language,
+                        onSelectDriveMode: () => _showDriveModePicker(language),
+                        onToggleMute: () =>
+                            settings.setTtsMuted(!settings.ttsMuted),
+                        onEnd: _endDrive,
+                      ),
                   ],
                 ),
               ),

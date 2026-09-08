@@ -1,3 +1,4 @@
+import 'package:uuid/uuid.dart';
 import 'revv_route.dart';
 import 'run_telemetry_detail.dart';
 
@@ -41,8 +42,10 @@ class SharpCorner {
 }
 
 class RunRecoverySnapshot {
+  final String? runId;
   final DateTime startTime;
   final String? routeId;
+  final Map<String, dynamic>? routeSnapshot;
   final String? routeName;
   final List<LatLng> gpsPath;
   final double distanceKm;
@@ -57,10 +60,13 @@ class RunRecoverySnapshot {
   final String weatherDesc;
   final DateTime lastSampleTime;
   final bool simulated;
+  final bool deferredSave;
 
   const RunRecoverySnapshot({
+    this.runId,
     required this.startTime,
     this.routeId,
+    this.routeSnapshot,
     this.routeName,
     required this.gpsPath,
     required this.distanceKm,
@@ -75,11 +81,37 @@ class RunRecoverySnapshot {
     required this.weatherDesc,
     required this.lastSampleTime,
     this.simulated = false,
+    this.deferredSave = false,
   });
 
+  factory RunRecoverySnapshot.fromSession(RunSession session) =>
+      RunRecoverySnapshot(
+        runId: session.runId,
+        startTime: session.startTime,
+        routeId: session.route?.id,
+        routeSnapshot: session.route?.toJson(),
+        routeName: session.routeName,
+        gpsPath: session.gpsPath,
+        distanceKm: session.distanceKm,
+        maxSpeedKmh: session.maxSpeedKmh,
+        totalSpeedSum: session.avgSpeedKmh,
+        speedSamples: 1,
+        driveModeSeconds: session.driveModeSeconds,
+        sharpCorners: session.sharpCorners,
+        telemetrySamples: session.telemetrySamples,
+        weatherEmoji: session.weatherEmoji,
+        tempDisplay: session.tempDisplay,
+        weatherDesc: session.weatherDesc,
+        lastSampleTime: session.endTime,
+        simulated: session.simulated,
+        deferredSave: true,
+      );
+
   Map<String, dynamic> toJson() => {
+    if (runId != null) 'runId': runId,
     'startTime': startTime.toIso8601String(),
     if (routeId != null) 'routeId': routeId,
+    if (routeSnapshot != null) 'routeSnapshot': routeSnapshot,
     if (routeName != null) 'routeName': routeName,
     'gpsPath': gpsPath
         .map((point) => {'lat': point.lat, 'lng': point.lng})
@@ -98,12 +130,15 @@ class RunRecoverySnapshot {
     'weatherDesc': weatherDesc,
     'lastSampleTime': lastSampleTime.toIso8601String(),
     if (simulated) 'simulated': true,
+    if (deferredSave) 'deferredSave': true,
   };
 
   factory RunRecoverySnapshot.fromJson(Map<String, dynamic> json) {
     return RunRecoverySnapshot(
+      runId: json["runId"] as String?,
       startTime: DateTime.parse(json['startTime'] as String),
       routeId: json['routeId'] as String?,
+      routeSnapshot: (json['routeSnapshot'] as Map?)?.cast<String, dynamic>(),
       routeName: json['routeName'] as String?,
       gpsPath: (json['gpsPath'] as List)
           .map(
@@ -137,13 +172,23 @@ class RunRecoverySnapshot {
       weatherDesc: json['weatherDesc'] as String,
       lastSampleTime: DateTime.parse(json['lastSampleTime'] as String),
       simulated: json['simulated'] as bool? ?? false,
+      deferredSave: json['deferredSave'] as bool? ?? false,
     );
   }
+
+  String get recoveryId =>
+      runId ??
+      const Uuid().v5(
+        '6ba7b811-9dad-11d1-80b4-00c04fd430c8',
+        'revv-recovery:${startTime.toUtc().toIso8601String()}',
+      );
 
   RunSession toRunSession() {
     final id = routeId;
     final name = routeName;
-    final route = id == null && name == null
+    final route = routeSnapshot != null
+        ? RevvRoute.fromJson(routeSnapshot!)
+        : id == null && name == null
         ? null
         : RevvRoute(
             id: id ?? '',
@@ -157,6 +202,8 @@ class RunRecoverySnapshot {
             distanceFromUser: 0,
           );
     return RunSession(
+      // Older snapshots predate stored UUIDs. Derive one stable recovery ID.
+      runId: recoveryId,
       startTime: startTime,
       endTime: lastSampleTime,
       maxSpeedKmh: maxSpeedKmh,
@@ -176,6 +223,7 @@ class RunRecoverySnapshot {
 }
 
 class RunSession {
+  final String? runId;
   final DateTime startTime;
   final DateTime endTime;
   final double maxSpeedKmh;
@@ -202,6 +250,7 @@ class RunSession {
   final bool simulated;
 
   const RunSession({
+    this.runId,
     required this.startTime,
     required this.endTime,
     required this.maxSpeedKmh,

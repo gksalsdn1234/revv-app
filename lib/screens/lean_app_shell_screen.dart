@@ -169,43 +169,100 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
   Future<void> _checkRunRecovery() async {
     final snapshot = await _recoveryStore.readSnapshot();
     if (!mounted || snapshot == null) return;
-    if (snapshot.distanceKm < 0.5 || snapshot.gpsPath.length < 10) {
-      await _recoveryStore.clear();
+    if (!snapshot.deferredSave &&
+        (snapshot.distanceKm < 0.5 || snapshot.gpsPath.length < 10)) {
+      await _recoveryStore.clear(runId: snapshot.toRunSession().runId);
+      if (mounted) await _checkRunRecovery();
       return;
     }
     final language = context.read<SettingsService>().appLanguage;
-    final shouldSave = await showDialog<bool>(
+    final history = context.read<RunHistoryService>();
+    var saving = false;
+    var failed = false;
+    final shouldClear = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: AppColors.panel,
-        title: Text(
-          AppCopy.recoverRunTitle(language),
-          style: AppText.body(size: 20, weight: FontWeight.w900),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, updateDialog) => PopScope(
+          canPop: false,
+          child: AlertDialog(
+            backgroundColor: AppColors.panel,
+            title: Text(AppCopy.recoverRunTitle(language)),
+            content: failed
+                ? Text(
+                    AppCopy.t(
+                      language,
+                      ko: '저장하지 못했어요. 기록은 남아 있으니 다시 시도해 주세요.',
+                      en: 'Could not save. Your drive is still available. Try again.',
+                      fr: 'Échec de la sauvegarde. Votre trajet est conservé. Réessayez.',
+                    ),
+                  )
+                : saving
+                ? const LinearProgressIndicator()
+                : null,
+            actions: [
+              TextButton(
+                onPressed: saving
+                    ? null
+                    : () => Navigator.pop(dialogContext, true),
+                child: Text(AppCopy.discardRun(language)),
+              ),
+              FilledButton(
+                onPressed: saving
+                    ? null
+                    : () async {
+                        updateDialog(() {
+                          saving = true;
+                          failed = false;
+                        });
+                        try {
+                          await history.saveSession(snapshot.toRunSession());
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext, true);
+                          }
+                        } catch (_) {
+                          if (dialogContext.mounted) {
+                            updateDialog(() {
+                              saving = false;
+                              failed = true;
+                            });
+                          }
+                        }
+                      },
+                child: Text(
+                  failed
+                      ? AppCopy.t(
+                          language,
+                          ko: '다시 저장',
+                          en: 'Retry save',
+                          fr: 'Réessayer',
+                        )
+                      : AppCopy.saveRun(language),
+                ),
+              ),
+            ],
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(AppCopy.discardRun(language)),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(AppCopy.saveRun(language)),
-          ),
-        ],
       ),
     );
-    if (!mounted) return;
-    if (shouldSave == true) {
-      await context.read<RunHistoryService>().save(snapshot.toRunSession());
+    if (shouldClear == true) {
+      try {
+        await _recoveryStore.clear(runId: snapshot.toRunSession().runId);
+      } catch (_) {
+        return;
+      }
+      if (mounted) await _checkRunRecovery();
     }
-    await _recoveryStore.clear();
   }
 
   Future<void> _primeLocation() async {
     final location = context.read<LocationService>();
-    await location.requestPermission();
-    await location.startTracking();
+    try {
+      await location.requestPermission();
+      await location.startTracking();
+    } catch (_) {
+      // Finder owns the retryable location state; shell setup must not fail.
+    }
     if (!mounted) return;
     await _checkPendingGuideReturn();
   }
@@ -533,9 +590,11 @@ class _LeanAppShellScreenState extends State<LeanAppShellScreen>
   ) {
     return Navigator.of(navigatorContext).push(
       MaterialPageRoute(
-        builder: (_) => LeanRunSummaryScreen.history(
+        builder: (_) => RunReportLoader(
           summary: summary,
-          detail: detail,
+          loadDetail: () => detail != null
+              ? Future.value(detail)
+              : context.read<RunHistoryService>().loadDetail(summary.id),
           onReturnHome: _returnToMapHome,
         ),
       ),
@@ -1063,17 +1122,18 @@ class _HistoryContent extends StatelessWidget {
     final history = context.read<RunHistoryService>();
     final navigator = Navigator.of(context);
     if (showHandle) navigator.pop();
-    final detail = await history.loadDetail(run.id);
     if (!navigator.mounted) return;
     if (onOpenReport != null) {
-      await onOpenReport!(navigator.context, run, detail);
+      await onOpenReport!(navigator.context, run, null);
       return;
     }
     unawaited(
       navigator.push(
         MaterialPageRoute(
-          builder: (_) =>
-              LeanRunSummaryScreen.history(summary: run, detail: detail),
+          builder: (_) => RunReportLoader(
+            summary: run,
+            loadDetail: () => history.loadDetail(run.id),
+          ),
         ),
       ),
     );

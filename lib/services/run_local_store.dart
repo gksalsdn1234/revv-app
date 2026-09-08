@@ -42,7 +42,12 @@ class SqfliteRunLocalStore implements RunLocalStore {
   final String? _ownerUid;
   Future<Database>? _opening;
 
-  Future<Database> get _database => _opening ??= _open();
+  Future<Database> get _database {
+    return _opening ??= _open().catchError((Object error, StackTrace stack) {
+      _opening = null;
+      Error.throwWithStackTrace(error, stack);
+    });
+  }
 
   Future<void> close() async {
     final opening = _opening;

@@ -210,6 +210,9 @@ RouteClusterBounds _boundsForRoutes(List<RevvRoute> routes) {
 }
 
 enum RouteFinderStateKind {
+  locating,
+  locationUnavailable,
+  loadingRoutes,
   temporaryLocationDenied,
   permanentlyLocationDenied,
   emptyRoutes,
@@ -246,7 +249,13 @@ class LeanRouteFinderScreen extends StatefulWidget {
   State<LeanRouteFinderScreen> createState() => _LeanRouteFinderScreenState();
 }
 
-class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
+class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen>
+    with WidgetsBindingObserver {
+  int _searchGeneration = 0;
+  bool _initialFieldFocused = false;
+  bool _initialFocusScheduled = false;
+  LatLng? _initialSearchPoint;
+  LatLng? _initialFocusCenter;
   int _recenterSignal = 0;
   int _mapFocusSignal = 0;
   List<LatLng> _mapFocusPoints = const [];
@@ -257,6 +266,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   LatLng? _lastSearchCenter;
   bool _searchAreaShown = false;
   String? _localStatusMessage;
+  bool _locationBusy = true;
+  Future<LatLng?>? _searchPointRequest;
   double _mapZoom = 11.0;
   final bool _curveRoadView = false;
   bool _coverageRequestInProgress = false;
@@ -296,11 +307,15 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   @override
   void initState() {
     super.initState();
-    unawaited(_searchCurrentLocation());
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_searchCurrentLocation());
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _cameraDebounce?.cancel();
     _journeySheetController.dispose();
     super.dispose();
@@ -359,9 +374,14 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   Future<void> _searchHere() async {
+    final generation = ++_searchGeneration;
     final point = _mapCenterPoint ?? await _resolveSearchPoint();
-    if (!mounted || point == null) return;
-    await _fetchAtPoint(point, forceRefresh: true);
+    if (!mounted || point == null || generation != _searchGeneration) return;
+    await _fetchAtPoint(
+      point,
+      forceRefresh: true,
+      searchGeneration: generation,
+    );
   }
 
   Future<void> _searchThisArea() async {
@@ -373,41 +393,46 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
   }
 
   Future<void> _searchCurrentLocation() async {
+    final generation = ++_searchGeneration;
     final point = await _resolveSearchPoint();
-    if (!mounted || point == null) return;
-    await _fetchAtPoint(point);
+    if (!mounted || point == null || generation != _searchGeneration) return;
+    await _fetchAtPoint(point, searchGeneration: generation);
   }
 
-  Future<LatLng?> _resolveSearchPoint() async {
+  Future<LatLng?> _resolveSearchPoint() => _searchPointRequest ??=
+      _locateSearchPoint().whenComplete(() => _searchPointRequest = null);
+
+  Future<LatLng?> _locateSearchPoint() async {
     final location = context.read<LocationService>();
-    await location.requestPermission();
-    if (!mounted) return null;
-    if (!location.hasPermission && !location.hasBestKnownLocation) {
-      setState(() => _localStatusMessage = location.lastFailureReason);
-      return null;
-    }
-    await location.startTracking();
-    final point = await location.ensureLiveLocation();
-    if (!mounted) return point;
-    final language = context.read<SettingsService>().appLanguage;
     setState(() {
-      _localStatusMessage = point == null
-          ? AppCopy.t(
-              language,
-              ko: '현재 위치를 확인하지 못했어요.',
-              en: 'Could not read current location.',
-              fr: 'Impossible de lire la position actuelle.',
-            )
-          : null;
+      _locationBusy = true;
+      _localStatusMessage = null;
     });
-    return point;
+    try {
+      await location.requestPermission();
+      if (!mounted) return null;
+      if (!location.hasPermission && !location.hasBestKnownLocation) {
+        return null;
+      }
+      // Both callers share LocationService's in-flight location result.
+      unawaited(location.startTracking().catchError((Object _) {}));
+      return await location.ensureLiveLocation();
+    } catch (_) {
+      return null;
+    } finally {
+      if (mounted) setState(() => _locationBusy = false);
+    }
   }
 
   Future<void> _fetchAtPoint(
     LatLng point, {
     bool forceRefresh = false,
     int? destinationGeneration,
+    int? searchGeneration,
   }) async {
+    final generation = searchGeneration ?? ++_searchGeneration;
+    if (generation != _searchGeneration) return;
+    if (generation == 1) _initialSearchPoint = point;
     final settings = context.read<SettingsService>();
     final routes = context.read<RouteService>();
     routes.filterStrength = settings.routeFilterStrength;
@@ -432,6 +457,7 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       forceRefresh: forceRefresh,
     );
     if (!mounted ||
+        generation != _searchGeneration ||
         (destinationGeneration != null &&
             destinationGeneration != _destinationPlanGeneration)) {
       return;
@@ -1126,7 +1152,12 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
 
   void _handleMapPointerMove(PointerMoveEvent event) {
     if (event.pointer != _mapTapPointer || _mapTapOrigin == null) return;
-    if ((event.position - _mapTapOrigin!).distance > 8) _mapTapMoved = true;
+    if ((event.position - _mapTapOrigin!).distance > 8) {
+      _mapTapMoved = true;
+      _initialFieldFocused = true;
+      _programmaticFieldFocusPending = false;
+      _initialFocusCenter = null;
+    }
   }
 
   void _handleMapPointerUp(PointerUpEvent event) {
@@ -1197,11 +1228,16 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       if (isRouteOverviewZoom(_mapZoom) && center != null) {
         unawaited(routeService.prefetchRouteOverview(center));
       }
-      final suppressSearchArea = _programmaticFieldFocusPending;
-      if (suppressSearchArea) {
-        _programmaticFieldFocusPending = false;
-        _lastSearchCenter = center;
-      }
+      final expectedInitialCenter = _initialFocusCenter;
+      final suppressSearchArea =
+          _programmaticFieldFocusPending &&
+          (expectedInitialCenter == null ||
+              _searchGeneration != 1 ||
+              (center != null &&
+                  RevvRoute.haversineKm(center, expectedInitialCenter) < 5));
+      _programmaticFieldFocusPending = false;
+      _initialFocusCenter = null;
+      if (suppressSearchArea) _lastSearchCenter = center;
       final offerSearchArea =
           !suppressSearchArea &&
           _destination == null &&
@@ -1225,6 +1261,26 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
         return;
       }
     }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshLocationPermission());
+    }
+  }
+
+  Future<void> _refreshLocationPermission() async {
+    final location = context.read<LocationService>();
+    final grantedBefore = location.hasPermission;
+    try {
+      await location.refreshPermission();
+      if (!mounted || !location.hasPermission || grantedBefore) return;
+      unawaited(location.startTracking().catchError((Object _) {}));
+      if (_mapCenterPoint == null && _destination == null) {
+        await _searchCurrentLocation();
+      }
+    } catch (_) {}
   }
 
   Future<void> _openLocationSettings() async {
@@ -1257,10 +1313,59 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
     );
   }
 
+  void _scheduleInitialFieldFocus(RouteService service) {
+    final origin = _initialSearchPoint;
+    if (widget.initialRouteId != null ||
+        _initialFieldFocused ||
+        _initialFocusScheduled ||
+        _searchGeneration != 1 ||
+        origin == null) {
+      return;
+    }
+    final nearby = service.mapVisualRoutes
+        .where(
+          (route) =>
+              RevvRoute.haversineKm(origin, route.centerPoint) <=
+              RouteService.routeFieldRadiusKm,
+        )
+        .toList();
+    if (nearby.isEmpty) return;
+    _initialFocusScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initialFocusScheduled = false;
+      if (!mounted || _initialFieldFocused || _searchGeneration != 1) return;
+      setState(() {
+        _initialFieldFocused = true;
+        _mapCenterPoint = origin;
+        _mapFocusPoints = [origin, for (final route in nearby) ...route.nodes];
+        _initialFocusCenter = LatLng(
+          (_mapFocusPoints.map((p) => p.lat).reduce(math.min) +
+                  _mapFocusPoints.map((p) => p.lat).reduce(math.max)) /
+              2,
+          (_mapFocusPoints.map((p) => p.lng).reduce(math.min) +
+                  _mapFocusPoints.map((p) => p.lng).reduce(math.max)) /
+              2,
+        );
+        _mapFocusMaxZoom = 10;
+        _programmaticFieldFocusPending = true;
+        _mapFocusSignal++;
+      });
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final service = context.watch<RouteService>();
-    final location = context.watch<LocationService>();
+    _scheduleInitialFieldFocus(service);
+    context.select<LocationService, (bool, bool, bool, PermissionStatus)>(
+      (value) => (
+        value.permissionChecked,
+        value.hasPermission,
+        value.hasBestKnownLocation,
+        value.permissionStatus,
+      ),
+    );
+    final location = context.read<LocationService>();
     final routes = service.routes;
     final loopFilteredRoutes = routes;
     final lensRoutes = _rankRoutes(_filterRoutes(loopFilteredRoutes, _lens));
@@ -1374,6 +1479,8 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
       service: service,
       visibleRoutes: visibleRoutes,
       filterEmpty: filterEmpty || budgetEmpty,
+      locating: _locationBusy,
+      hasSearchArea: _mapCenterPoint != null,
     );
     final emptyTitle = budgetEmpty
         ? AppCopy.t(
@@ -1625,6 +1732,12 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                                 onAction: stateKind == null
                                     ? _searchHere
                                     : switch (stateKind) {
+                                        RouteFinderStateKind.locating ||
+                                        RouteFinderStateKind.loadingRoutes =>
+                                          _openDestinationSearch,
+                                        RouteFinderStateKind
+                                            .locationUnavailable =>
+                                          _searchCurrentLocation,
                                         RouteFinderStateKind
                                             .temporaryLocationDenied =>
                                           _searchCurrentLocation,
@@ -1696,6 +1809,11 @@ class _LeanRouteFinderScreenState extends State<LeanRouteFinderScreen> {
                           : Icons.refresh_rounded,
                       onEmptyAction: stateKind != null
                           ? switch (stateKind) {
+                              RouteFinderStateKind.locating ||
+                              RouteFinderStateKind.loadingRoutes =>
+                                _openDestinationSearch,
+                              RouteFinderStateKind.locationUnavailable =>
+                                _searchCurrentLocation,
                               RouteFinderStateKind.temporaryLocationDenied =>
                                 _searchCurrentLocation,
                               RouteFinderStateKind.permanentlyLocationDenied =>
@@ -1954,6 +2072,19 @@ class _RoutePreviewCard extends StatelessWidget {
                             style: AppText.mono(
                               size: 10,
                               weight: FontWeight.w700,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            AppCopy.t(
+                              language,
+                              ko: '코스 주행 예상 시간 · 시작점 이동 시간 별도',
+                              en: 'Estimated route time · travel to start is extra',
+                              fr: 'Durée du parcours · accès au départ en plus',
+                            ),
+                            style: AppText.body(
+                              size: 10,
                               color: AppColors.textSecondary,
                             ),
                           ),
@@ -2861,44 +2992,44 @@ class _LeanEmptyTicket extends StatelessWidget {
   Widget build(BuildContext context) {
     return _LeanGlass(
       padding: const EdgeInsets.all(14),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Icon(
             Icons.route_outlined,
             color: AppColors.primaryContainer,
             size: 26,
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.body(
-                    size: 14,
-                    weight: FontWeight.w900,
-                    color: AppColors.textPrimary,
-                  ),
+          const SizedBox(height: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.body(
+                  size: 14,
+                  weight: FontWeight.w900,
+                  color: AppColors.textPrimary,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  body,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppText.body(
-                    size: 11,
-                    weight: FontWeight.w700,
-                    color: AppColors.textSecondary,
-                  ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                body,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.body(
+                  size: 11,
+                  weight: FontWeight.w700,
+                  color: AppColors.textSecondary,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
+          const SizedBox(height: 8),
           _LeanTextButton(
             label: actionLabel,
             icon: actionIcon,
@@ -3571,13 +3702,27 @@ RouteFinderStateKind? _routeFinderStateKind({
   required RouteService service,
   required List<RevvRoute> visibleRoutes,
   required bool filterEmpty,
+  required bool locating,
+  required bool hasSearchArea,
 }) {
+  if (visibleRoutes.isEmpty && locating && !hasSearchArea) {
+    return RouteFinderStateKind.locating;
+  }
+  if (service.isLoading && visibleRoutes.isEmpty) {
+    return RouteFinderStateKind.loadingRoutes;
+  }
   final locationBlocked =
       !location.hasPermission && !location.hasBestKnownLocation;
-  if (locationBlocked) {
+  if (locationBlocked && visibleRoutes.isEmpty && !hasSearchArea) {
     return location.permissionStatus.isPermanentlyDenied
         ? RouteFinderStateKind.permanentlyLocationDenied
         : RouteFinderStateKind.temporaryLocationDenied;
+  }
+  if (!hasSearchArea &&
+      visibleRoutes.isEmpty &&
+      !location.hasBestKnownLocation &&
+      location.hasPermission) {
+    return RouteFinderStateKind.locationUnavailable;
   }
   if (filterEmpty) return null;
   if (service.routeFieldFromCache && visibleRoutes.isNotEmpty) {
@@ -3599,6 +3744,24 @@ RouteFinderStateKind? _routeFinderStateKind({
 
 String routeFinderStateTitle(RouteFinderStateKind kind, AppLanguage language) {
   return switch (kind) {
+    RouteFinderStateKind.locating => AppCopy.t(
+      language,
+      ko: '현재 위치 확인 중',
+      en: 'Finding your location',
+      fr: 'Recherche de votre position',
+    ),
+    RouteFinderStateKind.locationUnavailable => AppCopy.t(
+      language,
+      ko: '현재 위치를 확인하지 못했어요',
+      en: 'Location is unavailable',
+      fr: 'Position indisponible',
+    ),
+    RouteFinderStateKind.loadingRoutes => AppCopy.t(
+      language,
+      ko: '루트 찾는 중',
+      en: 'Finding routes',
+      fr: 'Recherche de routes',
+    ),
     RouteFinderStateKind.temporaryLocationDenied => AppCopy.t(
       language,
       ko: '위치 권한이 꺼져 있어요',
@@ -3634,11 +3797,29 @@ String routeFinderStateTitle(RouteFinderStateKind kind, AppLanguage language) {
 
 String routeFinderStateBody(RouteFinderStateKind kind, AppLanguage language) {
   return switch (kind) {
+    RouteFinderStateKind.locating => AppCopy.t(
+      language,
+      ko: '위치 권한과 GPS를 확인하고 있어요. 지역 검색으로 먼저 둘러볼 수도 있어요.',
+      en: 'Checking location access and GPS. You can also browse by searching an area.',
+      fr: 'Vérification de l’accès à la position et du GPS. Vous pouvez aussi rechercher une région.',
+    ),
+    RouteFinderStateKind.locationUnavailable => AppCopy.t(
+      language,
+      ko: 'GPS가 잡히는 곳에서 다시 시도하거나 지역을 검색해 보세요.',
+      en: 'Try again where GPS is available, or search an area.',
+      fr: 'Réessayez avec un signal GPS ou recherchez une région.',
+    ),
+    RouteFinderStateKind.loadingRoutes => AppCopy.t(
+      language,
+      ko: '지도에 표시할 루트를 가져오고 있어요.',
+      en: 'Loading routes for the map.',
+      fr: 'Chargement des routes sur la carte.',
+    ),
     RouteFinderStateKind.temporaryLocationDenied => AppCopy.t(
       language,
-      ko: '근처 루트를 찾으려면 위치 권한을 허용해 주세요.',
-      en: 'Allow location to find nearby routes.',
-      fr: 'Autorisez la position pour trouver des routes à proximité.',
+      ko: '근처 루트를 찾으려면 위치를 허용해 주세요. 위치 없이도 지역 검색으로 둘러볼 수 있어요.',
+      en: 'Allow location for nearby routes, or search an area without location.',
+      fr: 'Autorisez la position ou recherchez une région sans utiliser votre position.',
     ),
     RouteFinderStateKind.permanentlyLocationDenied => AppCopy.t(
       language,
@@ -3712,6 +3893,19 @@ String routeFinderStateActionLabel(
   AppLanguage language,
 ) {
   return switch (kind) {
+    RouteFinderStateKind.locating ||
+    RouteFinderStateKind.loadingRoutes => AppCopy.t(
+      language,
+      ko: '지역 검색',
+      en: 'Search an area',
+      fr: 'Rechercher une région',
+    ),
+    RouteFinderStateKind.locationUnavailable => AppCopy.t(
+      language,
+      ko: '위치 다시 확인',
+      en: 'Retry location',
+      fr: 'Réessayer la position',
+    ),
     RouteFinderStateKind.temporaryLocationDenied => AppCopy.t(
       language,
       ko: '위치 다시 허용',
@@ -3744,6 +3938,9 @@ String routeFinderStateActionLabel(
 
 IconData routeFinderStateActionIcon(RouteFinderStateKind kind) {
   return switch (kind) {
+    RouteFinderStateKind.locating ||
+    RouteFinderStateKind.loadingRoutes => Icons.search_rounded,
+    RouteFinderStateKind.locationUnavailable => Icons.my_location_rounded,
     RouteFinderStateKind.temporaryLocationDenied => Icons.my_location_rounded,
     RouteFinderStateKind.permanentlyLocationDenied => Icons.settings_rounded,
     RouteFinderStateKind.emptyRoutes => Icons.public_rounded,

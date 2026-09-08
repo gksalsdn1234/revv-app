@@ -6,11 +6,13 @@ REVV is a Flutter driving companion centered on one lean MVP flow:
 - drive with a focused map HUD
 - save the run afterward
 
-## Current status — 2026-09-07
+## Current status — 2026-09-08
 
 Active worktree: `/Users/minwoohan/Documents/revv-app-release-integration`, branch `codex/revv-guideline4-language`. Older worktrees and `codex/revv-unified-workspace` are preserved history; follow [COLLABORATION.md](COLLABORATION.md) before editing.
 
-See [today’s work and remaining tasks](docs/2026-09-07-work-log.md) and [route delivery measurements](docs/2026-09-07-route-delivery-performance.md). Both September 7 route API migrations are deployed. Updated client geometry delivery and the restored iOS icon are verified locally; no September 7 app upload occurred. Source version remains `1.38.0+63`.
+September 8: reliability fixes and all seven follow-up review findings are fixed locally, with local-first reports, scoped recovery, lighter sync, responsive layouts and initial map focus. **698 tests pass with two existing skips**, analysis is clean and the Debug iOS simulator build succeeds. See [review fixes and remaining device validation](docs/2026-09-08-review-fixes.md). These follow-up changes are not yet committed or uploaded.
+
+See [September 7 work and remaining tasks](docs/2026-09-07-work-log.md) and [route delivery measurements](docs/2026-09-07-route-delivery-performance.md). Both September 7 route API migrations are deployed. Updated client geometry delivery and the restored iOS icon are verified locally; no September 7 app upload occurred. Source version remains `1.38.0+63`.
 
 ## Current MVP Scope
 

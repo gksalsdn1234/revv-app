@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:revv_app/models/revv_route.dart';
 import 'package:revv_app/models/run_session.dart';
 import 'package:revv_app/models/run_summary.dart';
+import 'package:revv_app/models/run_telemetry_detail.dart';
 import 'package:revv_app/screens/lean_app_shell_screen.dart';
 import 'package:revv_app/services/driven_routes_service.dart';
 import 'package:revv_app/services/location_service.dart';
@@ -30,7 +31,7 @@ void main() {
 
       service.startSession(_route);
       await _flushAsync();
-      expect(store.clearCount, 1);
+      expect(store.clearCount, 0);
 
       service.recordPosition(45, -73, 30);
       now = now.add(const Duration(seconds: 29));
@@ -55,7 +56,7 @@ void main() {
       service.stopSession();
       await service.clearRecovery();
       await _flushAsync();
-      expect(store.clearCount, 2);
+      expect(store.clearCount, 1);
     },
   );
 
@@ -97,6 +98,7 @@ void main() {
     final restored = RunRecoverySnapshot.fromJson(snapshot.toJson());
     final session = restored.toRunSession();
 
+    expect(session.runId, restored.toRunSession().runId);
     expect(session.distanceKm, 1.2);
     expect(session.gpsPath, hasLength(10));
     expect(session.driveModeSeconds, {'cruise': 20, 'winding': 10});
@@ -143,7 +145,53 @@ void main() {
 
     expect(history.saveCount, 1);
     expect(store.clearCount, 1);
+    final detail = await history.loadDetail(history.history.single.id);
+    expect(detail?.routeSnapshot?['nodes'], hasLength(10));
+    expect(detail?.samples.single.lat, 45.001);
+    expect(detail?.sharpEvents, hasLength(1));
   });
+
+  testWidgets('failed recovery retains the snapshot and retries full save', (
+    tester,
+  ) async {
+    final store = _FakeRecoveryStore(snapshot: _snapshot(distanceKm: 1.2));
+    final history = _CountingHistory()..failures = 1;
+    await _pumpShell(tester, store: store, history: history);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(store.clearCount, 0);
+    expect(store.snapshot, isNotNull);
+    expect(find.text('Retry save'), findsOneWidget);
+    await tester.tap(find.text('Retry save'));
+    await tester.pumpAndSettle();
+    expect(store.clearCount, 1);
+    expect(history.history, hasLength(1));
+    expect(
+      (await history.loadDetail(
+        history.history.single.id,
+      ))?.routeSnapshot?['nodes'],
+      hasLength(10),
+    );
+  });
+
+  test(
+    'stopping before 30 seconds persists the final recovery sample',
+    () async {
+      var now = DateTime.utc(2026, 9, 8);
+      final store = _FakeRecoveryStore();
+      final service = RunSessionService(clock: () => now, recoveryStore: store);
+      service.startSession(_route);
+      await _flushAsync();
+      now = now.add(const Duration(seconds: 2));
+      service.recordPosition(45, -73, 30);
+      final stopped = service.stopSession();
+      await _flushAsync();
+      expect(store.snapshot?.toRunSession().runId, stopped?.runId);
+      expect(store.snapshot?.gpsPath, hasLength(1));
+      expect(store.snapshot?.lastSampleTime, now);
+      expect(store.snapshot?.telemetrySamples, hasLength(1));
+    },
+  );
 
   testWidgets('valid recovery can be discarded without saving', (tester) async {
     final store = _FakeRecoveryStore(snapshot: _snapshot(distanceKm: 1.2));
@@ -252,7 +300,17 @@ RunRecoverySnapshot _snapshot({required double distanceKm}) {
         time: start.add(const Duration(seconds: 20)),
       ),
     ],
-    telemetrySamples: const [],
+    telemetrySamples: const [
+      TelemetrySample(
+        tMs: 1000,
+        lat: 45.001,
+        lng: -73,
+        speedKmh: 40,
+        lateralG: 0.2,
+        longitudinalG: 0.1,
+        driveMode: 'cruise',
+      ),
+    ],
     weatherEmoji: '🌤',
     tempDisplay: '20°C',
     weatherDesc: 'Clear',
@@ -282,7 +340,7 @@ class _FakeRecoveryStore extends RunRecoveryStore {
   Future<RunRecoverySnapshot?> readSnapshot() async => snapshot;
 
   @override
-  Future<void> clear() async {
+  Future<void> clear({String? runId}) async {
     clearCount++;
     snapshot = null;
   }
@@ -290,11 +348,13 @@ class _FakeRecoveryStore extends RunRecoveryStore {
 
 class _CountingHistory extends RunHistoryService {
   int saveCount = 0;
+  int failures = 0;
 
   @override
-  Future<RunSummary> save(RunSession session) async {
+  Future<RunSummary> saveSession(RunSession session) async {
     saveCount++;
-    return super.save(session);
+    if (failures-- > 0) throw StateError("disk unavailable");
+    return super.saveSession(session);
   }
 }
 
