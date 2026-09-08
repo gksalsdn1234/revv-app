@@ -1,3 +1,5 @@
+> 2026-09-08 릴리즈: [1.38.1 (64) 패키징·제출 진행 상태](docs/2026-09-08-release.md).
+
 # REVV
 
 REVV is a Flutter driving companion centered on one lean MVP flow:
